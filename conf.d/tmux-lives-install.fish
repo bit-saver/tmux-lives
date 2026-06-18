@@ -118,3 +118,23 @@ function tmux-teardown --description 'tmux-lives: remove fragment + tmux.conf wi
     end
     echo "tmux-teardown: done. (TPM plugins under ~/.tmux/plugins left in place.)"
 end
+
+function __tmux_lives_status_lines --description 'One status line per tmux-lives layer'
+    set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+    set -l fragment "$HOME/.config/tmux/tmux-lives.conf"
+    set -l r
+    test -f "$__fish_config_dir/conf.d/tmux.fish"; and set -a r "OK conf.d/tmux.fish deployed"; or set -a r "MISSING conf.d/tmux.fish (fisher install …)"
+    test -f $cat; and set -a r "OK categorizer deployed"; or set -a r "MISSING categorizer"
+    test -f $fragment; and set -a r "OK tmux fragment present"; or set -a r "MISSING tmux fragment (run tmux-setup)"
+    grep -qF -- "source-file $fragment" "$HOME/.tmux.conf" 2>/dev/null; and set -a r "OK ~/.tmux.conf sources fragment"; or set -a r "MISSING source-file line"
+    test -d "$HOME/.tmux/plugins/tmux-resurrect"; and set -a r "OK tmux-resurrect present"; or set -a r "MISSING tmux-resurrect"
+    if type -q systemctl
+        systemctl is-enabled tmux-resurrect-save.service >/dev/null 2>&1; and set -a r "OK save service enabled"; or set -a r "MISSING save service (run tmux-setup)"
+    end
+    printf '%s\n' $r
+end
+
+function tmux-status --description 'tmux-lives: report install health across all layers'
+    echo "tmux-lives status:"
+    __tmux_lives_status_lines | sed 's/^/  /'
+end
