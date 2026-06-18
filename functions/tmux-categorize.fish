@@ -228,6 +228,35 @@ function __tcz_ghosts --argument-names session --description 'detach stale clien
     return 0
 end
 
+function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf (+ colored separator rows w/ empty session)'
+    set -l TAB (printf '\t')
+    set -l ESC (printf '\e')
+    set -l RST "$ESC""[0m"
+    set -l group ''
+    while read -l line
+        set -l f (string split -m 4 $TAB -- $line)
+        test (count $f) -ge 5; or continue
+        if test "$f[2]" != "$group"
+            set group $f[2]
+            set -l c 208
+            test "$group" = running; and set c 6
+            test "$group" = general; and set c 2
+            set -l hdr (printf '\e[1;38;5;%sm' $c)
+            printf '\n%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 26 ─) "$RST"
+        end
+        set -l label "$f[5]"
+        set -l mark ''
+        if test -n "$current"; and test "$f[1]" = "$current"
+            set -l yel (printf '\e[38;5;143m')
+            set label "$yel▸ $f[5]$RST"
+            set mark $yel"[current]$RST"
+        else if test "$f[3]" = 1
+            set mark (printf '\e[2m')"[attached]$RST"
+        end
+        printf '%s%s%s  %s\n' "$f[1]" $TAB "$label" "$mark"
+    end
+end
+
 function __tcz_menu_args --argument-names current --description 'stdin overview lines (+ optional current session to mark) -> argv triples for display-menu'
     set -l TAB (printf '\t')
     # Pass 1: collect entries. Bases (display names) and indicators are kept

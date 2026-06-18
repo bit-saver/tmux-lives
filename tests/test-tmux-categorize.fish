@@ -346,6 +346,25 @@ t "commandeer: fallback session cleaned up on failed switch" "busy,shellfish-8,s
 cleanup
 
 # ---------------------------------------------------------------------
+# __tcz_fzf_lines (pure): overview lines -> session\tANSI-label for fzf
+# ---------------------------------------------------------------------
+set -l TAB (printf '\t')
+set -l ov "neuro$TAB""claude$TAB""0$TAB""100$TAB""neuro
+gen-1$TAB""general$TAB""0$TAB""50$TAB""gen-1"
+set -l fl (printf '%s\n' $ov | __tcz_fzf_lines neuro)
+# first emitted line is the claude separator: empty field 1
+set -l sep1 (string split -m 1 $TAB -- $fl[1])
+t "fzf: separator has empty session field" "" "$sep1[1]"
+t "fzf: separator shows category rule"     "yes" (string match -q '*── claude *' -- "$fl[2]"; and echo yes; or echo no)
+# the neuro row: field 1 == session name, label carries yellow ANSI (current)
+set -l nl (printf '%s\n' $fl | string match -e neuro)[1]
+set -l nf (string split -m 1 $TAB -- $nl)
+t "fzf: row field1 is session"   "neuro" "$nf[1]"
+t "fzf: current row yellow ANSI" "yes" (string match -q '*38;5;143*' -- "$nl"; and echo yes; or echo no)
+# gen-1 row present, session field intact
+t "fzf: gen row field1"          "gen-1" (set -l g (printf '%s\n' $fl | string match -e 'gen-1')[1]; string split -m 1 $TAB -- $g)[1]
+
+# ---------------------------------------------------------------------
 # The shell list must match __tmux_session_is_idle in conf.d/tmux.fish.
 # ---------------------------------------------------------------------
 set -l confd_list (string match -r 'contains -- \$cmd ([a-z ]+); or return' < $plugindir/conf.d/tmux.fish)[2]
