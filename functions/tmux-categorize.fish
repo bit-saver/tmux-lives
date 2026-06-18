@@ -242,7 +242,7 @@ function __tcz_fzf_lines --argument-names current --description 'overview lines 
             test "$group" = running; and set c 6
             test "$group" = general; and set c 2
             set -l hdr (printf '\e[1;38;5;%sm' $c)
-            printf '\n%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 26 ─) "$RST"
+            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 26 ─) "$RST"
         end
         set -l label "$f[5]"
         set -l mark ''
