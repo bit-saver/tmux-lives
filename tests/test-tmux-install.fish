@@ -33,4 +33,12 @@ set -l m (string split : (grep -n 'tpm/tpm' $tc))[1]
 t "source-line before tpm" 1 (test $n -lt $m; and echo 1; or echo 0)
 rm -f $tc
 
+set -l tc2 /tmp/tlt-$fish_pid.conf
+printf 'source-file /frag.conf\nrun \'~/.tmux/plugins/tpm/tpm\'\n' > $tc2
+__tmux_lives_remove_source_line $tc2 /frag.conf
+t "source-line removed" 0 (grep -c 'source-file /frag.conf' $tc2)
+__tmux_lives_remove_source_line $tc2 /frag.conf
+t "remove idempotent" 0 (grep -c 'source-file /frag.conf' $tc2)
+rm -f $tc2
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

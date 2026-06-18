@@ -94,3 +94,27 @@ function tmux-setup --description 'tmux-lives: install fragment + tmux.conf wiri
     end
     echo "tmux-setup: done — run tmux-status to verify, and open a NEW tmux window to pick up the fragment."
 end
+
+function __tmux_lives_remove_source_line --description 'Remove the fragment source-file line'
+    set -l tmux_conf $argv[1]; set -l fragment $argv[2]
+    test -f $tmux_conf; or return 0
+    set -l tmp (mktemp)
+    grep -vF -- "source-file $fragment" $tmux_conf > $tmp
+    mv $tmp $tmux_conf
+end
+
+function tmux-teardown --description 'tmux-lives: remove fragment + tmux.conf wiring + systemd units'
+    set -l fragment "$HOME/.config/tmux/tmux-lives.conf"
+    __tmux_lives_remove_source_line "$HOME/.tmux.conf" $fragment
+    rm -f $fragment
+    echo "tmux-teardown: removed fragment + source-file line"
+    if type -q systemctl
+        echo "tmux-teardown: removing systemd units (sudo)…"
+        sudo systemctl disable --now tmux-resurrect-save.service 2>/dev/null
+        sudo systemctl disable tmux-resurrect-restore.service 2>/dev/null
+        sudo rm -f /etc/systemd/system/tmux-resurrect-{save,restore}.service
+        sudo systemctl daemon-reload
+        echo "tmux-teardown: systemd units removed"
+    end
+    echo "tmux-teardown: done. (TPM plugins under ~/.tmux/plugins left in place.)"
+end
