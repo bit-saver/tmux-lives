@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | fzfpick <client> | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -167,11 +167,12 @@ function __tcz_categorize --description 'rename every owned session to its live-
             case claude running
                 set desired (__tcz_slugify "$f[5]")
             case general
-                # Numeric general names are stable once assigned (tmux-style): assigned at revert
-                # time, never renumbered/compacted on later passes. This is BY DESIGN — do not
-                # "fix" by adding compaction; the invariant prevents churn on rename-guarded sessions.
+                # gen-N general names are stable once assigned: set at revert time, never
+                # renumbered/compacted on later passes. This is BY DESIGN — do not "fix" by adding
+                # compaction. (Legacy bare-numeric names are NOT stable here — they fall through
+                # below and get promoted to gen-N; only gen-N is skipped.)
                 string match -qr '^gen-[0-9]+$' -- "$cur"; and continue
-                # desired number computed below against current names
+                # desired gen-N computed below against current names
         end
         # Ownership guard applies to ALL categories: never rename a hand-named session.
         __tcz_owned "$cur"; or continue
@@ -398,7 +399,7 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
     end
 end
 
-function __tcz_new_general --description 'Create a detached general session named with the smallest free number; echo its name'
+function __tcz_new_general --description 'Create a detached general session named with the smallest free gen-N; echo its name'
     set -l name (__tcz_free_gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
     tmux new-session -d -s "$name" 2>/dev/null; and echo $name
 end
