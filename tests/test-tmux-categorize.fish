@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
-# Tests for custom/scripts/tmux-categorize.fish (auto-tmux v2 categorizer).
-# Run: fish ~/.config/fish/custom/scripts/test-tmux-categorize.fish
+# Tests for functions/tmux-categorize.fish (auto-tmux v2 categorizer).
+# Run: fish tests/test-tmux-categorize.fish
 # Pure tests source the script with tmux_categorize_test set (main dispatch suppressed).
 # Integration tests use an isolated socket via a PATH shim (propagates to subprocesses)
 # plus a fake `claude` binary so the real detection path is exercised.

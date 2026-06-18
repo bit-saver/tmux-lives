@@ -449,5 +449,6 @@ function __tcz_main
 end
 
 if not set -q tmux_categorize_test
+    test (count $argv) -gt 0; or return 0
     __tcz_main $argv
 end

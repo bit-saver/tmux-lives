@@ -44,9 +44,12 @@ t "tmux: with LC_TERMINAL in update-environment, it propagates" "ShellFish" (ses
 
 cleanup
 
-# --- Config: the real ~/.tmux.conf must carry the passthrough line ---
-t "config: ~/.tmux.conf adds LC_TERMINAL to update-environment" "yes" \
-    (grep -qE '^[^#]*update-environment.*LC_TERMINAL' ~/.tmux.conf; and echo yes; or echo no)
+# --- Config: the rendered fragment must carry the passthrough line ---
+set -g plugindir (path resolve (status dirname)/..)
+source $plugindir/conf.d/tmux-lives-install.fish
+set -l frag (__tmux_lives_render_fragment /tmp/cat.fish | string collect)
+t "config: rendered fragment adds LC_TERMINAL to update-environment" "yes" \
+    (string match -q '*update-environment*LC_TERMINAL*' -- "$frag"; and echo yes; or echo no)
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

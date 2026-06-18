@@ -4,6 +4,13 @@ Categorized tmux session automation + persistence, packaged as a [fisher](https:
 
 It keeps tmux sessions self-categorizing (claude / running / general), auto-attaches the right one on login, prunes stale shells, persists across reboots (tmux-resurrect/continuum), and coexists with the ShellFish iOS app.
 
+## Requirements
+
+- tmux 3.3a or newer (the `set-hook` brace-block syntax used in the managed fragment requires it)
+- fish 3.x+
+- [fisher](https://github.com/jorgebucaran/fisher)
+- git (for TPM plugin cloning)
+
 ## Install
 
 ```fish

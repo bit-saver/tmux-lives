@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
 # Test harness for auto-tmux (conf.d/tmux.fish).
-# Run: fish ~/.config/fish/custom/scripts/test-tmux-auto.fish
+# Run: fish tests/test-tmux-auto.fish
 # Uses an isolated tmux server on a private socket; never touches your real sessions.
 
 set -g FAIL 0
