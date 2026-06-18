@@ -234,13 +234,13 @@ printf '%s\n' $ov | __tcz_menu_args | while read -l a
 end
 t "menu: 3 headers + 3 items, 3 args each" "18" (count $args)
 t "menu: first header disabled (- prefix)" "-" (string sub -l 1 -- $args[1])
-# Headers: color-coded (orange/cyan/green), name left-anchored after a 4-dash
-# lead-in, trailing rule to the menu width. Indicators are bracketed and
+# Headers: color-coded (orange/cyan/green), 2-dash lead-in ("── name "),
+# trailing rule to the menu width. Indicators are bracketed and
 # right-aligned at a common column (widest base "lnav"=4 +2 → col 6; widest
 # label "Zed   [attached]"=16; +4 key chrome → rule width 20).
-t "menu: claude header orange left-anchored" "-#[fg=colour208,bold]──── claude ────────#[default]" $args[1]
-t "menu: running header cyan left-anchored"  "-#[fg=cyan,bold]──── running ───────#[default]"      $args[7]
-t "menu: general header green left-anchored" "-#[fg=green,bold]──── general ───────#[default]"     $args[13]
+t "menu: claude header orange left-anchored" "-#[fg=colour208,bold]── claude ──────────#[default]" $args[1]
+t "menu: running header cyan left-anchored"  "-#[fg=cyan,bold]── running ─────────#[default]"      $args[7]
+t "menu: general header green left-anchored" "-#[fg=green,bold]── general ─────────#[default]"     $args[13]
 t "menu: claude label right-aligned [attached]" "Zed   [attached]" $args[4]
 t "menu: numeric shortcut keys" "1" $args[5]
 # Selection runs ONE run-shell -> `switch` subcommand (ghosts + switch-client with
@@ -269,13 +269,23 @@ set -l args_cur
 printf '%s\n' $ov_cur | __tcz_menu_args Zed-1 | while read -l a
     set -a args_cur "$a"
 end
-t "menu: current gets dim right-aligned [current]" "#[dim]▸ Zed  [current]#[default]" $args_cur[4]
+t "menu: current gets yellow right-aligned [current]" "#[fg=colour143]▸ Zed  [current]#[default]" $args_cur[4]
 t "menu: non-current rows unchanged"    "lnav"                             $args_cur[10]
 set -l args_bogus
 printf '%s\n' $ov_cur | __tcz_menu_args nosuch | while read -l a
     set -a args_bogus "$a"
 end
 t "menu: unknown current leaves labels alone" "Zed   [attached]" $args_bogus[4]
+
+# New style: 2-dash lead-in header + muted-yellow current marker.
+set -l TAB (printf '\t')
+set -l ov_style "neuro"$TAB"claude"$TAB"0"$TAB"100"$TAB"neuro
+mydev"$TAB"general"$TAB"1"$TAB"50"$TAB"mydev"
+set -l margs (printf '%s\n' $ov_style | __tcz_menu_args neuro | string join "\n")
+t "menu: 2-dash lead-in header"  "yes" (string match -q '*── claude *' -- "$margs"; and echo yes; or echo no)
+t "menu: header rule to edge"    "yes" (string match -q '*── claude ────*' -- "$margs"; and echo yes; or echo no)
+t "menu: current uses yellow"    "yes" (string match -q '*#[fg=colour143]*' -- "$margs"; and echo yes; or echo no)
+t "menu: current not dimmed"     "no"  (string match -q '*#\[dim\]*' -- "$margs"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
 # __tcz_claim (integration): instant claude rename from preexec data

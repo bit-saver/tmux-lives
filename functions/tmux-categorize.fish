@@ -274,7 +274,7 @@ function __tcz_menu_args --argument-names current --description 'stdin overview 
             set label "$label"(string repeat -n (math "$indcol - $w") ' ')"$e_inds[$i]"
             set w (math "$indcol + "(string length -- "$e_inds[$i]"))
         end
-        test "$e_dim[$i]" = 1; and set label "#[dim]$label#[default]"
+        test "$e_dim[$i]" = 1; and set label "#[fg=colour143]$label#[default]"
         set -a e_labels "$label"
         test $w -gt $maxw; and set maxw $w
     end
@@ -291,12 +291,12 @@ function __tcz_menu_args --argument-names current --description 'stdin overview 
             set -l hcol colour208
             test "$group" = running; and set hcol cyan
             test "$group" = general; and set hcol green
-            # Fixed 4-dash lead-in, name at the left, trailing rule to the menu edge.
-            set -l word " $group "
-            set -l right (math "$total - 4 - "(string length -- "$word"))
+            # 2-dash lead-in, name, trailing rule filling to the menu edge.
+            set -l word "── $group "
+            set -l right (math "$total - "(string length -- "$word"))
             test $right -lt 2; and set right 2
             printf '%s\n%s\n%s\n' \
-                "-#[fg=$hcol,bold]────$word"(string repeat -n $right ─)"#[default]" '' ''
+                "-#[fg=$hcol,bold]$word"(string repeat -n $right ─)"#[default]" '' ''
         end
         set key (math $key + 1)
         # keys 1-9 jump directly; later items are arrow-selectable only
