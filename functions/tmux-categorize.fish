@@ -229,13 +229,14 @@ function __tcz_ghosts --argument-names session --description 'detach stale clien
     return 0
 end
 
-function __tcz_fzf_lines --argument-names current width --description 'overview lines -> session\tANSI-label: a full-width dim category-background band per row (current row brightened as a highlight); [current]/[attached] flush-right + dim; current name dim-yellow. width = list-pane columns to fill. No separator rows -> nothing extra to select; the legend lives in fzf --header.'
-    string match -qr '^[0-9]+$' -- "$width"; and test "$width" -ge 16; or set width 60
+function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf: full-width colored separators (empty session field) + rows with right-aligned, uniformly-dimmed [current]/[attached] markers'
     set -l TAB (printf '\t')
     set -l RST (printf '\e[0m')
-    set -l DEFG (printf '\e[39m')               # reset fg only (keeps the row's bg band)
-    set -l D0 (printf '\e[2m'); set -l D1 (printf '\e[22m')
-    set -l YEL (printf '\e[38;5;179m')          # current session name: dim yellow
+    set -l DIM (printf '\e[2m')               # markers: dim grey, same for current + attached
+    set -l YEL (printf '\e[38;5;179m')        # current session name: dim yellow (143 read as green)
+    # Pass 1: collect rows; measure the widest display name so markers align in one column.
+    set -l rs; set -l rc; set -l rn; set -l rm; set -l rcur
+    set -l maxn 0
     while read -l line
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
@@ -245,23 +246,32 @@ function __tcz_fzf_lines --argument-names current width --description 'overview 
         else if test "$f[3]" = 1
             set mk '[attached]'
         end
-        # Truecolor category background: dim by default, brighter on the current row (a "warp"
-        # highlight). claude amber / running teal / general green. RGB tunable.
-        set -l rgb '40;40;40'
-        switch "$f[2]"
-            case claude;  test $cur = 1; and set rgb '92;68;24'; or set rgb '46;34;12'
-            case running; test $cur = 1; and set rgb '26;78;82'; or set rgb '12;38;42'
-            case general; test $cur = 1; and set rgb '30;82;34'; or set rgb '14;40;16'
+        set -a rs "$f[1]"; set -a rc "$f[2]"; set -a rn "$nm"; set -a rm "$mk"; set -a rcur $cur
+        set -l w (string length -- "$nm")
+        test $w -gt $maxn; and set maxn $w
+    end
+    set -l markcol (math $maxn + 2)
+    # Pass 2: separators use a long rule fzf truncates at the pane edge (full width);
+    # markers are padded to markcol (computed on the plain name; ANSI is zero-width).
+    set -l group ''
+    for i in (seq (count $rs))
+        if test "$rc[$i]" != "$group"
+            set group "$rc[$i]"
+            set -l c 208
+            test "$group" = running; and set c 6
+            test "$group" = general; and set c 2
+            set -l hdr (printf '\e[1;38;5;%sm' $c)
+            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 160 ─) "$RST"
         end
-        set -l bg (printf '\e[48;2;%sm' $rgb)
-        # Fill the whole pane: " " + name + <fill spaces> + marker  == width cells (marker flush-right).
-        set -l fill (math "$width - 1 - "(string length -- "$nm")" - "(string length -- "$mk"))
-        test $fill -lt 1; and set fill 1
-        set -l cname "$nm"
-        test $cur = 1; and set cname "$YEL$nm$DEFG"
-        set -l cmk "$mk"
-        test -n "$mk"; and set cmk "$D0$mk$D1"
-        printf '%s%s%s %s%s%s%s\n' "$f[1]" $TAB "$bg" "$cname" (string repeat -n $fill ' ') "$cmk" "$RST"
+        set -l nm "$rn[$i]"
+        set -l pad (math "$markcol - "(string length -- "$nm"))
+        test $pad -lt 1; and set pad 1
+        set -l gap (string repeat -n $pad ' ')
+        set -l label "$nm$gap"
+        test "$rcur[$i]" = 1; and set label "$YEL$nm$RST$gap"
+        set -l mk "$rm[$i]"
+        test -n "$mk"; and set mk "$DIM$mk$RST"
+        printf '%s%s%s%s\n' "$rs[$i]" $TAB "$label" "$mk"
     end
 end
 
@@ -451,18 +461,8 @@ function __tcz_fzfpick --argument-names client --description 'fzf session picker
     set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
     test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
-    # Non-selectable category legend (fzf --header is a static block) — maps band color -> category.
-    set -l legend (printf '\e[1;38;5;208m● claude\e[0m   \e[1;38;5;6m● running\e[0m   \e[1;38;5;2m● general\e[0m')
-    # List-pane width to fill the category bands to: popup cols minus the preview (62%), the
-    # pointer gutter (2) and the border (1). Slightly under-fill so the flush-right marker isn't cut.
-    set -l cols (tput cols 2>/dev/null); or set cols 0
-    string match -qr '^[0-9]+$' -- "$cols"; and test "$cols" -gt 0; or set cols "$COLUMNS"
-    string match -qr '^[0-9]+$' -- "$cols"; and test "$cols" -gt 0; or set cols 120
-    set -l lw (math "round($cols * 0.38) - 4")
-    test "$lw" -lt 16; and set lw 16
-    set -l choice (__tcz_overview | __tcz_fzf_lines "$current" "$lw" | fzf \
+    set -l choice (__tcz_overview | __tcz_fzf_lines "$current" | fzf \
         --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
-        --header "$legend" \
         --prompt 'switch ❯ ' --pointer '▌' --info inline \
         --preview 'tmux capture-pane -ep -t {1}' \
         --preview-window 'right,62%,border-left' --no-scrollbar \
