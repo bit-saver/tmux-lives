@@ -59,3 +59,38 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
         printf '%s\n' "$line" >> $tmux_conf
     end
 end
+
+function tmux-setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
+    set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+    set -l tmuxdir "$HOME/.config/tmux"
+    set -l fragment "$tmuxdir/tmux-lives.conf"
+
+    mkdir -p $tmuxdir
+    __tmux_lives_render_fragment $cat > $fragment
+    echo "tmux-setup: wrote $fragment"
+
+    __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
+    echo "tmux-setup: ensured source-file line in ~/.tmux.conf"
+
+    set -l tpm "$HOME/.tmux/plugins/tpm"
+    test -d $tpm; or git clone -q https://github.com/tmux-plugins/tpm $tpm
+    for p in tmux-resurrect tmux-continuum
+        set -l d "$HOME/.tmux/plugins/$p"
+        test -d $d; or git clone -q https://github.com/tmux-plugins/$p $d
+    end
+    echo "tmux-setup: TPM + resurrect + continuum present"
+
+    if type -q systemctl
+        set -l user (id -un); set -l uid (id -u)
+        echo "tmux-setup: installing systemd units (sudo required)…"
+        __tmux_lives_save_unit_text $user $uid | sudo tee /etc/systemd/system/tmux-resurrect-save.service >/dev/null
+        __tmux_lives_restore_unit_text $user $uid | sudo tee /etc/systemd/system/tmux-resurrect-restore.service >/dev/null
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now tmux-resurrect-save.service
+        sudo systemctl enable tmux-resurrect-restore.service
+        echo "tmux-setup: systemd units installed + enabled"
+    else
+        echo "tmux-setup: no systemd — skipping service layer (macOS/launchd is spec 2)"
+    end
+    echo "tmux-setup: done — run tmux-status to verify, and open a NEW tmux window to pick up the fragment."
+end
