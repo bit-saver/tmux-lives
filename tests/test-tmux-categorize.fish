@@ -59,8 +59,12 @@ t "title: glyph stripped"         "TMUX Setup 2"      (__tcz_title_name "✳ TMU
 t "title: spinner stripped"       "TMUX Setup 2"      (__tcz_title_name "⠂ TMUX Setup 2")
 t "title: task suffix dropped"    "Tasker Editor 14"  (__tcz_title_name "✳ Tasker Editor 14 - Reword task")
 t "title: garbage -> empty"       ""                  (__tcz_title_name "Gi=1,a=q;")
-t "freenum: empty -> 0"           "0"                 (__tcz_free_number)
-t "freenum: skips used"           "2"                 (__tcz_free_number 0 1 work 5)
+t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
+t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
+t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)
+t "owned: gen-N"                    "0" (__tcz_owned gen-2; echo $status)
+t "owned: legacy numeric"           "0" (__tcz_owned 4; echo $status)
+t "owned: hand name (no stamp)"     "1" (__tcz_owned mydev; echo $status)
 t "unique: free name unchanged"   "lnav"              (__tcz_unique lnav work 0)
 t "unique: collision suffixed"    "lnav-2"            (__tcz_unique lnav lnav work)
 t "unique: counts up"             "lnav-3"            (__tcz_unique lnav lnav lnav-2)
@@ -145,7 +149,7 @@ __tcz_categorize
 t "cat: claude renamed to slug"  "yes" (tmux has-session -t =TMUX-Setup-2 2>/dev/null; and echo yes; or echo no)
 t "cat: claude stamped"          "TMUX-Setup-2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_auto_name)
 t "cat: running renamed to cmd"  "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
-t "cat: numeric general kept"    "yes" (tmux has-session -t =2 2>/dev/null; and echo yes; or echo no)
+t "cat: numeric general renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 t "cat: hand-named protected"    "yes" (tmux has-session -t =handname 2>/dev/null; and echo yes; or echo no)
 t "cat: idempotent (no churn)"   "" (__tcz_categorize | string join ',')
 
@@ -154,8 +158,8 @@ tmux kill-session -t =TMUX-Setup-2
 tmux new-session -d -s stale-claude
 tmux set-option -t stale-claude @tmux_auto_name stale-claude
 __tcz_categorize
-t "cat: owned idle reverts to number" "0" \
-    (tmux list-sessions -F '#{session_name}' | string match -r '^[0-9]+$' | sort -n | head -n1)
+t "cat: owned idle reverts to gen-N" "gen-1" \
+    (tmux list-sessions -F '#{session_name}' | string match -r '^gen-[0-9]+$' | sort -V | head -n1)
 
 # collision: two OWNED (numeric) claude sessions with the same --name
 cleanup
@@ -189,7 +193,7 @@ set -l lcpid (tmux list-panes -t Lifecycle -F '#{pane_pid}' 2>/dev/null)
 pkill -TERM -P $lcpid 2>/dev/null; or kill -TERM $lcpid 2>/dev/null
 sleep 0.5
 __tcz_categorize
-t "cat: lifecycle revert to numeric" "yes" (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle revert to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 cleanup
 
 # ---------------------------------------------------------------------
@@ -315,8 +319,8 @@ cleanup
 tmux new-session -d -s busy 'sleep 1000'
 tmux new-session -d -s shellfish-8
 sleep 0.3
-t "newgen: creates smallest-free general" "0" (__tcz_new_general)
-t "pickgen: MRU detached general, springboard excluded" "0" (__tcz_pick_general shellfish-8)
+t "newgen: creates smallest-free general" "gen-1" (__tcz_new_general)
+t "pickgen: MRU detached general, springboard excluded" "gen-1" (__tcz_pick_general shellfish-8)
 t "commandeer: non-shellfish name no-op" "0" (__tcz_commandeer /dev/null busy; echo $status)
 tmux new-session -d -s shellfish-9 'sleep 1000'
 sleep 0.3
@@ -324,8 +328,8 @@ __tcz_commandeer /dev/null shellfish-9
 t "commandeer: busy shellfish untouched" "yes" (tmux has-session -t =shellfish-9 2>/dev/null; and echo yes; or echo no)
 __tcz_commandeer /dev/pts/nonexistent shellfish-8
 t "commandeer: failed switch keeps springboard" "yes" (tmux has-session -t =shellfish-8 2>/dev/null; and echo yes; or echo no)
-t "commandeer: target untouched on failed switch" "yes" (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
-tmux kill-session -t 0
+t "commandeer: target untouched on failed switch" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+tmux kill-session -t gen-1
 __tcz_commandeer /dev/pts/nonexistent shellfish-8
 t "commandeer: fallback session cleaned up on failed switch" "busy,shellfish-8,shellfish-9" \
     (tmux list-sessions -F '#{session_name}' | sort | string join ',')

@@ -28,12 +28,12 @@ function __tcz_title_name --description 'claude pane title -> display name, or e
     string match -qr '[A-Za-z0-9]' -- "$t"; and echo $t
 end
 
-function __tcz_free_number --description 'argv = taken names -> smallest free non-negative integer'
-    set -l n 0
-    while contains -- "$n" $argv
+function __tcz_free_gen --description 'argv = taken names -> smallest free gen-N (N from 1)'
+    set -l n 1
+    while contains -- "gen-$n" $argv
         set n (math $n + 1)
     end
-    echo $n
+    echo "gen-$n"
 end
 
 function __tcz_unique --description '__tcz_unique <desired> <taken...> -> collision-free name'
@@ -149,7 +149,7 @@ end
 
 function __tcz_owned --description 'true if we may rename: name == @tmux_auto_name, or purely numeric'
     set -l cur $argv[1]
-    string match -qr '^[0-9]+$' -- "$cur"; and return 0
+    string match -qr '^(gen-)?[0-9]+$' -- "$cur"; and return 0
     # Empirically verified (tmux 3.3a): `show-option -t "=name"` returns empty even on success;
     # use the bare name form instead.
     set -l rec (tmux show-option -qv -t "$cur" @tmux_auto_name 2>/dev/null)
@@ -170,7 +170,7 @@ function __tcz_categorize --description 'rename every owned session to its live-
                 # Numeric general names are stable once assigned (tmux-style): assigned at revert
                 # time, never renumbered/compacted on later passes. This is BY DESIGN — do not
                 # "fix" by adding compaction; the invariant prevents churn on rename-guarded sessions.
-                string match -qr '^[0-9]+$' -- "$cur"; and continue
+                string match -qr '^gen-[0-9]+$' -- "$cur"; and continue
                 # desired number computed below against current names
         end
         # Ownership guard applies to ALL categories: never rename a hand-named session.
@@ -179,7 +179,7 @@ function __tcz_categorize --description 'rename every owned session to its live-
         for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
             test "$s" != "$cur"; and set -a others $s
         end
-        test -n "$desired"; or set desired (__tcz_free_number $others)
+        test -n "$desired"; or set desired (__tcz_free_gen $others)
         set desired (__tcz_unique $desired $others)
         test "$desired" = "$cur"; and continue
         tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
@@ -370,7 +370,7 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
 end
 
 function __tcz_new_general --description 'Create a detached general session named with the smallest free number; echo its name'
-    set -l name (__tcz_free_number (tmux list-sessions -F '#{session_name}' 2>/dev/null))
+    set -l name (__tcz_free_gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
     tmux new-session -d -s "$name" 2>/dev/null; and echo $name
 end
 
