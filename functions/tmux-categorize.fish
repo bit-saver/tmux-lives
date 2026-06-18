@@ -229,32 +229,49 @@ function __tcz_ghosts --argument-names session --description 'detach stale clien
     return 0
 end
 
-function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf (+ colored separator rows w/ empty session)'
+function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf: full-width colored separators (empty session field) + rows with right-aligned, uniformly-dimmed [current]/[attached] markers'
     set -l TAB (printf '\t')
-    set -l ESC (printf '\e')
-    set -l RST "$ESC""[0m"
-    set -l group ''
+    set -l RST (printf '\e[0m')
+    set -l DIM (printf '\e[2m')               # markers: dim grey, same for current + attached
+    set -l YEL (printf '\e[38;5;179m')        # current session name: dim yellow (143 read as green)
+    # Pass 1: collect rows; measure the widest display name so markers align in one column.
+    set -l rs; set -l rc; set -l rn; set -l rm; set -l rcur
+    set -l maxn 0
     while read -l line
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
-        if test "$f[2]" != "$group"
-            set group $f[2]
+        set -l nm "$f[5]"; set -l mk ''; set -l cur 0
+        if test -n "$current"; and test "$f[1]" = "$current"
+            set cur 1; set nm "▸ $f[5]"; set mk '[current]'
+        else if test "$f[3]" = 1
+            set mk '[attached]'
+        end
+        set -a rs "$f[1]"; set -a rc "$f[2]"; set -a rn "$nm"; set -a rm "$mk"; set -a rcur $cur
+        set -l w (string length -- "$nm")
+        test $w -gt $maxn; and set maxn $w
+    end
+    set -l markcol (math $maxn + 2)
+    # Pass 2: separators use a long rule fzf truncates at the pane edge (full width);
+    # markers are padded to markcol (computed on the plain name; ANSI is zero-width).
+    set -l group ''
+    for i in (seq (count $rs))
+        if test "$rc[$i]" != "$group"
+            set group "$rc[$i]"
             set -l c 208
             test "$group" = running; and set c 6
             test "$group" = general; and set c 2
             set -l hdr (printf '\e[1;38;5;%sm' $c)
-            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 26 ─) "$RST"
+            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 160 ─) "$RST"
         end
-        set -l label "$f[5]"
-        set -l mark ''
-        if test -n "$current"; and test "$f[1]" = "$current"
-            set -l yel (printf '\e[38;5;143m')
-            set label "$yel▸ $f[5]$RST"
-            set mark $yel"[current]$RST"
-        else if test "$f[3]" = 1
-            set mark (printf '\e[2m')"[attached]$RST"
-        end
-        printf '%s%s%s  %s\n' "$f[1]" $TAB "$label" "$mark"
+        set -l nm "$rn[$i]"
+        set -l pad (math "$markcol - "(string length -- "$nm"))
+        test $pad -lt 1; and set pad 1
+        set -l gap (string repeat -n $pad ' ')
+        set -l label "$nm$gap"
+        test "$rcur[$i]" = 1; and set label "$YEL$nm$RST$gap"
+        set -l mk "$rm[$i]"
+        test -n "$mk"; and set mk "$DIM$mk$RST"
+        printf '%s%s%s%s\n' "$rs[$i]" $TAB "$label" "$mk"
     end
 end
 
@@ -448,8 +465,8 @@ function __tcz_fzfpick --argument-names client --description 'fzf session picker
         --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
         --prompt 'switch ❯ ' --pointer '▌' --info inline \
         --preview 'tmux capture-pane -ep -t {1}' \
-        --preview-window 'right,50%,border-left' \
-        --color 'bg:-1,fg:-1,hl:208,fg+:15,bg+:236,hl+:208,pointer:208,prompt:81,info:240,border:240')
+        --preview-window 'right,62%,border-left' --no-scrollbar \
+        --color 'bg:-1,fg:-1,hl:208,fg+:15,bg+:236,hl+:208,pointer:208,prompt:81,info:240,border:240,gutter:-1')
     test -n "$choice"; or return 0
     set -l sess (string split -m 1 $TAB -- $choice)[1]
     test -n "$sess"; or return 0    # separator row -> no-op

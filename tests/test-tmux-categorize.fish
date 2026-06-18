@@ -360,7 +360,8 @@ t "fzf: separator shows category rule"     "yes" (string match -q '*── claud
 set -l nl (printf '%s\n' $fl | string match -e neuro)[1]
 set -l nf (string split -m 1 $TAB -- $nl)
 t "fzf: row field1 is session"   "neuro" "$nf[1]"
-t "fzf: current row yellow ANSI" "yes" (string match -q '*38;5;143*' -- "$nl"; and echo yes; or echo no)
+t "fzf: current name dim-yellow (179, not 143/green)" "yes" (string match -q '*38;5;179*' -- "$nl"; and echo yes; or echo no)
+t "fzf: current marker dimmed like [attached]"        "yes" (string match -qr '\x1b\[2m\[current\]' -- "$nl"; and echo yes; or echo no)
 # gen-1 row present, session field intact
 t "fzf: gen row field1"          "gen-1" (set -l g (printf '%s\n' $fl | string match -e 'gen-1')[1]; string split -m 1 $TAB -- $g)[1]
 
