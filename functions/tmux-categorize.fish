@@ -446,7 +446,7 @@ function __tcz_fzfpick --argument-names client --description 'fzf session picker
     set -l choice (__tcz_overview | __tcz_fzf_lines "$current" | fzf \
         --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
         --prompt 'switch ❯ ' --pointer '▌' --info inline \
-        --preview 'tmux capture-pane -ep -t "={1}"' \
+        --preview 'tmux capture-pane -ep -t {1}' \
         --preview-window 'right,50%,border-left' \
         --color 'bg:-1,fg:-1,hl:208,fg+:15,bg+:236,hl+:208,pointer:208,prompt:81,info:240,border:240')
     test -n "$choice"; or return 0

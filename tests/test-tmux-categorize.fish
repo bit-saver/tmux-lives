@@ -364,6 +364,12 @@ t "fzf: current row yellow ANSI" "yes" (string match -q '*38;5;143*' -- "$nl"; a
 # gen-1 row present, session field intact
 t "fzf: gen row field1"          "gen-1" (set -l g (printf '%s\n' $fl | string match -e 'gen-1')[1]; string split -m 1 $TAB -- $g)[1]
 
+# Preview must NOT use the '=' exact-match prefix: tmux 3.3a capture-pane rejects
+# `-t =name` ("can't find pane: =name"); plain `-t name` works (exact match wins).
+set -l fp (functions __tcz_fzfpick | string collect)
+t "fzfpick: preview has no '=' prefix"   "no"  (string match -q '*capture-pane*={1}*' -- "$fp"; and echo yes; or echo no)
+t "fzfpick: preview targets {1} plainly" "yes" (string match -q '*capture-pane -ep -t {1}*' -- "$fp"; and echo yes; or echo no)
+
 # ---------------------------------------------------------------------
 # __tcz_open_switcher: fzf present -> display-popup; absent -> display-menu
 # ---------------------------------------------------------------------
