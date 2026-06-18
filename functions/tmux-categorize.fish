@@ -430,6 +430,31 @@ function __tcz_commandeer --argument-names client session --description 'command
     return 0
 end
 
+function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
+    if command -q fzf
+        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"
+    else
+        __tcz_menu
+    end
+end
+
+function __tcz_fzfpick --argument-names client --description 'fzf session picker (runs inside the display-popup); switch on accept'
+    __tcz_categorize >/dev/null 2>&1
+    set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
+    test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
+    set -l TAB (printf '\t')
+    set -l choice (__tcz_overview | __tcz_fzf_lines "$current" | fzf \
+        --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
+        --prompt 'switch ❯ ' --pointer '▌' --info inline \
+        --preview 'tmux capture-pane -ep -t "={1}"' \
+        --preview-window 'right,50%,border-left' \
+        --color 'bg:-1,fg:-1,hl:208,fg+:15,bg+:236,hl+:208,pointer:208,prompt:81,info:240,border:240')
+    test -n "$choice"; or return 0
+    set -l sess (string split -m 1 $TAB -- $choice)[1]
+    test -n "$sess"; or return 0    # separator row -> no-op
+    __tcz_switch "$sess" "$client"
+end
+
 function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claude rename (preexec)'
     test -n "$argv[1]"; or return 0
     set -l cur (tmux display-message -pt "$argv[1]" '#{session_name}' 2>/dev/null)
@@ -461,6 +486,10 @@ function __tcz_main
             __tcz_overview
         case menu
             __tcz_menu
+        case open-switcher
+            __tcz_open_switcher $argv[2]
+        case fzfpick
+            __tcz_fzfpick $argv[2]
         case claim
             __tcz_claim $argv[2..]
         case ghosts
@@ -472,7 +501,7 @@ function __tcz_main
         case slug
             __tcz_slugify $argv[2..]
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|claim|ghosts|switch|commandeer|slug" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|fzfpick|claim|ghosts|switch|commandeer|slug" >&2
             return 1
     end
 end

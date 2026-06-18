@@ -365,6 +365,32 @@ t "fzf: current row yellow ANSI" "yes" (string match -q '*38;5;143*' -- "$nl"; a
 t "fzf: gen row field1"          "gen-1" (set -l g (printf '%s\n' $fl | string match -e 'gen-1')[1]; string split -m 1 $TAB -- $g)[1]
 
 # ---------------------------------------------------------------------
+# __tcz_open_switcher: fzf present -> display-popup; absent -> display-menu
+# ---------------------------------------------------------------------
+# Run as subprocesses with a controlled PATH: shimdir first, then tool symlinks,
+# so we can toggle fzf presence without affecting the in-process suite state.
+# Shim tmux echoes its subcommand so we can detect display-popup vs display-menu.
+set -l sw_shimdir /tmp/tcz-sw-shim-$fish_pid
+mkdir -p $sw_shimdir
+printf '#!/bin/sh\necho "TMUX:$@"\n' > $sw_shimdir/tmux; chmod +x $sw_shimdir/tmux
+for _t in fish seq basename printf cut sort head tail awk grep pgrep cat tr wc
+    ln -sf /usr/bin/$_t $sw_shimdir/$_t 2>/dev/null
+end
+# fzf present: add fzf shim to shimdir
+printf '#!/bin/sh\nexit 0\n' > $sw_shimdir/fzf; chmod +x $sw_shimdir/fzf
+t "switcher: fzf present -> display-popup" "yes" \
+    (string match -q '*display-popup*' -- \
+        (env PATH=$sw_shimdir fish --no-config $plugindir/functions/tmux-categorize.fish open-switcher c1 2>&1 | string join ' '); \
+     and echo yes; or echo no)
+# fzf absent: remove fzf shim so command -q fzf fails
+rm $sw_shimdir/fzf
+t "switcher: no fzf -> display-menu" "yes" \
+    (string match -q '*display-menu*' -- \
+        (env PATH=$sw_shimdir fish --no-config $plugindir/functions/tmux-categorize.fish open-switcher c1 2>&1 | string join ' '); \
+     and echo yes; or echo no)
+rm -rf $sw_shimdir
+
+# ---------------------------------------------------------------------
 # The shell list must match __tmux_session_is_idle in conf.d/tmux.fish.
 # ---------------------------------------------------------------------
 set -l confd_list (string match -r 'contains -- \$cmd ([a-z ]+); or return' < $plugindir/conf.d/tmux.fish)[2]

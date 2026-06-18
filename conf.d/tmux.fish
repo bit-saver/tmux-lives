@@ -191,8 +191,9 @@ function ts --description 'Categorized tmux session switcher / creator. ts [name
         return
     end
     if set -q TMUX
+        set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
         env tmux_auto_ghost_minutes=$tmux_auto_ghost_minutes \
-            fish --no-config $tmux_categorize_script menu
+            fish --no-config $tmux_categorize_script open-switcher "$client"
         return
     end
     # Outside tmux: truth-up names, then grouped numbered list, then attach.
