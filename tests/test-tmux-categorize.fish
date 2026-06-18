@@ -357,7 +357,7 @@ set -l fl (printf '%s\n' $ov | __tcz_fzf_lines neuro)
 t "fzf: one line per session (no separators)" "2" (count $fl)
 set -l f1 (string split -m 1 $TAB -- $fl[1])
 t "fzf: every row has a session in field 1"   "yes" (test -n "$f1[1]"; and echo yes; or echo no)
-t "fzf: claude row carries dim category bg"    "yes" (string match -q '*48;5;94*' -- "$fl[1]"; and echo yes; or echo no)
+t "fzf: rows carry a truecolor category bg"    "yes" (string match -q '*48;2;*' -- "$fl[1]"; and echo yes; or echo no)
 # the neuro row: field 1 == session name, label carries yellow ANSI (current)
 set -l nl (printf '%s\n' $fl | string match -e neuro)[1]
 set -l nf (string split -m 1 $TAB -- $nl)
