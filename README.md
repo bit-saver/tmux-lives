@@ -14,7 +14,7 @@ It keeps tmux sessions self-categorizing (claude / running / general), auto-atta
 ## Install
 
 ```fish
-fisher install <owner>/tmux-lives
+fisher install bit-saver/tmux-lives
 tmux-setup     # wires ~/.tmux.conf, TPM plugins, and the systemd units
 tmux-status    # verify the install across every layer
 ```
@@ -25,7 +25,7 @@ Open a new tmux window afterward so the managed fragment is picked up.
 
 ```fish
 tmux-teardown
-fisher remove <owner>/tmux-lives
+fisher remove bit-saver/tmux-lives
 ```
 
 ## Layout
