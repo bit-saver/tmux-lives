@@ -229,11 +229,13 @@ function __tcz_ghosts --argument-names session --description 'detach stale clien
     return 0
 end
 
-function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf: full-width colored separators (empty session field) + rows with right-aligned, uniformly-dimmed [current]/[attached] markers'
+function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf: each row tinted with a dim category background (no separator rows, so nothing extra is selectable); markers right-aligned + uniformly dim; current name dim-yellow. The category legend lives in fzf --header (see __tcz_fzfpick).'
     set -l TAB (printf '\t')
     set -l RST (printf '\e[0m')
-    set -l DIM (printf '\e[2m')               # markers: dim grey, same for current + attached
-    set -l YEL (printf '\e[38;5;179m')        # current session name: dim yellow (143 read as green)
+    set -l DEFG (printf '\e[39m')              # default fg — keeps the row's bg band intact
+    set -l D0 (printf '\e[2m')                 # dim on
+    set -l D1 (printf '\e[22m')                # dim off (normal intensity)
+    set -l YEL (printf '\e[38;5;179m')         # current session name: dim yellow (143 read green)
     # Pass 1: collect rows; measure the widest display name so markers align in one column.
     set -l rs; set -l rc; set -l rn; set -l rm; set -l rcur
     set -l maxn 0
@@ -251,27 +253,25 @@ function __tcz_fzf_lines --argument-names current --description 'overview lines 
         test $w -gt $maxn; and set maxn $w
     end
     set -l markcol (math $maxn + 2)
-    # Pass 2: separators use a long rule fzf truncates at the pane edge (full width);
-    # markers are padded to markcol (computed on the plain name; ANSI is zero-width).
-    set -l group ''
+    # Pass 2: one row per session, wrapped in a dim category background that fzf truncates at the
+    # pane edge (a full-width band). Only fg/dim are toggled inside the row (reset to default, not a
+    # full RST) so the background persists across the whole line.
     for i in (seq (count $rs))
-        if test "$rc[$i]" != "$group"
-            set group "$rc[$i]"
-            set -l c 208
-            test "$group" = running; and set c 6
-            test "$group" = general; and set c 2
-            set -l hdr (printf '\e[1;38;5;%sm' $c)
-            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 160 ─) "$RST"
+        set -l c 235
+        switch "$rc[$i]"
+            case claude;  set c 94      # dim amber
+            case running; set c 23      # dim teal
+            case general; set c 22      # dim green
         end
+        set -l bg (printf '\e[48;5;%sm' $c)
         set -l nm "$rn[$i]"
         set -l pad (math "$markcol - "(string length -- "$nm"))
         test $pad -lt 1; and set pad 1
-        set -l gap (string repeat -n $pad ' ')
-        set -l label "$nm$gap"
-        test "$rcur[$i]" = 1; and set label "$YEL$nm$RST$gap"
+        set -l name "$nm"
+        test "$rcur[$i]" = 1; and set name "$YEL$nm$DEFG"
         set -l mk "$rm[$i]"
-        test -n "$mk"; and set mk "$DIM$mk$RST"
-        printf '%s%s%s%s\n' "$rs[$i]" $TAB "$label" "$mk"
+        test -n "$mk"; and set mk "$D0$mk$D1"
+        printf '%s%s%s %s%s%s%s%s\n' "$rs[$i]" $TAB "$bg" "$name" (string repeat -n $pad ' ') "$mk" (string repeat -n 200 ' ') "$RST"
     end
 end
 
@@ -461,8 +461,11 @@ function __tcz_fzfpick --argument-names client --description 'fzf session picker
     set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
     test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
+    # Non-selectable category legend (fzf --header is a static block) — maps band color -> category.
+    set -l legend (printf '\e[1;38;5;208m● claude\e[0m   \e[1;38;5;6m● running\e[0m   \e[1;38;5;2m● general\e[0m')
     set -l choice (__tcz_overview | __tcz_fzf_lines "$current" | fzf \
         --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
+        --header "$legend" \
         --prompt 'switch ❯ ' --pointer '▌' --info inline \
         --preview 'tmux capture-pane -ep -t {1}' \
         --preview-window 'right,62%,border-left' --no-scrollbar \
