@@ -165,7 +165,7 @@ dependable primary keys (the user lives in nvim).
 
 - No `display-popup` / non-tty → `__tcz_menu` fallback.
 - Popup too narrow → previewwidth 0, list-only.
-- Empty list → a one-line "no sessions" message; `Esc`/`q` exits.
+- Empty list → the popup returns immediately without opening (no special message). Practically unreachable inside tmux, since the invoking client's own session always lists.
 - Single session → renders and switches normally.
 - Highlighted row is the current session → `Enter` is a harmless no-op switch.
 - Dead/missing pane → blank preview, never an error (the bug we are removing).

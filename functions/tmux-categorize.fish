@@ -602,6 +602,15 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
         end
     end
     set -l saved (stty -g)
+    # Restore the terminal even if the popup is killed mid-loop (SIGINT/SIGTERM).
+    # __tcz_popup runs in a dedicated `fish --no-config` popup process, so this
+    # global handler lives only for the popup's lifetime.
+    set -g __tcz_popup_saved $saved
+    function __tcz_popup_cleanup --on-signal INT --on-signal TERM
+        stty "$__tcz_popup_saved" 2>/dev/null
+        printf '\e[?25h\e[0m'
+        exit 130
+    end
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l result ''
@@ -619,6 +628,8 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
                 break
         end
     end
+    functions -e __tcz_popup_cleanup
+    set -e __tcz_popup_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
     test -n "$result"; and __tcz_switch "$result" "$client"
