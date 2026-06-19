@@ -67,5 +67,11 @@ set -g LL (printf '%s\n' $OVlong | __tcz_popup_list_lines 24 0 '')
 t "long name truncated with ellipsis" yes  (string match -q '*…*' (vis $LL[2]); and echo yes; or echo no)
 t "truncated row still flush-right"   yes  (string match -qr "\[attached\]\$" (vis $LL[2]); and echo yes; or echo no)
 
+# narrow width: marker dropped (not overflowed), row stays exactly listwidth
+set -g TAB (printf '\t')
+set -g OVnarrow (printf 'sess-attached%srunning%s1%s50%saverylongsessionname' $TAB $TAB $TAB $TAB)
+set -g LNarrow (printf '%s\n' $OVnarrow | __tcz_popup_list_lines 12 0 '')
+t "narrow row stays exactly listwidth" 12 (string length (vis $LNarrow[2]))
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL

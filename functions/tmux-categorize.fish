@@ -511,8 +511,17 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         end
         set -l mlen (string length -- "$mk")
         # name field width = listwidth - 2 (pointer area) - (gap+marker if any)
+        # If the marker + gap would leave no room for the name, drop the marker
+        # instead of overflowing (guarantees every row is exactly listwidth wide).
         set -l namespace (math "$listwidth - 2")
-        test $mlen -gt 0; and set namespace (math "$namespace - $mlen - 1")
+        if test $mlen -gt 0
+            set -l ns_with_mk (math "$namespace - $mlen - 1")
+            if test $ns_with_mk -lt 1
+                set mk ''; set mlen 0
+            else
+                set namespace $ns_with_mk
+            end
+        end
         test $namespace -lt 1; and set namespace 1
         set -l shown (__tcz_popup_truncate "$disp" $namespace)
         set -l pad (math "$namespace - "(string length -- "$shown"))
