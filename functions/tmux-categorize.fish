@@ -448,6 +448,20 @@ function __tcz_commandeer --argument-names client session --description 'command
     return 0
 end
 
+function __tcz_popup_layout --argument-names cols --description 'cols -> "listwidth previewwidth" (preview 0 when too narrow)'
+    test -n "$cols"; and test "$cols" -gt 0 2>/dev/null; or set cols 80
+    if test $cols -lt 60
+        echo "$cols 0"
+        return 0
+    end
+    set -l list (math "floor($cols * 42 / 100)")
+    test $list -lt 20; and set list 20
+    test $list -gt 40; and set list 40
+    set -l prev (math "$cols - $list - 1")
+    test $prev -lt 1; and set prev 1
+    echo "$list $prev"
+end
+
 function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
     if command -q fzf
         tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"
