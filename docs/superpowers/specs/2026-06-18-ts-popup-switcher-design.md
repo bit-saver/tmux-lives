@@ -140,7 +140,7 @@ Locked aesthetics (these are test assertions, not preferences):
    left edge sits on the border line (no extra column — same border/block + space + title layout
    as non-selected rows). `▐` is chosen over `▌` so the fill lands right of the `│` column, and
    over `█` so the border line stays unbroken.
-5. **Current session.** Name in muted yellow (`38;5;179`) + flush-right `[current]`.
+5. **Current session.** The column-1 border becomes a muted-yellow `❯` chevron (replacing the category `│`), the name is muted yellow (`38;5;179`), and the flush-right marker is `[current]` (also yellow). If the current session is also the selected row, the `▐` block wins (selected takes precedence in column 1).
 6. **Headers are unreachable:** navigation only ever lands on session rows (`selidx` indexes
    sessions, so the cursor can never land on a header/border).
 
@@ -157,9 +157,16 @@ SIGINT/SIGTERM cleanup handler (`function … --on-signal`).
 - `Enter` (`\r` or `\n`) → switch.
 - `Esc` / `q` → cancel.
 
-`Esc` vs arrow CSI (`\e[A` / `\e[B`) is disambiguated by a short (~0.1s) non-blocking follow-read
-for the remaining bytes after `\e`; if none arrive, it was a bare `Esc` (cancel). `j`/`k` are the
-dependable primary keys (the user lives in nvim).
+**Read bytes with `dd`, NOT fish `read`.** On a real tty, fish's `read` runs fish's line editor,
+which interprets arrow escape sequences (`\e[A`, `\eOA`) as cursor-movement and **swallows** them —
+so `read` never returns the arrow bytes (verified live: `j`/`k` worked, arrows did nothing). The
+reader instead reads one raw byte at a time via an inline `dd bs=1 count=1 | od -An -tx1 | string
+trim | read VAR` pipeline (`dd` as the pipeline head sees the function's stdin; a command
+substitution `(dd …)` inside a pipe-RHS function does **not** inherit that stdin — fish quirk).
+Bytes are compared as hex. `Esc` vs arrow is disambiguated by toggling `stty min 0 time 1` (~0.1s)
+for the follow bytes after `\e` (`1b`): `5b`/`4f` (`[`/`O`) → arrow; `41`/`42` (`A`/`B`) → up/down;
+nothing → bare `Esc` (cancel). Both CSI (`\e[A`) and SS3 (`\eOA`, application-cursor-keys mode) are
+handled. `j`/`k` remain the dependable primary keys.
 
 ## Edge cases
 

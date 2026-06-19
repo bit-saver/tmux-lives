@@ -75,6 +75,17 @@ set -g OVnarrow (printf 'sess-attached%srunning%s1%s50%saverylongsessionname' $T
 set -g LNarrow (printf '%s\n' $OVnarrow | __tcz_popup_list_lines 12 0 '')
 t "narrow row stays exactly listwidth" 12 (string length (vis $LNarrow[2]))
 
+# current session (NOT the selected row): yellow ❯ chevron in the border column +
+# yellow name + flush-right [current]. sel=0 (aaa selected, ▐); current=bbb.
+set -g CURO (printf 'aaa%sgeneral%s0%s0%saaa\nbbb%sgeneral%s0%s0%sbbb' $TAB $TAB $TAB $TAB $TAB $TAB $TAB $TAB)
+set -g CURL (printf '%s\n' $CURO | __tcz_popup_list_lines 30 0 bbb)
+# CURL[1]=general header, CURL[2]=aaa (selected ▐), CURL[3]=bbb (current ❯)
+t "current row border is ❯ chevron"  yes (string match -q '❯ *' (vis $CURL[3]); and echo yes; or echo no)
+t "current row ends with [current]"  yes (string match -qr "\[current\]\$" (vis $CURL[3]); and echo yes; or echo no)
+t "current chevron is muted-yellow"  yes (string match -q '*38;5;179*❯*' -- $CURL[3]; and echo yes; or echo no)
+t "current row width = listwidth"    30  (string length (vis $CURL[3]))
+t "selected row still ▐ (not ❯)"     yes (string match -q '*▐*' -- $CURL[2]; and echo yes; or echo no)
+
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — first h lines, truncated to w
 # ---------------------------------------------------------------------
@@ -98,6 +109,26 @@ set -g DM2 (printf 'beta\tgeneral\t0\t80\tbeta')
 # __tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model...>
 set -g DF (__tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2)
 t "draw emits multiple lines (real newlines)" yes (test (count $DF) -ge 8; and echo yes; or echo no)
+
+# draw must NOT emit a trailing newline after the last of `rows` lines: a full-height
+# popup would scroll up one row each redraw, dropping the top line (the claude-header
+# bug) and flashing. rows=8 -> exactly 7 newlines (between the 8 rows), none trailing.
+__tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2 > /tmp/tcz-draw-$fish_pid
+set -g DNL (wc -l < /tmp/tcz-draw-$fish_pid | string trim)
+rm -f /tmp/tcz-draw-$fish_pid
+t "draw has no trailing newline (rows-1)" 7 "$DNL"
+
+# ---------------------------------------------------------------------
+# __tcz_popup_readkey — must accept SS3 (\eOA/\eOB) cursor keys, not only CSI
+# (\e[A/\e[B); many terminals/tmux send SS3 in application-cursor-keys mode.
+# Piped input has no tty (the stty calls no-op) but the byte parsing is what we test.
+# ---------------------------------------------------------------------
+t "readkey SS3 up"   up   (printf '\eOA' | __tcz_popup_readkey 2>/dev/null)
+t "readkey SS3 down" down (printf '\eOB' | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI up"   up   (printf '\e[A' | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI down" down (printf '\e[B' | __tcz_popup_readkey 2>/dev/null)
+t "readkey j=down"   down (printf 'j'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
 
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL

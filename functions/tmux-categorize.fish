@@ -494,11 +494,23 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
             test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$DIMOFF"
             printf '%s%s▐%s %s%s%s\n' $SELBG $ORG $FGDEF "$nmpart" "$mkpart" $RST
         else
+            set -l bchar │
+            set -l bordc $BORD
+            if test $iscur -eq 1
+                set bchar '❯'                              # current: right chevron in the border
+                set bordc $YEL
+            end
             set -l nmpart "$shown$pads"
             test $iscur -eq 1; and set nmpart "$YEL$shown$RST$pads"
             set -l mkpart ''
-            test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$RST"
-            printf '%s│%s %s%s\n' $BORD $RST "$nmpart" "$mkpart"
+            if test $mlen -gt 0
+                if test $iscur -eq 1
+                    set mkpart "$gap$YEL$mk$RST"           # current: yellow [current], no dim/bold
+                else
+                    set mkpart "$gap$DIMON$mk$RST"
+                end
+            end
+            printf '%s%s%s %s%s\n' $bordc $bchar $RST "$nmpart" "$mkpart"
         end
         set idx (math $idx + 1)
     end
@@ -520,32 +532,41 @@ function __tcz_popup_preview --argument-names session w h --description 'plain c
     tmux capture-pane -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other (raw tty already set)'
-    set -l c
-    if not read -n1 -l c
-        echo cancel; return            # EOF
+function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other'
+    # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
+    #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
+    #    sequences (treats them as cursor-move), so they never reach us.
+    #  - dd reads bytes verbatim, but it must be the HEAD of a pipeline in this
+    #    function — a command substitution `(dd …)` inside a function that is a
+    #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
+    #    sets VAR in scope. Bytes are compared as hex.
+    set -l b ''
+    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
+    test -z "$b"; and begin; echo cancel; return; end          # EOF
+    switch "$b"
+        case 6a; echo down; return                  # j
+        case 6b; echo up; return                    # k
+        case 71; echo cancel; return                # q
+        case 0d 0a; echo enter; return              # CR / LF
     end
-    test -z "$c"; and begin; echo enter; return; end   # newline delimiter consumed
-    switch "$c"
-        case j; echo down; return
-        case k; echo up; return
-        case q; echo cancel; return
-    end
-    test "$c" = (printf '\r'); and begin; echo enter; return; end
-    if test "$c" = (printf '\e')
-        # bare ESC vs CSI arrow: non-blocking follow-read (deci-second timeout)
-        stty min 0 time 1
-        set -l c2; read -n1 -l c2 2>/dev/null
-        set -l c3; test "$c2" = '['; and read -n1 -l c3 2>/dev/null
-        stty min 1 time 0
-        if test "$c2" = '['
-            switch "$c3"
-                case A; echo up; return
-                case B; echo down; return
+    if test "$b" = 1b                                # ESC
+        # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
+        stty min 0 time 1 2>/dev/null
+        set -l b2 ''
+        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
+        set -l b3 ''
+        if test "$b2" = 5b; or test "$b2" = 4f       # [ or O
+            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
+        end
+        stty min 1 time 0 2>/dev/null
+        if test "$b2" = 5b; or test "$b2" = 4f
+            switch "$b3"
+                case 41; echo up; return             # A (up)
+                case 42; echo down; return           # B (down)
             end
             echo other; return
         end
-        echo cancel; return
+        echo cancel; return                          # bare ESC
     end
     echo other
 end
@@ -575,9 +596,14 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
         end
         set -a out "$line"(printf '\e[K')
     end
-    printf '\e[H'
-    printf '%s\n' $out
-    printf '\e[J'
+    # Synchronized update (DECSET 2026) so the whole frame commits atomically — no
+    # tearing/flash between list and preview. Newlines BETWEEN rows only: a trailing
+    # newline after the last row scrolls a full-height popup up one (dropping the top
+    # line). Unsupported terminals ignore the 2026 private mode harmlessly.
+    printf '\e[?2026h\e[H'
+    test (count $out) -gt 1; and printf '%s\n' $out[1..-2]
+    printf '%s' $out[-1]
+    printf '\e[J\e[?2026l'
 end
 
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
