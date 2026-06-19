@@ -5,16 +5,14 @@ ShellFish coexistence) extracted from `~/.config/fish` into a standalone, cross-
 **fisher plugin** (Linux now; macOS = spec 2).
 
 **Status (2026-06-18):** spec-1 extraction **done** (tagged `spec1-extraction-parity`, no
-behavior change) and the **ts live-preview switcher** is built — `prefix S`/`ts` open an fzf
-`display-popup` with a live `capture-pane` preview + the categorized list, falling back to the
-old `display-menu` when fzf is absent. All test suites pass (`for t in tests/test-*.fish; fish
-$t; end`). See `docs/superpowers/` for the specs/plans.
+behavior change) and the **ts popup switcher** is built — `prefix S`/`ts` open a pure-fish
+two-pane `display-popup` (categorized list + live `capture-pane` preview, non-selectable
+headers); `display-menu` is the no-`display-popup` fallback. All test suites pass (`for t in
+tests/test-*.fish; fish $t; end`). See `docs/superpowers/` for the specs/plans.
 
 **NOT yet cut over:** the live, running system is still `~/.config/fish` until you run the
 cutover below. Two pieces remain: this cutover, and the macOS port (spec 2 — launchd vs the
-`type -q systemctl` branches in `tmux-setup`/`teardown`/`status`). Known constraint: fzf has no
-non-selectable rows, so the `── claude ──` header rows are landable-but-no-op (a deliberate,
-cosmetic trade-off — see the `project-tmux-lives` memory).
+`type -q systemctl` branches in `tmux-setup`/`teardown`/`status`).
 
 ## claude-mem history
 

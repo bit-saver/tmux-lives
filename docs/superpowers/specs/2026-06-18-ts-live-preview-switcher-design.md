@@ -1,3 +1,5 @@
+> SUPERSEDED 2026-06-18 by docs/superpowers/specs/2026-06-18-ts-popup-switcher-design.md (fzf dropped for a pure-fish two-pane popup).
+
 # ts live-preview switcher + session-UX refresh — design
 
 - **Date:** 2026-06-18
