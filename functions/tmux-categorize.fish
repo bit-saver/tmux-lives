@@ -472,6 +472,72 @@ function __tcz_popup_truncate --argument-names text width --description 'truncat
     echo -- (string sub -l (math "$width - 1") -- "$text")"…"
 end
 
+function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'overview (stdin) -> ANSI visual list: full-width category rules + session rows (pointer on #selidx, markers flush-right at listwidth)'
+    set -l TAB (printf '\t')
+    set -l RST (printf '\e[0m')
+    set -l FGDEF (printf '\e[39m')      # reset fg only (keeps background)
+    set -l DIMON (printf '\e[2m'); set -l DIMOFF (printf '\e[22m')
+    set -l YEL (printf '\e[38;5;179m')
+    set -l ORG (printf '\e[38;5;208m')
+    set -l SELBG (printf '\e[48;5;236m')
+    test -n "$listwidth"; and test "$listwidth" -gt 0 2>/dev/null; or set listwidth 30
+    test -n "$selidx"; or set selidx 0
+    set -l group ''
+    set -l idx 0
+    while read -l line
+        set -l f (string split -m 4 $TAB -- $line)
+        test (count $f) -ge 5; or continue
+        set -l name "$f[1]"; set -l cat "$f[2]"; set -l att "$f[3]"; set -l disp "$f[5]"
+        # category rule (full width to listwidth)
+        if test "$cat" != "$group"
+            set group "$cat"
+            set -l c 208
+            test "$cat" = running; and set c 6
+            test "$cat" = general; and set c 2
+            set -l word "── $cat "
+            set -l wl (string length -- "$word")
+            if test $wl -ge $listwidth
+                printf '%s%s%s\n' (printf '\e[1;38;5;%sm' $c) (__tcz_popup_truncate "$word" $listwidth) $RST
+            else
+                printf '%s%s%s%s\n' (printf '\e[1;38;5;%sm' $c) "$word" (string repeat -n (math "$listwidth - $wl") ─) $RST
+            end
+        end
+        # marker
+        set -l mk ''
+        if test -n "$current"; and test "$name" = "$current"
+            set mk '[current]'
+        else if test "$att" = 1
+            set mk '[attached]'
+        end
+        set -l mlen (string length -- "$mk")
+        # name field width = listwidth - 2 (pointer area) - (gap+marker if any)
+        set -l namespace (math "$listwidth - 2")
+        test $mlen -gt 0; and set namespace (math "$namespace - $mlen - 1")
+        test $namespace -lt 1; and set namespace 1
+        set -l shown (__tcz_popup_truncate "$disp" $namespace)
+        set -l pad (math "$namespace - "(string length -- "$shown"))
+        test $pad -lt 0; and set pad 0
+        set -l pads (string repeat -n $pad ' ')
+        set -l gap ''; test $mlen -gt 0; and set gap ' '
+        set -l iscur 0; test -n "$current"; and test "$name" = "$current"; and set iscur 1
+        if test "$idx" = "$selidx"
+            # selected row: full-width background band, fg-only color changes
+            set -l nmpart "$shown$pads"
+            test $iscur -eq 1; and set nmpart "$YEL$shown$FGDEF$pads"
+            set -l mkpart ''
+            test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$DIMOFF"
+            printf '%s%s▌%s %s%s%s\n' $SELBG $ORG $FGDEF "$nmpart" "$mkpart" $RST
+        else
+            set -l nmpart "$shown$pads"
+            test $iscur -eq 1; and set nmpart "$YEL$shown$RST$pads"
+            set -l mkpart ''
+            test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$RST"
+            printf '  %s%s\n' "$nmpart" "$mkpart"
+        end
+        set idx (math $idx + 1)
+    end
+end
+
 function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
     if command -q fzf
         tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"

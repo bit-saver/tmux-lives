@@ -39,5 +39,33 @@ t "truncate exact unchanged"    "hello" (__tcz_popup_truncate "hello" 5)
 t "truncate short unchanged"    "hi"    (__tcz_popup_truncate "hi" 5)
 t "truncate width 1 -> ellipsis" "…"    (__tcz_popup_truncate "hello" 1)
 
+# ---------------------------------------------------------------------
+# __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
+# ---------------------------------------------------------------------
+set -g OV \
+    (printf 'claude-x\tclaude\t1\t100\tclaude-x') \
+    (printf 'neuro\trunning\t0\t90\tnvim') \
+    (printf 'gen-1\tgeneral\t0\t80\tgen-1  ~/w')
+# selidx 1 (neuro) selected; current = neuro
+set -g L (printf '%s\n' $OV | __tcz_popup_list_lines 30 1 neuro)
+# order: [1]claude rule [2]claude-x row [3]running rule [4]neuro row [5]general rule [6]gen-1 row
+t "rule fills to listwidth 30"        30   (string length (vis $L[1]))
+t "rule starts with category name"    yes  (string match -q '── claude *' (vis $L[1]); and echo yes; or echo no)
+t "rule is all box-drawing fill"      yes  (string match -qr "^── claude ─+\$" (vis $L[1]); and echo yes; or echo no)
+t "attached row width = listwidth"    30   (string length (vis $L[2]))
+t "attached marker flush-right"       yes  (string match -qr "\[attached\]\$" (vis $L[2]); and echo yes; or echo no)
+t "selected row carries ▌ pointer"    yes  (string match -q '*▌*' -- $L[4]; and echo yes; or echo no)
+t "current row marker flush-right"    yes  (string match -qr "\[current\]\$" (vis $L[4]); and echo yes; or echo no)
+t "current row width = listwidth"     30   (string length (vis $L[4]))
+t "plain row padded to listwidth"     30   (string length (vis $L[6]))
+# aesthetics must scale to any width:
+set -g L40 (printf '%s\n' $OV | __tcz_popup_list_lines 40 0 '')
+t "rule scales to listwidth 40"       40   (string length (vis $L40[1]))
+# long name truncates with … when it would collide with the marker:
+set -g OVlong (printf 'supercalifragilistic\trunning\t1\t50\tsupercalifragilisticexpialidocious')
+set -g LL (printf '%s\n' $OVlong | __tcz_popup_list_lines 24 0 '')
+t "long name truncated with ellipsis" yes  (string match -q '*…*' (vis $LL[2]); and echo yes; or echo no)
+t "truncated row still flush-right"   yes  (string match -qr "\[attached\]\$" (vis $LL[2]); and echo yes; or echo no)
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL
