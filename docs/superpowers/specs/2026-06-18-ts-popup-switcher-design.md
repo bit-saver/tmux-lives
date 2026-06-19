@@ -123,17 +123,30 @@ whichever reads as muted-yellow in the popup and verify visually during implemen
 
 Locked aesthetics (these are test assertions, not preferences):
 
-1. **Header rules fill to the divider.** A header line is `── <category> ` followed by `─`
-   repeated so the line's visible width equals **exactly `listwidth`**, recomputed from the live
-   popup size every render. No fixed-width rule that stops short. (Improvement over today: the fzf
-   path padded to 160 and relied on truncation; the menu padded to widest-label + 4.)
-2. **Indicators flush-right.** `[current]` / `[attached]` are padded so the marker's **last
-   character sits at column `listwidth`** (hard against the list pane's right edge), not at a
-   common "widest name + 2" column. The session name is truncated with `…` if it would collide
-   with the marker.
-3. **Selected row:** orange pointer `▌` + subtle background highlight; name in muted yellow.
-   Non-selected current session: name in muted yellow + flush-right `[current]`.
-4. **Headers are unreachable:** navigation only ever lands on selectable (session) rows.
+1. **Category border + corner.** Each category opens with a header line `╭── <category> `
+   followed by `─` repeated so the visible width equals **exactly `listwidth`**, colored by
+   category (claude bold orange `208`, running bold cyan `6`, general bold green `2`). Every
+   session row under it begins with a **category-colored `│` left border** in column 1 — the
+   corner `╭` + the `│` verticals bracket the group.
+2. **Header rules fill to the divider.** The header's trailing `─` run fills so the whole header
+   (corner + `── cat ` + rule) is exactly `listwidth` visible columns, recomputed from the live
+   popup size every render. No fixed-width rule that stops short.
+3. **Indicators flush-right.** `[current]` / `[attached]` are padded so the marker's **last
+   character sits at column `listwidth`**; the session name is truncated with `…` if it would
+   collide with the marker.
+4. **Selected row.** The category `│` border in column 1 becomes an **orange `▐` (right-half
+   block, U+2590)** on a full-width grey background band (`48;5;236`). The band shows through the
+   block's left half so the border reads continuous and the selected row bulges rightward; its
+   left edge sits on the border line (no extra column — same border/block + space + title layout
+   as non-selected rows). `▐` is chosen over `▌` so the fill lands right of the `│` column, and
+   over `█` so the border line stays unbroken.
+5. **Current session.** Name in muted yellow (`38;5;179`) + flush-right `[current]`.
+6. **Headers are unreachable:** navigation only ever lands on session rows (`selidx` indexes
+   sessions, so the cursor can never land on a header/border).
+
+The column layout is: col 1 = border/block (`│` / `▐` / `╭` on headers), col 2 = space, col 3+ =
+title. Lead-in is 2 columns (unchanged from the pre-border design), so the width invariant
+`2 + namespace + (mlen>0 ? 1+mlen : 0) == listwidth` and the flush-right math are preserved.
 
 ## Keys
 
