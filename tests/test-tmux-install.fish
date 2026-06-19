@@ -10,8 +10,8 @@ t "fragment has update-environment" 1 (string match -q '*update-environment*LC_T
 t "fragment has commandeer hook" 1 (string match -q '*client-session-changed*' -- "$frag"; and echo 1; or echo 0)
 t "fragment has resurrect plugin" 1 (string match -q '*tmux-plugins/tmux-resurrect*' -- "$frag"; and echo 1; or echo 0)
 t "fragment status-interval" 1 (string match -q '*status-interval 15*' -- "$frag"; and echo 1; or echo 0)
-t "fragment binds S via if-shell" 1 (string match -q '*if-shell*command -v fzf*' -- "$frag"; and echo 1; or echo 0)
-t "fragment popup uses fzfpick"   1 (string match -q '*display-popup*fzfpick*' -- "$frag"; and echo 1; or echo 0)
+t "fragment binds S via display-popup guard" 1 (string match -q '*if-shell*display-popup*' -- "$frag"; and echo 1; or echo 0)
+t "fragment binds S to popup subcommand"     1 (string match -q '*display-popup*popup*' -- "$frag"; and echo 1; or echo 0)
 t "fragment fallback uses menu"   1 (string match -q '*run-shell*menu*' -- "$frag"; and echo 1; or echo 0)
 t "fragment LC_TERMINAL_VERSION" 1 (string match -q '*LC_TERMINAL_VERSION*' -- "$frag"; and echo 1; or echo 0)
 

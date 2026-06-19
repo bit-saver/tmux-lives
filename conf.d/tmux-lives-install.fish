@@ -18,8 +18,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         "set -g status-interval 15" \
         "if-shell '! tmux show-options -gv status-right 2>/dev/null | grep -q tmux-categorize' \\" \
         "    'set -ga status-right \"#(fish --no-config $cat tick)\"'" \
-        "if-shell 'command -v fzf >/dev/null 2>&1' \\" \
-        "    \"bind-key S display-popup -E -w 80% -h 70% -- fish --no-config $cat fzfpick '#{client_name}'\" \\" \
+        "if-shell 'tmux list-commands 2>/dev/null | grep -q display-popup' \\" \
+        "    \"bind-key S display-popup -E -w 80% -h 70% -- fish --no-config $cat popup '#{client_name}'\" \\" \
         "    \"bind-key S run-shell 'fish --no-config $cat menu'\"" \
         "set-hook -g client-session-changed {" \
         "    if-shell -F '#{m:shellfish-*,#{client_session}}' {" \
