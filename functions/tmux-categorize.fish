@@ -462,6 +462,16 @@ function __tcz_popup_layout --argument-names cols --description 'cols -> "listwi
     echo "$list $prev"
 end
 
+function __tcz_popup_truncate --argument-names text width --description 'truncate text to width visible chars with trailing … (no ANSI in text)'
+    test -n "$width"; and test "$width" -gt 0 2>/dev/null; or begin; echo ''; return 0; end
+    if test (string length -- "$text") -le $width
+        echo -- "$text"
+        return 0
+    end
+    test $width -eq 1; and begin; echo -- '…'; return 0; end
+    echo -- (string sub -l (math "$width - 1") -- "$text")"…"
+end
+
 function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
     if command -q fzf
         tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"

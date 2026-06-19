@@ -31,5 +31,13 @@ t "layout 120 -> list clamped 40"   "40 79" (__tcz_popup_layout 120)
 t "layout 50 (narrow) -> no preview" "50 0" (__tcz_popup_layout 50)
 t "layout 0/invalid -> defaults 80" "33 46" (__tcz_popup_layout 0)
 
+# ---------------------------------------------------------------------
+# __tcz_popup_truncate
+# ---------------------------------------------------------------------
+t "truncate long adds ellipsis" "hell…" (__tcz_popup_truncate "hello world" 5)
+t "truncate exact unchanged"    "hello" (__tcz_popup_truncate "hello" 5)
+t "truncate short unchanged"    "hi"    (__tcz_popup_truncate "hi" 5)
+t "truncate width 1 -> ellipsis" "…"    (__tcz_popup_truncate "hello" 1)
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL
