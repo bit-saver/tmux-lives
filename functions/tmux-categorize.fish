@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | open-switcher <client> | fzfpick <client> | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -227,52 +227,6 @@ function __tcz_ghosts --argument-names session --description 'detach stale clien
         tmux detach-client -t "$c" 2>/dev/null
     end
     return 0
-end
-
-function __tcz_fzf_lines --argument-names current --description 'overview lines -> session\tANSI-label for fzf: full-width colored separators (empty session field) + rows with right-aligned, uniformly-dimmed [current]/[attached] markers'
-    set -l TAB (printf '\t')
-    set -l RST (printf '\e[0m')
-    set -l DIM (printf '\e[2m')               # markers: dim grey, same for current + attached
-    set -l YEL (printf '\e[38;5;179m')        # current session name: dim yellow (143 read as green)
-    # Pass 1: collect rows; measure the widest display name so markers align in one column.
-    set -l rs; set -l rc; set -l rn; set -l rm; set -l rcur
-    set -l maxn 0
-    while read -l line
-        set -l f (string split -m 4 $TAB -- $line)
-        test (count $f) -ge 5; or continue
-        set -l nm "$f[5]"; set -l mk ''; set -l cur 0
-        if test -n "$current"; and test "$f[1]" = "$current"
-            set cur 1; set nm "▸ $f[5]"; set mk '[current]'
-        else if test "$f[3]" = 1
-            set mk '[attached]'
-        end
-        set -a rs "$f[1]"; set -a rc "$f[2]"; set -a rn "$nm"; set -a rm "$mk"; set -a rcur $cur
-        set -l w (string length -- "$nm")
-        test $w -gt $maxn; and set maxn $w
-    end
-    set -l markcol (math $maxn + 2)
-    # Pass 2: separators use a long rule fzf truncates at the pane edge (full width);
-    # markers are padded to markcol (computed on the plain name; ANSI is zero-width).
-    set -l group ''
-    for i in (seq (count $rs))
-        if test "$rc[$i]" != "$group"
-            set group "$rc[$i]"
-            set -l c 208
-            test "$group" = running; and set c 6
-            test "$group" = general; and set c 2
-            set -l hdr (printf '\e[1;38;5;%sm' $c)
-            printf '%s%s── %s %s%s\n' $TAB "$hdr" "$group" (string repeat -n 160 ─) "$RST"
-        end
-        set -l nm "$rn[$i]"
-        set -l pad (math "$markcol - "(string length -- "$nm"))
-        test $pad -lt 1; and set pad 1
-        set -l gap (string repeat -n $pad ' ')
-        set -l label "$nm$gap"
-        test "$rcur[$i]" = 1; and set label "$YEL$nm$RST$gap"
-        set -l mk "$rm[$i]"
-        test -n "$mk"; and set mk "$DIM$mk$RST"
-        printf '%s%s%s%s\n' "$rs[$i]" $TAB "$label" "$mk"
-    end
 end
 
 function __tcz_menu_args --argument-names current --description 'stdin overview lines (+ optional current session to mark) -> argv triples for display-menu'
@@ -563,29 +517,116 @@ function __tcz_popup_preview --argument-names session w h --description 'plain c
     tmux capture-pane -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
-    if command -q fzf
-        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"
-    else
-        __tcz_menu
+function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other (raw tty already set)'
+    set -l c
+    if not read -n1 -l c
+        echo cancel; return            # EOF
     end
+    test -z "$c"; and begin; echo enter; return; end   # newline delimiter consumed
+    switch "$c"
+        case j; echo down; return
+        case k; echo up; return
+        case q; echo cancel; return
+    end
+    test "$c" = (printf '\r'); and begin; echo enter; return; end
+    if test "$c" = (printf '\e')
+        # bare ESC vs CSI arrow: non-blocking follow-read (deci-second timeout)
+        stty min 0 time 1
+        set -l c2; read -n1 -l c2 2>/dev/null
+        set -l c3; test "$c2" = '['; and read -n1 -l c3 2>/dev/null
+        stty min 1 time 0
+        if test "$c2" = '['
+            switch "$c3"
+                case A; echo up; return
+                case B; echo down; return
+            end
+            echo other; return
+        end
+        echo cancel; return
+    end
+    echo other
 end
 
-function __tcz_fzfpick --argument-names client --description 'fzf session picker (runs inside the display-popup); switch on accept'
+function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
+    set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
+    set -e argv[1..6]                  # argv[6] is the literal '--' separator
+    set -l model $argv
+    set -l TAB (printf '\t')
+    set -l DIV (printf '\e[38;5;240m│\e[0m')
+    set -l left (printf '%s\n' $model | __tcz_popup_list_lines $listw $sel "$current")
+    set -l right
+    if test $prevw -gt 0
+        set -l selname (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
+        set right (__tcz_popup_preview "$selname" $prevw $rows)
+    end
+    set -l blankL (string repeat -n $listw ' ')
+    set -l buf (printf '\e[H')
+    for r in (seq $rows)
+        set -l lseg $blankL
+        test $r -le (count $left); and set lseg $left[$r]
+        set -l line $lseg
+        if test $prevw -gt 0
+            set -l rseg ''
+            test $r -le (count $right); and set rseg $right[$r]
+            set line "$lseg$DIV$rseg"
+        end
+        set buf "$buf$line"(printf '\e[K')
+        test $r -lt $rows; and set buf "$buf"(printf '\n')
+    end
+    printf '%s\e[J' "$buf"
+end
+
+function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
     __tcz_categorize >/dev/null 2>&1
     set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
     test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
-    set -l choice (__tcz_overview | __tcz_fzf_lines "$current" | fzf \
-        --ansi --delimiter $TAB --with-nth 2 --layout=reverse-list \
-        --prompt 'switch ❯ ' --pointer '▌' --info inline \
-        --preview 'tmux capture-pane -ep -t {1}' \
-        --preview-window 'right,62%,border-left' --no-scrollbar \
-        --color 'bg:-1,fg:-1,hl:208,fg+:15,bg+:236,hl+:208,pointer:208,prompt:81,info:240,border:240,gutter:-1')
-    test -n "$choice"; or return 0
-    set -l sess (string split -m 1 $TAB -- $choice)[1]
-    test -n "$sess"; or return 0    # separator row -> no-op
-    __tcz_switch "$sess" "$client"
+    set -l model (__tcz_overview)
+    set -l n (count $model)
+    test $n -gt 0; or return 0
+    set -l size (stty size 2>/dev/null | string split ' ')
+    set -l rows $size[1]; set -l cols $size[2]
+    test -n "$rows"; and test "$rows" -gt 0 2>/dev/null; or set rows 24
+    test -n "$cols"; and test "$cols" -gt 0 2>/dev/null; or set cols 80
+    set -l lay (string split ' ' (__tcz_popup_layout $cols))
+    set -l listw $lay[1]; set -l prevw $lay[2]
+    # start on the current session if present
+    set -l sel 0
+    for i in (seq $n)
+        if test (string split -m 1 $TAB -- $model[$i])[1] = "$current"
+            set sel (math $i - 1); break
+        end
+    end
+    set -l saved (stty -g)
+    stty -icanon -echo min 1 time 0
+    printf '\e[?25l\e[2J'
+    set -l result ''
+    while true
+        __tcz_popup_draw $sel $listw $prevw $rows "$current" -- $model
+        switch (__tcz_popup_readkey)
+            case up
+                test $sel -gt 0; and set sel (math $sel - 1)
+            case down
+                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
+            case enter
+                set result (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
+                break
+            case cancel
+                break
+        end
+    end
+    stty $saved
+    printf '\e[?25h\e[2J\e[H'
+    test -n "$result"; and __tcz_switch "$result" "$client"
+    return 0
+end
+
+function __tcz_open_switcher --argument-names client --description 'open the two-pane popup switcher (display-menu fallback if display-popup is unsupported)'
+    if tmux list-commands 2>/dev/null | grep -q display-popup
+        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self popup "$client"
+    else
+        __tcz_menu
+    end
 end
 
 function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claude rename (preexec)'
@@ -621,8 +662,8 @@ function __tcz_main
             __tcz_menu
         case open-switcher
             __tcz_open_switcher $argv[2]
-        case fzfpick
-            __tcz_fzfpick $argv[2]
+        case popup
+            __tcz_popup $argv[2]
         case claim
             __tcz_claim $argv[2..]
         case ghosts
@@ -634,7 +675,7 @@ function __tcz_main
         case slug
             __tcz_slugify $argv[2..]
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|fzfpick|claim|ghosts|switch|commandeer|slug" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|slug" >&2
             return 1
     end
 end

@@ -346,56 +346,30 @@ t "commandeer: fallback session cleaned up on failed switch" "busy,shellfish-8,s
 cleanup
 
 # ---------------------------------------------------------------------
-# __tcz_fzf_lines (pure): overview lines -> session\tANSI-label for fzf
+# popup switcher wiring (the pure render helpers are covered by
+# tests/test-tmux-popup.fish; here we assert the dispatch + entry points)
 # ---------------------------------------------------------------------
-set -l TAB (printf '\t')
-set -l ov "neuro$TAB""claude$TAB""0$TAB""100$TAB""neuro
-gen-1$TAB""general$TAB""0$TAB""50$TAB""gen-1"
-set -l fl (printf '%s\n' $ov | __tcz_fzf_lines neuro)
-# first emitted line is the claude separator: empty field 1
-set -l sep1 (string split -m 1 $TAB -- $fl[1])
-t "fzf: separator has empty session field" "" "$sep1[1]"
-t "fzf: separator shows category rule"     "yes" (string match -q '*── claude *' -- "$fl[1]"; and echo yes; or echo no)
-# the neuro row: field 1 == session name, label carries yellow ANSI (current)
-set -l nl (printf '%s\n' $fl | string match -e neuro)[1]
-set -l nf (string split -m 1 $TAB -- $nl)
-t "fzf: row field1 is session"   "neuro" "$nf[1]"
-t "fzf: current name dim-yellow (179, not 143/green)" "yes" (string match -q '*38;5;179*' -- "$nl"; and echo yes; or echo no)
-t "fzf: current marker dimmed like [attached]"        "yes" (string match -qr '\x1b\[2m\[current\]' -- "$nl"; and echo yes; or echo no)
-# gen-1 row present, session field intact
-t "fzf: gen row field1"          "gen-1" (set -l g (printf '%s\n' $fl | string match -e 'gen-1')[1]; string split -m 1 $TAB -- $g)[1]
+t "no leftover __tcz_fzf_lines" absent (functions -q __tcz_fzf_lines; and echo present; or echo absent)
+t "no leftover __tcz_fzfpick"   absent (functions -q __tcz_fzfpick; and echo present; or echo absent)
 
-# Preview must NOT use the '=' exact-match prefix: tmux 3.3a capture-pane rejects
-# `-t =name` ("can't find pane: =name"); plain `-t name` works (exact match wins).
-set -l fp (functions __tcz_fzfpick | string collect)
-t "fzfpick: preview has no '=' prefix"   "no"  (string match -q '*capture-pane*={1}*' -- "$fp"; and echo yes; or echo no)
-t "fzfpick: preview targets {1} plainly" "yes" (string match -q '*capture-pane -ep -t {1}*' -- "$fp"; and echo yes; or echo no)
+# open-switcher opens a display-popup running the `popup` subcommand for the client.
+# Shim tmux: make `list-commands` advertise display-popup (so the capability
+# probe passes), and echo everything else so nothing actually launches.
+set -g sw_shim /tmp/tcz-sw-$fish_pid
+mkdir -p $sw_shim
+printf '#!/bin/sh\ncase "$*" in *list-commands*) echo display-popup;; *) echo "TMUX:$*";; esac\n' > $sw_shim/tmux; chmod +x $sw_shim/tmux
+set -g sw_path_save $PATH
+set -gx PATH $sw_shim $PATH
+set -g sw_out (__tcz_open_switcher c1)
+set -gx PATH $sw_path_save
+t "open-switcher uses display-popup" yes (string match -q '*display-popup*' -- "$sw_out"; and echo yes; or echo no)
+t "open-switcher runs popup subcmd"  yes (string match -q '*popup c1*' -- "$sw_out"; and echo yes; or echo no)
+rm -rf $sw_shim
 
-# ---------------------------------------------------------------------
-# __tcz_open_switcher: fzf present -> display-popup; absent -> display-menu
-# ---------------------------------------------------------------------
-# Run as subprocesses with a controlled PATH: shimdir first, then tool symlinks,
-# so we can toggle fzf presence without affecting the in-process suite state.
-# Shim tmux echoes its subcommand so we can detect display-popup vs display-menu.
-set -l sw_shimdir /tmp/tcz-sw-shim-$fish_pid
-mkdir -p $sw_shimdir
-printf '#!/bin/sh\necho "TMUX:$@"\n' > $sw_shimdir/tmux; chmod +x $sw_shimdir/tmux
-for _t in fish seq basename printf cut sort head tail awk grep pgrep cat tr wc
-    ln -sf /usr/bin/$_t $sw_shimdir/$_t 2>/dev/null
-end
-# fzf present: add fzf shim to shimdir
-printf '#!/bin/sh\nexit 0\n' > $sw_shimdir/fzf; chmod +x $sw_shimdir/fzf
-t "switcher: fzf present -> display-popup" "yes" \
-    (string match -q '*display-popup*' -- \
-        (env PATH=$sw_shimdir fish --no-config $plugindir/functions/tmux-categorize.fish open-switcher c1 2>&1 | string join ' '); \
-     and echo yes; or echo no)
-# fzf absent: remove fzf shim so command -q fzf fails
-rm $sw_shimdir/fzf
-t "switcher: no fzf -> display-menu" "yes" \
-    (string match -q '*display-menu*' -- \
-        (env PATH=$sw_shimdir fish --no-config $plugindir/functions/tmux-categorize.fish open-switcher c1 2>&1 | string join ' '); \
-     and echo yes; or echo no)
-rm -rf $sw_shimdir
+# dispatcher routes `popup`, not `fzfpick`
+set -g main_src (functions __tcz_main | string collect)
+t "dispatcher has popup case"    yes (string match -q '*case popup*' -- "$main_src"; and echo yes; or echo no)
+t "dispatcher dropped fzfpick"   no  (string match -q '*fzfpick*' -- "$main_src"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
 # The shell list must match __tmux_session_is_idle in conf.d/tmux.fish.
