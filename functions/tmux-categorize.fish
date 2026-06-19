@@ -547,6 +547,22 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
     end
 end
 
+function __tcz_popup_clip --argument-names w h --description 'stdin lines -> first h lines, each truncated to w'
+    test -n "$w"; and test "$w" -gt 0 2>/dev/null; or set w 40
+    test -n "$h"; and test "$h" -gt 0 2>/dev/null; or set h 20
+    set -l i 0
+    while read -l l
+        test $i -ge $h; and break
+        __tcz_popup_truncate "$l" $w
+        set i (math $i + 1)
+    end
+end
+
+function __tcz_popup_preview --argument-names session w h --description 'plain capture-pane of session active pane, clipped to w×h'
+    test -n "$session"; or return 0
+    tmux capture-pane -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
+end
+
 function __tcz_open_switcher --argument-names client --description 'open the switcher: fzf display-popup if available, else display-menu'
     if command -q fzf
         tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self fzfpick "$client"

@@ -73,5 +73,17 @@ set -g OVnarrow (printf 'sess-attached%srunning%s1%s50%saverylongsessionname' $T
 set -g LNarrow (printf '%s\n' $OVnarrow | __tcz_popup_list_lines 12 0 '')
 t "narrow row stays exactly listwidth" 12 (string length (vis $LNarrow[2]))
 
+# ---------------------------------------------------------------------
+# __tcz_popup_clip — first h lines, truncated to w
+# ---------------------------------------------------------------------
+set -g CLIP (printf 'aaaa\nbbbbbbbb\ncccc\ndddd\n' | __tcz_popup_clip 4 2)
+t "clip limits to h lines"   2      (count $CLIP)
+t "clip keeps short line"    "aaaa" "$CLIP[1]"
+t "clip truncates wide line" "bbb…" "$CLIP[2]"
+# __tcz_popup_preview must target plainly (no '=' prefix) and use clip
+set -g PV (functions __tcz_popup_preview | string collect)
+t "preview has no '=' target"   no  (string match -q '*-t "=*' -- "$PV"; and echo yes; or echo no)
+t "preview pipes through clip"  yes (string match -q '*__tcz_popup_clip*' -- "$PV"; and echo yes; or echo no)
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL
