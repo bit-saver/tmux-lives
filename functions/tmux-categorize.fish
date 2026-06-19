@@ -442,18 +442,21 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l name "$f[1]"; set -l cat "$f[2]"; set -l att "$f[3]"; set -l disp "$f[5]"
+        set -l c 208
+        test "$cat" = running; and set c 6
+        test "$cat" = general; and set c 2
+        set -l BORD (printf '\e[38;5;%sm' $c)   # category left-border (non-bold)
         # category rule (full width to listwidth)
         if test "$cat" != "$group"
             set group "$cat"
-            set -l c 208
-            test "$cat" = running; and set c 6
-            test "$cat" = general; and set c 2
+            set -l hdr (printf '\e[1;38;5;%sm' $c)
             set -l word "── $cat "
             set -l wl (string length -- "$word")
-            if test $wl -ge $listwidth
-                printf '%s%s%s\n' (printf '\e[1;38;5;%sm' $c) (__tcz_popup_truncate "$word" $listwidth) $RST
+            set -l lead (math "1 + $wl")            # corner + word
+            if test $lead -ge $listwidth
+                printf '%s%s%s\n' $hdr (__tcz_popup_truncate "╭$word" $listwidth) $RST
             else
-                printf '%s%s%s%s\n' (printf '\e[1;38;5;%sm' $c) "$word" (string repeat -n (math "$listwidth - $wl") ─) $RST
+                printf '%s╭%s%s%s\n' $hdr "$word" (string repeat -n (math "$listwidth - $lead") ─) $RST
             end
         end
         # marker
@@ -489,13 +492,13 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
             test $iscur -eq 1; and set nmpart "$YEL$shown$FGDEF$pads"
             set -l mkpart ''
             test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$DIMOFF"
-            printf '%s%s▌%s %s%s%s\n' $SELBG $ORG $FGDEF "$nmpart" "$mkpart" $RST
+            printf '%s%s▐%s %s%s%s\n' $SELBG $ORG $FGDEF "$nmpart" "$mkpart" $RST
         else
             set -l nmpart "$shown$pads"
             test $iscur -eq 1; and set nmpart "$YEL$shown$RST$pads"
             set -l mkpart ''
             test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$RST"
-            printf '  %s%s\n' "$nmpart" "$mkpart"
+            printf '%s│%s %s%s\n' $BORD $RST "$nmpart" "$mkpart"
         end
         set idx (math $idx + 1)
     end
