@@ -1,11 +1,20 @@
-# tmux-lives — fish plugin (WIP)
+# tmux-lives — fish plugin
 
-This repo will hold **tmux-lives** — the tmux automation system being extracted from
-`~/.config/fish` into a standalone, cross-platform **fisher plugin** (Linux + macOS).
-Status: **scaffolding** — the plugin design/extraction is being planned. Until
-extraction completes, the live, authoritative system still lives in `~/.config/fish`
-(`conf.d/tmux.fish`, `custom/scripts/tmux-categorize.fish`, the four test suites,
-`docs/auto-tmux.md`). Treat that as source of truth; this repo is being assembled.
+**tmux-lives** is the tmux automation system (categorized sessions, switcher, persistence,
+ShellFish coexistence) extracted from `~/.config/fish` into a standalone, cross-platform
+**fisher plugin** (Linux now; macOS = spec 2).
+
+**Status (2026-06-18):** spec-1 extraction **done** (tagged `spec1-extraction-parity`, no
+behavior change) and the **ts live-preview switcher** is built — `prefix S`/`ts` open an fzf
+`display-popup` with a live `capture-pane` preview + the categorized list, falling back to the
+old `display-menu` when fzf is absent. All test suites pass (`for t in tests/test-*.fish; fish
+$t; end`). See `docs/superpowers/` for the specs/plans.
+
+**NOT yet cut over:** the live, running system is still `~/.config/fish` until you run the
+cutover below. Two pieces remain: this cutover, and the macOS port (spec 2 — launchd vs the
+`type -q systemctl` branches in `tmux-setup`/`teardown`/`status`). Known constraint: fzf has no
+non-selectable rows, so the `── claude ──` header rows are landable-but-no-op (a deliberate,
+cosmetic trade-off — see the `project-tmux-lives` memory).
 
 ## claude-mem history
 
