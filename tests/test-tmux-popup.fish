@@ -85,5 +85,17 @@ set -g PV (functions __tcz_popup_preview | string collect)
 t "preview has no '=' target"   no  (string match -q '*-t "=*' -- "$PV"; and echo yes; or echo no)
 t "preview pipes through clip"  yes (string match -q '*__tcz_popup_clip*' -- "$PV"; and echo yes; or echo no)
 
+# ---------------------------------------------------------------------
+# __tcz_popup_draw — rows must be separated by real newlines (regression)
+# command-sub `(printf '\n')` strips trailing newlines → all rows on one line
+# previewwidth=0 avoids capture-pane so no real tmux needed
+# ---------------------------------------------------------------------
+set -g TAB (printf '\t')
+set -g DM1 (printf 'alpha\tclaude\t1\t100\talpha')
+set -g DM2 (printf 'beta\tgeneral\t0\t80\tbeta')
+# __tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model...>
+set -g DF (__tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2)
+t "draw emits multiple lines (real newlines)" yes (test (count $DF) -ge 8; and echo yes; or echo no)
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL

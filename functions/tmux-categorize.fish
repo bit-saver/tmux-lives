@@ -560,7 +560,7 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
         set right (__tcz_popup_preview "$selname" $prevw $rows)
     end
     set -l blankL (string repeat -n $listw ' ')
-    set -l buf (printf '\e[H')
+    set -l out
     for r in (seq $rows)
         set -l lseg $blankL
         test $r -le (count $left); and set lseg $left[$r]
@@ -570,10 +570,11 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
             test $r -le (count $right); and set rseg $right[$r]
             set line "$lseg$DIV$rseg"
         end
-        set buf "$buf$line"(printf '\e[K')
-        test $r -lt $rows; and set buf "$buf"(printf '\n')
+        set -a out "$line"(printf '\e[K')
     end
-    printf '%s\e[J' "$buf"
+    printf '\e[H'
+    printf '%s\n' $out
+    printf '\e[J'
 end
 
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
