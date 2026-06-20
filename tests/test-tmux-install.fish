@@ -63,4 +63,16 @@ tmux-lives bogus 2>/dev/null
 t "unknown arg returns 1"     1 $status
 t "help hint names tmux-lives" 1 (string match -q '*tmux-lives*' -- (__tmux_lives_help_hint); and echo 1; or echo 0)
 
+# Content — call handlers directly (fish does NOT capture emit handler stdout).
+set -l inst (_tmux_lives_post_install | string collect)
+t "install msg names tmux-setup"  1 (string match -q '*tmux-setup*' -- "$inst"; and echo 1; or echo 0)
+t "install msg names tmux-status" 1 (string match -q '*tmux-status*' -- "$inst"; and echo 1; or echo 0)
+set -l upd (_tmux_lives_post_update | string collect)
+t "update msg says exec fish"     1 (string match -q '*exec fish*' -- "$upd"; and echo 1; or echo 0)
+# Wiring — the dashed --on-event names are actually registered.
+functions --handlers | grep -qE 'tmux-lives-install_install[[:space:]]+_tmux_lives_post_install'
+t "install handler wired to dashed event" 0 $status
+functions --handlers | grep -qE 'tmux-lives-install_update[[:space:]]+_tmux_lives_post_update'
+t "update handler wired to dashed event"  0 $status
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

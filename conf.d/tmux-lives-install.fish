@@ -189,3 +189,15 @@ function tmux-lives --description 'tmux-lives: list commands and when to use eac
     end
     printf '%s\n' $lines
 end
+
+function _tmux_lives_post_install --on-event tmux-lives-install_install --description 'Post-install guidance'
+    printf '%s\n' \
+        '✓ tmux-lives installed. To finish on a new host:' \
+        '    tmux-setup     # wire tmux + plugins' \
+        '    tmux-status    # verify' \
+        '  then open a new tmux window. '(__tmux_lives_help_hint)
+end
+
+function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update note'
+    printf '%s\n' '✓ tmux-lives updated — open a new shell (exec fish) to load it. '(__tmux_lives_help_hint)
+end
