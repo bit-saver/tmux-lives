@@ -154,3 +154,38 @@ function tmux-status --description 'tmux-lives: report install health across all
     echo "tmux-lives status:"
     __tmux_lives_status_lines | sed 's/^/  /'
 end
+
+function __tmux_lives_help_hint --description 'Pointer to the tmux-lives help command'
+    echo 'Run `tmux-lives` to see all commands.'
+end
+
+function tmux-lives --description 'tmux-lives: list commands and when to use each'
+    set -l err 0
+    switch "$argv[1]"
+        case '' help -h --help
+            # fall through: print help to stdout
+        case '*'
+            echo "tmux-lives: unknown command '$argv[1]'" >&2
+            set err 1
+    end
+    set -l lines \
+        'tmux-lives — categorized tmux sessions + persistence (fisher plugin)' \
+        '' \
+        'Setup / lifecycle:' \
+        '  tmux-setup      wire ~/.tmux.conf + TPM/resurrect/continuum (run once on a new host;' \
+        '                  macOS: no launchd units — persistence via continuum + first-access restore)' \
+        '  tmux-status     check install health across every layer' \
+        '  tmux-teardown   remove the wiring (TPM plugins left in place)' \
+        '' \
+        'Daily use:' \
+        '  ts [name]       switch/create a categorized session — popup inside tmux;' \
+        '                  with no name and no server, cold-starts your restored sessions' \
+        '  tmuxauto …      on | off | status | toggle  — control auto-attach on login' \
+        '  tmtake <name>   force-take a session (detach a stale/ghost client)' \
+        '  fixssh          refresh SSH_AUTH_SOCK inside a reattached session'
+    if test $err -eq 1
+        printf '%s\n' $lines >&2
+        return 1
+    end
+    printf '%s\n' $lines
+end

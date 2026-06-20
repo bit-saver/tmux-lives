@@ -51,4 +51,16 @@ set -l ps (__tmux_lives_persistence_status)
 t "status is an OK line"         1 (string match -q 'OK *' -- "$ps"; and echo 1; or echo 0)
 t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and echo 1; or echo 0)
 
+set -l hlp (tmux-lives | string collect)
+t "help lists tmux-setup"     1 (string match -q '*tmux-setup*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists ts"             1 (string match -q '*ts [name]*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists tmuxauto"       1 (string match -q '*tmuxauto*' -- "$hlp"; and echo 1; or echo 0)
+t "help has Setup header"     1 (string match -q '*Setup / lifecycle:*' -- "$hlp"; and echo 1; or echo 0)
+t "help has Daily header"     1 (string match -q '*Daily use:*' -- "$hlp"; and echo 1; or echo 0)
+t "help -h equals bare"       1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
+t "help 'help' alias works"   1 (string match -q '*tmux-setup*' -- (tmux-lives help | string collect); and echo 1; or echo 0)
+tmux-lives bogus 2>/dev/null
+t "unknown arg returns 1"     1 $status
+t "help hint names tmux-lives" 1 (string match -q '*tmux-lives*' -- (__tmux_lives_help_hint); and echo 1; or echo 0)
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
