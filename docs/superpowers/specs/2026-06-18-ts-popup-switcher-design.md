@@ -155,7 +155,10 @@ SIGINT/SIGTERM cleanup handler (`function … --on-signal`).
 
 - `j` / `Down`, `k` / `Up` → move to next/previous selectable row (clamp at ends).
 - `Enter` (`\r` or `\n`) → switch.
+- `x` → kill the highlighted session: a bottom-row `kill <name>? (y/n)` confirm; `y`/`Y` kills it and refreshes the list (popup stays open, selection clamps), anything else cancels.
 - `Esc` / `q` → cancel.
+
+The popup gets the client from the bind's `'#{client_name}'`, but `display-popup` does NOT format-expand argv after `--`, so it can arrive literally — `__tcz_popup` therefore resolves the client itself (`tmux display-message -p '#{client_name}'`) when the arg is empty or an unexpanded `#{…}`, otherwise `switch-client -c` would get a bogus client and silently fail.
 
 **Read bytes with `dd`, NOT fish `read`.** On a real tty, fish's `read` runs fish's line editor,
 which interprets arrow escape sequences (`\e[A`, `\eOA`) as cursor-movement and **swallows** them —
