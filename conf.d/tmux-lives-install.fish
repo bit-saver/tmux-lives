@@ -66,6 +66,14 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
     end
 end
 
+function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-setup)'
+    echo "no systemd — persistence via continuum autosave + restore on first ts/SSH login"
+end
+
+function __tmux_lives_persistence_status --description 'macOS/non-systemd persistence status line'
+    echo "OK persistence via continuum autosave + first-access restore"
+end
+
 function tmux-setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
     set -l tmuxdir "$HOME/.config/tmux"
@@ -96,7 +104,7 @@ function tmux-setup --description 'tmux-lives: install fragment + tmux.conf wiri
         sudo systemctl enable tmux-resurrect-restore.service
         echo "tmux-setup: systemd units installed + enabled"
     else
-        echo "tmux-setup: no systemd — skipping service layer (macOS/launchd is spec 2)"
+        echo "tmux-setup: "(__tmux_lives_persistence_note)
     end
     echo "tmux-setup: done — run tmux-status to verify, and open a NEW tmux window to pick up the fragment."
 end
@@ -136,6 +144,8 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     test -d "$HOME/.tmux/plugins/tmux-resurrect"; and set -a r "OK tmux-resurrect present"; or set -a r "MISSING tmux-resurrect"
     if type -q systemctl
         systemctl is-enabled tmux-resurrect-save.service >/dev/null 2>&1; and set -a r "OK save service enabled"; or set -a r "MISSING save service (run tmux-setup)"
+    else
+        set -a r (__tmux_lives_persistence_status)
     end
     printf '%s\n' $r
 end

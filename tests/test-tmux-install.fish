@@ -43,4 +43,12 @@ __tmux_lives_remove_source_line $tc2 /frag.conf
 t "remove idempotent" 0 (grep -c 'source-file /frag.conf' $tc2)
 rm -f $tc2
 
+set -l pn (__tmux_lives_persistence_note)
+t "note mentions continuum"      1 (string match -q '*continuum*' -- "$pn"; and echo 1; or echo 0)
+t "note mentions restore"        1 (string match -q '*restore*' -- "$pn"; and echo 1; or echo 0)
+t "note drops 'spec 2'"          0 (string match -q '*spec 2*' -- "$pn"; and echo 1; or echo 0)
+set -l ps (__tmux_lives_persistence_status)
+t "status is an OK line"         1 (string match -q 'OK *' -- "$ps"; and echo 1; or echo 0)
+t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and echo 1; or echo 0)
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
