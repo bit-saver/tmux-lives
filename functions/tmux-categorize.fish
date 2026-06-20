@@ -547,6 +547,7 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|
         case 6a; echo down; return                  # j
         case 6b; echo up; return                    # k
         case 71; echo cancel; return                # q
+        case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
     end
     if test "$b" = 1b                                # ESC
@@ -657,6 +658,21 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
             case enter
                 set result (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
                 break
+            case kill
+                # x: confirm on the bottom row, then kill + refresh the list
+                set -l target (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
+                if test -n "$target"
+                    printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$target"
+                    set -l ans ''
+                    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read ans
+                    if test "$ans" = 79; or test "$ans" = 59   # y / Y
+                        tmux kill-session -t "=$target" 2>/dev/null
+                        set model (__tcz_overview)
+                        set n (count $model)
+                        test $n -gt 0; or break
+                        test $sel -ge $n; and set sel (math $n - 1)
+                    end
+                end
             case cancel
                 break
         end

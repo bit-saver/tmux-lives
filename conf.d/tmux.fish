@@ -59,7 +59,7 @@ function __tmux_prune --description 'Kill detached, idle-shell sessions older th
     end
 end
 
-# ---- categorize (logic lives in custom/scripts/tmux-categorize.fish) ----
+# ---- categorize (logic lives in functions/tmux-categorize.fish) ----
 # Spike result (2026-06-11, tmux 3.3a): a bare attach DOES immediately adopt the new
 # client's size — the stale-dimensions bug therefore comes from a lingering ShellFish
 # ghost re-taking "latest" status with later activity, so detaching stale clients

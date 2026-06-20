@@ -129,6 +129,8 @@ t "readkey CSI up"   up   (printf '\e[A' | __tcz_popup_readkey 2>/dev/null)
 t "readkey CSI down" down (printf '\e[B' | __tcz_popup_readkey 2>/dev/null)
 t "readkey j=down"   down (printf 'j'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL
