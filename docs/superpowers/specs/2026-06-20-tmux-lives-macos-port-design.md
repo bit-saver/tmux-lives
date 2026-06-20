@@ -1,7 +1,7 @@
 # tmux-lives macOS port — runtime-only persistence + portable detection
 
 - **Date:** 2026-06-20
-- **Status:** Approved (design)
+- **Status:** Implemented (Linux suites green; Mac live-smoke pending)
 - **Project:** tmux-lives (fisher plugin)
 - **Component:** install/setup layer (`tmux-lives-install.fish`), categorizer
   (`tmux-categorize.fish`), `ts` launcher (`tmux.fish`)

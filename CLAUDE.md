@@ -24,9 +24,7 @@ and `Opt+s` (`bind -n M-s`) open a pure-fish two-pane `display-popup`: categoriz
   `~/.config/fish/`. ⚠️ `fisher install/update` HANGS inside the Claude bash sandbox (parallel-fetch needs job
   control) — from a Claude session use the `cp` sync; the user can run `fisher update` themselves.
 
-**Remaining:** macOS port (spec 2 — launchd vs the `type -q systemctl` branches in
-`tmux-setup`/`teardown`/`status`); on the Mac, `fisher install bit-saver/tmux-lives` + add the
-`bind S` / `bind -n M-s` lines (or run `tmux-setup` for a fresh fragment).
+**macOS port (spec 2): implemented** — runtime-only persistence (no launchd units; continuum autosave + first-access restore), `/proc`→`ps` detection (`__tcz_pid_comm`/`__tcz_pid_cmdline`), bare-`ts` cold-start when no server. **Pending:** live Mac smoke (categorize as claude, cold-start `ts`, reboot-restore). On the Mac: `fisher install bit-saver/tmux-lives` + add `bind S` / `bind -n M-s` lines (or run `tmux-setup` for a fresh host).
 
 ## claude-mem history
 

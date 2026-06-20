@@ -19,6 +19,8 @@ tmux-setup     # wires ~/.tmux.conf, TPM plugins, and the systemd units
 tmux-status    # verify the install across every layer
 ```
 
+On Linux (systemd) `tmux-setup` also installs save-on-shutdown + restore-at-boot units. On macOS there are no launchd units — persistence is provided by tmux-continuum's autosave plus restore on your first `ts` / SSH login.
+
 Open a new tmux window afterward so the managed fragment is picked up.
 
 ## Uninstall
