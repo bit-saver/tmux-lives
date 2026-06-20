@@ -377,6 +377,17 @@ t "dispatcher dropped fzfpick"   no  (string match -q '*fzfpick*' -- "$main_src"
 set -l confd_list (string match -r 'contains -- \$cmd ([a-z ]+); or return' < $plugindir/conf.d/tmux.fish)[2]
 t "shell lists in sync" "$__tcz_shells" "$confd_list"
 
+# ---------------------------------------------------------------------
+# Portable pid inspection (B): /proc and ps branches must agree on Linux
+# ---------------------------------------------------------------------
+t "pid_comm /proc -> fish"      "fish" (__tcz_pid_comm $fish_pid)
+t "pid_cmdline /proc has fish"  "1"    (string match -q '*fish*' -- (__tcz_pid_cmdline $fish_pid); and echo 1; or echo 0)
+set -g tcz_force_ps 1
+t "pid_comm ps -> fish"         "fish" (__tcz_pid_comm $fish_pid)
+t "pid_cmdline ps has fish"     "1"    (string match -q '*fish*' -- (__tcz_pid_cmdline $fish_pid); and echo 1; or echo 0)
+set -e tcz_force_ps
+t "pid_comm empty pid -> empty" ""     (__tcz_pid_comm "")
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

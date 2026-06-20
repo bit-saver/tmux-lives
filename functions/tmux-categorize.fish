@@ -50,12 +50,33 @@ function __tcz_unique --description '__tcz_unique <desired> <taken...> -> collis
     echo "$desired-$n"
 end
 
+function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, ps elsewhere)'
+    set -l pid $argv[1]
+    test -n "$pid"; or return
+    if test -r /proc/$pid/comm; and not set -q tcz_force_ps
+        cat /proc/$pid/comm 2>/dev/null
+    else
+        set -l c (ps -o comm= -p $pid 2>/dev/null | string trim)
+        test -n "$c"; and path basename $c
+    end
+end
+
+function __tcz_pid_cmdline --description 'pid -> space-joined argv (portable: /proc on Linux, ps elsewhere)'
+    set -l pid $argv[1]
+    test -n "$pid"; or return
+    if test -r /proc/$pid/cmdline; and not set -q tcz_force_ps
+        string split0 < /proc/$pid/cmdline 2>/dev/null | string join ' '
+    else
+        ps -o args= -p $pid 2>/dev/null | string trim
+    end
+end
+
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
     # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.
     for pid in $argv[1] (pgrep -P $argv[1] 2>/dev/null)
-        test "$(cat /proc/$pid/comm 2>/dev/null)" = claude; or continue
-        set -l cmd (string split0 < /proc/$pid/cmdline 2>/dev/null | string join ' ')
+        test "$(__tcz_pid_comm $pid)" = claude; or continue
+        set -l cmd (__tcz_pid_cmdline $pid)
         set -l m (string match -r -- '--name\s+(.+)$' "$cmd")
         if test (count $m) -ge 2
             # Drop trailing flags (" --resume", " -r"). A name's " - Word" tail is safe:
@@ -74,7 +95,7 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     # tmux runs string commands via `sh -c`; a script named claude then reports
     # pane_current_command=sh while the kernel comm is claude.
     test "$argv[1]" = sh; or return 1
-    test "$(cat /proc/$argv[2]/comm 2>/dev/null)" = claude
+    test "$(__tcz_pid_comm $argv[2])" = claude
 end
 
 function __tcz_snapshot --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay'
