@@ -70,7 +70,7 @@ to avoid copy drift.
   ```
 - `--on-event tmux-lives-install_update` (on `fisher update`) prints to stdout:
   ```
-  ✓ tmux-lives updated — open a new shell (exec fish) to load it. `tmux-lives` for commands.
+  ✓ tmux-lives updated — open a new shell (exec fish) to load it. Run `tmux-lives` to see all commands.
   ```
 
 The handler functions are underscore-prefixed (e.g. `_tmux_lives_post_install` /
