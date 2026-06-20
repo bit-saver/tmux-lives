@@ -608,6 +608,13 @@ end
 
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
     __tcz_categorize >/dev/null 2>&1
+    # display-popup does NOT format-expand argv after `--`, so a bind passing
+    # '#{client_name}' delivers it literally. Resolve the real client from inside
+    # the popup when the arg is empty or still an unexpanded format — otherwise
+    # switch-client -c gets a bogus client and the switch silently fails.
+    if test -z "$client"; or string match -q '*#{*' -- "$client"
+        set client (tmux display-message -p '#{client_name}' 2>/dev/null)
+    end
     set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
     test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
