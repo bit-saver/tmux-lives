@@ -4,15 +4,29 @@
 ShellFish coexistence) extracted from `~/.config/fish` into a standalone, cross-platform
 **fisher plugin** (Linux now; macOS = spec 2).
 
-**Status (2026-06-18):** spec-1 extraction **done** (tagged `spec1-extraction-parity`, no
-behavior change) and the **ts popup switcher** is built — `prefix S`/`ts` open a pure-fish
-two-pane `display-popup` (categorized list + live `capture-pane` preview, non-selectable
-headers); `display-menu` is the no-`display-popup` fallback. All test suites pass (`for t in
-tests/test-*.fish; fish $t; end`). See `docs/superpowers/` for the specs/plans.
+**Status (2026-06-19): SHIPPED + LIVE on the Linux host.** spec-1 extraction done
+(`spec1-extraction-parity`) and the **ts popup switcher** is the live switcher — `prefix S`
+and `Opt+s` (`bind -n M-s`) open a pure-fish two-pane `display-popup`: categorized list
+(claude/running/general) with `╭──`/`│` category-colored border, `▐` selected block, muted-yellow
+`❯` current marker, live `capture-pane` preview. **Keys:** `↑↓`/`j`/`k` move · `Enter` switch ·
+`x` kill highlighted session (`kill <name>? (y/n)` confirm → kill + refresh) · `Esc`/`q` cancel.
+`display-menu` is the no-`display-popup` fallback. 8 suites pass: `for t in tests/test-*.fish; fish $t; end`.
 
-**NOT yet cut over:** the live, running system is still `~/.config/fish` until you run the
-cutover below. Two pieces remain: this cutover, and the macOS port (spec 2 — launchd vs the
-`type -q systemctl` branches in `tmux-setup`/`teardown`/`status`).
+### Live wiring (the cutover, done 2026-06-19 — REAL fisher install)
+- Installed via `fisher install bit-saver/tmux-lives` → files live at `~/.config/fish/{conf.d/tmux.fish,
+  conf.d/tmux-lives-install.fish, functions/tmux-categorize.fish}`, tracked in `fish_plugins` + `_fisher_plugins`.
+- `conf.d/tmux.fish` resolves the categorizer via `$__fish_config_dir/functions/tmux-categorize.fish` (portable).
+- `~/.tmux.conf` (hand-maintained, NOT via `tmux-setup` — would duplicate its existing resurrect/continuum/
+  sensible/yank) hardcodes the bind paths to `~/.config/fish/functions/tmux-categorize.fish`. `tmux-setup` is
+  for a FRESH host (e.g. the Mac); this host was reconciled in place.
+- **Dev loop from here:** edit → `for t in tests/test-*.fish; fish $t; end` → commit + push → then make it live:
+  `fisher update` (works in the user's interactive fish) OR `cp` the changed `conf.d/`+`functions/` files into
+  `~/.config/fish/`. ⚠️ `fisher install/update` HANGS inside the Claude bash sandbox (parallel-fetch needs job
+  control) — from a Claude session use the `cp` sync; the user can run `fisher update` themselves.
+
+**Remaining:** macOS port (spec 2 — launchd vs the `type -q systemctl` branches in
+`tmux-setup`/`teardown`/`status`); on the Mac, `fisher install bit-saver/tmux-lives` + add the
+`bind S` / `bind -n M-s` lines (or run `tmux-setup` for a fresh fragment).
 
 ## claude-mem history
 
