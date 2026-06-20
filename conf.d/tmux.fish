@@ -196,6 +196,11 @@ function ts --description 'Categorized tmux session switcher / creator. ts [name
             fish --no-config $tmux_categorize_script open-switcher "$client"
         return
     end
+    # No server yet (local shell, post-reboot): cold-start the full flow.
+    if not tmux has-session 2>/dev/null
+        __tmux_autostart   # restore → categorize → prune → pick/create → exec attach
+        return             # defensive: __tmux_autostart execs; only reached if stubbed (tests)
+    end
     # Outside tmux: truth-up names, then grouped numbered list, then attach.
     fish --no-config $tmux_categorize_script categorize 2>/dev/null
     set -l lines (fish --no-config $tmux_categorize_script overview)

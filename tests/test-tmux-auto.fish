@@ -137,6 +137,20 @@ rm -rf $rdir_d
 cleanup
 
 # ---------------------------------------------------------------------
+# Component C: bare `ts` cold-starts the full flow when no server runs.
+# (Stub __tmux_autostart; the real one execs and never returns.)
+# ---------------------------------------------------------------------
+cleanup
+set -e TMUX
+functions -c __tmux_autostart __tmux_autostart_real
+function __tmux_autostart; set -g g_autostart_fired 1; end
+set -g g_autostart_fired 0
+ts
+t "ts cold-starts autostart when no server" "1" "$g_autostart_fired"
+functions -e __tmux_autostart
+functions -c __tmux_autostart_real __tmux_autostart
+
+# ---------------------------------------------------------------------
 cleanup
 if test $FAIL -eq 0
     echo "ALL PASS"
