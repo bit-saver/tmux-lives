@@ -1,7 +1,7 @@
 # tmux-lives install guidance + `tmux-lives` help command
 
 - **Date:** 2026-06-20
-- **Status:** Approved (design)
+- **Status:** Implemented (Linux suites green)
 - **Project:** tmux-lives (fisher plugin)
 - **Component:** install/setup layer (`conf.d/tmux-lives-install.fish`)
 

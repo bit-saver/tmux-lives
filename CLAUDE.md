@@ -10,7 +10,7 @@ and `Opt+s` (`bind -n M-s`) open a pure-fish two-pane `display-popup`: categoriz
 (claude/running/general) with `╭──`/`│` category-colored border, `▐` selected block, muted-yellow
 `❯` current marker, live `capture-pane` preview. **Keys:** `↑↓`/`j`/`k` move · `Enter` switch ·
 `x` kill highlighted session (`kill <name>? (y/n)` confirm → kill + refresh) · `Esc`/`q` cancel.
-`display-menu` is the no-`display-popup` fallback. 8 suites pass: `for t in tests/test-*.fish; fish $t; end`.
+`display-menu` is the no-`display-popup` fallback. 8 suites pass: `for t in tests/test-*.fish; fish $t; end`. **`tmux-lives`** (bare/`-h`/`--help`) lists all commands; `fisher install`/`update` now print post-install/update guidance (handlers on `tmux-lives-install_install`/`_update`).
 
 ### Live wiring (the cutover, done 2026-06-19 — REAL fisher install)
 - Installed via `fisher install bit-saver/tmux-lives` → files live at `~/.config/fish/{conf.d/tmux.fish,

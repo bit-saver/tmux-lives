@@ -23,6 +23,8 @@ On Linux (systemd) `tmux-setup` also installs save-on-shutdown + restore-at-boot
 
 Open a new tmux window afterward so the managed fragment is picked up.
 
+Run `tmux-lives` at any time to list the commands and when to use each. After `fisher install` you'll see a one-line reminder to run `tmux-setup`.
+
 ## Uninstall
 
 ```fish
