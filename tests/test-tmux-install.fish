@@ -80,13 +80,13 @@ t "help mentions --switcher-key" 1 (string match -q '*--switcher-key*' -- "$hlp"
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
-# routing: stub a helper, confirm the dispatcher calls it
-functions -c __tmux_lives_take __tl_take_real
-function __tmux_lives_take; set -g _tl_routed "take:$argv[1]"; end
+# routing: stub an IN-SCOPE helper (teardown is defined in this file) + confirm dispatch
+functions -c __tmux_lives_teardown __tl_td_real
+function __tmux_lives_teardown; set -g _tl_routed teardown; end
 set -g _tl_routed ''
-tmux-lives take foo
-t "routes take -> helper" "take:foo" "$_tl_routed"
-functions -e __tmux_lives_take; functions -c __tl_take_real __tmux_lives_take
+tmux-lives teardown
+t "routes teardown -> helper" "teardown" "$_tl_routed"
+functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real
 function __tmux_lives_setup; end

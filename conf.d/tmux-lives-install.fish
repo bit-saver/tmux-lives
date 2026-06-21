@@ -212,7 +212,7 @@ function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist
         end
     end
     if test (count $argv) -gt 0
-        echo "tmux-lives setup: unknown/!incomplete option '$argv[1]'" >&2; return 1
+        echo "tmux-lives setup: unknown or incomplete option '$argv[1]'" >&2; return 1
     end
     __tmux_lives_setup
 end
