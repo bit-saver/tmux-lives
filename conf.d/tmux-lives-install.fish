@@ -173,44 +173,75 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     printf '%s\n' $r
 end
 
-function __tmux_lives_status --description 'tmux-lives: report install health across all layers'
-    echo "tmux-lives status:"
-    __tmux_lives_status_lines | sed 's/^/  /'
-end
-
 function __tmux_lives_help_hint --description 'Pointer to the tmux-lives help command'
     echo 'Run `tmux-lives` to see all commands.'
 end
 
-function tmux-lives --description 'tmux-lives: list commands and when to use each'
-    set -l err 0
-    switch "$argv[1]"
-        case '' help -h --help
-            # fall through: print help to stdout
-        case '*'
-            echo "tmux-lives: unknown command '$argv[1]'" >&2
-            set err 1
-    end
-    set -l lines \
+function __tmux_lives_help --description 'tmux-lives command list'
+    printf '%s\n' \
         'tmux-lives — categorized tmux sessions + persistence (fisher plugin)' \
         '' \
-        'Setup / lifecycle:' \
-        '  tmux-setup      wire ~/.tmux.conf + TPM/resurrect/continuum (run once on a new host;' \
-        '                  macOS: no launchd units — persistence via continuum + first-access restore)' \
-        '  tmux-status     check install health across every layer' \
-        '  tmux-teardown   remove the wiring (TPM plugins left in place)' \
+        'Usage: tmux-lives <command> [args]' \
         '' \
-        'Daily use:' \
-        '  ts [name]       switch/create a categorized session — popup inside tmux;' \
-        '                  with no name and no server, cold-starts your restored sessions' \
-        '  tmuxauto …      on | off | status | toggle  — control auto-attach on login' \
-        '  tmtake <name>   force-take a session (detach a stale/ghost client)' \
-        '  fixssh          refresh SSH_AUTH_SOCK inside a reattached session'
-    if test $err -eq 1
-        printf '%s\n' $lines >&2
-        return 1
+        'Setup / lifecycle:' \
+        '  setup [--prefix-key K] [--switcher-key K]   wire ~/.tmux.conf + TPM/resurrect/continuum;' \
+        '                                              set switcher keys (defaults: prefix S, Opt+s=M-s;' \
+        '                                              empty value disables that bind)' \
+        '  status                                      check install health (incl. switcher keys)' \
+        '  teardown                                    remove the wiring (TPM plugins left in place)' \
+        '' \
+        'Daily:' \
+        '  switch [name]                               switch/create a categorized session' \
+        '  auto on|off|status|toggle                   control auto-attach on SSH login' \
+        '  take <name>                                 force-take a session (detach a stale/ghost client)' \
+        '  fixssh                                      refresh SSH_AUTH_SOCK inside a reattached session' \
+        '  help                                        this list' \
+        '' \
+        'Tip: create your own aliases, e.g. `alias ts="tmux-lives switch"`.'
+end
+
+function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist as universal vars), then run setup'
+    while test (count $argv) -ge 2
+        switch $argv[1]
+            case --prefix-key
+                set -U tmux_lives_prefix_key $argv[2]; set -e argv[1..2]
+            case --switcher-key
+                set -U tmux_lives_switcher_key $argv[2]; set -e argv[1..2]
+            case '*'
+                echo "tmux-lives setup: unknown option '$argv[1]'" >&2; return 1
+        end
     end
-    printf '%s\n' $lines
+    if test (count $argv) -gt 0
+        echo "tmux-lives setup: unknown/!incomplete option '$argv[1]'" >&2; return 1
+    end
+    __tmux_lives_setup
+end
+
+function tmux-lives --description 'tmux-lives: unified command — setup/status/teardown/switch/auto/take/fixssh'
+    set -l cmd $argv[1]
+    switch "$cmd"
+        case '' help -h --help
+            __tmux_lives_help
+        case setup
+            __tmux_lives_setup_cmd $argv[2..]
+        case status
+            echo "tmux-lives status:"
+            __tmux_lives_status_lines | sed 's/^/  /'
+        case teardown
+            __tmux_lives_teardown
+        case switch
+            __tmux_lives_switch $argv[2..]
+        case auto
+            __tmux_lives_auto $argv[2..]
+        case take
+            __tmux_lives_take $argv[2..]
+        case fixssh
+            __tmux_lives_fixssh
+        case '*'
+            echo "tmux-lives: unknown command '$cmd'" >&2
+            __tmux_lives_help >&2
+            return 1
+    end
 end
 
 function _tmux_lives_post_install --on-event tmux-lives-install_install --description 'Post-install guidance'
