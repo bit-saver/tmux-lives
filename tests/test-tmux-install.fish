@@ -77,6 +77,8 @@ t "help lists switch"    1 (string match -q '*switch *' -- "$hlp"; and echo 1; o
 t "help lists auto"      1 (string match -q '*auto *' -- "$hlp"; and echo 1; or echo 0)
 t "help mentions --prefix-key"   1 (string match -q '*--prefix-key*' -- "$hlp"; and echo 1; or echo 0)
 t "help mentions --switcher-key" 1 (string match -q '*--switcher-key*' -- "$hlp"; and echo 1; or echo 0)
+t "help shows -p short flag"     1 (string match -q '*-p, --prefix-key*' -- "$hlp"; and echo 1; or echo 0)
+t "help shows -s short flag"     1 (string match -q '*-s, --switcher-key*' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
@@ -94,6 +96,10 @@ set -e tmux_lives_prefix_key tmux_lives_switcher_key
 tmux-lives setup --prefix-key C-a --switcher-key C-s
 t "flag persists prefix-key"   "C-a" "$tmux_lives_prefix_key"
 t "flag persists switcher-key" "C-s" "$tmux_lives_switcher_key"
+set -e tmux_lives_prefix_key tmux_lives_switcher_key
+tmux-lives setup -p C-b -s C-t
+t "short -p persists" "C-b" "$tmux_lives_prefix_key"
+t "short -s persists" "C-t" "$tmux_lives_switcher_key"
 set -e tmux_lives_prefix_key tmux_lives_switcher_key
 functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
 

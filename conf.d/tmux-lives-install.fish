@@ -182,33 +182,35 @@ end
 
 function __tmux_lives_help --description 'tmux-lives command list'
     printf '%s\n' \
-        'tmux-lives — categorized tmux sessions + persistence (fisher plugin)' \
+        'tmux-lives — categorized tmux sessions, switcher & persistence' \
         '' \
-        'Usage: tmux-lives <command> [args]' \
+        'Usage:  tmux-lives <command> [options]' \
         '' \
-        'Setup / lifecycle:' \
-        '  setup [--prefix-key K] [--switcher-key K]   wire ~/.tmux.conf + TPM/resurrect/continuum;' \
-        '                                              set switcher keys (defaults: prefix S, Opt+s=M-s;' \
-        '                                              empty value disables that bind)' \
-        '  status                                      check install health (incl. switcher keys)' \
-        '  teardown                                    remove the wiring (TPM plugins left in place)' \
+        'Setup' \
+        '  setup                       install: wire ~/.tmux.conf, TPM, resurrect, continuum' \
+        '    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S)' \
+        '    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s)' \
+        "                              pass '' to disable a bind" \
+        '  status                      install health + the active switcher keys' \
+        '  teardown                    un-wire from ~/.tmux.conf (plugin & TPM kept)' \
         '' \
-        'Daily:' \
-        '  switch [name]                               switch/create a categorized session' \
-        '  auto on|off|status|toggle                   control auto-attach on SSH login' \
-        '  take <name>                                 force-take a session (detach a stale/ghost client)' \
-        '  fixssh                                      refresh SSH_AUTH_SOCK inside a reattached session' \
-        '  help                                        this list' \
+        'Session' \
+        '  switch [name]               open the switcher, or go to / create <name>' \
+        '  auto on|off|toggle|status   auto-attach to tmux on SSH login' \
+        '  take <name>                 grab a session, detaching a stale client' \
+        '  fixssh                      repair the SSH agent socket after reconnecting' \
         '' \
-        'Tip: create your own aliases, e.g. `alias ts="tmux-lives switch"`.'
+        '  help                        show this help  (-h, --help)' \
+        '' \
+        "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives switch'"
 end
 
 function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist as universal vars), then run setup'
     while test (count $argv) -ge 2
         switch $argv[1]
-            case --prefix-key
+            case -p --prefix-key
                 set -U tmux_lives_prefix_key $argv[2]; set -e argv[1..2]
-            case --switcher-key
+            case -s --switcher-key
                 set -U tmux_lives_switcher_key $argv[2]; set -e argv[1..2]
             case '*'
                 echo "tmux-lives setup: unknown option '$argv[1]'" >&2; return 1
