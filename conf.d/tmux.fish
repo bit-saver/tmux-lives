@@ -177,7 +177,7 @@ function __tmux_autostart --description 'Restore (first login after reboot), cat
 end
 
 # ---- user commands ----
-function ts --description 'Categorized tmux session switcher / creator. ts [name]'
+function __tmux_lives_switch --description 'Categorized tmux session switcher / creator. ts [name]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
@@ -209,7 +209,7 @@ function ts --description 'Categorized tmux session switcher / creator. ts [name
     fish --no-config $tmux_categorize_script categorize 2>/dev/null
     set -l lines (fish --no-config $tmux_categorize_script overview)
     if test (count $lines) -eq 0
-        echo "No sessions. Create one with: ts <name>"
+        echo "No sessions. Create one with: tmux-lives switch <name>"
         return 1
     end
     set -l TAB (printf '\t')
@@ -259,7 +259,7 @@ function __tmux_categorize_on_postexec --on-event fish_postexec --description 'R
     disown
 end
 
-function tmuxauto --description 'Control auto-tmux: on|off|status|toggle'
+function __tmux_lives_auto --description 'Control auto-tmux: on|off|status|toggle'
     switch "$argv[1]"
         case off
             mkdir -p (path dirname "$tmux_auto_sentinel")
@@ -270,9 +270,9 @@ function tmuxauto --description 'Control auto-tmux: on|off|status|toggle'
             echo "auto-tmux: ON"
         case toggle
             if test -e "$tmux_auto_sentinel"
-                tmuxauto on
+                __tmux_lives_auto on
             else
-                tmuxauto off
+                __tmux_lives_auto off
             end
         case '' status
             if __tmux_auto_enabled
@@ -283,14 +283,14 @@ function tmuxauto --description 'Control auto-tmux: on|off|status|toggle'
                 echo "auto-tmux: OFF (sentinel: $tmux_auto_sentinel)"
             end
         case '*'
-            echo "usage: tmuxauto on|off|status|toggle" >&2
+            echo "usage: tmux-lives auto on|off|status|toggle" >&2
             return 1
     end
 end
 
-function fixssh --description 'Refresh SSH_AUTH_SOCK and friends from the tmux session environment'
+function __tmux_lives_fixssh --description 'Refresh SSH_AUTH_SOCK and friends from the tmux session environment'
     if not set -q TMUX
-        echo "fixssh: not inside tmux" >&2
+        echo "tmux-lives fixssh: not inside tmux" >&2
         return 1
     end
     for var in SSH_AUTH_SOCK SSH_CONNECTION SSH_CLIENT DISPLAY
@@ -301,7 +301,7 @@ function fixssh --description 'Refresh SSH_AUTH_SOCK and friends from the tmux s
     end
 end
 
-function tmtake --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
+function __tmux_lives_take --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
     if test -z "$session"
         tmux list-sessions 2>/dev/null
         return

@@ -79,7 +79,7 @@ function __tmux_lives_persistence_status --description 'macOS/non-systemd persis
     echo "OK persistence via continuum autosave + first-access restore"
 end
 
-function tmux-setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
+function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
@@ -122,7 +122,7 @@ function __tmux_lives_remove_source_line --description 'Remove the fragment sour
     mv $tmp $tmux_conf
 end
 
-function tmux-teardown --description 'tmux-lives: remove fragment + tmux.conf wiring + systemd units'
+function __tmux_lives_teardown --description 'tmux-lives: remove fragment + tmux.conf wiring + systemd units'
     set -l fragment "$HOME/.config/tmux/tmux-lives.conf"
     __tmux_lives_remove_source_line "$HOME/.tmux.conf" $fragment
     rm -f $fragment
@@ -155,7 +155,7 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     printf '%s\n' $r
 end
 
-function tmux-status --description 'tmux-lives: report install health across all layers'
+function __tmux_lives_status --description 'tmux-lives: report install health across all layers'
     echo "tmux-lives status:"
     __tmux_lives_status_lines | sed 's/^/  /'
 end

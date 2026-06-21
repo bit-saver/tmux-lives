@@ -110,9 +110,9 @@ set -e SSH_CONNECTION
 # tmuxauto on/off/status
 # ---------------------------------------------------------------------
 rm -f $tmux_auto_sentinel
-tmuxauto off >/dev/null
+__tmux_lives_auto off >/dev/null
 t "tmuxauto off creates sentinel" "yes" (test -e $tmux_auto_sentinel; and echo yes; or echo no)
-tmuxauto on >/dev/null
+__tmux_lives_auto on >/dev/null
 t "tmuxauto on removes sentinel"  "no"  (test -e $tmux_auto_sentinel; and echo yes; or echo no)
 rm -f $tmux_auto_sentinel
 
@@ -145,7 +145,7 @@ set -e TMUX
 functions -c __tmux_autostart __tmux_autostart_real
 function __tmux_autostart; set -g g_autostart_fired 1; end
 set -g g_autostart_fired 0
-ts
+__tmux_lives_switch
 t "ts cold-starts autostart when no server" "1" "$g_autostart_fired"
 functions -e __tmux_autostart
 functions -c __tmux_autostart_real __tmux_autostart
