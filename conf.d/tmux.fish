@@ -153,6 +153,10 @@ function __tmux_should_autostart --description 'True when an SSH login should au
     __tmux_auto_enabled
 end
 
+function __tmux_trace_in_function --description 'True if a stack-trace blob shows an enclosing function (e.g. fisher sourcing conf.d), i.e. NOT a genuine top-level startup'
+    string match -q '*in function*' -- "$argv"
+end
+
 # ---- orchestrator ----
 function __tmux_autostart --description 'Restore (first login after reboot), categorize, prune, then attach or create'
     command -q tmux; or return
@@ -306,6 +310,10 @@ function tmtake --argument-names session --description 'Force-take a tmux sessio
 end
 
 # ---- trigger (interactive SSH logins only) ----
-if status is-interactive; and __tmux_should_autostart
+# Skip when this file is being SOURCED from within a function — fisher re-sources
+# conf.d on install/update, and that is never a genuine login; letting
+# __tmux_autostart exec tmux there would hijack the install (no summary, partial
+# state). A real top-level startup source has no enclosing function in the trace.
+if status is-interactive; and not __tmux_trace_in_function (status print-stack-trace | string collect); and __tmux_should_autostart
     __tmux_autostart
 end

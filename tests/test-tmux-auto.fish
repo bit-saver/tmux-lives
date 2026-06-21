@@ -151,6 +151,19 @@ functions -e __tmux_autostart
 functions -c __tmux_autostart_real __tmux_autostart
 
 # ---------------------------------------------------------------------
+# Autostart guard: the trigger must NOT fire when conf.d/tmux.fish is SOURCED
+# from within a function (fisher install/update re-sources conf.d) — only at a
+# genuine top-level startup source. __tmux_trace_in_function is the pure matcher
+# behind that guard; the inline `status print-stack-trace` capture is verified on
+# a real host. `string match` returns 0 on match (an enclosing function present).
+# ---------------------------------------------------------------------
+t "trace-guard: fisher-source trace detected" "0" \
+    (__tmux_trace_in_function "from sourcing file /x/conf.d/tmux.fish in function 'fisher'"; echo $status)
+t "trace-guard: startup trace (no function) passes" "1" \
+    (__tmux_trace_in_function "from sourcing file /x/conf.d/tmux.fish"; echo $status)
+t "trace-guard: empty trace passes" "1" (__tmux_trace_in_function ""; echo $status)
+
+# ---------------------------------------------------------------------
 cleanup
 if test $FAIL -eq 0
     echo "ALL PASS"
