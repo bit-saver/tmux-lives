@@ -27,7 +27,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         "    }" \
         "}" \
         "set -ga update-environment \"LC_TERMINAL\"" \
-        "set -ga update-environment \"LC_TERMINAL_VERSION\""
+        "set -ga update-environment \"LC_TERMINAL_VERSION\"" \
+        "# Load the declared plugins via TPM (tmux-setup clones them). Without this" \
+        "# line they are present on disk but never sourced — no resurrect save/restore" \
+        "# and no continuum autosave (the only macOS persistence). Keep it LAST so TPM" \
+        "# sees the @plugin/@*-settings above." \
+        "run '~/.tmux/plugins/tpm/tpm'"
 end
 
 function __tmux_lives_save_unit_text --description 'systemd save-on-shutdown unit text'
