@@ -89,7 +89,7 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
     end
 end
 
-function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-setup)'
+function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-lives setup)'
     echo "no systemd — persistence via continuum autosave + restore on first 'tmux-lives switch'/SSH login"
 end
 
