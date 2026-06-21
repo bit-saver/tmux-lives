@@ -4,7 +4,7 @@ source $plugindir/conf.d/tmux-lives-install.fish
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
 
-set -l frag (__tmux_lives_render_fragment /X/cat.fish | string collect)
+set -l frag (__tmux_lives_render_fragment /X/cat.fish S M-s | string collect)
 t "fragment has categorizer path" 1 (string match -q '*/X/cat.fish*' -- "$frag"; and echo 1; or echo 0)
 t "fragment has update-environment" 1 (string match -q '*update-environment*LC_TERMINAL*' -- "$frag"; and echo 1; or echo 0)
 t "fragment has commandeer hook" 1 (string match -q '*client-session-changed*' -- "$frag"; and echo 1; or echo 0)
@@ -15,6 +15,24 @@ t "fragment binds S to popup subcommand"     1 (string match -q '*display-popup*
 t "fragment fallback uses menu"   1 (string match -q '*run-shell*menu*' -- "$frag"; and echo 1; or echo 0)
 t "fragment LC_TERMINAL_VERSION" 1 (string match -q '*LC_TERMINAL_VERSION*' -- "$frag"; and echo 1; or echo 0)
 t "fragment runs tpm to load plugins" 1 (string match -q "*run '~/.tmux/plugins/tpm/tpm'*" -- "$frag"; and echo 1; or echo 0)
+t "fragment binds prefix S"        1 (string match -q '*bind-key S display-popup*' -- "$frag"; and echo 1; or echo 0)
+t "fragment binds no-prefix M-s"   1 (string match -q '*bind-key -n M-s display-popup*' -- "$frag"; and echo 1; or echo 0)
+t "fragment menu fallback both"    1 (string match -q '*bind-key -n M-s run-shell*' -- "$frag"; and echo 1; or echo 0)
+set -l fragc (__tmux_lives_render_fragment /X/cat.fish C-a C-s | string collect)
+t "fragment custom prefix key"     1 (string match -q '*bind-key C-a display-popup*' -- "$fragc"; and echo 1; or echo 0)
+t "fragment custom switcher key"   1 (string match -q '*bind-key -n C-s display-popup*' -- "$fragc"; and echo 1; or echo 0)
+set -l fragp (__tmux_lives_render_fragment /X/cat.fish S '' | string collect)
+t "disabled switcher: no -n bind"  0 (string match -q '*bind-key -n*' -- "$fragp"; and echo 1; or echo 0)
+t "disabled switcher: prefix kept" 1 (string match -q '*bind-key S display-popup*' -- "$fragp"; and echo 1; or echo 0)
+set -l frags (__tmux_lives_render_fragment /X/cat.fish '' M-s | string collect)
+t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frags"; and echo 1; or echo 0)
+# resolver
+set -U _tl_k C-x
+t "key: set var wins"   "C-x" (__tmux_lives_key _tl_k S)
+set -U _tl_k ''
+t "key: empty disables" ""    (__tmux_lives_key _tl_k S)
+set -e _tl_k
+t "key: unset -> default" "S" (__tmux_lives_key _tl_k S)
 
 set -l u (__tmux_lives_save_unit_text alice 1234 | string collect)
 t "unit uid"       1 (string match -q '*user@1234.service*' -- "$u"; and echo 1; or echo 0)
