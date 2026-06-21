@@ -177,7 +177,7 @@ function __tmux_autostart --description 'Restore (first login after reboot), cat
 end
 
 # ---- user commands ----
-function __tmux_lives_switch --description 'Categorized tmux session switcher / creator. ts [name]'
+function __tmux_lives_switch --description 'Categorized tmux session switcher / creator. tmux-lives switch [name]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
