@@ -388,6 +388,17 @@ t "pid_cmdline ps has fish"     "1"    (string match -q '*fish*' -- (__tcz_pid_c
 set -e tcz_force_ps
 t "pid_comm empty pid -> empty" ""     (__tcz_pid_comm "")
 
+# ---------------------------------------------------------------------
+# Regression: fisher SOURCES this file during install/update. A top-level
+# `return` in the sourced file propagates out of fisher's OWN function and
+# aborts the install (no post-install message, no fisher summary, files copied
+# but fish_plugins not committed). Sourcing it inside a function — clean
+# subshell so tmux_categorize_test is unset and argv is empty, exactly like
+# fisher — MUST NOT abort the caller.
+# ---------------------------------------------------------------------
+t "fisher-safe: sourcing categorizer doesn't abort caller" "CONTINUED" \
+    (fish -c "function f; source $plugindir/functions/tmux-categorize.fish; echo CONTINUED; end; f")
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

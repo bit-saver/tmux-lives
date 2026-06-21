@@ -765,7 +765,11 @@ function __tcz_main
     end
 end
 
-if not set -q tmux_categorize_test
-    test (count $argv) -gt 0; or return 0
+# Script entrypoint. This file lives in functions/, so fisher SOURCES it on
+# install/update — a top-level `return` here would propagate out of fisher's own
+# function and abort the install (files copied, but no events emitted and no
+# summary). So gate the dispatcher with a single `if` and NO top-level return:
+# run only when invoked as a script (args present) and not under test.
+if not set -q tmux_categorize_test; and test (count $argv) -gt 0
     __tcz_main $argv
 end
