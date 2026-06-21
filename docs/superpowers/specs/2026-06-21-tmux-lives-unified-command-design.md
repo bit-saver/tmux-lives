@@ -1,7 +1,7 @@
 # tmux-lives unified command + configurable switcher keys
 
 - **Date:** 2026-06-21
-- **Status:** Approved (design)
+- **Status:** Implemented (Linux suites green; Mac live-smoke pending)
 - **Project:** tmux-lives (fisher plugin)
 - **Component:** command surface (`conf.d/tmux-lives-install.fish` + `conf.d/tmux.fish`)
 

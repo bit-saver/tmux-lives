@@ -99,8 +99,8 @@ functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
 
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
-t "install msg names tmux-setup"  1 (string match -q '*tmux-setup*' -- "$inst"; and echo 1; or echo 0)
-t "install msg names tmux-status" 1 (string match -q '*tmux-status*' -- "$inst"; and echo 1; or echo 0)
+t "install msg names tmux-lives setup"  1 (string match -q '*tmux-lives setup*' -- "$inst"; and echo 1; or echo 0)
+t "install msg names tmux-lives status" 1 (string match -q '*tmux-lives status*' -- "$inst"; and echo 1; or echo 0)
 set -l upd (_tmux_lives_post_update | string collect)
 t "update msg says exec fish"     1 (string match -q '*exec fish*' -- "$upd"; and echo 1; or echo 0)
 # Wiring — the dashed --on-event names are actually registered.

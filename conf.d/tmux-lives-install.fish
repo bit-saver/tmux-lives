@@ -90,7 +90,7 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
 end
 
 function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-setup)'
-    echo "no systemd — persistence via continuum autosave + restore on first ts/SSH login"
+    echo "no systemd — persistence via continuum autosave + restore on first 'tmux-lives switch'/SSH login"
 end
 
 function __tmux_lives_persistence_status --description 'macOS/non-systemd persistence status line'
@@ -104,10 +104,10 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
 
     mkdir -p $tmuxdir
     __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) > $fragment
-    echo "tmux-setup: wrote $fragment"
+    echo "tmux-lives setup: wrote $fragment"
 
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
-    echo "tmux-setup: ensured source-file line in ~/.tmux.conf"
+    echo "tmux-lives setup: ensured source-file line in ~/.tmux.conf"
 
     set -l tpm "$HOME/.tmux/plugins/tpm"
     test -d $tpm; or git clone -q https://github.com/tmux-plugins/tpm $tpm
@@ -115,21 +115,21 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
         set -l d "$HOME/.tmux/plugins/$p"
         test -d $d; or git clone -q https://github.com/tmux-plugins/$p $d
     end
-    echo "tmux-setup: TPM + resurrect + continuum present"
+    echo "tmux-lives setup: TPM + resurrect + continuum present"
 
     if type -q systemctl
         set -l user (id -un); set -l uid (id -u)
-        echo "tmux-setup: installing systemd units (sudo required)…"
+        echo "tmux-lives setup: installing systemd units (sudo required)…"
         __tmux_lives_save_unit_text $user $uid | sudo tee /etc/systemd/system/tmux-resurrect-save.service >/dev/null
         __tmux_lives_restore_unit_text $user $uid | sudo tee /etc/systemd/system/tmux-resurrect-restore.service >/dev/null
         sudo systemctl daemon-reload
         sudo systemctl enable --now tmux-resurrect-save.service
         sudo systemctl enable tmux-resurrect-restore.service
-        echo "tmux-setup: systemd units installed + enabled"
+        echo "tmux-lives setup: systemd units installed + enabled"
     else
-        echo "tmux-setup: "(__tmux_lives_persistence_note)
+        echo "tmux-lives setup: "(__tmux_lives_persistence_note)
     end
-    echo "tmux-setup: done — run tmux-status to verify, and open a NEW tmux window to pick up the fragment."
+    echo "tmux-lives setup: done — run tmux-lives status to verify, and open a NEW tmux window to pick up the fragment."
 end
 
 function __tmux_lives_remove_source_line --description 'Remove the fragment source-file line'
@@ -144,16 +144,16 @@ function __tmux_lives_teardown --description 'tmux-lives: remove fragment + tmux
     set -l fragment "$HOME/.config/tmux/tmux-lives.conf"
     __tmux_lives_remove_source_line "$HOME/.tmux.conf" $fragment
     rm -f $fragment
-    echo "tmux-teardown: removed fragment + source-file line"
+    echo "tmux-lives teardown: removed fragment + source-file line"
     if type -q systemctl
-        echo "tmux-teardown: removing systemd units (sudo)…"
+        echo "tmux-lives teardown: removing systemd units (sudo)…"
         sudo systemctl disable --now tmux-resurrect-save.service 2>/dev/null
         sudo systemctl disable tmux-resurrect-restore.service 2>/dev/null
         sudo rm -f /etc/systemd/system/tmux-resurrect-{save,restore}.service
         sudo systemctl daemon-reload
-        echo "tmux-teardown: systemd units removed"
+        echo "tmux-lives teardown: systemd units removed"
     end
-    echo "tmux-teardown: done. (TPM plugins under ~/.tmux/plugins left in place.)"
+    echo "tmux-lives teardown: done. (TPM plugins under ~/.tmux/plugins left in place.)"
 end
 
 function __tmux_lives_status_lines --description 'One status line per tmux-lives layer'
@@ -162,14 +162,17 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     set -l r
     test -f "$__fish_config_dir/conf.d/tmux.fish"; and set -a r "OK conf.d/tmux.fish deployed"; or set -a r "MISSING conf.d/tmux.fish (fisher install …)"
     test -f $cat; and set -a r "OK categorizer deployed"; or set -a r "MISSING categorizer"
-    test -f $fragment; and set -a r "OK tmux fragment present"; or set -a r "MISSING tmux fragment (run tmux-setup)"
+    test -f $fragment; and set -a r "OK tmux fragment present"; or set -a r "MISSING tmux fragment (run tmux-lives setup)"
     grep -qF -- "source-file $fragment" "$HOME/.tmux.conf" 2>/dev/null; and set -a r "OK ~/.tmux.conf sources fragment"; or set -a r "MISSING source-file line"
     test -d "$HOME/.tmux/plugins/tmux-resurrect"; and set -a r "OK tmux-resurrect present"; or set -a r "MISSING tmux-resurrect"
     if type -q systemctl
-        systemctl is-enabled tmux-resurrect-save.service >/dev/null 2>&1; and set -a r "OK save service enabled"; or set -a r "MISSING save service (run tmux-setup)"
+        systemctl is-enabled tmux-resurrect-save.service >/dev/null 2>&1; and set -a r "OK save service enabled"; or set -a r "MISSING save service (run tmux-lives setup)"
     else
         set -a r (__tmux_lives_persistence_status)
     end
+    set -l pk (__tmux_lives_key tmux_lives_prefix_key S); test -n "$pk"; or set pk '(off)'
+    set -l sk (__tmux_lives_key tmux_lives_switcher_key M-s); test -n "$sk"; or set sk '(off)'
+    set -a r "OK switcher keys: prefix=$pk  no-prefix=$sk"
     printf '%s\n' $r
 end
 
@@ -247,8 +250,8 @@ end
 function _tmux_lives_post_install --on-event tmux-lives-install_install --description 'Post-install guidance'
     printf '%s\n' \
         '✓ tmux-lives installed. To finish on a new host:' \
-        '    tmux-setup     # wire tmux + plugins' \
-        '    tmux-status    # verify' \
+        '    tmux-lives setup     # wire tmux + plugins' \
+        '    tmux-lives status    # verify' \
         '  then open a new tmux window. '(__tmux_lives_help_hint)
 end
 
