@@ -215,46 +215,11 @@ function __tmux_lives_picker --description 'Categorized tmux session switcher / 
             fish --no-config $tmux_categorize_script open-switcher "$client"
         return
     end
-    # No server yet (local shell, post-reboot): cold-start the full flow.
-    if not tmux has-session 2>/dev/null
-        __tmux_autostart   # restore → categorize → prune → pick/create → exec attach
-        return             # defensive: __tmux_autostart execs; only reached if stubbed (tests)
-    end
-    # Outside tmux: truth-up names, then grouped numbered list, then attach.
-    fish --no-config $tmux_categorize_script categorize 2>/dev/null
-    set -l lines (fish --no-config $tmux_categorize_script overview)
-    if test (count $lines) -eq 0
-        echo "No sessions. Create one with: tmux-lives picker <name>"
-        return 1
-    end
-    set -l TAB (printf '\t')
-    set -l names
-    set -l group ''
-    set -l i 0
-    for line in $lines
-        set -l f (string split -m 4 $TAB -- $line)
-        test (count $f) -ge 5; or continue
-        if test "$f[2]" != "$group"
-            set group $f[2]
-            # Same palette as the display-menu headers (ff8700 ≈ tmux colour208 orange).
-            set -l hcol ff8700
-            test "$group" = running; and set hcol cyan
-            test "$group" = general; and set hcol green
-            set_color --bold $hcol; echo "$group:"; set_color normal
-        end
-        set i (math $i + 1)
-        set -a names $f[1]
-        set -l att ''
-        test "$f[3]" = 1; and set att '  [attached]'
-        printf '  %2d) %s%s\n' $i "$f[5]" "$att"
-    end
-    echo
-    read -P 'switch to: ' pick
-    string match -qr '^[0-9]+$' -- "$pick"
-    and test "$pick" -ge 1 -a "$pick" -le (count $names)
-    or return 0
-    __tmux_detach_ghosts "$names[$pick]"
-    tmux attach-session -t "=$names[$pick]"
+    # Outside tmux: drop in the same way `tmux-lives start` / an SSH login does —
+    # restore (first boot) → categorize → prune → attach the MRU general session, or
+    # create one. (The grouped numbered list was retired; once you're in, use the
+    # popup — prefix S / Opt+s — to switch between sessions.)
+    __tmux_autostart
 end
 
 # ---- rename hooks (inside tmux only) ----

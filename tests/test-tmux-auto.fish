@@ -137,8 +137,9 @@ rm -rf $rdir_d
 cleanup
 
 # ---------------------------------------------------------------------
-# bare `picker` (formerly ts/switch) cold-starts the full flow when no server runs.
-# (Stub __tmux_autostart; the real one execs and never returns.)
+# bare `picker` (formerly ts/switch), run OUTSIDE tmux, auto-attaches via
+# __tmux_autostart whether or not a server is running. The old grouped numbered
+# picker (server-exists branch) was retired. (Stub __tmux_autostart; it execs.)
 # ---------------------------------------------------------------------
 cleanup
 set -e TMUX
@@ -146,7 +147,18 @@ functions -c __tmux_autostart __tmux_autostart_real
 function __tmux_autostart; set -g g_autostart_fired 1; end
 set -g g_autostart_fired 0
 __tmux_lives_picker
-t "picker cold-starts autostart when no server" "1" "$g_autostart_fired"
+t "picker auto-attaches when no server" "1" "$g_autostart_fired"
+# server already running → still auto-attaches, NOT a numbered picker. A noop
+# categorizer + </dev/null keeps the pre-fix path from touching the real tmux.
+set -l real_script $tmux_categorize_script
+set -g tmux_categorize_script /tmp/tcz-noop-$fish_pid.fish
+printf '#!/usr/bin/env fish\n' > $tmux_categorize_script
+tmux new-session -d -s existing
+set -g g_autostart_fired 0
+__tmux_lives_picker </dev/null >/dev/null
+t "picker auto-attaches with a server (no numbered list)" "1" "$g_autostart_fired"
+set -g tmux_categorize_script $real_script
+rm -f /tmp/tcz-noop-$fish_pid.fish
 functions -e __tmux_autostart
 functions -c __tmux_autostart_real __tmux_autostart
 
