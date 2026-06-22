@@ -1,2 +1,8 @@
 /artifacts/
 *.bak
+# Added by code-review-graph
+.code-review-graph/
+# Local AI-tooling config — present in the working dir, not part of the plugin
+.claude/
+.mcp.json
+.opencode.json
