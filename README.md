@@ -15,15 +15,12 @@ It keeps tmux sessions self-categorizing (claude / running / general), auto-atta
 
 ```fish
 fisher install bit-saver/tmux-lives
-tmux-lives setup     # wires ~/.tmux.conf, TPM plugins, and the systemd units
-tmux-lives verify    # check install health across every layer
+tmux-lives setup     # wires ~/.tmux.conf + plugins, then reloads a running tmux
 ```
 
-On Linux (systemd) `tmux-lives setup` also installs save-on-shutdown + restore-at-boot units. On macOS there are no launchd units — persistence is provided by tmux-continuum's autosave plus restore on your first `tmux-lives switch` / SSH login.
+That's it — `tmux-lives setup` reloads tmux for you if it's running (otherwise the wiring loads when tmux next starts). On Linux (systemd) it also installs save-on-shutdown + restore-at-boot units; on macOS there are no launchd units — persistence is tmux-continuum's autosave plus restore on your first `tmux-lives switch` / SSH login.
 
-Open a new tmux window afterward so the managed fragment is picked up.
-
-Run `tmux-lives` at any time to list all commands and when to use each. After `fisher install` you'll see a one-line reminder.
+Run `tmux-lives verify` anytime to check install health, and `tmux-lives` to list every command. After `fisher install` you'll see a one-line reminder.
 
 ## Commands
 

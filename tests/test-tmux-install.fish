@@ -119,7 +119,8 @@ functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
 t "install msg names tmux-lives setup"  1 (string match -q '*tmux-lives setup*' -- "$inst"; and echo 1; or echo 0)
-t "install msg names tmux-lives verify" 1 (string match -q '*tmux-lives verify*' -- "$inst"; and echo 1; or echo 0)
+t "install msg points to full help"        1 (string match -q '*to see all commands*' -- "$inst"; and echo 1; or echo 0)
+t "install msg drops separate verify step"  0 (string match -q '*tmux-lives verify*' -- "$inst"; and echo 1; or echo 0)
 set -l upd (_tmux_lives_post_update | string collect)
 t "update msg says exec fish"     1 (string match -q '*exec fish*' -- "$upd"; and echo 1; or echo 0)
 # Wiring — the dashed --on-event names are actually registered.
@@ -127,5 +128,28 @@ functions --handlers | grep -qE 'tmux-lives-install_install[[:space:]]+_tmux_liv
 t "install handler wired to dashed event" 0 $status
 functions --handlers | grep -qE 'tmux-lives-install_update[[:space:]]+_tmux_lives_post_update'
 t "update handler wired to dashed event"  0 $status
+
+# ---------------------------------------------------------------------
+# __tmux_lives_reload: source the conf into a RUNNING tmux (so `setup` needs no
+# manual reload), no-op when no server (fresh host). Isolated tmux via a PATH
+# shim (-L socket) — never touches the real server.
+# ---------------------------------------------------------------------
+set -g rlsock tli-reload-$fish_pid
+set -g rlshim /tmp/tli-shim-$fish_pid
+mkdir -p $rlshim
+printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $rlsock > $rlshim/tmux
+chmod +x $rlshim/tmux
+set -g rl_path_save $PATH
+set -gx PATH $rlshim $PATH
+tmux kill-server 2>/dev/null
+t "reload: no server -> rc 0 no-op" 0 (__tmux_lives_reload /tmp/nope-$fish_pid.conf; echo $status)
+set -l rlconf /tmp/tli-reload-$fish_pid.conf
+printf 'set -g @tl_reloaded yes\n' > $rlconf
+tmux new-session -d -s rl
+__tmux_lives_reload $rlconf
+t "reload: sources conf into live server" "yes" (tmux show-option -gv @tl_reloaded)
+tmux kill-server 2>/dev/null
+set -gx PATH $rl_path_save
+rm -rf $rlshim $rlconf
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

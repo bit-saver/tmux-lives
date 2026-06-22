@@ -97,6 +97,14 @@ function __tmux_lives_persistence_status --description 'macOS/non-systemd persis
     echo "OK persistence via continuum autosave + first-access restore"
 end
 
+function __tmux_lives_reload --description 'source the tmux config into a running server (no-op if none)'
+    set -l conf $argv[1]
+    test -n "$conf"; or set conf "$HOME/.tmux.conf"
+    # No server yet (fresh host): nothing to reload — the fragment loads when tmux starts.
+    tmux list-sessions >/dev/null 2>&1; or return 0
+    tmux source-file "$conf" 2>/dev/null
+end
+
 function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
     set -l tmuxdir "$HOME/.config/tmux"
@@ -129,7 +137,15 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
     else
         echo "tmux-lives setup: "(__tmux_lives_persistence_note)
     end
-    echo "tmux-lives setup: done — run tmux-lives verify, and open a NEW tmux window to pick up the fragment."
+    set -l had_server 0
+    tmux list-sessions >/dev/null 2>&1; and set had_server 1
+    __tmux_lives_reload
+    if test $had_server -eq 1
+        echo "tmux-lives setup: done — reloaded the running tmux; the switcher + persistence are live now."
+    else
+        echo "tmux-lives setup: done — start tmux to load the fragment."
+    end
+    echo "tmux-lives setup: run 'tmux-lives verify' anytime to check the install."
 end
 
 function __tmux_lives_remove_source_line --description 'Remove the fragment source-file line'
@@ -251,10 +267,9 @@ end
 
 function _tmux_lives_post_install --on-event tmux-lives-install_install --description 'Post-install guidance'
     printf '%s\n' \
-        '✓ tmux-lives installed. To finish on a new host:' \
-        '    tmux-lives setup     # wire tmux + plugins' \
-        '    tmux-lives verify    # check the install' \
-        '  then open a new tmux window. '(__tmux_lives_help_hint)
+        '✓ tmux-lives installed. One command finishes setup:' \
+        '    tmux-lives setup' \
+        '  (wires tmux + plugins, then reloads tmux). '(__tmux_lives_help_hint)
 end
 
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update note'
