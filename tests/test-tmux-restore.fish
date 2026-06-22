@@ -56,17 +56,19 @@ t "save: claude pane recorded" "Neuro-X" \
     (awk -F '\t' '$1=="pane" && $10=="claude" {print $2}' $rdir/last | sort -u | string join ',')
 
 # Simulate the nightly reboot.
-tmux kill-server
+tmux kill-server 2>/dev/null
 sleep 0.5   # brief settle after kill-server before the server socket clears
 
 # ---- Restore via the REAL function: headless, everything returns as shells ----
-__tmux_restore
+# stderr silenced: the kill+restart cycle can emit harmless "server exited"/"no
+# server" races; the assertions below verify the actual restored state.
+__tmux_restore 2>/dev/null
 t "restore: claude breadcrumb survives, others killed" "Neuro-X" \
     (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
 t "restore: breadcrumb is a bare shell" "yes" \
-    (tmux list-panes -t Neuro-X -F '#{pane_current_command}' | string match -qr '^(fish|bash|sh|zsh|dash)$'; and echo yes; or echo no)
+    (tmux list-panes -t Neuro-X -F '#{pane_current_command}' 2>/dev/null | string match -qr '^(fish|bash|sh|zsh|dash)$'; and echo yes; or echo no)
 t "restore: breadcrumb unstamped (guard keeps its name)" "" \
-    (tmux show-option -qv -t Neuro-X @tmux_auto_name)
+    (tmux show-option -qv -t Neuro-X @tmux_auto_name 2>/dev/null)
 
 cleanup
 if test $FAIL -eq 0

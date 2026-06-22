@@ -200,7 +200,7 @@ function __tmux_lives_help --description 'tmux-lives command list'
         '  take, t <name>              grab a session, detaching a stale client' \
         '  fixssh, f                   repair the SSH agent socket after reconnecting' \
         '' \
-        '  help                        show this help  (-h, --help)' \
+        'help                          show this help  (-h, --help)' \
         '' \
         "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives switch'"
 end
