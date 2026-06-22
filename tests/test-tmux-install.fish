@@ -26,6 +26,24 @@ t "disabled switcher: no -n bind"  0 (string match -q '*bind-key -n*' -- "$fragp
 t "disabled switcher: prefix kept" 1 (string match -q '*bind-key S display-popup*' -- "$fragp"; and echo 1; or echo 0)
 set -l frags (__tmux_lives_render_fragment /X/cat.fish '' M-s | string collect)
 t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frags"; and echo 1; or echo 0)
+
+# automatic-rename-format: macOS reports claude's version-named binary as the window
+# command (e.g. 2.1.185); map a version-like name (X.Y.Z) to "claude", pass others
+# through. (No-op on Linux, where the command already reads "claude".)
+set -l arf (__tmux_lives_render_fragment /X/cat.fish S M-s | string match -r '^set -g automatic-rename-format .*')
+t "fragment sets automatic-rename-format" 1 (test -n "$arf"; and echo 1; or echo 0)
+t "arf maps to claude"                    1 (string match -q '*claude*' -- "$arf"; and echo 1; or echo 0)
+t "arf keeps pane_current_command"        1 (string match -q '*pane_current_command*' -- "$arf"; and echo 1; or echo 0)
+set -g arsock tli-arf-$fish_pid
+command tmux -L $arsock new-session -d 2>/dev/null
+set -l arfmt (string replace 'set -g automatic-rename-format ' '' -- "$arf" | string trim -c "'")
+t "tmux accepts the rendered format"      0 (command tmux -L $arsock set -g automatic-rename-format "$arfmt"; echo $status)
+set -l fmt_v (string replace -a '#{pane_current_command}' '2.1.185' -- "$arfmt")
+t "rendered format: version -> claude"  "claude" (command tmux -L $arsock display-message -p "$fmt_v")
+set -l fmt_s (string replace -a '#{pane_current_command}' 'fish' -- "$arfmt")
+t "rendered format: shell stays shell"  "fish"   (command tmux -L $arsock display-message -p "$fmt_s")
+command tmux -L $arsock kill-server 2>/dev/null
+
 # resolver
 set -U _tl_k C-x
 t "key: set var wins"   "C-x" (__tmux_lives_key _tl_k S)
