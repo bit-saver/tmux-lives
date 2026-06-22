@@ -57,7 +57,9 @@ function __tcz_pid_comm --description 'pid -> executable name (portable: /proc o
         cat /proc/$pid/comm 2>/dev/null
     else
         set -l c (ps -o comm= -p $pid 2>/dev/null | string trim)
-        test -n "$c"; and path basename $c
+        # `--`: a login shell's comm is "-fish"/"-bash"; without it path basename
+        # parses the leading dash as an option and errors (macOS pane shells).
+        test -n "$c"; and path basename -- $c
     end
 end
 
@@ -92,10 +94,20 @@ end
 
 function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane running claude?'
     test "$argv[1]" = claude; and return 0
-    # tmux runs string commands via `sh -c`; a script named claude then reports
-    # pane_current_command=sh while the kernel comm is claude.
-    test "$argv[1]" = sh; or return 1
-    test "$(__tcz_pid_comm $argv[2])" = claude
+    # A plain interactive shell in the foreground is not claude. `sh` is the
+    # exception: tmux runs string commands via `sh -c`, so a script named claude
+    # reports pane_current_command=sh while the process comm is claude.
+    if contains -- "$argv[1]" $__tcz_shells
+        test "$argv[1]" = sh; or return 1
+    end
+    # Otherwise inspect the pane pid and its children for a process whose comm is
+    # claude. Covers the sh -c wrapper and macOS, where tmux reports the native
+    # installer's version-named binary (~/.local/share/claude/versions/X.Y.Z) as
+    # pane_current_command while the real claude process is a child of the pane shell.
+    for pid in $argv[2] (pgrep -P $argv[2] 2>/dev/null)
+        test "$(__tcz_pid_comm $pid)" = claude; and return 0
+    end
+    return 1
 end
 
 function __tcz_snapshot --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay'

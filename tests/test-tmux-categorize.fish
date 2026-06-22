@@ -47,6 +47,16 @@ sleep 0.2
 t "is_claude: sh wrapper + comm -> yes" "0" (__tcz_pane_is_claude sh $icpid; echo $status)
 t "is_claude: fish pane -> no" "1" (__tcz_pane_is_claude fish $icpid; echo $status)
 kill $icpid 2>/dev/null
+# macOS: the native installer's claude is a version-named binary
+# (~/.local/share/claude/versions/X.Y.Z), so tmux reports pane_current_command as
+# the version (e.g. 2.1.185), NOT 'claude' — and the real claude process is a CHILD
+# of the pane shell. Detection must walk the pane pid's children (comm stays claude).
+fish -c "$shimdir/claude --enable-auto-mode --name Mac Ver & sleep 3" &
+set -l macpid $last_pid
+sleep 0.4
+t "is_claude: versioned cmd + claude child -> yes" "0" (__tcz_pane_is_claude 2.1.185 $macpid; echo $status)
+kill $macpid 2>/dev/null
+pkill -f 'Mac Ver' 2>/dev/null
 
 # ---------------------------------------------------------------------
 # Pure: name helpers
@@ -387,6 +397,20 @@ t "pid_comm ps -> fish"         "fish" (__tcz_pid_comm $fish_pid)
 t "pid_cmdline ps has fish"     "1"    (string match -q '*fish*' -- (__tcz_pid_cmdline $fish_pid); and echo 1; or echo 0)
 set -e tcz_force_ps
 t "pid_comm empty pid -> empty" ""     (__tcz_pid_comm "")
+# Regression (macOS): a login shell's `ps -o comm=` starts with a dash ("-fish").
+# `path basename` must get `--` or fish parses "-fish" as an option and errors,
+# so __tcz_pid_comm returns empty and claude detection on the pane shell breaks.
+set -g psshim /tmp/tcz-psshim-$fish_pid
+mkdir -p $psshim
+printf '#!/bin/sh\nprintf "%%s\\n" -fish\n' > $psshim/ps
+chmod +x $psshim/ps
+set -g ps_path_save $PATH
+set -gx PATH $psshim $PATH
+set -g tcz_force_ps 1
+t "pid_comm: dash-prefixed comm survives" "-fish" (__tcz_pid_comm 12345 2>/dev/null)
+set -e tcz_force_ps
+set -gx PATH $ps_path_save
+rm -rf $psshim
 
 # ---------------------------------------------------------------------
 # Regression: fisher SOURCES this file during install/update. A top-level
