@@ -72,9 +72,12 @@ t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and 
 
 set -l hlp (tmux-lives | string collect)
 t "help lists setup"     1 (string match -q '*setup *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists status"    1 (string match -q '*status *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists switch"    1 (string match -q '*switch *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists auto"      1 (string match -q '*auto *' -- "$hlp"; and echo 1; or echo 0)
+t "help lists verify, v"  1 (string match -q '*verify, v*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists switch, s"  1 (string match -q '*switch, s *' -- "$hlp"; and echo 1; or echo 0)
+t "help lists take, t"    1 (string match -q '*take, t *' -- "$hlp"; and echo 1; or echo 0)
+t "help lists fixssh, f"  1 (string match -q '*fixssh, f*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists auto"       1 (string match -q '*auto *' -- "$hlp"; and echo 1; or echo 0)
+t "help USAGE header"     1 (string match -q '*USAGE*' -- "$hlp"; and echo 1; or echo 0)
 t "help mentions --prefix-key"   1 (string match -q '*--prefix-key*' -- "$hlp"; and echo 1; or echo 0)
 t "help mentions --switcher-key" 1 (string match -q '*--switcher-key*' -- "$hlp"; and echo 1; or echo 0)
 t "help shows -p short flag"     1 (string match -q '*-p, --prefix-key*' -- "$hlp"; and echo 1; or echo 0)
@@ -89,6 +92,16 @@ set -g _tl_routed ''
 tmux-lives teardown
 t "routes teardown -> helper" "teardown" "$_tl_routed"
 functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
+# command aliases route to the right action (switch/take/fixssh helpers live in
+# conf.d/tmux.fish, not sourced here — define fresh stubs, so no backup/restore noise)
+t "alias v -> verify" 1 (tmux-lives v 2>/dev/null | string match -q '*switcher keys*'; and echo 1; or echo 0)
+function __tmux_lives_switch; set -g _tl_a switch; end
+function __tmux_lives_take;   set -g _tl_a take;   end
+function __tmux_lives_fixssh; set -g _tl_a fixssh; end
+set -g _tl_a ''; tmux-lives s;     t "alias s -> switch" switch "$_tl_a"
+set -g _tl_a ''; tmux-lives t foo; t "alias t -> take"   take   "$_tl_a"
+set -g _tl_a ''; tmux-lives f;     t "alias f -> fixssh" fixssh "$_tl_a"
+functions -e __tmux_lives_switch __tmux_lives_take __tmux_lives_fixssh
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real
 function __tmux_lives_setup; end
@@ -106,7 +119,7 @@ functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
 t "install msg names tmux-lives setup"  1 (string match -q '*tmux-lives setup*' -- "$inst"; and echo 1; or echo 0)
-t "install msg names tmux-lives status" 1 (string match -q '*tmux-lives status*' -- "$inst"; and echo 1; or echo 0)
+t "install msg names tmux-lives verify" 1 (string match -q '*tmux-lives verify*' -- "$inst"; and echo 1; or echo 0)
 set -l upd (_tmux_lives_post_update | string collect)
 t "update msg says exec fish"     1 (string match -q '*exec fish*' -- "$upd"; and echo 1; or echo 0)
 # Wiring — the dashed --on-event names are actually registered.

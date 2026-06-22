@@ -16,7 +16,7 @@ It keeps tmux sessions self-categorizing (claude / running / general), auto-atta
 ```fish
 fisher install bit-saver/tmux-lives
 tmux-lives setup     # wires ~/.tmux.conf, TPM plugins, and the systemd units
-tmux-lives status    # verify the install across every layer
+tmux-lives verify    # check install health across every layer
 ```
 
 On Linux (systemd) `tmux-lives setup` also installs save-on-shutdown + restore-at-boot units. On macOS there are no launchd units — persistence is provided by tmux-continuum's autosave plus restore on your first `tmux-lives switch` / SSH login.
@@ -54,7 +54,7 @@ fisher remove bit-saver/tmux-lives
 
 - `conf.d/tmux.fish` — runtime (categorize, switcher, prune, restore, hooks)
 - `functions/tmux-categorize.fish` — the categorizer (invoked by tmux as a script)
-- `conf.d/tmux-lives-install.fish` — `tmux-lives` unified command (setup/status/teardown + dispatcher)
+- `conf.d/tmux-lives-install.fish` — `tmux-lives` unified command (setup/verify/teardown + dispatcher)
 - `tests/` — isolated test suites (`-L` sockets; never touch the real server)
 - `docs/superpowers/` — design spec + implementation plan
 

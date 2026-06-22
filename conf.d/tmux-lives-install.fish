@@ -129,7 +129,7 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
     else
         echo "tmux-lives setup: "(__tmux_lives_persistence_note)
     end
-    echo "tmux-lives setup: done — run tmux-lives status to verify, and open a NEW tmux window to pick up the fragment."
+    echo "tmux-lives setup: done — run tmux-lives verify, and open a NEW tmux window to pick up the fragment."
 end
 
 function __tmux_lives_remove_source_line --description 'Remove the fragment source-file line'
@@ -184,21 +184,21 @@ function __tmux_lives_help --description 'tmux-lives command list'
     printf '%s\n' \
         'tmux-lives — categorized tmux sessions, switcher & persistence' \
         '' \
-        'Usage:  tmux-lives <command> [options]' \
+        'USAGE' \
+        '  tmux-lives <command> [options]' \
         '' \
-        'Setup' \
+        'SETUP' \
         '  setup                       install: wire ~/.tmux.conf, TPM, resurrect, continuum' \
-        '    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S)' \
-        '    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s)' \
-        "                              pass '' to disable a bind" \
-        '  status                      install health + the active switcher keys' \
+        "    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S) ('' to disable)" \
+        "    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)" \
+        '  verify, v                   install health + the active switcher keys' \
         '  teardown                    un-wire from ~/.tmux.conf (plugin & TPM kept)' \
         '' \
-        'Session' \
-        '  switch [name]               open the switcher, or go to / create <name>' \
+        'SESSION' \
+        '  switch, s [name]            open the switcher, or go to / create <name>' \
         '  auto on|off|toggle|status   auto-attach to tmux on SSH login' \
-        '  take <name>                 grab a session, detaching a stale client' \
-        '  fixssh                      repair the SSH agent socket after reconnecting' \
+        '  take, t <name>              grab a session, detaching a stale client' \
+        '  fixssh, f                   repair the SSH agent socket after reconnecting' \
         '' \
         '  help                        show this help  (-h, --help)' \
         '' \
@@ -222,25 +222,25 @@ function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist
     __tmux_lives_setup
 end
 
-function tmux-lives --description 'tmux-lives: unified command — setup/status/teardown/switch/auto/take/fixssh'
+function tmux-lives --description 'tmux-lives: unified command — setup/verify/teardown/switch/auto/take/fixssh'
     set -l cmd $argv[1]
     switch "$cmd"
         case '' help -h --help
             __tmux_lives_help
         case setup
             __tmux_lives_setup_cmd $argv[2..]
-        case status
-            echo "tmux-lives status:"
+        case verify v
+            echo "tmux-lives verify:"
             __tmux_lives_status_lines | sed 's/^/  /'
         case teardown
             __tmux_lives_teardown
-        case switch
+        case switch s
             __tmux_lives_switch $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
-        case take
+        case take t
             __tmux_lives_take $argv[2..]
-        case fixssh
+        case fixssh f
             __tmux_lives_fixssh
         case '*'
             echo "tmux-lives: unknown command '$cmd'" >&2
@@ -253,7 +253,7 @@ function _tmux_lives_post_install --on-event tmux-lives-install_install --descri
     printf '%s\n' \
         '✓ tmux-lives installed. To finish on a new host:' \
         '    tmux-lives setup     # wire tmux + plugins' \
-        '    tmux-lives status    # verify' \
+        '    tmux-lives verify    # check the install' \
         '  then open a new tmux window. '(__tmux_lives_help_hint)
 end
 
