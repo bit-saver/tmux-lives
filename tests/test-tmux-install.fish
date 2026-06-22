@@ -73,7 +73,8 @@ t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and 
 set -l hlp (tmux-lives | string collect)
 t "help lists setup"     1 (string match -q '*setup *' -- "$hlp"; and echo 1; or echo 0)
 t "help lists verify, v"  1 (string match -q '*verify, v*' -- "$hlp"; and echo 1; or echo 0)
-t "help lists switch, s"  1 (string match -q '*switch, s *' -- "$hlp"; and echo 1; or echo 0)
+t "help lists start, s"   1 (string match -q '*start, s*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists picker, p"  1 (string match -q '*picker, p*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists take, t"    1 (string match -q '*take, t *' -- "$hlp"; and echo 1; or echo 0)
 t "help lists fixssh, f"  1 (string match -q '*fixssh, f*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists auto"       1 (string match -q '*auto *' -- "$hlp"; and echo 1; or echo 0)
@@ -92,16 +93,20 @@ set -g _tl_routed ''
 tmux-lives teardown
 t "routes teardown -> helper" "teardown" "$_tl_routed"
 functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
-# command aliases route to the right action (switch/take/fixssh helpers live in
+# command aliases route to the right action (start/picker/take/fixssh helpers live in
 # conf.d/tmux.fish, not sourced here — define fresh stubs, so no backup/restore noise)
 t "alias v -> verify" 1 (tmux-lives v 2>/dev/null | string match -q '*switcher keys*'; and echo 1; or echo 0)
-function __tmux_lives_switch; set -g _tl_a switch; end
+function __tmux_lives_start;  set -g _tl_a start;  end
+function __tmux_lives_picker; set -g _tl_a picker; end
 function __tmux_lives_take;   set -g _tl_a take;   end
 function __tmux_lives_fixssh; set -g _tl_a fixssh; end
-set -g _tl_a ''; tmux-lives s;     t "alias s -> switch" switch "$_tl_a"
-set -g _tl_a ''; tmux-lives t foo; t "alias t -> take"   take   "$_tl_a"
-set -g _tl_a ''; tmux-lives f;     t "alias f -> fixssh" fixssh "$_tl_a"
-functions -e __tmux_lives_switch __tmux_lives_take __tmux_lives_fixssh
+set -g _tl_a ''; tmux-lives s;      t "alias s -> start"   start  "$_tl_a"
+set -g _tl_a ''; tmux-lives start;  t "verb start routes"  start  "$_tl_a"
+set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
+set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
+set -g _tl_a ''; tmux-lives t foo;  t "alias t -> take"    take   "$_tl_a"
+set -g _tl_a ''; tmux-lives f;      t "alias f -> fixssh"  fixssh "$_tl_a"
+functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real
 function __tmux_lives_setup; end

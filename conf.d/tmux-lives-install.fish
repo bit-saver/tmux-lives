@@ -90,7 +90,7 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
 end
 
 function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-lives setup)'
-    echo "no systemd — persistence via continuum autosave + restore on first 'tmux-lives switch'/SSH login"
+    echo "no systemd — persistence via continuum autosave + restore on first 'tmux-lives start'/SSH login"
 end
 
 function __tmux_lives_persistence_status --description 'macOS/non-systemd persistence status line'
@@ -211,14 +211,15 @@ function __tmux_lives_help --description 'tmux-lives command list'
         '  teardown                    un-wire from ~/.tmux.conf (plugin & TPM kept)' \
         '' \
         'SESSION' \
-        '  switch, s [name]            open the switcher, or go to / create <name>' \
+        '  start, s                    start tmux and attach, like an SSH login' \
+        '  picker, p [name]            open the switcher, or go to / create <name>' \
         '  auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         '  take, t <name>              grab a session, detaching a stale client' \
         '  fixssh, f                   repair the SSH agent socket after reconnecting' \
         '' \
         'help                          show this help  (-h, --help)' \
         '' \
-        "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives switch'"
+        "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives picker'"
 end
 
 function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist as universal vars), then run setup'
@@ -238,7 +239,7 @@ function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist
     __tmux_lives_setup
 end
 
-function tmux-lives --description 'tmux-lives: unified command — setup/verify/teardown/switch/auto/take/fixssh'
+function tmux-lives --description 'tmux-lives: unified command — setup/verify/teardown/start/picker/auto/take/fixssh'
     set -l cmd $argv[1]
     switch "$cmd"
         case '' help -h --help
@@ -250,8 +251,10 @@ function tmux-lives --description 'tmux-lives: unified command — setup/verify/
             __tmux_lives_status_lines | sed 's/^/  /'
         case teardown
             __tmux_lives_teardown
-        case switch s
-            __tmux_lives_switch $argv[2..]
+        case start s
+            __tmux_lives_start
+        case picker p
+            __tmux_lives_picker $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
         case take t

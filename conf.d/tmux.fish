@@ -177,7 +177,22 @@ function __tmux_autostart --description 'Restore (first login after reboot), cat
 end
 
 # ---- user commands ----
-function __tmux_lives_switch --description 'Categorized tmux session switcher / creator. tmux-lives switch [name]'
+function __tmux_lives_start --description 'Start tmux and attach like an SSH login (no picker). tmux-lives start'
+    if not command -q tmux
+        echo "tmux not installed" >&2
+        return 1
+    end
+    if set -q TMUX
+        echo "tmux-lives start: already inside tmux."
+        return 0
+    end
+    # The same flow an SSH login runs: restore (first boot) → categorize → prune →
+    # exec into the MRU general session, or create one. Runs regardless of `auto off`,
+    # since the user asked for it explicitly.
+    __tmux_autostart
+end
+
+function __tmux_lives_picker --description 'Categorized tmux session switcher / creator. tmux-lives picker [name]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
@@ -209,7 +224,7 @@ function __tmux_lives_switch --description 'Categorized tmux session switcher / 
     fish --no-config $tmux_categorize_script categorize 2>/dev/null
     set -l lines (fish --no-config $tmux_categorize_script overview)
     if test (count $lines) -eq 0
-        echo "No sessions. Create one with: tmux-lives switch <name>"
+        echo "No sessions. Create one with: tmux-lives picker <name>"
         return 1
     end
     set -l TAB (printf '\t')

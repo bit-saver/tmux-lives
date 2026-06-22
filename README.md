@@ -18,7 +18,7 @@ fisher install bit-saver/tmux-lives
 tmux-lives setup     # wires ~/.tmux.conf + plugins, then reloads a running tmux
 ```
 
-That's it — `tmux-lives setup` reloads tmux for you if it's running (otherwise the wiring loads when tmux next starts). On Linux (systemd) it also installs save-on-shutdown + restore-at-boot units; on macOS there are no launchd units — persistence is tmux-continuum's autosave plus restore on your first `tmux-lives switch` / SSH login.
+That's it — `tmux-lives setup` reloads tmux for you if it's running (otherwise the wiring loads when tmux next starts). On Linux (systemd) it also installs save-on-shutdown + restore-at-boot units; on macOS there are no launchd units — persistence is tmux-continuum's autosave plus restore on your first `tmux-lives start` / SSH login.
 
 Run `tmux-lives verify` anytime to check install health, and `tmux-lives` to list every command. After `fisher install` you'll see a one-line reminder.
 
@@ -32,13 +32,14 @@ tmux-lives setup                      wire ~/.tmux.conf + TPM/resurrect/continuu
   -s, --switcher-key <key>            switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)
 tmux-lives verify, v                  check install health (incl. switcher keys)
 tmux-lives teardown                   remove the wiring (TPM plugins left in place)
-tmux-lives switch, s [name]           switch/create a categorized session
+tmux-lives start, s                   start tmux and attach (like an SSH login)
+tmux-lives picker, p [name]           open the switcher / go to or create a session
 tmux-lives auto on|off|toggle|status  control auto-attach on SSH login
 tmux-lives take, t <name>             force-take a session (detach a stale/ghost client)
 tmux-lives fixssh, f                  refresh SSH_AUTH_SOCK inside a reattached session
 ```
 
-Create your own short aliases as desired, e.g. `alias ts="tmux-lives switch"`.
+Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
 ## Uninstall
 

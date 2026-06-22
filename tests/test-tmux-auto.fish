@@ -137,7 +137,7 @@ rm -rf $rdir_d
 cleanup
 
 # ---------------------------------------------------------------------
-# Component C: bare `ts` cold-starts the full flow when no server runs.
+# bare `picker` (formerly ts/switch) cold-starts the full flow when no server runs.
 # (Stub __tmux_autostart; the real one execs and never returns.)
 # ---------------------------------------------------------------------
 cleanup
@@ -145,8 +145,8 @@ set -e TMUX
 functions -c __tmux_autostart __tmux_autostart_real
 function __tmux_autostart; set -g g_autostart_fired 1; end
 set -g g_autostart_fired 0
-__tmux_lives_switch
-t "ts cold-starts autostart when no server" "1" "$g_autostart_fired"
+__tmux_lives_picker
+t "picker cold-starts autostart when no server" "1" "$g_autostart_fired"
 functions -e __tmux_autostart
 functions -c __tmux_autostart_real __tmux_autostart
 
@@ -162,6 +162,23 @@ t "trace-guard: fisher-source trace detected" "0" \
 t "trace-guard: startup trace (no function) passes" "1" \
     (__tmux_trace_in_function "from sourcing file /x/conf.d/tmux.fish"; echo $status)
 t "trace-guard: empty trace passes" "1" (__tmux_trace_in_function ""; echo $status)
+
+# ---------------------------------------------------------------------
+# __tmux_lives_start: SSH-style auto-attach on demand.
+#   inside tmux  -> note only (must NOT call autostart / exec)
+#   outside tmux -> delegates to __tmux_autostart (real one execs; stub to observe)
+# ---------------------------------------------------------------------
+functions -c __tmux_autostart __tl_as_bak
+function __tmux_autostart; set -g _tl_started 1; end
+set -g _tl_started 0
+set -gx TMUX fake-$fish_pid
+__tmux_lives_start >/dev/null 2>&1
+t "start: inside tmux skips autostart" "0" "$_tl_started"
+set -e TMUX
+set _tl_started 0
+__tmux_lives_start >/dev/null 2>&1
+t "start: outside tmux runs autostart" "1" "$_tl_started"
+functions -e __tmux_autostart; functions -c __tl_as_bak __tmux_autostart
 
 # ---------------------------------------------------------------------
 cleanup
