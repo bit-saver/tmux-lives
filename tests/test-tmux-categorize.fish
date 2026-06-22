@@ -81,6 +81,8 @@ t "unique: counts up"             "lnav-3"            (__tcz_unique lnav lnav ln
 t "slug: already clean -> unchanged"   "lnav"          (__tcz_slugify "lnav")
 t "slug: multi-arg joined"             "foo-bar"       (__tcz_slugify foo bar)
 t "slug: leading dash stripped"        "foo"           (__tcz_slugify "-foo")
+t "slug: ' - ' collapses to one dash"  "Pingy-Android-Part-12" (__tcz_slugify "Pingy Android - Part 12")
+t "slug: repeated dashes collapse"     "a-b"           (__tcz_slugify "a -- b")
 t "title: variation-selector glyph ok" "TMUX Setup 2"  (__tcz_title_name "✳️ TMUX Setup 2")
 t "unique: desired ending in -2"       "lnav-2-2"      (__tcz_unique lnav-2 lnav-2)
 

@@ -13,7 +13,9 @@ function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9
     # Callers must pass slugs with -- / -t "=$slug" style protection when handing them to tmux
     # (slug never starts with - after trim, but the contract should be explicit).
     set -l s (string join ' ' -- $argv)
-    set s (string replace -ra '[^A-Za-z0-9-]+' '-' -- "$s")
+    # Collapse every run of non-alphanumerics — INCLUDING dashes — to a single dash,
+    # so an explicit name like "Foo - Bar" slugs to "Foo-Bar", not "Foo---Bar".
+    set s (string replace -ra '[^A-Za-z0-9]+' '-' -- "$s")
     set s (string trim -c - -- "$s")
     test -n "$s"; and echo $s; or echo session
 end
