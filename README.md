@@ -30,15 +30,15 @@ Run `tmux-lives` at any time to list all commands and when to use each. After `f
 All functionality is under one unified command:
 
 ```
-tmux-lives setup [--prefix-key K] [--switcher-key K]   wire ~/.tmux.conf + TPM/resurrect/continuum;
-                                                        set switcher keys (defaults: prefix S, Opt+s=M-s;
-                                                        empty value disables that bind)
-tmux-lives status                                       check install health (incl. switcher keys)
-tmux-lives teardown                                     remove the wiring (TPM plugins left in place)
-tmux-lives switch [name]                                switch/create a categorized session
-tmux-lives auto on|off|status|toggle                    control auto-attach on SSH login
-tmux-lives take <name>                                  force-take a session (detach a stale/ghost client)
-tmux-lives fixssh                                       refresh SSH_AUTH_SOCK inside a reattached session
+tmux-lives setup                      wire ~/.tmux.conf + TPM/resurrect/continuum
+  -p, --prefix-key <key>              switcher bind in the prefix table   (default: S) ('' to disable)
+  -s, --switcher-key <key>            switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)
+tmux-lives verify, v                  check install health (incl. switcher keys)
+tmux-lives teardown                   remove the wiring (TPM plugins left in place)
+tmux-lives switch, s [name]           switch/create a categorized session
+tmux-lives auto on|off|toggle|status  control auto-attach on SSH login
+tmux-lives take, t <name>             force-take a session (detach a stale/ghost client)
+tmux-lives fixssh, f                  refresh SSH_AUTH_SOCK inside a reattached session
 ```
 
 Create your own short aliases as desired, e.g. `alias ts="tmux-lives switch"`.
