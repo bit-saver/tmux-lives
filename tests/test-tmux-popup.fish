@@ -38,6 +38,15 @@ t "truncate long adds ellipsis" "hell…" (__tcz_popup_truncate "hello world" 5)
 t "truncate exact unchanged"    "hello" (__tcz_popup_truncate "hello" 5)
 t "truncate short unchanged"    "hi"    (__tcz_popup_truncate "hi" 5)
 t "truncate width 1 -> ellipsis" "…"    (__tcz_popup_truncate "hello" 1)
+# wide characters occupy 2 display COLUMNS but count as 1 char: truncation must bound
+# columns, not char count. Regression: a ✅-banner session overflowed the preview pane
+# by 1 col, wrapping the row and scrolling the whole popup frame.
+t "truncate bounds columns (emoji in window)" ok \
+    (test (string length --visible (__tcz_popup_truncate "aaaaa✅bbbbb" 7)) -le 7; and echo ok; or echo OVER)
+t "truncate bounds columns (CJK)"             ok \
+    (test (string length --visible (__tcz_popup_truncate "日本語テストです" 6)) -le 6; and echo ok; or echo OVER)
+t "truncate wide char straddling boundary"    ok \
+    (test (string length --visible (__tcz_popup_truncate "abc✅def" 5)) -le 5; and echo ok; or echo OVER)
 
 # ---------------------------------------------------------------------
 # __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
@@ -68,6 +77,11 @@ set -g OVlong (printf 'supercalifragilistic\trunning\t1\t50\tsupercalifragilisti
 set -g LL (printf '%s\n' $OVlong | __tcz_popup_list_lines 24 0 '')
 t "long name truncated with ellipsis" yes  (string match -q '*…*' (vis $LL[2]); and echo yes; or echo no)
 t "truncated row still flush-right"   yes  (string match -qr "\[attached\]\$" (vis $LL[2]); and echo yes; or echo no)
+# a display name with a wide char: the row must still be exactly listwidth COLUMNS
+# (padding measured in display columns, not characters)
+set -g OVemoji (printf 'sx\tgeneral\t0\t0\tok✅done')
+set -g LE (printf '%s\n' $OVemoji | __tcz_popup_list_lines 20 0 '')
+t "emoji-name row = listwidth columns" 20 (string length --visible (vis $LE[2]))
 
 # narrow width: marker dropped (not overflowed), row stays exactly listwidth
 set -g TAB (printf '\t')
@@ -87,12 +101,26 @@ t "current row width = listwidth"    30  (string length (vis $CURL[3]))
 t "selected row still ▐ (not ❯)"     yes (string match -q '*▐*' -- $CURL[2]; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
-# __tcz_popup_clip — first h lines, truncated to w
+# __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
+# lines stripped, bottom-anchored (blank rows on top), each truncated to w cols.
+# The very bottom of the preview must be the session's most recent line.
 # ---------------------------------------------------------------------
-set -g CLIP (printf 'aaaa\nbbbbbbbb\ncccc\ndddd\n' | __tcz_popup_clip 4 2)
-t "clip limits to h lines"   2      (count $CLIP)
-t "clip keeps short line"    "aaaa" "$CLIP[1]"
-t "clip truncates wide line" "bbb…" "$CLIP[2]"
+set -g CB (printf 'l1\nl2\nl3\nl4\n' | __tcz_popup_clip 10 2)
+t "clip keeps h lines"            2      (count $CB)
+t "clip bottom row = most recent" "l4"   "$CB[2]"
+t "clip shows the TAIL not head"  "l3"   "$CB[1]"
+# trailing blank lines stripped so the bottom is real content, not whitespace
+set -g CT (printf 'top\nmid\nlast\n\n\n' | __tcz_popup_clip 10 2)
+t "clip strips trailing blanks"   "last" "$CT[2]"
+t "clip row above the bottom"     "mid"  "$CT[1]"
+# short content bottom-anchored: padded to h with blank rows ON TOP, content at bottom
+set -g CS (printf 'only\n' | __tcz_popup_clip 10 3)
+t "clip pads to exactly h rows"   3      (count $CS)
+t "clip pins content to last row" "only" "$CS[3]"
+t "clip top row blank when short" ""     "$CS[1]"
+# width truncation still applies, measured in COLUMNS (wide-char aware)
+set -g CW (printf 'aaaaa✅bbbbb\n' | __tcz_popup_clip 7 1)
+t "clip truncates to w columns"   ok     (test (string length --visible "$CW[1]") -le 7; and echo ok; or echo OVER)
 # __tcz_popup_preview must target plainly (no '=' prefix) and use clip
 set -g PV (functions __tcz_popup_preview | string collect)
 t "preview has no '=' target"   no  (string match -q '*-t "=*' -- "$PV"; and echo yes; or echo no)

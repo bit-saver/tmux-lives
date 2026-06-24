@@ -452,14 +452,26 @@ function __tcz_popup_layout --argument-names cols --description 'cols -> "listwi
     echo "$list $prev"
 end
 
-function __tcz_popup_truncate --argument-names text width --description 'truncate text to width visible chars with trailing … (no ANSI in text)'
+function __tcz_popup_truncate --argument-names text width --description 'truncate text to <width> DISPLAY COLUMNS with trailing … (wide/zero-width aware; no ANSI in text)'
     test -n "$width"; and test "$width" -gt 0 2>/dev/null; or begin; echo ''; return 0; end
-    if test (string length -- "$text") -le $width
+    if test (string length --visible -- "$text") -le $width
         echo -- "$text"
         return 0
     end
-    test $width -eq 1; and begin; echo -- '…'; return 0; end
-    echo -- (string sub -l (math "$width - 1") -- "$text")"…"
+    # Doesn't fit: keep chars until the next would push past width-1 COLUMNS, then add …
+    # `string length`/`string sub -l` count CHARACTERS, but a terminal lays out COLUMNS:
+    # a wide char (emoji/CJK) is 1 char yet 2 cols, so char-based slicing overflows the
+    # budget by a column, wrapping the popup row and scrolling the whole frame.
+    set -l budget (math "$width - 1")
+    set -l acc 0
+    set -l out ''
+    for ch in (string split '' -- "$text")
+        set -l cw (string length --visible -- "$ch")
+        test (math "$acc + $cw") -gt $budget; and break
+        set out "$out$ch"
+        set acc (math "$acc + $cw")
+    end
+    echo -- "$out…"
 end
 
 function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'overview (stdin) -> ANSI visual list: full-width category rules + session rows (pointer on #selidx, markers flush-right at listwidth)'
@@ -517,7 +529,7 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         end
         test $namespace -lt 1; and set namespace 1
         set -l shown (__tcz_popup_truncate "$disp" $namespace)
-        set -l pad (math "$namespace - "(string length -- "$shown"))
+        set -l pad (math "$namespace - "(string length --visible -- "$shown"))
         test $pad -lt 0; and set pad 0
         set -l pads (string repeat -n $pad ' ')
         set -l gap ''; test $mlen -gt 0; and set gap ' '
@@ -552,14 +564,32 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
     end
 end
 
-function __tcz_popup_clip --argument-names w h --description 'stdin lines -> first h lines, each truncated to w'
+function __tcz_popup_clip --argument-names w h --description 'stdin lines -> the BOTTOM h lines (trailing blanks stripped, newest last), each truncated to w cols, top-padded with blanks to exactly h so the most recent line sits on the last row (bottom-anchored)'
     test -n "$w"; and test "$w" -gt 0 2>/dev/null; or set w 40
     test -n "$h"; and test "$h" -gt 0 2>/dev/null; or set h 20
-    set -l i 0
+    set -l lines
     while read -l l
-        test $i -ge $h; and break
+        set -a lines "$l"
+    end
+    # drop trailing blank (whitespace-only) lines so the last kept line is real content
+    while test (count $lines) -gt 0; and test -z (string trim -- "$lines[-1]")
+        set -e lines[-1]
+    end
+    set -l n (count $lines)
+    # keep only the most recent h lines (the tail — what's happening now)
+    if test $n -gt $h
+        set lines $lines[(math "$n - $h + 1")..-1]
+        set n $h
+    end
+    # bottom-anchor: blank rows on top so the newest line lands on the last row
+    set -l pad (math "$h - $n")
+    if test $pad -gt 0
+        for i in (seq $pad)
+            echo ''
+        end
+    end
+    for l in $lines
         __tcz_popup_truncate "$l" $w
-        set i (math $i + 1)
     end
 end
 
