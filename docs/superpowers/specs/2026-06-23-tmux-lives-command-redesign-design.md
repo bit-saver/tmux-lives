@@ -145,7 +145,7 @@ Keep the suite green; no silent truncation of coverage.
 
 ## Deployment
 
-Code change (verbs) → live via `fisher update` + `exec fish`. The `setup`-group help and routing are plugin code (no fragment change), so no `setup install` re-run is needed for the new commands themselves. (The earlier `automatic-rename-format` window fix still needs a `setup install` re-run to regenerate the fragment, but that's independent of this redesign.) Old muscle-memory verbs (`tmux-lives verify`, `tmux-lives start`, `tmux-lives take`) will hit "unknown command"; the main help makes the new layout discoverable. *(Open: optionally print a one-line "moved to `setup verify`" hint for the relocated verbs — decide in the plan.)*
+Code change (verbs) → live via `fisher update` + `exec fish`. The `setup`-group help and routing are plugin code (no fragment change), so no `setup install` re-run is needed for the new commands themselves. (The earlier `automatic-rename-format` window fix still needs a `setup install` re-run to regenerate the fragment, but that's independent of this redesign.) Old muscle-memory verbs (`tmux-lives verify`, `tmux-lives start`, `tmux-lives take`) will hit "unknown command" — no migration hints (decided 2026-06-23); the main help makes the new layout discoverable.
 
 ## Out of scope (separate follow-up)
 
