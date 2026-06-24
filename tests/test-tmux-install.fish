@@ -137,6 +137,9 @@ set -g _tl_a ''; tmux-lives x;     t "alias x -> close" close "$_tl_a"
 set -g _tl_a ''; tmux-lives q;     t "alias q -> close" close "$_tl_a"
 set -g _tl_a ''; tmux-lives close; t "verb close routes" close "$_tl_a"
 functions -e __tmux_lives_close
+function __tmux_lives_clear; set -g _tl_a clear; end
+set -g _tl_a ''; tmux-lives clear; t "verb clear routes" clear "$_tl_a"
+functions -e __tmux_lives_clear
 functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real

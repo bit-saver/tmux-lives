@@ -245,6 +245,22 @@ set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
+# clear: kills idle sessions, keeps current + non-idle.
+cleanup
+tmux new-session -d -s idleA
+tmux new-session -d -s idleB
+tmux new-session -d -s busy 'sleep 1000'
+set -gx TMUX fake
+function __tmux_lives_current_session; echo idleA; end
+__tmux_lives_clear
+t "clear: idle non-current killed" "no"  (tmux has-session -t =idleB 2>/dev/null; and echo yes; or echo no)
+t "clear: current kept"            "yes" (tmux has-session -t =idleA 2>/dev/null; and echo yes; or echo no)
+t "clear: non-idle kept"           "yes" (tmux has-session -t =busy 2>/dev/null; and echo yes; or echo no)
+functions -e __tmux_lives_current_session
+set -e TMUX
+cleanup
+
+# ---------------------------------------------------------------------
 if test $FAIL -eq 0
     echo "ALL PASS"
     exit 0

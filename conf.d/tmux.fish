@@ -371,6 +371,27 @@ function __tmux_lives_close --description 'Kill the current session and return t
     tmux kill-session -t "=$cur" 2>/dev/null
 end
 
+function __tmux_lives_clear --description 'Kill idle sessions, keeping the current one. tmux-lives clear [--exit|-q|-x]'
+    if not command -q tmux
+        echo "tmux not installed" >&2
+        return 1
+    end
+    tmux list-sessions >/dev/null 2>&1; or return 0
+    set -l do_exit 0
+    for a in $argv
+        contains -- $a --exit --quit -q -x; and set do_exit 1
+    end
+    set -l cur ''
+    set -q TMUX; and set cur (__tmux_lives_current_session)
+    for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+        test "$s" = "$cur"; and continue
+        __tmux_session_is_idle "$s"; and tmux kill-session -t "=$s" 2>/dev/null
+    end
+    if test $do_exit -eq 1; and set -q TMUX
+        __tmux_lives_close
+    end
+end
+
 function __tmux_lives_take --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
     if test -z "$session"
         tmux list-sessions 2>/dev/null
