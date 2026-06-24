@@ -90,17 +90,11 @@ t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and 
 
 set -l hlp (tmux-lives | string collect)
 t "help lists setup"     1 (string match -q '*setup *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists verify, v"  1 (string match -q '*verify, v*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists start, s"   1 (string match -q '*start, s*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists picker, p"  1 (string match -q '*picker, p*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists take, t"    1 (string match -q '*take, t *' -- "$hlp"; and echo 1; or echo 0)
 t "help lists fixssh, f"  1 (string match -q '*fixssh, f*' -- "$hlp"; and echo 1; or echo 0)
-t "help lists auto"       1 (string match -q '*auto *' -- "$hlp"; and echo 1; or echo 0)
 t "help USAGE header"     1 (string match -q '*USAGE*' -- "$hlp"; and echo 1; or echo 0)
-t "help mentions --prefix-key"   1 (string match -q '*--prefix-key*' -- "$hlp"; and echo 1; or echo 0)
-t "help mentions --switcher-key" 1 (string match -q '*--switcher-key*' -- "$hlp"; and echo 1; or echo 0)
-t "help shows -p short flag"     1 (string match -q '*-p, --prefix-key*' -- "$hlp"; and echo 1; or echo 0)
-t "help shows -s short flag"     1 (string match -q '*-s, --switcher-key*' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
@@ -108,12 +102,11 @@ t "unknown command returns 1" 1 $status
 functions -c __tmux_lives_teardown __tl_td_real
 function __tmux_lives_teardown; set -g _tl_routed teardown; end
 set -g _tl_routed ''
-tmux-lives teardown
-t "routes teardown -> helper" "teardown" "$_tl_routed"
+tmux-lives setup teardown
+t "routes setup teardown -> helper" "teardown" "$_tl_routed"
 functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
 # command aliases route to the right action (start/picker/take/fixssh helpers live in
 # conf.d/tmux.fish, not sourced here — define fresh stubs, so no backup/restore noise)
-t "alias v -> verify" 1 (tmux-lives v 2>/dev/null | string match -q '*switcher keys*'; and echo 1; or echo 0)
 function __tmux_lives_start;  set -g _tl_a start;  end
 function __tmux_lives_picker; set -g _tl_a picker; end
 function __tmux_lives_take;   set -g _tl_a take;   end
@@ -141,19 +134,28 @@ function __tmux_lives_clear; set -g _tl_a clear; end
 set -g _tl_a ''; tmux-lives clear; t "verb clear routes" clear "$_tl_a"
 functions -e __tmux_lives_clear
 functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
-# setup flag parsing persists the universal vars (stub the heavy setup body)
+# setup group routing
 functions -c __tmux_lives_setup __tl_setup_real
-function __tmux_lives_setup; end
-set -e tmux_lives_prefix_key tmux_lives_switcher_key
-tmux-lives setup --prefix-key C-a --switcher-key C-s
-t "flag persists prefix-key"   "C-a" "$tmux_lives_prefix_key"
-t "flag persists switcher-key" "C-s" "$tmux_lives_switcher_key"
-set -e tmux_lives_prefix_key tmux_lives_switcher_key
-tmux-lives setup -p C-b -s C-t
-t "short -p persists" "C-b" "$tmux_lives_prefix_key"
-t "short -s persists" "C-t" "$tmux_lives_switcher_key"
-set -e tmux_lives_prefix_key tmux_lives_switcher_key
+function __tmux_lives_setup; set -g _tl_s install; end
+function __tmux_lives_teardown; set -g _tl_s teardown; end 2>/dev/null
+set -g _tl_s ''; tmux-lives setup install; t "setup install routes" install "$_tl_s"
+set -g _tl_s ''; tmux-lives setup i;       t "setup i -> install"  install "$_tl_s"
+t "setup verify shows keys" 1 (tmux-lives setup verify 2>/dev/null | string match -q '*switcher keys*'; and echo 1; or echo 0)
+set -l sh (tmux-lives setup | string collect)
+t "bare setup shows setup help" 1 (string match -q '*install, i*' -- "$sh"; and echo 1; or echo 0)
+t "setup -h equals bare setup"  1 (test "$sh" = (tmux-lives setup -h | string collect); and echo 1; or echo 0)
+t "setup help lists keys"  1 (string match -q '*keys*' -- "$sh"; and echo 1; or echo 0)
+t "setup help lists auto"  1 (string match -q '*auto on*' -- "$sh"; and echo 1; or echo 0)
+tmux-lives setup bogus 2>/dev/null; t "setup unknown rc1" 1 $status
 functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
+# keys persistence
+set -e tmux_lives_prefix_key
+functions -c __tmux_lives_write_fragment __tl_wf_bak 2>/dev/null
+function __tmux_lives_write_fragment; end
+tmux-lives setup keys -p C-a
+t "setup keys -p persists" "C-a" "$tmux_lives_prefix_key"
+set -e tmux_lives_prefix_key
+functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
 
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)

@@ -108,16 +108,22 @@ function __tmux_lives_reload --description 'source the tmux config into a runnin
     tmux source-file "$conf" 2>/dev/null
 end
 
-function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
+function __tmux_lives_write_fragment --description 'Render the managed fragment, wire ~/.tmux.conf, reload tmux'
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
-
     mkdir -p $tmuxdir
     __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) > $fragment
-    echo "tmux-lives setup: wrote $fragment"
-
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
+    __tmux_lives_reload
+end
+
+function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.conf wiring + TPM plugins + systemd units'
+    set -l tmuxdir "$HOME/.config/tmux"
+    set -l fragment "$tmuxdir/tmux-lives.conf"
+
+    __tmux_lives_write_fragment
+    echo "tmux-lives setup: wrote $fragment"
     echo "tmux-lives setup: ensured source-file line in ~/.tmux.conf"
 
     set -l tpm "$HOME/.tmux/plugins/tpm"
@@ -142,13 +148,12 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
     end
     set -l had_server 0
     tmux list-sessions >/dev/null 2>&1; and set had_server 1
-    __tmux_lives_reload
     if test $had_server -eq 1
         echo "tmux-lives setup: done — reloaded the running tmux; the switcher + persistence are live now."
     else
         echo "tmux-lives setup: done — start tmux to load the fragment."
     end
-    echo "tmux-lives setup: run 'tmux-lives verify' anytime to check the install."
+    echo "tmux-lives setup: run 'tmux-lives setup verify' anytime to check the install."
 end
 
 function __tmux_lives_remove_source_line --description 'Remove the fragment source-file line'
@@ -207,16 +212,11 @@ function __tmux_lives_help --description 'tmux-lives command list'
         '  tmux-lives <command> [options]' \
         '' \
         'SETUP' \
-        '  setup                       install: wire ~/.tmux.conf, TPM, resurrect, continuum' \
-        "    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S) ('' to disable)" \
-        "    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)" \
-        '  verify, v                   install health + the active switcher keys' \
-        '  teardown                    un-wire from ~/.tmux.conf (plugin & TPM kept)' \
+        '  setup [install|verify|keys|teardown|auto …]   install & configuration (see: setup -h)' \
         '' \
         'SESSION' \
         '  start, s                    start tmux and attach, like an SSH login' \
         '  picker, p [-t]              open the switcher; -t = take (detach other clients first)' \
-        '  auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         '  take, t <name>              grab a session, detaching a stale client' \
         '  fixssh, f                   repair the SSH agent socket after reconnecting' \
         '' \
@@ -225,21 +225,61 @@ function __tmux_lives_help --description 'tmux-lives command list'
         "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives picker'"
 end
 
-function __tmux_lives_setup_cmd --description 'Parse switcher-key flags (persist as universal vars), then run setup'
+function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K]'
+    if test (count $argv) -eq 0
+        echo "switcher keys: prefix="(__tmux_lives_key tmux_lives_prefix_key S)"  no-prefix="(__tmux_lives_key tmux_lives_switcher_key M-s)
+        return 0
+    end
+    set -l changed 0
     while test (count $argv) -ge 2
         switch $argv[1]
             case -p --prefix-key
-                set -U tmux_lives_prefix_key $argv[2]; set -e argv[1..2]
+                set -U tmux_lives_prefix_key $argv[2]; set changed 1; set -e argv[1..2]
             case -s --switcher-key
-                set -U tmux_lives_switcher_key $argv[2]; set -e argv[1..2]
+                set -U tmux_lives_switcher_key $argv[2]; set changed 1; set -e argv[1..2]
             case '*'
-                echo "tmux-lives setup: unknown option '$argv[1]'" >&2; return 1
+                echo "tmux-lives setup keys: unknown option '$argv[1]'" >&2; return 1
         end
     end
     if test (count $argv) -gt 0
-        echo "tmux-lives setup: unknown or incomplete option '$argv[1]'" >&2; return 1
+        echo "tmux-lives setup keys: incomplete option '$argv[1]'" >&2; return 1
     end
-    __tmux_lives_setup
+    test $changed -eq 1; and __tmux_lives_write_fragment
+end
+
+function __tmux_lives_setup_help --description 'tmux-lives setup command list'
+    printf '%s\n' \
+        'tmux-lives setup — install & configuration' \
+        '' \
+        '  install, i                  wire ~/.tmux.conf + TPM/resurrect/continuum (+ systemd on Linux)' \
+        '  verify, v                   install health + the active switcher keys' \
+        '  teardown                    remove the wiring (plugin & TPM kept)' \
+        '  keys                        show the current switcher keys' \
+        "    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S) ('' to disable)" \
+        "    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)" \
+        '  auto on|off|toggle|status   auto-attach to tmux on SSH login'
+end
+
+function __tmux_lives_setup_dispatch
+    switch "$argv[1]"
+        case '' help -h --help
+            __tmux_lives_setup_help
+        case install i
+            __tmux_lives_setup
+        case verify v
+            echo "tmux-lives verify:"
+            __tmux_lives_status_lines | sed 's/^/  /'
+        case teardown
+            __tmux_lives_teardown
+        case keys
+            __tmux_lives_keys_cmd $argv[2..]
+        case auto
+            __tmux_lives_auto $argv[2..]
+        case '*'
+            echo "tmux-lives setup: unknown command '$argv[1]'" >&2
+            __tmux_lives_setup_help >&2
+            return 1
+    end
 end
 
 function tmux-lives --description 'tmux-lives: unified command — setup/verify/teardown/start/picker/auto/take/fixssh'
@@ -248,12 +288,7 @@ function tmux-lives --description 'tmux-lives: unified command — setup/verify/
         case '' help -h --help
             __tmux_lives_help
         case setup
-            __tmux_lives_setup_cmd $argv[2..]
-        case verify v
-            echo "tmux-lives verify:"
-            __tmux_lives_status_lines | sed 's/^/  /'
-        case teardown
-            __tmux_lives_teardown
+            __tmux_lives_setup_dispatch $argv[2..]
         case start s
             __tmux_lives_start
         case picker p
@@ -262,8 +297,6 @@ function tmux-lives --description 'tmux-lives: unified command — setup/verify/
             __tmux_lives_new $argv[2..]
         case attach a
             __tmux_lives_attach $argv[2..]
-        case auto
-            __tmux_lives_auto $argv[2..]
         case take t
             __tmux_lives_take $argv[2..]
         case fixssh f
