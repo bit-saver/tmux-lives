@@ -124,6 +124,10 @@ set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
 set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
 set -g _tl_a ''; tmux-lives t foo;  t "alias t -> take"    take   "$_tl_a"
 set -g _tl_a ''; tmux-lives f;      t "alias f -> fixssh"  fixssh "$_tl_a"
+function __tmux_lives_new; set -g _tl_a new; end
+set -g _tl_a ''; tmux-lives n;   t "alias n -> new"  new "$_tl_a"
+set -g _tl_a ''; tmux-lives new; t "verb new routes" new "$_tl_a"
+functions -e __tmux_lives_new
 functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real

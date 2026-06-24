@@ -207,6 +207,18 @@ cleanup
 functions -e __tmux_restore; functions -c __tl_restore_bak __tmux_restore
 
 # ---------------------------------------------------------------------
+# new: collision errors; inside tmux creates + switches; no-name -> general session.
+cleanup
+tmux new-session -d -s foo
+set -e TMUX
+set -gx TMUX fake
+t "new: existing name errors (rc1)" "1" (__tmux_lives_new foo 2>/dev/null; echo $status)
+__tmux_lives_new bar 2>/dev/null
+t "new: creates named session" "yes" (tmux has-session -t =bar 2>/dev/null; and echo yes; or echo no)
+set -e TMUX
+cleanup
+
+# ---------------------------------------------------------------------
 cleanup
 if test $FAIL -eq 0
     echo "ALL PASS"

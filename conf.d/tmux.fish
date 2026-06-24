@@ -227,6 +227,35 @@ function __tmux_lives_picker --description 'Categorized tmux session switcher / 
     __tmux_autostart
 end
 
+function __tmux_lives_new --description 'Create a new categorized session in $HOME. tmux-lives new [name]'
+    if not command -q tmux
+        echo "tmux not installed" >&2
+        return 1
+    end
+    set -l name
+    test (count $argv) -gt 0; and set name (fish --no-config $tmux_categorize_script slug $argv[1])
+    if test -n "$name"; and tmux has-session -t "=$name" 2>/dev/null
+        echo "tmux-lives new: session '$name' already exists — use: tmux-lives attach $name" >&2
+        return 1
+    end
+    if set -q TMUX
+        if test -n "$name"
+            tmux new-session -d -c "$HOME" -s "$name"
+            tmux switch-client -t "=$name"
+        else
+            tmux new-session -d -c "$HOME"
+            __tmux_categorize
+        end
+        return
+    end
+    __tmux_ensure_server
+    if test -n "$name"
+        exec tmux -u new-session -A -c "$HOME" -s "$name"
+    else
+        exec tmux -u new-session -c "$HOME"
+    end
+end
+
 # ---- rename hooks (inside tmux only) ----
 function __tmux_rename_on_preexec --on-event fish_preexec --description 'Instant claude rename when you launch it'
     set -q TMUX; or return 0
