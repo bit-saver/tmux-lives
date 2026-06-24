@@ -376,6 +376,10 @@ set -g sw_out (__tcz_open_switcher c1)
 set -gx PATH $sw_path_save
 t "open-switcher uses display-popup" yes (string match -q '*display-popup*' -- "$sw_out"; and echo yes; or echo no)
 t "open-switcher runs popup subcmd"  yes (string match -q '*popup c1*' -- "$sw_out"; and echo yes; or echo no)
+set -gx PATH $sw_shim $PATH
+set -g sw_take (__tcz_open_switcher c1 --take)
+set -gx PATH $sw_path_save
+t "open-switcher threads --take" yes (string match -q '*popup c1 --take*' -- "$sw_take"; and echo yes; or echo no)
 rm -rf $sw_shim
 
 # dispatcher routes `popup`, not `fzfpick`

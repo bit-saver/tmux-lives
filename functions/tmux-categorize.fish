@@ -367,9 +367,10 @@ function __tcz_menu --description 'open the categorized session switcher (needs 
     tmux display-menu -T ' switch session ' -- $args
 end
 
-function __tcz_switch --argument-names session client --description 'switch <session> <client>: ghost-detach, then switch the choosing client'
+function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: ghost-detach, then switch the choosing client; --take detaches all other clients first'
     test -n "$session"; or return 0
     __tcz_ghosts "$session"
+    test "$argv[3]" = --take; and tmux detach-client -s "=$session" 2>/dev/null
     if test -n "$client"
         tmux switch-client -c "$client" -t "=$session" 2>/dev/null
     else
@@ -643,6 +644,8 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
 end
 
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
+    set -l take ''
+    contains -- --take $argv; and set take --take
     __tcz_categorize >/dev/null 2>&1
     # display-popup does NOT format-expand argv after `--`, so a bind passing
     # '#{client_name}' delivers it literally. Resolve the real client from inside
@@ -716,13 +719,15 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -e __tcz_popup_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
-    test -n "$result"; and __tcz_switch "$result" "$client"
+    test -n "$result"; and __tcz_switch "$result" "$client" $take
     return 0
 end
 
 function __tcz_open_switcher --argument-names client --description 'open the two-pane popup switcher (display-menu fallback if display-popup is unsupported)'
+    set -l take ''
+    contains -- --take $argv; and set take ' --take'
     if tmux list-commands 2>/dev/null | grep -q display-popup
-        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self popup "$client"
+        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self popup "$client"$take
     else
         __tcz_menu
     end
@@ -760,9 +765,9 @@ function __tcz_main
         case menu
             __tcz_menu
         case open-switcher
-            __tcz_open_switcher $argv[2]
+            __tcz_open_switcher $argv[2..]
         case popup
-            __tcz_popup $argv[2]
+            __tcz_popup $argv[2..]
         case claim
             __tcz_claim $argv[2..]
         case ghosts
