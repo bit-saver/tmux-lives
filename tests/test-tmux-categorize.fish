@@ -433,10 +433,11 @@ rm -rf $psshim
 # aborts the install (no post-install message, no fisher summary, files copied
 # but fish_plugins not committed). Sourcing it inside a function — clean
 # subshell so tmux_categorize_test is unset and argv is empty, exactly like
-# fisher — MUST NOT abort the caller.
+# fisher — MUST NOT abort the caller. (--no-config keeps the assertion from
+# capturing interactive-config startup escapes, e.g. ShellFish's settoolbar OSC.)
 # ---------------------------------------------------------------------
 t "fisher-safe: sourcing categorizer doesn't abort caller" "CONTINUED" \
-    (fish -c "function f; source $plugindir/functions/tmux-categorize.fish; echo CONTINUED; end; f")
+    (fish --no-config -c "function f; source $plugindir/functions/tmux-categorize.fish; echo CONTINUED; end; f")
 
 rm -rf $shimdir
 if test $FAIL -eq 0
