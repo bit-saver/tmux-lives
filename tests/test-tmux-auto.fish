@@ -172,23 +172,6 @@ t "trace-guard: startup trace (no function) passes" "1" \
     (__tmux_trace_in_function "from sourcing file /x/conf.d/tmux.fish"; echo $status)
 t "trace-guard: empty trace passes" "1" (__tmux_trace_in_function ""; echo $status)
 
-# ---------------------------------------------------------------------
-# __tmux_lives_start: SSH-style auto-attach on demand.
-#   inside tmux  -> note only (must NOT call autostart / exec)
-#   outside tmux -> delegates to __tmux_autostart (real one execs; stub to observe)
-# ---------------------------------------------------------------------
-functions -c __tmux_autostart __tl_as_bak
-function __tmux_autostart; set -g _tl_started 1; end
-set -g _tl_started 0
-set -gx TMUX fake-$fish_pid
-__tmux_lives_start >/dev/null 2>&1
-t "start: inside tmux skips autostart" "0" "$_tl_started"
-set -e TMUX
-set _tl_started 0
-__tmux_lives_start >/dev/null 2>&1
-t "start: outside tmux runs autostart" "1" "$_tl_started"
-functions -e __tmux_autostart; functions -c __tl_as_bak __tmux_autostart
-
 # __tmux_ensure_server: no-op when a server runs; restores when none.
 functions -c __tmux_restore __tl_restore_bak
 function __tmux_restore; set -g g_restored 1; end

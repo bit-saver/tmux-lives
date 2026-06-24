@@ -89,12 +89,14 @@ t "status is an OK line"         1 (string match -q 'OK *' -- "$ps"; and echo 1;
 t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and echo 1; or echo 0)
 
 set -l hlp (tmux-lives | string collect)
-t "help lists setup"     1 (string match -q '*setup *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists start, s"   1 (string match -q '*start, s*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists picker, p"  1 (string match -q '*picker, p*' -- "$hlp"; and echo 1; or echo 0)
-t "help lists take, t"    1 (string match -q '*take, t *' -- "$hlp"; and echo 1; or echo 0)
-t "help lists fixssh, f"  1 (string match -q '*fixssh, f*' -- "$hlp"; and echo 1; or echo 0)
-t "help USAGE header"     1 (string match -q '*USAGE*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists attach, a"  1 (string match -q '*attach, a*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists new, n"     1 (string match -q '*new, n*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists close"      1 (string match -q '*close, x, q*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists clear"      1 (string match -q '*clear*' -- "$hlp"; and echo 1; or echo 0)
+t "help lists setup ptr"  1 (string match -q '*tmux-lives setup -h*' -- "$hlp"; and echo 1; or echo 0)
+t "help drops start"      0 (string match -q '*start*' -- "$hlp"; and echo 1; or echo 0)
+t "help drops top verify" 0 (string match -q '*verify, v*' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
@@ -105,17 +107,12 @@ set -g _tl_routed ''
 tmux-lives setup teardown
 t "routes setup teardown -> helper" "teardown" "$_tl_routed"
 functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
-# command aliases route to the right action (start/picker/take/fixssh helpers live in
+# command aliases route to the right action (picker/fixssh helpers live in
 # conf.d/tmux.fish, not sourced here — define fresh stubs, so no backup/restore noise)
-function __tmux_lives_start;  set -g _tl_a start;  end
 function __tmux_lives_picker; set -g _tl_a picker; end
-function __tmux_lives_take;   set -g _tl_a take;   end
 function __tmux_lives_fixssh; set -g _tl_a fixssh; end
-set -g _tl_a ''; tmux-lives s;      t "alias s -> start"   start  "$_tl_a"
-set -g _tl_a ''; tmux-lives start;  t "verb start routes"  start  "$_tl_a"
 set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
 set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
-set -g _tl_a ''; tmux-lives t foo;  t "alias t -> take"    take   "$_tl_a"
 set -g _tl_a ''; tmux-lives f;      t "alias f -> fixssh"  fixssh "$_tl_a"
 function __tmux_lives_new; set -g _tl_a new; end
 set -g _tl_a ''; tmux-lives n;   t "alias n -> new"  new "$_tl_a"
@@ -133,7 +130,7 @@ functions -e __tmux_lives_close
 function __tmux_lives_clear; set -g _tl_a clear; end
 set -g _tl_a ''; tmux-lives clear; t "verb clear routes" clear "$_tl_a"
 functions -e __tmux_lives_clear
-functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
+functions -e __tmux_lives_picker __tmux_lives_fixssh
 # setup group routing
 functions -c __tmux_lives_setup __tl_setup_real
 function __tmux_lives_setup; set -g _tl_s install; end

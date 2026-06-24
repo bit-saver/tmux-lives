@@ -182,21 +182,6 @@ function __tmux_autostart --description 'Restore (first login after reboot), cat
 end
 
 # ---- user commands ----
-function __tmux_lives_start --description 'Start tmux and attach like an SSH login (no picker). tmux-lives start'
-    if not command -q tmux
-        echo "tmux not installed" >&2
-        return 1
-    end
-    if set -q TMUX
-        echo "tmux-lives start: already inside tmux."
-        return 0
-    end
-    # The same flow an SSH login runs: restore (first boot) → categorize → prune →
-    # exec into the MRU general session, or create one. Runs regardless of `auto off`,
-    # since the user asked for it explicitly.
-    __tmux_autostart
-end
-
 function __tmux_lives_picker --description 'Open the categorized session switcher. tmux-lives picker [-t]'
     if not command -q tmux
         echo "tmux not installed" >&2
@@ -386,14 +371,6 @@ function __tmux_lives_clear --description 'Kill idle sessions, keeping the curre
     if test $do_exit -eq 1; and set -q TMUX
         __tmux_lives_close
     end
-end
-
-function __tmux_lives_take --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
-    if test -z "$session"
-        tmux list-sessions 2>/dev/null
-        return
-    end
-    tmux -u attach-session -d -t "$session"
 end
 
 # ---- trigger (interactive SSH logins only) ----

@@ -93,7 +93,7 @@ function __tmux_lives_ensure_source_line --description 'Idempotently source the 
 end
 
 function __tmux_lives_persistence_note --description 'macOS/non-systemd persistence model (for tmux-lives setup)'
-    echo "no systemd — persistence via continuum autosave + restore on first 'tmux-lives start'/SSH login"
+    echo "no systemd — persistence via continuum autosave + restore on first SSH login"
 end
 
 function __tmux_lives_persistence_status --description 'macOS/non-systemd persistence status line'
@@ -211,18 +211,15 @@ function __tmux_lives_help --description 'tmux-lives command list'
         'USAGE' \
         '  tmux-lives <command> [options]' \
         '' \
-        'SETUP' \
-        '  setup [install|verify|keys|teardown|auto …]   install & configuration (see: setup -h)' \
+        '  picker, p [-t]              open the session switcher (-t takes it)' \
+        '  attach, a <name> [-t]       attach to a session (-t takes it)' \
+        '  new, n [name]               create a new session (optional name)' \
+        '  close, x, q                 kill the current session and exit' \
+        '  clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
+        '  fixssh, f                   repair the SSH agent socket' \
+        '  setup                       install / verify / keys / auto — run `tmux-lives setup -h`' \
         '' \
-        'SESSION' \
-        '  start, s                    start tmux and attach, like an SSH login' \
-        '  picker, p [-t]              open the switcher; -t = take (detach other clients first)' \
-        '  take, t <name>              grab a session, detaching a stale client' \
-        '  fixssh, f                   repair the SSH agent socket after reconnecting' \
-        '' \
-        'help                          show this help  (-h, --help)' \
-        '' \
-        "Tip: alias your own shortcuts, e.g.  alias ts 'tmux-lives picker'"
+        'help                          show this help  (-h, --help)'
 end
 
 function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K]'
@@ -282,29 +279,25 @@ function __tmux_lives_setup_dispatch
     end
 end
 
-function tmux-lives --description 'tmux-lives: unified command — setup/verify/teardown/start/picker/auto/take/fixssh'
+function tmux-lives --description 'tmux-lives: unified command — picker/attach/new/close/clear/fixssh/setup'
     set -l cmd $argv[1]
     switch "$cmd"
         case '' help -h --help
             __tmux_lives_help
-        case setup
-            __tmux_lives_setup_dispatch $argv[2..]
-        case start s
-            __tmux_lives_start
         case picker p
             __tmux_lives_picker $argv[2..]
-        case new n
-            __tmux_lives_new $argv[2..]
         case attach a
             __tmux_lives_attach $argv[2..]
-        case take t
-            __tmux_lives_take $argv[2..]
-        case fixssh f
-            __tmux_lives_fixssh
+        case new n
+            __tmux_lives_new $argv[2..]
         case close x q
             __tmux_lives_close
         case clear
             __tmux_lives_clear $argv[2..]
+        case fixssh f
+            __tmux_lives_fixssh
+        case setup
+            __tmux_lives_setup_dispatch $argv[2..]
         case '*'
             echo "tmux-lives: unknown command '$cmd'" >&2
             __tmux_lives_help >&2
