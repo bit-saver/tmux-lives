@@ -268,6 +268,8 @@ function tmux-lives --description 'tmux-lives: unified command — setup/verify/
             __tmux_lives_take $argv[2..]
         case fixssh f
             __tmux_lives_fixssh
+        case close x q
+            __tmux_lives_close
         case '*'
             echo "tmux-lives: unknown command '$cmd'" >&2
             __tmux_lives_help >&2

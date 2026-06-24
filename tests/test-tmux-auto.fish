@@ -229,6 +229,22 @@ set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
+# close: kills the current session; outside tmux errors.
+cleanup
+t "close: outside tmux errors (rc1)" "1" (begin; set -e TMUX; __tmux_lives_close 2>/dev/null; echo $status; end)
+tmux new-session -d -s cur
+tmux new-session -d -s other
+set -gx TMUX fake
+# Stub the current-session lookup so the headless test has a deterministic target.
+function __tmux_lives_current_session; echo cur; end
+__tmux_lives_close 2>/dev/null
+t "close: current session killed" "no" (tmux has-session -t =cur 2>/dev/null; and echo yes; or echo no)
+t "close: other session kept" "yes" (tmux has-session -t =other 2>/dev/null; and echo yes; or echo no)
+functions -e __tmux_lives_current_session
+set -e TMUX
+cleanup
+
+# ---------------------------------------------------------------------
 if test $FAIL -eq 0
     echo "ALL PASS"
     exit 0

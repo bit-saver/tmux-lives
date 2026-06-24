@@ -356,6 +356,21 @@ function __tmux_lives_attach --description 'Attach to an existing session. tmux-
     end
 end
 
+function __tmux_lives_current_session --description 'Name of the session this client is attached to'
+    tmux display-message -p '#{session_name}' 2>/dev/null
+end
+
+function __tmux_lives_close --description 'Kill the current session and return to the shell. tmux-lives close'
+    if not set -q TMUX
+        echo "tmux-lives close: not inside a tmux session" >&2
+        return 1
+    end
+    set -l cur (__tmux_lives_current_session)
+    test -n "$cur"; or return 1
+    tmux set-option -t "=$cur" detach-on-destroy on 2>/dev/null
+    tmux kill-session -t "=$cur" 2>/dev/null
+end
+
 function __tmux_lives_take --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
     if test -z "$session"
         tmux list-sessions 2>/dev/null

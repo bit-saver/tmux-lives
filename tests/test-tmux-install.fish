@@ -132,6 +132,11 @@ function __tmux_lives_attach; set -g _tl_a attach; end
 set -g _tl_a ''; tmux-lives a foo;      t "alias a -> attach"  attach "$_tl_a"
 set -g _tl_a ''; tmux-lives attach foo; t "verb attach routes" attach "$_tl_a"
 functions -e __tmux_lives_attach
+function __tmux_lives_close; set -g _tl_a close; end
+set -g _tl_a ''; tmux-lives x;     t "alias x -> close" close "$_tl_a"
+set -g _tl_a ''; tmux-lives q;     t "alias q -> close" close "$_tl_a"
+set -g _tl_a ''; tmux-lives close; t "verb close routes" close "$_tl_a"
+functions -e __tmux_lives_close
 functions -e __tmux_lives_start __tmux_lives_picker __tmux_lives_take __tmux_lives_fixssh
 # setup flag parsing persists the universal vars (stub the heavy setup body)
 functions -c __tmux_lives_setup __tl_setup_real
