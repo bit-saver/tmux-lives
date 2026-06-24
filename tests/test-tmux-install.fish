@@ -108,7 +108,11 @@ t "commands are flush-left"      1 (string match -rq '(?m)^new, n' -- "$hlp"; an
 t "commands not indented"        0 (string match -rq '(?m)^  picker, p' -- "$hlp"; and echo 1; or echo 0)
 t "setup precedes session cmds"  1 (string match -rq '(?s)setup <command>.*new, n' -- "$hlp"; and echo 1; or echo 0)
 t "session cmds workflow order"  1 (string match -rq '(?s)new, n.*attach, a.*picker, p.*fix, f.*clear.*close' -- "$hlp"; and echo 1; or echo 0)
-t "help comes last"              1 (string match -rq '(?sm)^close, x, q.*^help' -- "$hlp"; and echo 1; or echo 0)
+# help moved to right before setup; update sits just under setup
+t "help precedes setup"          1 (string match -rq '(?sm)^help .*^setup <command>' -- "$hlp"; and echo 1; or echo 0)
+t "help lists update, u"         1 (string match -q '*update, u*' -- "$hlp"; and echo 1; or echo 0)
+t "update sits after setup"      1 (string match -rq '(?s)setup <command>.*update, u' -- "$hlp"; and echo 1; or echo 0)
+t "session cmds after update"    1 (string match -rq '(?s)update, u.*new, n' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
@@ -127,6 +131,12 @@ set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
 set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
 set -g _tl_a ''; tmux-lives f;      t "alias f -> fix"     fix "$_tl_a"
 set -g _tl_a ''; tmux-lives fix;    t "verb fix routes"    fix "$_tl_a"
+# update routes (real __tmux_lives_update is in this file — back it up around the stub)
+functions -q __tmux_lives_update; and functions -c __tmux_lives_update __tl_upd_real
+function __tmux_lives_update; set -g _tl_a update; end
+set -g _tl_a ''; tmux-lives u;      t "alias u -> update"  update "$_tl_a"
+set -g _tl_a ''; tmux-lives update; t "verb update routes" update "$_tl_a"
+functions -e __tmux_lives_update; functions -q __tl_upd_real; and functions -c __tl_upd_real __tmux_lives_update
 function __tmux_lives_new; set -g _tl_a new; end
 set -g _tl_a ''; tmux-lives n;   t "alias n -> new"  new "$_tl_a"
 set -g _tl_a ''; tmux-lives new; t "verb new routes" new "$_tl_a"
@@ -179,6 +189,35 @@ functions --handlers | grep -qE 'tmux-lives-install_install[[:space:]]+_tmux_liv
 t "install handler wired to dashed event" 0 $status
 functions --handlers | grep -qE 'tmux-lives-install_update[[:space:]]+_tmux_lives_post_update'
 t "update handler wired to dashed event"  0 $status
+
+# ---------------------------------------------------------------------
+# tmux-lives update — wraps `fisher update bit-saver/tmux-lives` and reports
+# whether the installed files actually changed. fisher is ALWAYS stubbed.
+# ---------------------------------------------------------------------
+set -g _tld /tmp/tli-upd-$fish_pid
+printf 'one\n' > $_tld
+set -l d1 (__tmux_lives_digest $_tld)
+printf 'two\n' >> $_tld
+t "digest changes with content"        1 (test "$d1" != (__tmux_lives_digest $_tld); and echo 1; or echo 0)
+# watch our temp file; no-op fisher -> nothing changed -> "already up to date"
+set -g tmux_lives_update_files $_tld
+function fisher; set -g _tl_fish (string join ' ' $argv); end
+set -g _tl_fish ''
+set -l u_same (__tmux_lives_update | string collect)
+t "update calls fisher update <plugin>" "update bit-saver/tmux-lives" "$_tl_fish"
+t "update: up to date when unchanged"  1 (string match -q '*already up to date*' -- "$u_same"; and echo 1; or echo 0)
+# fisher stub that mutates the watched file -> "updated" + exec-fish hint
+function fisher; printf 'changed\n' >> $tmux_lives_update_files; end
+set -l u_diff (__tmux_lives_update | string collect)
+t "update: reports change"             1 (string match -q '*updated*' -- "$u_diff"; and echo 1; or echo 0)
+t "update: change hints exec fish"     1 (string match -q '*exec fish*' -- "$u_diff"; and echo 1; or echo 0)
+functions -e fisher
+set -e tmux_lives_update_files
+rm -f $_tld
+# the generic post-update note is silenced while `tmux-lives update` reports for itself
+set -g _tmux_lives_updating 1
+t "post-update note silent under flag"  "" (_tmux_lives_post_update | string collect)
+set -e _tmux_lives_updating
 
 # ---------------------------------------------------------------------
 # __tmux_lives_reload: source the conf into a RUNNING tmux (so `setup` needs no

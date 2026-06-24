@@ -28,6 +28,7 @@ All functionality is under one unified command:
 
 ```
 tmux-lives setup <command> [options]   install / verify / teardown / keys / auto (see: tmux-lives setup -h)
+tmux-lives update, u                   update the plugin via fisher (says if already up to date)
 
 tmux-lives new, n [name]               start a new session (optional name)
 tmux-lives attach, a <name> [-t]       attach to a session (-t takes it)

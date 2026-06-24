@@ -211,17 +211,17 @@ function __tmux_lives_help --description 'tmux-lives command list'
         'USAGE' \
         '  tmux-lives <command> [options]' \
         '' \
+        'help                        show this help  (-h, --help)' \
         'setup <command> [options]   run `tmux-lives setup -h` for details' \
         '                            install · verify · teardown · keys · auto' \
+        'update, u                   update the plugin (fisher update)' \
         '' \
         'new, n [name]               create a new session (optional name)' \
         'attach, a <name> [-t]       attach to a session (-t takes it)' \
         'picker, p [-t]              open the session switcher (-t takes it)' \
         'fix, f                      repair the SSH agent socket' \
         'clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
-        'close, x, q                 kill the current session and exit' \
-        '' \
-        'help                        show this help  (-h, --help)'
+        'close, x, q                 kill the current session and exit'
 end
 
 function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K]'
@@ -281,7 +281,35 @@ function __tmux_lives_setup_dispatch
     end
 end
 
-function tmux-lives --description 'tmux-lives: unified command — setup/new/attach/picker/fix/clear/close'
+function __tmux_lives_digest --description 'cksum over the given files (tmux-lives update change-detection)'
+    cat $argv 2>/dev/null | cksum
+end
+
+function __tmux_lives_update --description 'Update the tmux-lives plugin via fisher; report whether anything changed'
+    if not type -q fisher
+        echo 'tmux-lives update: fisher not found — install fisher, or update manually' >&2
+        return 1
+    end
+    # installed plugin files to watch for changes (overridable in tests)
+    set -l files $tmux_lives_update_files
+    test -n "$files"; or set files \
+        $__fish_config_dir/conf.d/tmux.fish \
+        $__fish_config_dir/conf.d/tmux-lives-install.fish \
+        $__fish_config_dir/functions/tmux-categorize.fish
+    set -l before (__tmux_lives_digest $files)
+    set -g _tmux_lives_updating 1   # silence the generic post-update note; we report below
+    fisher update bit-saver/tmux-lives
+    set -l rc $status
+    set -e _tmux_lives_updating
+    test $rc -eq 0; or return $rc
+    if test "$before" = (__tmux_lives_digest $files)
+        echo 'tmux-lives: already up to date.'
+    else
+        echo 'tmux-lives: updated — run `exec fish` to load the new version.'
+    end
+end
+
+function tmux-lives --description 'tmux-lives: unified command — setup/update/new/attach/picker/fix/clear/close'
     set -l cmd $argv[1]
     switch "$cmd"
         case '' help -h --help
@@ -298,6 +326,8 @@ function tmux-lives --description 'tmux-lives: unified command — setup/new/att
             __tmux_lives_clear $argv[2..]
         case fix f
             __tmux_lives_fix
+        case update u
+            __tmux_lives_update
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
         case '*'
@@ -315,5 +345,6 @@ function _tmux_lives_post_install --on-event tmux-lives-install_install --descri
 end
 
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update note'
+    set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
     printf '%s\n' '✓ tmux-lives updated — open a new shell (exec fish) to load it. '(__tmux_lives_help_hint)
 end
