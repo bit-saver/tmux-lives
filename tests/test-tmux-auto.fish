@@ -192,6 +192,20 @@ __tmux_lives_start >/dev/null 2>&1
 t "start: outside tmux runs autostart" "1" "$_tl_started"
 functions -e __tmux_autostart; functions -c __tl_as_bak __tmux_autostart
 
+# __tmux_ensure_server: no-op when a server runs; restores when none.
+functions -c __tmux_restore __tl_restore_bak
+function __tmux_restore; set -g g_restored 1; end
+cleanup
+set -g g_restored 0
+__tmux_ensure_server
+t "ensure_server: no server -> restores" "1" "$g_restored"
+tmux new-session -d -s live
+set -g g_restored 0
+__tmux_ensure_server
+t "ensure_server: server up -> no restore" "0" "$g_restored"
+cleanup
+functions -e __tmux_restore; functions -c __tl_restore_bak __tmux_restore
+
 # ---------------------------------------------------------------------
 cleanup
 if test $FAIL -eq 0

@@ -158,6 +158,11 @@ function __tmux_trace_in_function --description 'True if a stack-trace blob show
 end
 
 # ---- orchestrator ----
+function __tmux_ensure_server --description 'Start the tmux server, restoring the saved snapshot if none is running'
+    tmux list-sessions >/dev/null 2>&1; and return 0
+    __tmux_restore
+end
+
 function __tmux_autostart --description 'Restore (first login after reboot), categorize, prune, then attach or create'
     command -q tmux; or return
     if not tmux has-session 2>/dev/null     # no server yet → first login after a reboot
