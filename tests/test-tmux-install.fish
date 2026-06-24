@@ -201,16 +201,25 @@ printf 'two\n' >> $_tld
 t "digest changes with content"        1 (test "$d1" != (__tmux_lives_digest $_tld); and echo 1; or echo 0)
 # watch our temp file; no-op fisher -> nothing changed -> "already up to date"
 set -g tmux_lives_update_files $_tld
-function fisher; set -g _tl_fish (string join ' ' $argv); end
+# no-op fisher that PRINTS noise but changes nothing -> noise withheld, "up to date"
+function fisher; set -g _tl_fish (string join ' ' $argv); echo "Fetching bit-saver/tmux-lives"; end
 set -g _tl_fish ''
 set -l u_same (__tmux_lives_update | string collect)
-t "update calls fisher update <plugin>" "update bit-saver/tmux-lives" "$_tl_fish"
-t "update: up to date when unchanged"  1 (string match -q '*already up to date*' -- "$u_same"; and echo 1; or echo 0)
-# fisher stub that mutates the watched file -> "updated" + exec-fish hint
-function fisher; printf 'changed\n' >> $tmux_lives_update_files; end
+t "update calls fisher update <plugin>"      "update bit-saver/tmux-lives" "$_tl_fish"
+t "update: up to date when unchanged"        1 (string match -q '*already up to date*' -- "$u_same"; and echo 1; or echo 0)
+t "update: withholds noise when unchanged"   0 (string match -q '*Fetching*' -- "$u_same"; and echo 1; or echo 0)
+# fisher that prints noise AND changes the file -> release the noise + "updated"
+function fisher; echo "Fetching bit-saver/tmux-lives"; printf 'changed\n' >> $tmux_lives_update_files; end
 set -l u_diff (__tmux_lives_update | string collect)
-t "update: reports change"             1 (string match -q '*updated*' -- "$u_diff"; and echo 1; or echo 0)
-t "update: change hints exec fish"     1 (string match -q '*exec fish*' -- "$u_diff"; and echo 1; or echo 0)
+t "update: reports change"                   1 (string match -q '*updated*' -- "$u_diff"; and echo 1; or echo 0)
+t "update: change hints exec fish"           1 (string match -q '*exec fish*' -- "$u_diff"; and echo 1; or echo 0)
+t "update: releases fisher output on change" 1 (string match -q '*Fetching*' -- "$u_diff"; and echo 1; or echo 0)
+# fisher failure -> surface its output (stderr) and propagate the exit code
+function fisher; echo "fisher boom"; return 7; end
+set -l u_err (__tmux_lives_update 2>&1 | string collect)
+t "update: surfaces output on failure"       1 (string match -q '*fisher boom*' -- "$u_err"; and echo 1; or echo 0)
+__tmux_lives_update >/dev/null 2>&1
+t "update: propagates fisher exit code"      7 $status
 functions -e fisher
 set -e tmux_lives_update_files
 rm -f $_tld

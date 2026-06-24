@@ -285,7 +285,7 @@ function __tmux_lives_digest --description 'cksum over the given files (tmux-liv
     cat $argv 2>/dev/null | cksum
 end
 
-function __tmux_lives_update --description 'Update the tmux-lives plugin via fisher; report whether anything changed'
+function __tmux_lives_update --description 'Update the tmux-lives plugin via fisher; stay quiet unless something changed'
     if not type -q fisher
         echo 'tmux-lives update: fisher not found — install fisher, or update manually' >&2
         return 1
@@ -297,16 +297,26 @@ function __tmux_lives_update --description 'Update the tmux-lives plugin via fis
         $__fish_config_dir/conf.d/tmux-lives-install.fish \
         $__fish_config_dir/functions/tmux-categorize.fish
     set -l before (__tmux_lives_digest $files)
+    # fisher reinstalls (and is noisy) on every update — divert its output to a file
+    # (a redirect, NOT a `(…)` capture: that would break fisher's background-job fetch)
+    # and only surface it if something actually changed, or if it failed.
+    set -l log (mktemp)
     set -g _tmux_lives_updating 1   # silence the generic post-update note; we report below
-    fisher update bit-saver/tmux-lives
+    fisher update bit-saver/tmux-lives >$log 2>&1
     set -l rc $status
     set -e _tmux_lives_updating
-    test $rc -eq 0; or return $rc
+    if test $rc -ne 0
+        cat $log >&2                # surface fisher's error
+        rm -f $log
+        return $rc
+    end
     if test "$before" = (__tmux_lives_digest $files)
         echo 'tmux-lives: already up to date.'
     else
+        cat $log                    # release fisher's output — something changed
         echo 'tmux-lives: updated — run `exec fish` to load the new version.'
     end
+    rm -f $log
 end
 
 function tmux-lives --description 'tmux-lives: unified command — setup/update/new/attach/picker/fix/clear/close'
