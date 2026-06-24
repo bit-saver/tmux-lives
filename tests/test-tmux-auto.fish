@@ -137,15 +137,26 @@ rm -rf $rdir_d
 cleanup
 
 # ---------------------------------------------------------------------
-# picker: inside tmux opens the switcher (with --take on -t); outside tmux gets you in.
+# picker inside tmux runs the categorizer SUBPROCESS `open-switcher <client> [--take]`
+# (the __tcz_* helpers are not autoloaded into the interactive shell, so the real code
+# must shell out — can't stub them in-shell). Point tmux_categorize_script at a recorder
+# and inspect the args it received.
 cleanup
-functions -c __tcz_open_switcher __tl_os_bak 2>/dev/null
-function __tcz_open_switcher; set -g g_sw "$argv"; end
+tmux new-session -d -s pk1
 set -gx TMUX fake
-set -g g_sw ''; __tmux_lives_picker;    t "picker inside opens switcher" "yes" (string match -q '*' -- "$g_sw"; and echo yes; or echo no)
-set -g g_sw ''; __tmux_lives_picker -t; t "picker -t threads take"      "yes" (string match -q '*--take*' -- "$g_sw"; and echo yes; or echo no)
+set -g real_cat $tmux_categorize_script
+set -g pk_rec /tmp/picker-rec-$fish_pid
+set -g pk_stub /tmp/picker-stub-$fish_pid.fish
+set -g tmux_categorize_script $pk_stub
+printf '#!/usr/bin/env fish\nprintf "%%s\\n" $argv > %s\n' $pk_rec > $pk_stub
+__tmux_lives_picker
+t "picker inside calls open-switcher subcmd" "open-switcher" (head -1 $pk_rec 2>/dev/null)
+t "picker (no -t) omits --take"              "no"  (grep -qx -- --take $pk_rec 2>/dev/null; and echo yes; or echo no)
+__tmux_lives_picker -t
+t "picker -t threads --take to open-switcher" "yes" (grep -qx -- --take $pk_rec 2>/dev/null; and echo yes; or echo no)
+set -g tmux_categorize_script $real_cat
+rm -f $pk_stub $pk_rec
 set -e TMUX
-functions -e __tcz_open_switcher; functions -q __tl_os_bak; and functions -c __tl_os_bak __tcz_open_switcher
 cleanup
 
 # ---------------------------------------------------------------------

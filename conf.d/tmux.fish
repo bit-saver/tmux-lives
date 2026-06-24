@@ -206,7 +206,11 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     contains -- -t $argv; or contains -- --take $argv; and set take --take
     if set -q TMUX
         set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
-        __tcz_open_switcher $client $take
+        # Run the categorizer as a subprocess: its __tcz_* helpers are NOT autoloaded
+        # into the interactive shell (functions/ files autoload by filename, and nothing
+        # calls `tmux-categorize`). $take stays a separate token (empty -> no extra arg).
+        env tmux_auto_ghost_minutes=$tmux_auto_ghost_minutes \
+            fish --no-config $tmux_categorize_script open-switcher "$client" $take
         return
     end
     # Outside tmux: get into a session, then open the popup on the new client.
