@@ -260,6 +260,8 @@ function tmux-lives --description 'tmux-lives: unified command — setup/verify/
             __tmux_lives_picker $argv[2..]
         case new n
             __tmux_lives_new $argv[2..]
+        case attach a
+            __tmux_lives_attach $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
         case take t

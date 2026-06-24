@@ -219,7 +219,16 @@ set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
+# attach: missing-session errors; existing inside tmux switches.
 cleanup
+tmux new-session -d -s keep
+set -gx TMUX fake
+t "attach: missing errors (rc1)"  "1" (__tmux_lives_attach nope 2>/dev/null; echo $status)
+t "attach: no name errors (rc1)"  "1" (__tmux_lives_attach 2>/dev/null; echo $status)
+set -e TMUX
+cleanup
+
+# ---------------------------------------------------------------------
 if test $FAIL -eq 0
     echo "ALL PASS"
     exit 0

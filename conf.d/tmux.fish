@@ -315,6 +315,47 @@ function __tmux_lives_fixssh --description 'Refresh SSH_AUTH_SOCK and friends fr
     end
 end
 
+function __tmux_lives_attach --description 'Attach to an existing session. tmux-lives attach <name> [-t]'
+    if not command -q tmux
+        echo "tmux not installed" >&2
+        return 1
+    end
+    set -l take 0
+    set -l name
+    for a in $argv
+        switch $a
+            case -t --take
+                set take 1
+            case '*'
+                set name $a
+        end
+    end
+    if test -z "$name"
+        echo "tmux-lives attach: needs a session name" >&2
+        return 1
+    end
+    set name (fish --no-config $tmux_categorize_script slug $name)
+    if set -q TMUX
+        if not tmux has-session -t "=$name" 2>/dev/null
+            echo "tmux-lives attach: no session '$name' — use: tmux-lives new $name" >&2
+            return 1
+        end
+        test $take -eq 1; and tmux detach-client -s "=$name" 2>/dev/null
+        tmux switch-client -t "=$name"
+        return
+    end
+    __tmux_ensure_server
+    if not tmux has-session -t "=$name" 2>/dev/null
+        echo "tmux-lives attach: no session '$name' — use: tmux-lives new $name" >&2
+        return 1
+    end
+    if test $take -eq 1
+        exec tmux -u attach-session -d -t "=$name"
+    else
+        exec tmux -u attach-session -t "=$name"
+    end
+end
+
 function __tmux_lives_take --argument-names session --description 'Force-take a tmux session, detaching any (ghost) client'
     if test -z "$session"
         tmux list-sessions 2>/dev/null
