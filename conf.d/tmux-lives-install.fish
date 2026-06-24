@@ -215,7 +215,7 @@ function __tmux_lives_help --description 'tmux-lives command list'
         '' \
         'SESSION' \
         '  start, s                    start tmux and attach, like an SSH login' \
-        '  picker, p [name]            open the switcher, or go to / create <name>' \
+        '  picker, p [-t]              open the switcher; -t = take (detach other clients first)' \
         '  auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         '  take, t <name>              grab a session, detaching a stale client' \
         '  fixssh, f                   repair the SSH agent socket after reconnecting' \

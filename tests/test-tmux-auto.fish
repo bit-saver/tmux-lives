@@ -137,30 +137,16 @@ rm -rf $rdir_d
 cleanup
 
 # ---------------------------------------------------------------------
-# bare `picker` (formerly ts/switch), run OUTSIDE tmux, auto-attaches via
-# __tmux_autostart whether or not a server is running. The old grouped numbered
-# picker (server-exists branch) was retired. (Stub __tmux_autostart; it execs.)
-# ---------------------------------------------------------------------
+# picker: inside tmux opens the switcher (with --take on -t); outside tmux gets you in.
 cleanup
+functions -c __tcz_open_switcher __tl_os_bak 2>/dev/null
+function __tcz_open_switcher; set -g g_sw "$argv"; end
+set -gx TMUX fake
+set -g g_sw ''; __tmux_lives_picker;    t "picker inside opens switcher" "yes" (string match -q '*' -- "$g_sw"; and echo yes; or echo no)
+set -g g_sw ''; __tmux_lives_picker -t; t "picker -t threads take"      "yes" (string match -q '*--take*' -- "$g_sw"; and echo yes; or echo no)
 set -e TMUX
-functions -c __tmux_autostart __tmux_autostart_real
-function __tmux_autostart; set -g g_autostart_fired 1; end
-set -g g_autostart_fired 0
-__tmux_lives_picker
-t "picker auto-attaches when no server" "1" "$g_autostart_fired"
-# server already running → still auto-attaches, NOT a numbered picker. A noop
-# categorizer + </dev/null keeps the pre-fix path from touching the real tmux.
-set -l real_script $tmux_categorize_script
-set -g tmux_categorize_script /tmp/tcz-noop-$fish_pid.fish
-printf '#!/usr/bin/env fish\n' > $tmux_categorize_script
-tmux new-session -d -s existing
-set -g g_autostart_fired 0
-__tmux_lives_picker </dev/null >/dev/null
-t "picker auto-attaches with a server (no numbered list)" "1" "$g_autostart_fired"
-set -g tmux_categorize_script $real_script
-rm -f /tmp/tcz-noop-$fish_pid.fish
-functions -e __tmux_autostart
-functions -c __tmux_autostart_real __tmux_autostart
+functions -e __tcz_open_switcher; functions -q __tl_os_bak; and functions -c __tl_os_bak __tcz_open_switcher
+cleanup
 
 # ---------------------------------------------------------------------
 # Autostart guard: the trigger must NOT fire when conf.d/tmux.fish is SOURCED

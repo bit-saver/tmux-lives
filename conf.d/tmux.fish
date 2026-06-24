@@ -197,34 +197,26 @@ function __tmux_lives_start --description 'Start tmux and attach like an SSH log
     __tmux_autostart
 end
 
-function __tmux_lives_picker --description 'Categorized tmux session switcher / creator. tmux-lives picker [name]'
+function __tmux_lives_picker --description 'Open the categorized session switcher. tmux-lives picker [-t]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
     end
-    if test (count $argv) -gt 0
-        # Sanitize like every system-applied name (spaces/:/. break tmux targets).
-        set -l name (fish --no-config $tmux_categorize_script slug $argv[1])
-        __tmux_detach_ghosts "$name"
-        if set -q TMUX
-            tmux new-session -d -s "$name" 2>/dev/null
-            tmux switch-client -t "=$name"
-        else
-            tmux new-session -A -s "$name"
-        end
-        return
-    end
+    set -l take ''
+    contains -- -t $argv; or contains -- --take $argv; and set take --take
     if set -q TMUX
         set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
-        env tmux_auto_ghost_minutes=$tmux_auto_ghost_minutes \
-            fish --no-config $tmux_categorize_script open-switcher "$client"
+        __tcz_open_switcher $client $take
         return
     end
-    # Outside tmux: drop in the same way `tmux-lives start` / an SSH login does —
-    # restore (first boot) → categorize → prune → attach the MRU general session, or
-    # create one. (The grouped numbered list was retired; once you're in, use the
-    # popup — prefix S / Opt+s — to switch between sessions.)
-    __tmux_autostart
+    # Outside tmux: get into a session, then open the popup on the new client.
+    __tmux_ensure_server
+    __tmux_categorize
+    set -l target (__tmux_pick_session)
+    test -n "$target"; or set target (fish --no-config $tmux_categorize_script new-general)
+    __tmux_detach_ghosts "$target"
+    set -l pop "tmux display-popup -E -w 80% -h 70% -- fish --no-config $tmux_categorize_script popup ''"
+    exec tmux -u attach-session -d -t "=$target" \; run-shell -b "$pop"
 end
 
 function __tmux_lives_new --description 'Create a new categorized session in $HOME. tmux-lives new [name]'
