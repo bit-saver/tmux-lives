@@ -16,12 +16,16 @@ ShellFish coexistence) extracted from `~/.config/fish` into a standalone, cross-
 - **Dev loop from here:** edit → `for t in tests/test-*.fish; fish $t; end` → commit + push. **Stop there.**
   Deployment to the live `~/.config/fish/` is **ALWAYS the user's `fisher update`** — they run it themselves in
   their interactive fish.
-- 🚫 **NEVER modify the live system from a Claude session.** Do NOT `cp` (or otherwise write) changed
-  `conf.d/`/`functions/` files into `~/.config/fish/`, do not edit `~/.tmux.conf`, do not set universal vars, etc.
-  The repo (commit + push) is the ONLY thing a Claude session touches; the live host receives changes solely via
-  the user's `fisher update`. (`fisher install/update` also HANGS in the Claude bash sandbox anyway — but the rule
-  stands regardless: the user always deploys.) If you think a change "needs to be live to verify," push it and ask
-  the user to `fisher update` — never shortcut it with a file copy.
+- 🚫 **A Claude session does NOT deploy.** Finished changes reach the live `~/.config/fish/` ONLY via the user's
+  `fisher update` — never `cp` a finished change into `conf.d/`/`functions/` to make it "live," and don't edit
+  `~/.tmux.conf` or set universal vars to ship something. (`fisher install/update` also HANGS in the Claude bash
+  sandbox anyway — but the rule stands regardless: the user always deploys.) If a change "needs to be live to
+  verify," push it and ask the user to `fisher update`.
+- ✅ **Temporary test edits are allowed — but revert EXACTLY.** You may patch a live fisher file to observe a
+  behavior in development, on one strict condition: restore it **byte-identical** to its fisher-install state
+  afterward and confirm with a diff. Clean restore: `git show <installed-commit>:<path> > <live-path>` then
+  `diff` to verify zero drift. Leaving the live copy desynced from what fisher installed is the thing to avoid
+  (fisher treats its files as static; drift makes it unclear which copy is authoritative).
 
 **macOS port (spec 2): implemented** — runtime-only persistence (no launchd units; continuum autosave + first-access restore), `/proc`→`ps` detection (`__tcz_pid_comm`/`__tcz_pid_cmdline`), bare cold-start on first attach. **Pending:** live Mac smoke (categorize as claude, cold-start, reboot-restore). On the Mac: `fisher install bit-saver/tmux-lives` + run `tmux-lives setup install` (binds `prefix S` + `Opt+s` by default; use `tmux-lives setup keys -p/-s` to customize).
 
