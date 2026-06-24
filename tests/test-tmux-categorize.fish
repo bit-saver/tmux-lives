@@ -369,17 +369,17 @@ t "no leftover __tcz_fzfpick"   absent (functions -q __tcz_fzfpick; and echo pre
 # probe passes), and echo everything else so nothing actually launches.
 set -g sw_shim /tmp/tcz-sw-$fish_pid
 mkdir -p $sw_shim
-printf '#!/bin/sh\ncase "$*" in *list-commands*) echo display-popup;; *) echo "TMUX:$*";; esac\n' > $sw_shim/tmux; chmod +x $sw_shim/tmux
+printf '#!/bin/sh\ncase "$*" in *list-commands*) echo display-popup;; *) printf "TMUX"; printf "|%%s" "$@"; echo;; esac\n' > $sw_shim/tmux; chmod +x $sw_shim/tmux
 set -g sw_path_save $PATH
 set -gx PATH $sw_shim $PATH
 set -g sw_out (__tcz_open_switcher c1)
 set -gx PATH $sw_path_save
 t "open-switcher uses display-popup" yes (string match -q '*display-popup*' -- "$sw_out"; and echo yes; or echo no)
-t "open-switcher runs popup subcmd"  yes (string match -q '*popup c1*' -- "$sw_out"; and echo yes; or echo no)
+t "open-switcher runs popup subcmd"  yes (string match -q '*|popup|c1*' -- "$sw_out"; and echo yes; or echo no)
 set -gx PATH $sw_shim $PATH
 set -g sw_take (__tcz_open_switcher c1 --take)
 set -gx PATH $sw_path_save
-t "open-switcher threads --take" yes (string match -q '*popup c1 --take*' -- "$sw_take"; and echo yes; or echo no)
+t "open-switcher threads --take (separate token)" yes (string match -q '*|popup|c1|--take*' -- "$sw_take"; and echo yes; or echo no)
 rm -rf $sw_shim
 
 # dispatcher routes `popup`, not `fzfpick`

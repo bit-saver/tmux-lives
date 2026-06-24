@@ -724,10 +724,12 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
 end
 
 function __tcz_open_switcher --argument-names client --description 'open the two-pane popup switcher (display-menu fallback if display-popup is unsupported)'
-    set -l take ''
-    contains -- --take $argv; and set take ' --take'
     if tmux list-commands 2>/dev/null | grep -q display-popup
-        tmux display-popup -E -w 80% -h 70% -- fish --no-config $__tcz_self popup "$client"$take
+        # Build argv as a list so --take stays a SEPARATE token (concatenating it onto
+        # "$client" would deliver one bogus "client --take" arg to the popup process).
+        set -l cmd fish --no-config $__tcz_self popup "$client"
+        contains -- --take $argv; and set -a cmd --take
+        tmux display-popup -E -w 80% -h 70% -- $cmd
     else
         __tcz_menu
     end
