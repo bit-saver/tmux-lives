@@ -97,6 +97,18 @@ t "help lists clear"      1 (string match -q '*clear*' -- "$hlp"; and echo 1; or
 t "help lists setup ptr"  1 (string match -q '*tmux-lives setup -h*' -- "$hlp"; and echo 1; or echo 0)
 t "help drops start"      0 (string match -q '*start*' -- "$hlp"; and echo 1; or echo 0)
 t "help drops top verify" 0 (string match -q '*verify, v*' -- "$hlp"; and echo 1; or echo 0)
+# fix (renamed from fixssh), accurate setup args, setup-help-first description,
+# flush-left (no section header) commands, and workflow ordering
+t "help lists fix, f"            1 (string match -q '*fix, f*' -- "$hlp"; and echo 1; or echo 0)
+t "help drops fixssh"            0 (string match -q '*fixssh*' -- "$hlp"; and echo 1; or echo 0)
+t "help shows setup args"        1 (string match -rq 'setup <command> \[options\]' -- "$hlp"; and echo 1; or echo 0)
+t "setup desc points to -h first" 1 (string match -rq 'setup <command> \[options\].*setup -h' -- "$hlp"; and echo 1; or echo 0)
+t "help lists setup subcmds"     1 (string match -q '*install · verify · teardown · keys · auto*' -- "$hlp"; and echo 1; or echo 0)
+t "commands are flush-left"      1 (string match -rq '(?m)^new, n' -- "$hlp"; and echo 1; or echo 0)
+t "commands not indented"        0 (string match -rq '(?m)^  picker, p' -- "$hlp"; and echo 1; or echo 0)
+t "setup precedes session cmds"  1 (string match -rq '(?s)setup <command>.*new, n' -- "$hlp"; and echo 1; or echo 0)
+t "session cmds workflow order"  1 (string match -rq '(?s)new, n.*attach, a.*picker, p.*fix, f.*clear.*close' -- "$hlp"; and echo 1; or echo 0)
+t "help comes last"              1 (string match -rq '(?sm)^close, x, q.*^help' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
@@ -107,13 +119,14 @@ set -g _tl_routed ''
 tmux-lives setup teardown
 t "routes setup teardown -> helper" "teardown" "$_tl_routed"
 functions -e __tmux_lives_teardown; functions -c __tl_td_real __tmux_lives_teardown
-# command aliases route to the right action (picker/fixssh helpers live in
+# command aliases route to the right action (picker/fix helpers live in
 # conf.d/tmux.fish, not sourced here — define fresh stubs, so no backup/restore noise)
 function __tmux_lives_picker; set -g _tl_a picker; end
-function __tmux_lives_fixssh; set -g _tl_a fixssh; end
+function __tmux_lives_fix; set -g _tl_a fix; end
 set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
 set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
-set -g _tl_a ''; tmux-lives f;      t "alias f -> fixssh"  fixssh "$_tl_a"
+set -g _tl_a ''; tmux-lives f;      t "alias f -> fix"     fix "$_tl_a"
+set -g _tl_a ''; tmux-lives fix;    t "verb fix routes"    fix "$_tl_a"
 function __tmux_lives_new; set -g _tl_a new; end
 set -g _tl_a ''; tmux-lives n;   t "alias n -> new"  new "$_tl_a"
 set -g _tl_a ''; tmux-lives new; t "verb new routes" new "$_tl_a"
@@ -130,7 +143,7 @@ functions -e __tmux_lives_close
 function __tmux_lives_clear; set -g _tl_a clear; end
 set -g _tl_a ''; tmux-lives clear; t "verb clear routes" clear "$_tl_a"
 functions -e __tmux_lives_clear
-functions -e __tmux_lives_picker __tmux_lives_fixssh
+functions -e __tmux_lives_picker __tmux_lives_fix
 # setup group routing
 functions -c __tmux_lives_setup __tl_setup_real
 function __tmux_lives_setup; set -g _tl_s install; end

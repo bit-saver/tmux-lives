@@ -27,13 +27,14 @@ Run `tmux-lives setup verify` anytime to check install health, and `tmux-lives` 
 All functionality is under one unified command:
 
 ```
-tmux-lives picker, p [-t]             open the session switcher (-t takes it)
-tmux-lives attach, a <name> [-t]      attach to a session (-t takes it)
-tmux-lives new, n [name]              start a new session (optional name)
-tmux-lives close, x, q               kill the current session and exit
-tmux-lives clear [-q|-x]              kill idle sessions (-q/-x also exits)
-tmux-lives fixssh, f                  repair the SSH agent socket
-tmux-lives setup                      install / verify / keys / auto (see: tmux-lives setup -h)
+tmux-lives setup <command> [options]   install / verify / teardown / keys / auto (see: tmux-lives setup -h)
+
+tmux-lives new, n [name]               start a new session (optional name)
+tmux-lives attach, a <name> [-t]       attach to a session (-t takes it)
+tmux-lives picker, p [-t]              open the session switcher (-t takes it)
+tmux-lives fix, f                      repair the SSH agent socket
+tmux-lives clear [-q|-x]               kill idle sessions (-q/-x also exits)
+tmux-lives close, x, q                 kill the current session and exit
 ```
 
 Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.

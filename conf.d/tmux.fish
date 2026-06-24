@@ -288,9 +288,9 @@ function __tmux_lives_auto --description 'Control auto-tmux: on|off|status|toggl
     end
 end
 
-function __tmux_lives_fixssh --description 'Refresh SSH_AUTH_SOCK and friends from the tmux session environment'
+function __tmux_lives_fix --description 'Refresh SSH_AUTH_SOCK and friends from the tmux session environment'
     if not set -q TMUX
-        echo "tmux-lives fixssh: not inside tmux" >&2
+        echo "tmux-lives fix: not inside tmux" >&2
         return 1
     end
     for var in SSH_AUTH_SOCK SSH_CONNECTION SSH_CLIENT DISPLAY

@@ -211,15 +211,17 @@ function __tmux_lives_help --description 'tmux-lives command list'
         'USAGE' \
         '  tmux-lives <command> [options]' \
         '' \
-        '  picker, p [-t]              open the session switcher (-t takes it)' \
-        '  attach, a <name> [-t]       attach to a session (-t takes it)' \
-        '  new, n [name]               create a new session (optional name)' \
-        '  close, x, q                 kill the current session and exit' \
-        '  clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
-        '  fixssh, f                   repair the SSH agent socket' \
-        '  setup                       install / verify / keys / auto — run `tmux-lives setup -h`' \
+        'setup <command> [options]   run `tmux-lives setup -h` for details' \
+        '                            install · verify · teardown · keys · auto' \
         '' \
-        'help                          show this help  (-h, --help)'
+        'new, n [name]               create a new session (optional name)' \
+        'attach, a <name> [-t]       attach to a session (-t takes it)' \
+        'picker, p [-t]              open the session switcher (-t takes it)' \
+        'fix, f                      repair the SSH agent socket' \
+        'clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
+        'close, x, q                 kill the current session and exit' \
+        '' \
+        'help                        show this help  (-h, --help)'
 end
 
 function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K]'
@@ -279,7 +281,7 @@ function __tmux_lives_setup_dispatch
     end
 end
 
-function tmux-lives --description 'tmux-lives: unified command — picker/attach/new/close/clear/fixssh/setup'
+function tmux-lives --description 'tmux-lives: unified command — setup/new/attach/picker/fix/clear/close'
     set -l cmd $argv[1]
     switch "$cmd"
         case '' help -h --help
@@ -294,8 +296,8 @@ function tmux-lives --description 'tmux-lives: unified command — picker/attach
             __tmux_lives_close
         case clear
             __tmux_lives_clear $argv[2..]
-        case fixssh f
-            __tmux_lives_fixssh
+        case fix f
+            __tmux_lives_fix
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
         case '*'
