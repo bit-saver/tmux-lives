@@ -41,7 +41,7 @@ Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 ## Uninstall
 
 ```fish
-tmux-lives teardown
+tmux-lives setup teardown
 fisher remove bit-saver/tmux-lives
 ```
 
@@ -49,7 +49,7 @@ fisher remove bit-saver/tmux-lives
 
 - `conf.d/tmux.fish` — runtime (categorize, switcher, prune, restore, hooks)
 - `functions/tmux-categorize.fish` — the categorizer (invoked by tmux as a script)
-- `conf.d/tmux-lives-install.fish` — `tmux-lives` unified command (setup/verify/teardown + dispatcher)
+- `conf.d/tmux-lives-install.fish` — `tmux-lives` dispatcher + the `setup` group (install/verify/teardown/keys/auto)
 - `tests/` — isolated test suites (`-L` sockets; never touch the real server)
 - `docs/superpowers/` — design spec + implementation plan
 
