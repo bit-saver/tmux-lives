@@ -780,8 +780,10 @@ function __tcz_main
             __tcz_commandeer $argv[2..]
         case slug
             __tcz_slugify $argv[2..]
+        case new-general
+            __tcz_new_general
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|slug" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|slug|new-general" >&2
             return 1
     end
 end

@@ -384,8 +384,17 @@ rm -rf $sw_shim
 
 # dispatcher routes `popup`, not `fzfpick`
 set -g main_src (functions __tcz_main | string collect)
-t "dispatcher has popup case"    yes (string match -q '*case popup*' -- "$main_src"; and echo yes; or echo no)
-t "dispatcher dropped fzfpick"   no  (string match -q '*fzfpick*' -- "$main_src"; and echo yes; or echo no)
+t "dispatcher has popup case"      yes (string match -q '*case popup*' -- "$main_src"; and echo yes; or echo no)
+t "dispatcher dropped fzfpick"     no  (string match -q '*fzfpick*' -- "$main_src"; and echo yes; or echo no)
+t "dispatcher has new-general case" yes (string match -q '*case new-general*' -- "$main_src"; and echo yes; or echo no)
+
+# C1 functional: new-general subcommand via the real dispatcher creates a gen-N session
+cleanup
+tmux new-session -d -s existing
+set -l ng_out (fish --no-config $plugindir/functions/tmux-categorize.fish new-general)
+t "new-general: prints a gen-N name"    yes (string match -q 'gen-*' -- "$ng_out"; and echo yes; or echo no)
+t "new-general: session actually exists" yes (tmux has-session -t "=$ng_out" 2>/dev/null; and echo yes; or echo no)
+cleanup
 
 # ---------------------------------------------------------------------
 # The shell list must match __tmux_session_is_idle in conf.d/tmux.fish.

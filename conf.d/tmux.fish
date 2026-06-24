@@ -205,6 +205,7 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     test -n "$target"; or set target (fish --no-config $tmux_categorize_script new-general)
     __tmux_detach_ghosts "$target"
     set -l pop "tmux display-popup -E -w 80% -h 70% -- fish --no-config $tmux_categorize_script popup ''"
+    test -n "$take"; and set pop "$pop $take"
     exec tmux -u attach-session -d -t "=$target" \; run-shell -b "$pop"
 end
 
@@ -224,8 +225,12 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
             tmux new-session -d -c "$HOME" -s "$name"
             tmux switch-client -t "=$name"
         else
-            tmux new-session -d -c "$HOME"
+            set -l sid (tmux new-session -dP -F '#{session_name}' -c "$HOME")
             __tmux_categorize
+            # categorize may have renamed the numeric session to gen-N; resolve
+            set -l now (tmux display-message -p -t "$sid" '#{session_name}' 2>/dev/null)
+            test -n "$now"; and set sid $now
+            tmux switch-client -t "=$sid"
         end
         return
     end
@@ -348,7 +353,7 @@ function __tmux_lives_close --description 'Kill the current session and return t
     end
     set -l cur (__tmux_lives_current_session)
     test -n "$cur"; or return 1
-    tmux set-option -t "=$cur" detach-on-destroy on 2>/dev/null
+    tmux set-option -t "$cur" detach-on-destroy on 2>/dev/null
     tmux kill-session -t "=$cur" 2>/dev/null
 end
 

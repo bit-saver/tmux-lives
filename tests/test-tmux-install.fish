@@ -156,9 +156,9 @@ functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; f
 
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
-t "install msg names tmux-lives setup"  1 (string match -q '*tmux-lives setup*' -- "$inst"; and echo 1; or echo 0)
-t "install msg points to full help"        1 (string match -q '*to see all commands*' -- "$inst"; and echo 1; or echo 0)
-t "install msg drops separate verify step"  0 (string match -q '*tmux-lives verify*' -- "$inst"; and echo 1; or echo 0)
+t "install msg names tmux-lives setup install" 1 (string match -q '*tmux-lives setup install*' -- "$inst"; and echo 1; or echo 0)
+t "install msg points to full help"            1 (string match -q '*to see all commands*' -- "$inst"; and echo 1; or echo 0)
+t "install msg drops separate verify step"     0 (string match -q '*tmux-lives verify*' -- "$inst"; and echo 1; or echo 0)
 set -l upd (_tmux_lives_post_update | string collect)
 t "update msg says exec fish"     1 (string match -q '*exec fish*' -- "$upd"; and echo 1; or echo 0)
 # Wiring — the dashed --on-event names are actually registered.

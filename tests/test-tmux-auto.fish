@@ -159,6 +159,13 @@ rm -f $pk_stub $pk_rec
 set -e TMUX
 cleanup
 
+# M6: outside-tmux picker -t must include --take in the popup command string.
+# Inspect __tmux_lives_picker source: when $take is set, it appends "$take" to $pop.
+# Verify by reading the function source directly.
+set -l picker_src (functions __tmux_lives_picker | string collect)
+t "picker -t outside-tmux: take appended to pop command" "yes" \
+    (string match -q '*test -n "$take"; and set pop "$pop $take"*' -- "$picker_src"; and echo yes; or echo no)
+
 # ---------------------------------------------------------------------
 # Autostart guard: the trigger must NOT fire when conf.d/tmux.fish is SOURCED
 # from within a function (fisher install/update re-sources conf.d) — only at a
@@ -195,6 +202,12 @@ set -gx TMUX fake
 t "new: existing name errors (rc1)" "1" (__tmux_lives_new foo 2>/dev/null; echo $status)
 __tmux_lives_new bar 2>/dev/null
 t "new: creates named session" "yes" (tmux has-session -t =bar 2>/dev/null; and echo yes; or echo no)
+# I3: no-name branch inside tmux must create a new session (gen-N or numeric).
+# switch-client no-ops headless (no real client) — that's fine; assert creation only.
+set -l sess_before (tmux list-sessions -F '#{session_name}' 2>/dev/null | count)
+__tmux_lives_new 2>/dev/null
+set -l sess_after (tmux list-sessions -F '#{session_name}' 2>/dev/null | count)
+t "new: no-name inside tmux creates a session" "yes" (test $sess_after -gt $sess_before; and echo yes; or echo no)
 set -e TMUX
 cleanup
 

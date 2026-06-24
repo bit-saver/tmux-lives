@@ -122,10 +122,6 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
 
-    __tmux_lives_write_fragment
-    echo "tmux-lives setup: wrote $fragment"
-    echo "tmux-lives setup: ensured source-file line in ~/.tmux.conf"
-
     set -l tpm "$HOME/.tmux/plugins/tpm"
     test -d $tpm; or git clone -q https://github.com/tmux-plugins/tpm $tpm
     for p in tmux-resurrect tmux-continuum
@@ -133,6 +129,10 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
         test -d $d; or git clone -q https://github.com/tmux-plugins/$p $d
     end
     echo "tmux-lives setup: TPM + resurrect + continuum present"
+
+    __tmux_lives_write_fragment
+    echo "tmux-lives setup: wrote $fragment"
+    echo "tmux-lives setup: ensured source-file line in ~/.tmux.conf"
 
     if type -q systemctl
         set -l user (id -un); set -l uid (id -u)
@@ -308,7 +308,7 @@ end
 function _tmux_lives_post_install --on-event tmux-lives-install_install --description 'Post-install guidance'
     printf '%s\n' \
         '✓ tmux-lives installed. One command finishes setup:' \
-        '    tmux-lives setup' \
+        '    tmux-lives setup install' \
         '  (wires tmux + plugins, then reloads tmux). '(__tmux_lives_help_hint)
 end
 
