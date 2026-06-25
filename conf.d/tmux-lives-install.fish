@@ -204,9 +204,39 @@ function __tmux_lives_help_hint --description 'Pointer to the tmux-lives help co
     echo 'Run `tmux-lives` to see all commands.'
 end
 
-function __tmux_lives_help --description 'tmux-lives command list'
+function __tmux_lives_box --argument-names title --description 'frame stdin lines in a rounded, orange-bordered box titled <title>'
+    set -l ORG (printf '\e[38;5;208m')
+    set -l RST (printf '\e[0m')
+    set -l lines
+    while read -l l
+        set -a lines "$l"
+    end
+    # content-field width = widest line, measured in DISPLAY columns; at least wide
+    # enough for the title that sits in the top edge
+    set -l cw 0
+    for l in $lines
+        set -l w (string length --visible -- "$l")
+        test $w -gt $cw; and set cw $w
+    end
+    set -l tw (string length --visible -- "$title")
+    set -l tmin (math "$tw + 2")
+    test $tmin -gt $cw; and set cw $tmin
+    # top edge:  ╭─ <title> ─…─╮   (frame orange, title in the default fg)
+    printf '%s╭─ %s%s%s %s╮%s\n' $ORG $RST "$title" $ORG (string repeat -n (math "$cw - $tw - 1") ─) $RST
+    # content rows:  │ <line padded to cw> │
+    # NB: pad goes through a quoted var — an inline (string repeat -n 0 …) yields ZERO
+    # args (not one empty string), which would shift the trailing printf args.
+    for l in $lines
+        set -l pad (string repeat -n (math "$cw - "(string length --visible -- "$l")) ' ')
+        printf '%s│%s %s%s %s│%s\n' $ORG $RST "$l" "$pad" $ORG $RST
+    end
+    # bottom edge:  ╰─…─╯
+    printf '%s╰%s╯%s\n' $ORG (string repeat -n (math "$cw + 2") ─) $RST
+end
+
+function __tmux_lives_help_lines --description 'tmux-lives help content (unframed)'
     printf '%s\n' \
-        'tmux-lives — categorized tmux sessions, switcher & persistence' \
+        'categorized tmux sessions, switcher & persistence' \
         '' \
         'USAGE' \
         '  tmux-lives <command> [options]' \
@@ -222,6 +252,10 @@ function __tmux_lives_help --description 'tmux-lives command list'
         'fix, f                      repair the SSH agent socket' \
         'clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
         'close, x, q                 kill the current session and exit'
+end
+
+function __tmux_lives_help --description 'tmux-lives command list'
+    __tmux_lives_help_lines | __tmux_lives_box 'tmux-lives'
 end
 
 function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K]'
@@ -246,17 +280,21 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
     test $changed -eq 1; and __tmux_lives_write_fragment
 end
 
-function __tmux_lives_setup_help --description 'tmux-lives setup command list'
+function __tmux_lives_setup_help_lines --description 'tmux-lives setup help content (unframed; tightened to fit an 80-col frame)'
     printf '%s\n' \
-        'tmux-lives setup — install & configuration' \
+        'install & configuration' \
         '' \
-        '  install, i                  wire ~/.tmux.conf + TPM/resurrect/continuum (+ systemd on Linux)' \
-        '  verify, v                   install health + the active switcher keys' \
-        '  teardown                    remove the wiring (plugin & TPM kept)' \
-        '  keys                        show the current switcher keys' \
-        "    -p, --prefix-key <key>    switcher bind in the prefix table   (default: S) ('' to disable)" \
-        "    -s, --switcher-key <key>  switcher bind without prefix        (default: M-s = Opt+s) ('' to disable)" \
-        '  auto on|off|toggle|status   auto-attach to tmux on SSH login'
+        'install, i                  wire ~/.tmux.conf + plugins (systemd on Linux)' \
+        'verify, v                   check install health + switcher keys' \
+        'teardown                    remove the wiring (plugin & TPM kept)' \
+        'keys                        show the current switcher keys' \
+        "  -p, --prefix-key <key>    prefix-table bind (default: S; '' off)" \
+        "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
+        'auto on|off|toggle|status   auto-attach to tmux on SSH login'
+end
+
+function __tmux_lives_setup_help --description 'tmux-lives setup command list'
+    __tmux_lives_setup_help_lines | __tmux_lives_box 'tmux-lives setup'
 end
 
 function __tmux_lives_setup_dispatch

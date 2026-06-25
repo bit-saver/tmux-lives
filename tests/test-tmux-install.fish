@@ -88,7 +88,26 @@ set -l ps (__tmux_lives_persistence_status)
 t "status is an OK line"         1 (string match -q 'OK *' -- "$ps"; and echo 1; or echo 0)
 t "status mentions continuum"    1 (string match -q '*continuum*' -- "$ps"; and echo 1; or echo 0)
 
-set -l hlp (tmux-lives | string collect)
+# ---------------------------------------------------------------------
+# __tmux_lives_box — rounded, orange-bordered frame around stdin lines
+# ---------------------------------------------------------------------
+function vis; string replace -ra '\x1b\[[0-9;]*m' '' -- "$argv[1]"; end
+set -l bx (printf 'alpha\nbb\n' | __tmux_lives_box 'T')
+t "box top: rounded corner + title"  1 (string match -rq '^╭─ T ─' -- (vis "$bx[1]"); and echo 1; or echo 0)
+t "box top: closes with corner"      1 (string match -q '*╮' -- (vis "$bx[1]"); and echo 1; or echo 0)
+t "box content framed by bars"       1 (string match -q '*│*alpha*│*' -- (vis "$bx[2]"); and echo 1; or echo 0)
+t "box bottom: rounded rule"         1 (string match -rq '^╰─+╯$' -- (vis "$bx[-1]"); and echo 1; or echo 0)
+t "box border is orange (208)"       1 (string match -q '*38;5;208*' -- "$bx[1]"; and echo 1; or echo 0)
+set -l w_top (string length --visible (vis "$bx[1]"))
+set -l w_mid (string length --visible (vis "$bx[2]"))
+set -l w_bot (string length --visible (vis "$bx[-1]"))
+t "box rows aligned (top=content)"   1 (test "$w_top" = "$w_mid"; and echo 1; or echo 0)
+t "box rows aligned (bot=content)"   1 (test "$w_bot" = "$w_mid"; and echo 1; or echo 0)
+t "box width fits widest line"       9 "$w_mid"
+
+# help CONTENT/order asserted on the unframed lines; framed output is $hbox
+set -l hlp (__tmux_lives_help_lines | string collect)
+set -l hbox (tmux-lives | string collect)
 t "help lists picker, p"  1 (string match -q '*picker, p*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists attach, a"  1 (string match -q '*attach, a*' -- "$hlp"; and echo 1; or echo 0)
 t "help lists new, n"     1 (string match -q '*new, n*' -- "$hlp"; and echo 1; or echo 0)
@@ -113,7 +132,12 @@ t "help precedes setup"          1 (string match -rq '(?sm)^help .*^setup <comma
 t "help lists update, u"         1 (string match -q '*update, u*' -- "$hlp"; and echo 1; or echo 0)
 t "update sits after setup"      1 (string match -rq '(?s)setup <command>.*update, u' -- "$hlp"; and echo 1; or echo 0)
 t "session cmds after update"    1 (string match -rq '(?s)update, u.*new, n' -- "$hlp"; and echo 1; or echo 0)
-t "help -h equals bare"  1 (test "$hlp" = (tmux-lives -h | string collect); and echo 1; or echo 0)
+t "help -h equals bare"  1 (test "$hbox" = (tmux-lives -h | string collect); and echo 1; or echo 0)
+# the user-facing help is framed in a rounded orange box titled "tmux-lives"
+t "help framed: top corner"     1 (string match -q '*╭*' -- "$hbox"; and echo 1; or echo 0)
+t "help framed: bottom corner"  1 (string match -q '*╰*' -- "$hbox"; and echo 1; or echo 0)
+t "help framed: title in edge"  1 (string match -rq '╭─ tmux-lives ─' -- (vis "$hbox"); and echo 1; or echo 0)
+t "help framed: orange border"  1 (string match -q '*38;5;208*' -- "$hbox"; and echo 1; or echo 0)
 tmux-lives bogus 2>/dev/null
 t "unknown command returns 1" 1 $status
 # routing: stub an IN-SCOPE helper (teardown is defined in this file) + confirm dispatch
@@ -166,6 +190,15 @@ t "bare setup shows setup help" 1 (string match -q '*install, i*' -- "$sh"; and 
 t "setup -h equals bare setup"  1 (test "$sh" = (tmux-lives setup -h | string collect); and echo 1; or echo 0)
 t "setup help lists keys"  1 (string match -q '*keys*' -- "$sh"; and echo 1; or echo 0)
 t "setup help lists auto"  1 (string match -q '*auto on*' -- "$sh"; and echo 1; or echo 0)
+t "setup help framed (box)"     1 (string match -q '*╭*' -- "$sh"; and echo 1; or echo 0)
+t "setup help title in edge"    1 (string match -rq '╭─ tmux-lives setup ─' -- (vis "$sh"); and echo 1; or echo 0)
+# tightened so the framed setup help fits an 80-col terminal (was up to 104 cols)
+set -l sh_w 0
+for l in (tmux-lives setup)
+    set -l w (string length --visible (vis "$l"))
+    test $w -gt $sh_w; and set sh_w $w
+end
+t "setup help fits 80 cols"     1 (test $sh_w -le 80; and echo 1; or echo 0)
 tmux-lives setup bogus 2>/dev/null; t "setup unknown rc1" 1 $status
 functions -e __tmux_lives_setup; functions -c __tl_setup_real __tmux_lives_setup
 # keys persistence
