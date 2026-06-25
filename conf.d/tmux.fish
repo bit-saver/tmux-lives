@@ -225,12 +225,14 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
             tmux new-session -d -c "$HOME" -s "$name"
             tmux switch-client -t "=$name"
         else
-            set -l sid (tmux new-session -dP -F '#{session_name}' -c "$HOME")
+            # Identify the new session by its stable #{session_id} ($N), not its name:
+            # __tmux_categorize renames the numeric session (e.g. 1 -> gen-1), and the
+            # id never changes, so the switch lands on it regardless. Resolving by the
+            # numeric name failed — that name is gone after the rename, so switch-client
+            # got a dead target ("can't find session: N").
+            set -l sid (tmux new-session -dP -F '#{session_id}' -c "$HOME")
             __tmux_categorize
-            # categorize may have renamed the numeric session to gen-N; resolve
-            set -l now (tmux display-message -p -t "$sid" '#{session_name}' 2>/dev/null)
-            test -n "$now"; and set sid $now
-            tmux switch-client -t "=$sid"
+            tmux switch-client -t "$sid"
         end
         return
     end

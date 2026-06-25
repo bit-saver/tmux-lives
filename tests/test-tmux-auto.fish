@@ -211,6 +211,32 @@ t "new: no-name inside tmux creates a session" "yes" (test $sess_after -gt $sess
 set -e TMUX
 cleanup
 
+# the no-name switch must target the session it CREATED even after __tmux_categorize
+# renames it (numeric -> gen-N). Bug: identifying by name -> switch -t "=<old#>" fails
+# ("can't find session: N"); fix identifies by the stable #{session_id}.
+tmux new-session -d -s base
+set -gx TMUX fake
+functions -c __tmux_categorize __tl_cat_bak
+function __tmux_categorize  # mimic the categorizer renaming owned (numeric) sessions
+    for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+        string match -qr '^[0-9]+$' -- $s; and tmux rename-session -t "=$s" gen-$s
+    end
+end
+functions -c tmux __tl_tmux_bak
+function tmux  # intercept switch-client to capture its target session
+    test "$argv[1]" = switch-client; and begin
+        set -g _sw_target $argv[3]; return 0
+    end
+    command tmux -L $sock $argv
+end
+set -g _sw_target ''
+__tmux_lives_new 2>/dev/null
+functions -e tmux; functions -c __tl_tmux_bak tmux
+t "new no-name: switch targets a live session" "yes" (test -n "$_sw_target"; and tmux has-session -t "$_sw_target" 2>/dev/null; and echo yes; or echo no)
+functions -e __tmux_categorize; functions -c __tl_cat_bak __tmux_categorize
+set -e TMUX
+cleanup
+
 # ---------------------------------------------------------------------
 # attach: missing-session errors; existing inside tmux switches.
 cleanup
