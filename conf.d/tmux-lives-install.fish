@@ -250,6 +250,7 @@ function __tmux_lives_help_lines --description 'tmux-lives help content (unframe
         'attach, a <name> [-t]       attach to a session (-t takes it)' \
         'picker, p [-t]              open the session switcher (-t takes it)' \
         'fix, f                      repair the SSH agent socket' \
+        'categorize, c               re-categorize sessions (fix a bad name)' \
         'clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
         'close, x, q                 kill the current session and exit'
 end
@@ -376,8 +377,13 @@ function tmux-lives --description 'tmux-lives: unified command — setup/update/
             __tmux_lives_fix
         case update u
             __tmux_lives_update
+        case categorize c
+            __tmux_categorize
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
+        case install i verify v teardown keys auto
+            # hidden shortcut: setup subcommands also work at top level (kept out of help)
+            __tmux_lives_setup_dispatch $argv
         case '*'
             echo "tmux-lives: unknown command '$cmd'" >&2
             __tmux_lives_help >&2

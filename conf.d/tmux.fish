@@ -231,6 +231,10 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
             # numeric name failed — that name is gone after the rename, so switch-client
             # got a dead target ("can't find session: N").
             set -l sid (tmux new-session -dP -F '#{session_id}' -c "$HOME")
+            test -n "$sid"; or begin
+                echo "tmux-lives new: could not create a session" >&2
+                return 1
+            end
             __tmux_categorize
             tmux switch-client -t "$sid"
         end

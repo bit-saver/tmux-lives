@@ -132,6 +132,7 @@ t "help precedes setup"          1 (string match -rq '(?sm)^help .*^setup <comma
 t "help lists update, u"         1 (string match -q '*update, u*' -- "$hlp"; and echo 1; or echo 0)
 t "update sits after setup"      1 (string match -rq '(?s)setup <command>.*update, u' -- "$hlp"; and echo 1; or echo 0)
 t "session cmds after update"    1 (string match -rq '(?s)update, u.*new, n' -- "$hlp"; and echo 1; or echo 0)
+t "help lists categorize, c"     1 (string match -q '*categorize, c*' -- "$hlp"; and echo 1; or echo 0)
 t "help -h equals bare"  1 (test "$hbox" = (tmux-lives -h | string collect); and echo 1; or echo 0)
 # the user-facing help is framed in a rounded orange box titled "tmux-lives"
 t "help framed: top corner"     1 (string match -q '*╭*' -- "$hbox"; and echo 1; or echo 0)
@@ -155,6 +156,22 @@ set -g _tl_a ''; tmux-lives p;      t "alias p -> picker"  picker "$_tl_a"
 set -g _tl_a ''; tmux-lives picker; t "verb picker routes" picker "$_tl_a"
 set -g _tl_a ''; tmux-lives f;      t "alias f -> fix"     fix "$_tl_a"
 set -g _tl_a ''; tmux-lives fix;    t "verb fix routes"    fix "$_tl_a"
+# categorize: re-run the categorizer (real __tmux_categorize lives in conf.d/tmux.fish, not sourced here — stub)
+function __tmux_categorize; set -g _tl_a categorize; end
+set -g _tl_a ''; tmux-lives categorize; t "verb categorize routes" categorize "$_tl_a"
+set -g _tl_a ''; tmux-lives c;          t "alias c -> categorize"  categorize "$_tl_a"
+functions -e __tmux_categorize
+# hidden shortcut: setup subcommands also work at top level (NOT shown in help)
+functions -c __tmux_lives_setup_dispatch __tl_sd_real
+function __tmux_lives_setup_dispatch; set -g _tl_sd "$argv"; end
+set -g _tl_sd ''; tmux-lives auto status; t "hidden: auto -> setup auto"      "auto status" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives verify;      t "hidden: verify -> setup verify"  "verify" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives v;           t "hidden: v -> setup verify"       "v" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives install;     t "hidden: install -> setup"        "install" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives i;           t "hidden: i -> setup install"      "i" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives teardown;    t "hidden: teardown -> setup"       "teardown" "$_tl_sd"
+set -g _tl_sd ''; tmux-lives keys;        t "hidden: keys -> setup keys"      "keys" "$_tl_sd"
+functions -e __tmux_lives_setup_dispatch; functions -c __tl_sd_real __tmux_lives_setup_dispatch
 # update routes (real __tmux_lives_update is in this file — back it up around the stub)
 functions -q __tmux_lives_update; and functions -c __tmux_lives_update __tl_upd_real
 function __tmux_lives_update; set -g _tl_a update; end

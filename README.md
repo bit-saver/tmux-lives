@@ -34,6 +34,7 @@ tmux-lives new, n [name]               start a new session (optional name)
 tmux-lives attach, a <name> [-t]       attach to a session (-t takes it)
 tmux-lives picker, p [-t]              open the session switcher (-t takes it)
 tmux-lives fix, f                      repair the SSH agent socket
+tmux-lives categorize, c               re-categorize sessions (fix a bad name)
 tmux-lives clear [-q|-x]               kill idle sessions (-q/-x also exits)
 tmux-lives close, x, q                 kill the current session and exit
 ```
