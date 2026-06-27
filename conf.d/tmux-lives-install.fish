@@ -12,6 +12,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l cat $argv[1]
     set -l pkey $argv[2]   # prefix-table key ('' = no prefix bind)
     set -l skey $argv[3]   # no-prefix/direct key ('' = no direct bind)
+    set -l color $argv[4]  # ShellFish bar color baked into the client-attached hook ('' = none)
     set -l popup
     set -l menu
     if test -n "$pkey"
@@ -47,6 +48,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
     set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}'\""
     set -a f "    }"
+    set -a f "}"
+    set -a f "set-hook -g client-attached {"
+    set -a f "    run-shell \"fish --no-config $cat on-attach '#{client_pid}' '#{client_tty}' '$color'\""
     set -a f "}"
     set -a f "set -ga update-environment \"LC_TERMINAL\""
     set -a f "set -ga update-environment \"LC_TERMINAL_VERSION\""
@@ -113,7 +117,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

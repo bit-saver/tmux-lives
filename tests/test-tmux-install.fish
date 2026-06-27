@@ -27,6 +27,16 @@ t "disabled switcher: prefix kept" 1 (string match -q '*bind-key S display-popup
 set -l frags (__tmux_lives_render_fragment /X/cat.fish '' M-s | string collect)
 t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frags"; and echo 1; or echo 0)
 
+set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
+t "fragment has client-attached hook" 1 (string match -q '*client-attached*' -- "$fragbc"; and echo 1; or echo 0)
+t "fragment hook calls on-attach"     1 (string match -q '*on-attach*' -- "$fragbc"; and echo 1; or echo 0)
+t "fragment hook passes client_pid"   1 (string match -q '*on-attach*#{client_pid}*' -- "$fragbc"; and echo 1; or echo 0)
+t "fragment hook passes client_tty"   1 (string match -q '*#{client_tty}*' -- "$fragbc"; and echo 1; or echo 0)
+t "fragment bakes the color"          1 (string match -q '*#1f6feb*' -- "$fragbc"; and echo 1; or echo 0)
+set -l fragnc (__tmux_lives_render_fragment /X/cat.fish S M-s '' | string collect)
+t "hook present without a color"      1 (string match -q '*client-attached*on-attach*' -- "$fragnc"; and echo 1; or echo 0)
+t "3-arg call still renders the hook" 1 (string match -q '*client-attached*' -- (__tmux_lives_render_fragment /X/cat.fish S M-s | string collect); and echo 1; or echo 0)
+
 # automatic-rename-format: macOS reports claude's version-named binary as the window
 # command (e.g. 2.1.185); map a version-like name (X.Y.Z) to "claude", pass others
 # through. (No-op on Linux, where the command already reads "claude".)
