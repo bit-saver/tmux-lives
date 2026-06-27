@@ -89,6 +89,32 @@ t "barcolor: empty color writes nothing" "0" (test ! -s $bcf; echo $status)
 rm -f $bcf
 
 # ---------------------------------------------------------------------
+# on-attach: ShellFish branch colors the tty; non-ShellFish sources baseline
+# ---------------------------------------------------------------------
+set -l oaf /tmp/tcz-oa-$fish_pid
+# ShellFish client -> color written to the tty path
+rm -f $oaf
+set -g tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+__tcz_on_attach 999 $oaf "#abcdef"
+t "on-attach: ShellFish writes color" "0" (test -s $oaf; echo $status)
+# non-ShellFish client -> NO color written to the tty
+rm -f $oaf
+set -g tmux_lives_fake_environ "TERM=xterm"
+__tcz_on_attach 999 $oaf "#abcdef"
+t "on-attach: non-ShellFish writes no color" "0" (test ! -s $oaf; echo $status)
+# non-ShellFish client -> the baseline file IS sourced (integration via the test socket)
+set -l oabase /tmp/tcz-oa-baseline-$fish_pid.conf
+echo 'set -g @tl_oa sourced' > $oabase
+set -g tmux_lives_baseline_conf $oabase
+command tmux -L $sock new-session -d -s oa 2>/dev/null
+__tcz_on_attach 999 /dev/null ''
+t "on-attach: non-ShellFish sources baseline" "sourced" (command tmux -L $sock show -gv @tl_oa 2>/dev/null)
+command tmux -L $sock kill-server 2>/dev/null
+set -e tmux_lives_fake_environ
+set -e tmux_lives_baseline_conf
+rm -f $oaf $oabase
+
+# ---------------------------------------------------------------------
 # Pure: name helpers
 # ---------------------------------------------------------------------
 t "slug: spaces -> dashes"        "TMUX-Setup-2"      (__tcz_slugify "TMUX Setup 2")

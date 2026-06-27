@@ -809,6 +809,16 @@ function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claud
     or tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
 end
 
+function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish -> set bar color; else re-apply the non-ShellFish baseline'
+    if __tcz_client_is_shellfish $pid
+        __tcz_emit_barcolor $tty $color
+    else
+        set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
+        test -e $baseline; and tmux source-file $baseline 2>/dev/null
+    end
+    return 0
+end
+
 function __tcz_main
     switch "$argv[1]"
         case categorize
@@ -832,12 +842,14 @@ function __tcz_main
             __tcz_switch $argv[2..]
         case commandeer
             __tcz_commandeer $argv[2..]
+        case on-attach
+            __tcz_on_attach $argv[2..]
         case slug
             __tcz_slugify $argv[2..]
         case new-general
             __tcz_new_general
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|slug|new-general" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|on-attach|slug|new-general" >&2
             return 1
     end
 end
