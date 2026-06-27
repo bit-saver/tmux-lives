@@ -93,6 +93,25 @@ rm -f $cfrag
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 
+# baseline file: seed-once + conf add
+set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
+rm -f $tmux_lives_baseline_conf
+t "baseline: path honors seam" "$tmux_lives_baseline_conf" (__tmux_lives_baseline_path)
+__tmux_lives_seed_baseline (__tmux_lives_baseline_path)
+t "baseline: seeded file exists" 1 (test -e $tmux_lives_baseline_conf; and echo 1; or echo 0)
+t "baseline: template is commented" 1 (string match -q '*# set -g mouse off*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+printf '# hand edit\n' >> $tmux_lives_baseline_conf
+__tmux_lives_seed_baseline (__tmux_lives_baseline_path)
+t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+__tmux_lives_conf_cmd add 'set -g mouse off' >/dev/null
+t "baseline: conf add appends line" 1 (grep -qF 'set -g mouse off' $tmux_lives_baseline_conf; and echo 1; or echo 0)
+t "baseline: conf (no arg) shows path" 1 (string match -q "*$tmux_lives_baseline_conf*" -- (__tmux_lives_conf_cmd | string collect); and echo 1; or echo 0)
+rm -f $tmux_lives_baseline_conf
+set -e tmux_lives_baseline_conf
+# help + verify mention conf/baseline
+t "setup help lists conf" 1 (string match -q '*conf*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "verify reports baseline" 1 (string match -q '*baseline*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
+
 set -l u (__tmux_lives_save_unit_text alice 1234 | string collect)
 t "unit uid"       1 (string match -q '*user@1234.service*' -- "$u"; and echo 1; or echo 0)
 t "unit user"      1 (string match -q '*su - alice*' -- "$u"; and echo 1; or echo 0)

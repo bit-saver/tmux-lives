@@ -138,6 +138,9 @@ function __tmux_lives_setup --description 'tmux-lives: install fragment + tmux.c
     echo "tmux-lives setup: wrote $fragment"
     echo "tmux-lives setup: ensured source-file line in ~/.tmux.conf"
 
+    __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
+    echo "tmux-lives setup: baseline file at "(__tmux_lives_baseline_path)" (edit: tmux-lives setup conf edit)"
+
     if type -q systemctl
         set -l user (id -un); set -l uid (id -u)
         echo "tmux-lives setup: installing systemd units (sudo required)…"
@@ -203,6 +206,8 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     set -a r "OK switcher keys: prefix=$pk  no-prefix=$sk"
     set -l bc (__tmux_lives_key tmux_lives_bar_color ''); test -n "$bc"; or set bc '(none)'
     set -a r "OK bar color: $bc"
+    set -l bf (__tmux_lives_baseline_path)
+    test -e $bf; and set -a r "OK baseline $bf present"; or set -a r "OK baseline $bf (none yet)"
     printf '%s\n' $r
 end
 
@@ -303,6 +308,46 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
     end
 end
 
+function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
+    set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf"
+end
+
+function __tmux_lives_seed_baseline --argument-names f --description 'create the baseline file with a commented template iff absent (never overwrites)'
+    test -e $f; and return 0
+    printf '%s\n' \
+        '# tmux-lives baseline — re-applied whenever a NON-ShellFish client attaches.' \
+        "# Put tmux settings here that ShellFish's integration shouldn't get to keep." \
+        '# Example:' \
+        '# set -g mouse off' > $f
+end
+
+function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <tmux-command>]: manage ~/.tmux-lives.conf'
+    set -l f (__tmux_lives_baseline_path)
+    switch "$argv[1]"
+        case ''
+            echo "baseline file: $f"
+            if test -e $f
+                cat $f
+            else
+                echo "(does not exist yet — run 'tmux-lives setup conf edit' to create it)"
+            end
+        case edit
+            __tmux_lives_seed_baseline $f
+            set -l ed $EDITOR
+            test -n "$ed"; or set ed vi
+            $ed $f
+        case add
+            __tmux_lives_seed_baseline $f
+            printf '%s\n' (string join ' ' $argv[2..]) >> $f
+            tmux source-file $f 2>/dev/null
+            echo "tmux-lives: added to $f"
+        case '*'
+            echo "tmux-lives setup conf: unknown option '$argv[1]'" >&2
+            echo "usage: tmux-lives setup conf [edit|add <tmux-command>]" >&2
+            return 1
+    end
+end
+
 function __tmux_lives_setup_help_lines --description 'tmux-lives setup help content (unframed; tightened to fit an 80-col frame)'
     printf '%s\n' \
         'install & configuration' \
@@ -314,7 +359,8 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "  -p, --prefix-key <key>    prefix-table bind (default: S; '' off)" \
         "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
-        'color [<css-color>]         set the per-server ShellFish toolbar color'
+        'color [<css-color>]         set the per-server ShellFish toolbar color' \
+        'conf [edit|add <cmd>]       edit non-ShellFish baseline (~/.tmux-lives.conf)'
 end
 
 function __tmux_lives_setup_help --description 'tmux-lives setup command list'
@@ -336,6 +382,8 @@ function __tmux_lives_setup_dispatch
             __tmux_lives_keys_cmd $argv[2..]
         case color
             __tmux_lives_color_cmd $argv[2..]
+        case conf
+            __tmux_lives_conf_cmd $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
         case '*'
@@ -406,7 +454,7 @@ function tmux-lives --description 'tmux-lives: unified command — setup/update/
             __tmux_categorize
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
-        case install i verify v teardown keys auto color
+        case install i verify v teardown keys auto color conf
             # hidden shortcut: setup subcommands also work at top level (kept out of help)
             __tmux_lives_setup_dispatch $argv
         case '*'
