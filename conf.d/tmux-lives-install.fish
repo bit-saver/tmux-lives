@@ -299,6 +299,10 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
         test -n "$c"; and echo "bar color: $c"; or echo "bar color: (none)"
         return 0
     end
+    if test -n "$argv[1]"; and string match -qr '[^A-Za-z0-9#(),./% -]' -- $argv[1]
+        echo "tmux-lives setup color: invalid color '$argv[1]' — use a CSS color (red, #1f6feb, rgb(...), color(p3 ...))" >&2
+        return 1
+    end
     set -U tmux_lives_bar_color $argv[1]
     __tmux_lives_write_fragment
     if test -n "$argv[1]"
@@ -309,6 +313,7 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
+    # Default mirrors __tcz_on_attach's baseline path in functions/tmux-categorize.fish — keep in sync.
     set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf"
 end
 
@@ -337,6 +342,10 @@ function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <t
             test -n "$ed"; or set ed vi
             $ed $f
         case add
+            if test (count $argv) -lt 2
+                echo "usage: tmux-lives setup conf add <tmux-command>" >&2
+                return 1
+            end
             __tmux_lives_seed_baseline $f
             printf '%s\n' (string join ' ' $argv[2..]) >> $f
             tmux source-file $f 2>/dev/null

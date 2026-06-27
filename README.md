@@ -55,7 +55,7 @@ tmux-lives setup conf edit                  # open it in $EDITOR
 tmux-lives setup conf add "set -g mouse off"  # append a tmux command
 ```
 
-`~/.tmux-lives.conf` is user-owned: seeded once with a commented template, never overwritten by setup. Any tmux commands in it are `source-file`d on every non-ShellFish attach.
+`~/.tmux-lives.conf` is user-owned: seeded once with a commented template, never overwritten by setup. Any tmux commands in it are `source-file`d on every non-ShellFish attach. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
 
 ## Uninstall
 

@@ -96,7 +96,7 @@ end
 
 function __tcz_emit_barcolor --argument-names tty color --description 'write the ShellFish setbarcolor OSC for <color> to <tty> (non-passthrough; client-tty level)'
     test -n "$color"; or return 0
-    printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64) > $tty
+    printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64 | string join '') > $tty
 end
 
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
@@ -813,6 +813,7 @@ function __tcz_on_attach --argument-names pid tty color --description 'on-attach
     if __tcz_client_is_shellfish $pid
         __tcz_emit_barcolor $tty $color
     else
+        # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
         set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
         test -e $baseline; and tmux source-file $baseline 2>/dev/null
     end

@@ -82,6 +82,10 @@ t "color: stored in universal var" "#ff8800" "$tmux_lives_bar_color"
 t "color: baked into fragment" 1 (string match -q '*#ff8800*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
 __tmux_lives_color_cmd "" >/dev/null
 t "color: cleared to empty" "" "$tmux_lives_bar_color"
+t "color: rejects unsafe value (rc1)" 1 (__tmux_lives_color_cmd "bad';x" >/dev/null 2>&1; echo $status)
+t "color: unsafe value not stored"    "" "$tmux_lives_bar_color"
+t "color: accepts rgb() with spaces"  0 (__tmux_lives_color_cmd "rgb(255, 0, 0)" >/dev/null 2>&1; echo $status)
+__tmux_lives_color_cmd "" >/dev/null
 functions -e __tmux_lives_write_fragment
 if test $_bc_had -eq 1
     set -U tmux_lives_bar_color $_bc_val
@@ -105,6 +109,7 @@ __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
 t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
 __tmux_lives_conf_cmd add 'set -g mouse off' >/dev/null
 t "baseline: conf add appends line" 1 (grep -qF 'set -g mouse off' $tmux_lives_baseline_conf; and echo 1; or echo 0)
+t "baseline: conf add with no cmd rc1" 1 (__tmux_lives_conf_cmd add >/dev/null 2>&1; echo $status)
 t "baseline: conf (no arg) shows path" 1 (string match -q "*$tmux_lives_baseline_conf*" -- (__tmux_lives_conf_cmd | string collect); and echo 1; or echo 0)
 rm -f $tmux_lives_baseline_conf
 set -e tmux_lives_baseline_conf

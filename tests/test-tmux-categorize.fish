@@ -87,6 +87,11 @@ rm -f $bcf
 __tcz_emit_barcolor $bcf ""
 t "barcolor: empty color writes nothing" "0" (test ! -s $bcf; echo $status)
 rm -f $bcf
+set -l bclong (string repeat -n 70 a)
+__tcz_emit_barcolor $bcf $bclong
+set -l bclongwant (printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' $bclong | base64 | string join ''))
+t "barcolor: long color = single OSC" "$bclongwant" (cat $bcf)
+rm -f $bcf
 
 # ---------------------------------------------------------------------
 # on-attach: ShellFish branch colors the tty; non-ShellFish sources baseline
@@ -110,6 +115,14 @@ command tmux -L $sock new-session -d -s oa 2>/dev/null
 __tcz_on_attach 999 /dev/null ''
 t "on-attach: non-ShellFish sources baseline" "sourced" (command tmux -L $sock show -gv @tl_oa 2>/dev/null)
 command tmux -L $sock kill-server 2>/dev/null
+# dispatch path: real `fish --no-config <cat> on-attach …` (seam must be EXPORTED to reach the child)
+set -l oadf /tmp/tcz-oa-dispatch-$fish_pid
+rm -f $oadf
+set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+fish --no-config $plugindir/functions/tmux-categorize.fish on-attach 999 $oadf "#0a0a0a"
+t "on-attach dispatch: ShellFish colors tty" "0" (test -s $oadf; echo $status)
+set -e tmux_lives_fake_environ
+rm -f $oadf
 set -e tmux_lives_fake_environ
 set -e tmux_lives_baseline_conf
 rm -f $oaf $oabase
