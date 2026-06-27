@@ -234,25 +234,26 @@ function __tmux_lives_box --argument-names title --description 'frame stdin line
     printf '%s╰%s╯%s\n' $ORG (string repeat -n (math "$cw + 2") ─) $RST
 end
 
-function __tmux_lives_help_lines --description 'tmux-lives help content (unframed)'
+function __tmux_lives_help_lines --description 'tmux-lives help content (unframed; alias-first columns)'
     printf '%s\n' \
         'categorized tmux sessions, switcher & persistence' \
         '' \
         'USAGE' \
         '  tmux-lives <command> [options]' \
-        '' \
-        'help                        show this help  (-h, --help)' \
-        'setup <command> [options]   run `tmux-lives setup -h` for details' \
-        '                            install · verify · teardown · keys · auto' \
-        'update, u                   update the plugin (fisher update)' \
-        '' \
-        'new, n [name]               create a new session (optional name)' \
-        'attach, a <name> [-t]       attach to a session (-t takes it)' \
-        'picker, p [-t]              open the session switcher (-t takes it)' \
-        'fix, f                      repair the SSH agent socket' \
-        'categorize, c               re-categorize sessions (fix a bad name)' \
-        'clear [-q|-x]               kill idle sessions (-q/-x also exits)' \
-        'close, x, q                 kill the current session and exit'
+        ''
+    # alias-first rows — printf field widths align the columns (alias 3, command+args 28).
+    # close keeps its `q` alias in the dispatcher but the help shows only `x`.
+    printf '%-3s%-28s%s\n' '' 'setup <command> [options]' 'run `tmux-lives setup -h` for details'
+    printf '%-3s%-28s%s\n' '' '' 'install · verify · teardown · keys · auto'
+    printf '%-3s%-28s%s\n' u 'update' 'update the plugin (fisher update)'
+    echo ''
+    printf '%-3s%-28s%s\n' n 'new [name]' 'create a new session (optional name)'
+    printf '%-3s%-28s%s\n' a 'attach <name> [-t]' 'attach to a session (-t takes it)'
+    printf '%-3s%-28s%s\n' p 'picker [-t]' 'open the session switcher (-t takes it)'
+    printf '%-3s%-28s%s\n' f 'fix' 'repair the SSH agent socket'
+    printf '%-3s%-28s%s\n' c 'categorize' 're-categorize sessions (fix a bad name)'
+    printf '%-3s%-28s%s\n' '' 'clear [-q|-x]' 'kill idle sessions (-q/-x also exits)'
+    printf '%-3s%-28s%s\n' x 'close' 'kill the current session and exit'
 end
 
 function __tmux_lives_help --description 'tmux-lives command list'
