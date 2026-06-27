@@ -76,6 +76,19 @@ set -e tmux_lives_fake_environ
 t "pid_environ: reads real /proc" 1 (string match -q '*HOME=*' -- (__tcz_pid_environ $fish_pid); and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
+# Bar-color emission (deterministic bytes to a target path)
+# ---------------------------------------------------------------------
+set -l bcf /tmp/tcz-bar-$fish_pid
+rm -f $bcf
+__tcz_emit_barcolor $bcf "#1f6feb"
+set -l bcwant (printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' '#1f6feb' | base64))
+t "barcolor: exact escape bytes" "$bcwant" (cat $bcf)
+rm -f $bcf
+__tcz_emit_barcolor $bcf ""
+t "barcolor: empty color writes nothing" "0" (test ! -s $bcf; echo $status)
+rm -f $bcf
+
+# ---------------------------------------------------------------------
 # Pure: name helpers
 # ---------------------------------------------------------------------
 t "slug: spaces -> dashes"        "TMUX-Setup-2"      (__tcz_slugify "TMUX Setup 2")

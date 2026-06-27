@@ -94,6 +94,11 @@ function __tcz_client_is_shellfish --argument-names pid --description 'true if t
     string match -q '*LC_TERMINAL=ShellFish*' -- (__tcz_pid_environ $pid)
 end
 
+function __tcz_emit_barcolor --argument-names tty color --description 'write the ShellFish setbarcolor OSC for <color> to <tty> (non-passthrough; client-tty level)'
+    test -n "$color"; or return 0
+    printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64) > $tty
+end
+
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
     # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.
