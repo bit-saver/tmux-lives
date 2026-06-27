@@ -62,6 +62,25 @@ t "key: empty disables" ""    (__tmux_lives_key _tl_k S)
 set -e _tl_k
 t "key: unset -> default" "S" (__tmux_lives_key _tl_k S)
 
+# setup color: stores the universal var + bakes into the re-rendered fragment
+set -l cfrag /tmp/tli-colorfrag-$fish_pid.conf
+function __tmux_lives_write_fragment --description 'test stub: render to a temp path'
+    __tmux_lives_render_fragment /X/cat.fish S M-s (__tmux_lives_key tmux_lives_bar_color '') > /tmp/tli-colorfrag-$fish_pid.conf
+end
+set -e tmux_lives_bar_color
+t "color: empty when unset" 1 (string match -q '*none*' -- (__tmux_lives_color_cmd); and echo 1; or echo 0)
+__tmux_lives_color_cmd "#ff8800" >/dev/null
+t "color: stored in universal var" "#ff8800" "$tmux_lives_bar_color"
+t "color: baked into fragment" 1 (string match -q '*#ff8800*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
+__tmux_lives_color_cmd "" >/dev/null
+t "color: cleared to empty" "" "$tmux_lives_bar_color"
+functions -e __tmux_lives_write_fragment
+set -e tmux_lives_bar_color
+rm -f $cfrag
+# help + verify mention color
+t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
+
 set -l u (__tmux_lives_save_unit_text alice 1234 | string collect)
 t "unit uid"       1 (string match -q '*user@1234.service*' -- "$u"; and echo 1; or echo 0)
 t "unit user"      1 (string match -q '*su - alice*' -- "$u"; and echo 1; or echo 0)

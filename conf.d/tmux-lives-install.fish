@@ -201,6 +201,8 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     set -l pk (__tmux_lives_key tmux_lives_prefix_key S); test -n "$pk"; or set pk '(off)'
     set -l sk (__tmux_lives_key tmux_lives_switcher_key M-s); test -n "$sk"; or set sk '(off)'
     set -a r "OK switcher keys: prefix=$pk  no-prefix=$sk"
+    set -l bc (__tmux_lives_key tmux_lives_bar_color ''); test -n "$bc"; or set bc '(none)'
+    set -a r "OK bar color: $bc"
     printf '%s\n' $r
 end
 
@@ -286,6 +288,21 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
     test $changed -eq 1; and __tmux_lives_write_fragment
 end
 
+function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>]: per-server ShellFish toolbar color'
+    if test (count $argv) -eq 0
+        set -l c (__tmux_lives_key tmux_lives_bar_color '')
+        test -n "$c"; and echo "bar color: $c"; or echo "bar color: (none)"
+        return 0
+    end
+    set -U tmux_lives_bar_color $argv[1]
+    __tmux_lives_write_fragment
+    if test -n "$argv[1]"
+        echo "tmux-lives: bar color set to $argv[1] (applied to ShellFish clients on attach)"
+    else
+        echo "tmux-lives: bar color cleared"
+    end
+end
+
 function __tmux_lives_setup_help_lines --description 'tmux-lives setup help content (unframed; tightened to fit an 80-col frame)'
     printf '%s\n' \
         'install & configuration' \
@@ -296,7 +313,8 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         'keys                        show the current switcher keys' \
         "  -p, --prefix-key <key>    prefix-table bind (default: S; '' off)" \
         "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
-        'auto on|off|toggle|status   auto-attach to tmux on SSH login'
+        'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
+        'color [<css-color>]         set the per-server ShellFish toolbar color'
 end
 
 function __tmux_lives_setup_help --description 'tmux-lives setup command list'
@@ -316,6 +334,8 @@ function __tmux_lives_setup_dispatch
             __tmux_lives_teardown
         case keys
             __tmux_lives_keys_cmd $argv[2..]
+        case color
+            __tmux_lives_color_cmd $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
         case '*'
@@ -386,7 +406,7 @@ function tmux-lives --description 'tmux-lives: unified command — setup/update/
             __tmux_categorize
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
-        case install i verify v teardown keys auto
+        case install i verify v teardown keys auto color
             # hidden shortcut: setup subcommands also work at top level (kept out of help)
             __tmux_lives_setup_dispatch $argv
         case '*'
