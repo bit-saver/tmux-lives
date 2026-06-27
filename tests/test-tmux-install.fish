@@ -67,6 +67,14 @@ set -l cfrag /tmp/tli-colorfrag-$fish_pid.conf
 function __tmux_lives_write_fragment --description 'test stub: render to a temp path'
     __tmux_lives_render_fragment /X/cat.fish S M-s (__tmux_lives_key tmux_lives_bar_color '') > /tmp/tli-colorfrag-$fish_pid.conf
 end
+# This block mutates the REAL universal var tmux_lives_bar_color (the command sets -U).
+# Save the user's value and restore it at the end so the suite never clobbers a configured color.
+set -l _bc_had 0
+set -l _bc_val
+if set -q tmux_lives_bar_color
+    set _bc_had 1
+    set _bc_val $tmux_lives_bar_color
+end
 set -e tmux_lives_bar_color
 t "color: empty when unset" 1 (string match -q '*none*' -- (__tmux_lives_color_cmd); and echo 1; or echo 0)
 __tmux_lives_color_cmd "#ff8800" >/dev/null
@@ -75,7 +83,11 @@ t "color: baked into fragment" 1 (string match -q '*#ff8800*' -- (cat $cfrag | s
 __tmux_lives_color_cmd "" >/dev/null
 t "color: cleared to empty" "" "$tmux_lives_bar_color"
 functions -e __tmux_lives_write_fragment
-set -e tmux_lives_bar_color
+if test $_bc_had -eq 1
+    set -U tmux_lives_bar_color $_bc_val
+else
+    set -e tmux_lives_bar_color
+end
 rm -f $cfrag
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
