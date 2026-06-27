@@ -41,6 +41,22 @@ tmux-lives close, x, q                 kill the current session and exit
 
 Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
+### ShellFish tab color & non-ShellFish baseline
+
+A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client.
+
+```fish
+tmux-lives setup color "#1f6feb"            # set this server's ShellFish toolbar color
+tmux-lives setup color                      # show the current color
+tmux-lives setup color ""                   # clear it
+
+tmux-lives setup conf                       # show / seed ~/.tmux-lives.conf
+tmux-lives setup conf edit                  # open it in $EDITOR
+tmux-lives setup conf add "set -g mouse off"  # append a tmux command
+```
+
+`~/.tmux-lives.conf` is user-owned: seeded once with a commented template, never overwritten by setup. Any tmux commands in it are `source-file`d on every non-ShellFish attach.
+
 ## Uninstall
 
 ```fish
