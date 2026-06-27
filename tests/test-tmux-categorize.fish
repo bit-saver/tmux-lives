@@ -70,8 +70,10 @@ t "is_shellfish: among many -> yes" "0" (__tcz_client_is_shellfish 999; echo $st
 set -g tmux_lives_fake_environ "LC_TERMINAL_VERSION=42"
 t "is_shellfish: VERSION key only -> no" "1" (__tcz_client_is_shellfish 999; echo $status)
 set -e tmux_lives_fake_environ
-# real /proc: our own shell's environ has no LC_TERMINAL=ShellFish under the test runner
-t "is_shellfish: real self pid -> no" "1" (__tcz_client_is_shellfish $fish_pid; echo $status)
+# real /proc read works (HOME is always present). Deliberately NOT asserting on
+# LC_TERMINAL of self: the user's own ~/.tmux.conf global default can legitimately
+# put LC_TERMINAL=ShellFish in a tmux pane's environ, which would flake a self-check.
+t "pid_environ: reads real /proc" 1 (string match -q '*HOME=*' -- (__tcz_pid_environ $fish_pid); and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
 # Pure: name helpers
