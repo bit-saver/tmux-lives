@@ -75,6 +75,25 @@ function __tcz_pid_cmdline --description 'pid -> space-joined argv (portable: /p
     end
 end
 
+function __tcz_pid_environ --description 'pid -> environment KEY=VALUE lines (portable: /proc on Linux, ps elsewhere; test seam tmux_lives_fake_environ)'
+    if set -q tmux_lives_fake_environ
+        printf '%s\n' $tmux_lives_fake_environ
+        return
+    end
+    set -l pid $argv[1]
+    test -n "$pid"; or return
+    if test -r /proc/$pid/environ; and not set -q tcz_force_ps
+        tr '\0' '\n' < /proc/$pid/environ 2>/dev/null
+    else
+        ps eww -p $pid 2>/dev/null
+    end
+end
+
+function __tcz_client_is_shellfish --argument-names pid --description 'true if the client process environment contains LC_TERMINAL=ShellFish'
+    # Substring match: works for Linux per-line environ AND macOS single-line `ps eww`.
+    string match -q '*LC_TERMINAL=ShellFish*' -- (__tcz_pid_environ $pid)
+end
+
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
     # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.

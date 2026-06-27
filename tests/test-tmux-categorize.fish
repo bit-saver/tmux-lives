@@ -59,6 +59,21 @@ kill $macpid 2>/dev/null
 pkill -f 'Mac Ver' 2>/dev/null
 
 # ---------------------------------------------------------------------
+# ShellFish client detection (fake-environ seam + real /proc)
+# ---------------------------------------------------------------------
+set -g tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+t "is_shellfish: exact env -> yes" "0" (__tcz_client_is_shellfish 999; echo $status)
+set -g tmux_lives_fake_environ "TERM=xterm-256color" "HOME=/home/x"
+t "is_shellfish: no LC_TERMINAL -> no" "1" (__tcz_client_is_shellfish 999; echo $status)
+set -g tmux_lives_fake_environ "TERM=xterm" "LC_TERMINAL=ShellFish" "PWD=/tmp"
+t "is_shellfish: among many -> yes" "0" (__tcz_client_is_shellfish 999; echo $status)
+set -g tmux_lives_fake_environ "LC_TERMINAL_VERSION=42"
+t "is_shellfish: VERSION key only -> no" "1" (__tcz_client_is_shellfish 999; echo $status)
+set -e tmux_lives_fake_environ
+# real /proc: our own shell's environ has no LC_TERMINAL=ShellFish under the test runner
+t "is_shellfish: real self pid -> no" "1" (__tcz_client_is_shellfish $fish_pid; echo $status)
+
+# ---------------------------------------------------------------------
 # Pure: name helpers
 # ---------------------------------------------------------------------
 t "slug: spaces -> dashes"        "TMUX-Setup-2"      (__tcz_slugify "TMUX Setup 2")
