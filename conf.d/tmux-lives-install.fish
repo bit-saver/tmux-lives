@@ -480,7 +480,23 @@ function _tmux_lives_post_install --on-event tmux-lives-install_install --descri
         '  (wires tmux + plugins, then reloads tmux). '(__tmux_lives_help_hint)
 end
 
-function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update note'
+function __tmux_lives_fragment_path --description 'path to the generated managed fragment (seam: tmux_lives_fragment_file)'
+    set -q tmux_lives_fragment_file; and echo $tmux_lives_fragment_file; or echo "$HOME/.config/tmux/tmux-lives.conf"
+end
+
+function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
+    # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
+    # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
+    # hook) lands without a manual `tmux-lives setup` — then reload tmux.
+    set -l refreshed 0
+    if test -e (__tmux_lives_fragment_path)
+        __tmux_lives_write_fragment
+        set refreshed 1
+    end
     set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
-    printf '%s\n' '✓ tmux-lives updated — open a new shell (exec fish) to load it. '(__tmux_lives_help_hint)
+    if test $refreshed -eq 1
+        printf '%s\n' '✓ tmux-lives updated — tmux config refreshed + reloaded; run `exec fish` for the new shell functions. '(__tmux_lives_help_hint)
+    else
+        printf '%s\n' '✓ tmux-lives updated — open a new shell (exec fish) to load it. '(__tmux_lives_help_hint)
+    end
 end

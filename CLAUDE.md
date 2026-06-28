@@ -10,9 +10,14 @@ ShellFish coexistence) extracted from `~/.config/fish` into a standalone, cross-
 - Installed via `fisher install bit-saver/tmux-lives` → files live at `~/.config/fish/{conf.d/tmux.fish,
   conf.d/tmux-lives-install.fish, functions/tmux-categorize.fish}`, tracked in `fish_plugins` + `_fisher_plugins`.
 - `conf.d/tmux.fish` resolves the categorizer via `$__fish_config_dir/functions/tmux-categorize.fish` (portable).
-- `~/.tmux.conf` (hand-maintained, NOT via `tmux-lives setup` — would duplicate its existing resurrect/continuum/
-  sensible/yank) hardcodes the bind paths to `~/.config/fish/functions/tmux-categorize.fish`. `tmux-lives setup` is
-  for a FRESH host (e.g. the Mac); this host was reconciled in place.
+- `~/.tmux.conf` **sources the managed fragment** — its last lines are `source-file ~/.config/tmux/tmux-lives.conf`
+  then `run '.../tpm/tpm'`. So all the tmux-lives wiring (categorize tick, switcher binds, the ShellFish commandeer
+  + `client-attached` hooks, LC_TERMINAL passthrough, and the resurrect/continuum `@plugin` declarations + options)
+  lives in the **rendered fragment** and is `tmux-lives setup`-managed — NOT hand-edited and NOT hardcoded in
+  `~/.tmux.conf`. The user only hand-maintains the bare TPM line + `tmux-sensible`/`tmux-yank` there (and never ran
+  the full `setup install`, which would also add systemd units). **Getting new fragment wiring live = `fisher update`
+  then any `setup` action** (or just `fisher update`: the `_tmux_lives_post_update` handler now re-renders the
+  fragment when one exists). `tmux-lives setup install` is the from-scratch path (e.g. the Mac).
 - **Dev loop from here:** edit → `for t in tests/test-*.fish; fish $t; end` → commit + push. **Stop there.**
   Deployment to the live `~/.config/fish/` is **ALWAYS the user's `fisher update`** — they run it themselves in
   their interactive fish.

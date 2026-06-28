@@ -117,6 +117,28 @@ set -e tmux_lives_baseline_conf
 t "setup help lists conf" 1 (string match -q '*conf*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports baseline" 1 (string match -q '*baseline*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 
+# post-update auto-refresh: a fisher update re-renders the fragment IFF one already exists,
+# so new wiring (e.g. the client-attached hook) lands without a manual `tmux-lives setup`.
+set -g tmux_lives_fragment_file /tmp/tli-pufrag-$fish_pid.conf
+t "fragment: path honors seam" "$tmux_lives_fragment_file" (__tmux_lives_fragment_path)
+functions --copy __tmux_lives_write_fragment __tmux_lives_wf_real
+function __tmux_lives_write_fragment; set -g _wf_called 1; end
+set -g _tmux_lives_updating 1    # suppress the post-update note during the test
+rm -f $tmux_lives_fragment_file
+set -g _wf_called 0
+_tmux_lives_post_update
+t "post-update: no fragment -> no re-render" 0 $_wf_called
+echo x > $tmux_lives_fragment_file
+set _wf_called 0
+_tmux_lives_post_update
+t "post-update: fragment exists -> re-render" 1 $_wf_called
+set -e _tmux_lives_updating
+functions -e __tmux_lives_write_fragment
+functions --copy __tmux_lives_wf_real __tmux_lives_write_fragment
+functions -e __tmux_lives_wf_real
+rm -f $tmux_lives_fragment_file
+set -e tmux_lives_fragment_file
+
 set -l u (__tmux_lives_save_unit_text alice 1234 | string collect)
 t "unit uid"       1 (string match -q '*user@1234.service*' -- "$u"; and echo 1; or echo 0)
 t "unit user"      1 (string match -q '*su - alice*' -- "$u"; and echo 1; or echo 0)
