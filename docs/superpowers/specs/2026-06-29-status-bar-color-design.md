@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-29
 **Status:** Designed (awaiting user review → writing-plans)
-**Builds on:** the shipped ShellFish bar-color feature (`2026-06-27-shellfish-barcolor-design.md`, `setup color`).
+**Builds on:** the shipped ShellFish bar-color feature — `tmux-lives setup color` + the `client-attached` hook (see CLAUDE.md / README).
 
 ## Summary
 
