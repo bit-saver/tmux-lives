@@ -13,6 +13,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l pkey $argv[2]   # prefix-table key ('' = no prefix bind)
     set -l skey $argv[3]   # no-prefix/direct key ('' = no direct bind)
     set -l color $argv[4]  # ShellFish bar color baked into the client-attached hook ('' = none)
+    set -l invert $argv[5]  # 1 = darker status bar; else lighter
     set -l popup
     set -l menu
     if test -n "$pkey"
@@ -37,6 +38,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g automatic-rename-format '#{?pane_in_mode,[tmux],#{?#{m:*.*.*,#{pane_current_command}},claude,#{pane_current_command}}}#{?pane_dead,[dead],}'"
     set -a f "if-shell '! tmux show-options -gv status-right 2>/dev/null | grep -q tmux-categorize' \\"
     set -a f "    'set -ga status-right \"#(fish --no-config $cat tick)\"'"
+    set -l ss (__tmux_lives_derive_status $color $invert)
+    test -n "$ss"; and set -a f "set -g status-style $ss"
     if test -n "$popup"
         set -a f "if-shell 'tmux list-commands 2>/dev/null | grep -q display-popup' {"
         set -a f $popup
@@ -117,7 +120,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

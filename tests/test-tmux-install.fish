@@ -37,6 +37,14 @@ set -l fragnc (__tmux_lives_render_fragment /X/cat.fish S M-s '' | string collec
 t "hook present without a color"      1 (string match -q '*client-attached*on-attach*' -- "$fragnc"; and echo 1; or echo 0)
 t "3-arg call still renders the hook" 1 (string match -q '*client-attached*' -- (__tmux_lives_render_fragment /X/cat.fish S M-s | string collect); and echo 1; or echo 0)
 
+set -l fragss (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" 0 | string collect)
+t "fragment status-style lighter" 1 (string match -q '*set -g status-style bg=#5793f0,fg=white*' -- "$fragss"; and echo 1; or echo 0)
+set -l fragssi (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" 1 | string collect)
+t "fragment status-style darker"  1 (string match -q '*status-style bg=#1753b0*' -- "$fragssi"; and echo 1; or echo 0)
+set -l fragssn (__tmux_lives_render_fragment /X/cat.fish S M-s "" 0 | string collect)
+t "no color -> no status-style"   0 (string match -q '*status-style*' -- "$fragssn"; and echo 1; or echo 0)
+t "no color -> hook still there"  1 (string match -q '*client-attached*' -- "$fragssn"; and echo 1; or echo 0)
+
 # automatic-rename-format: macOS reports claude's version-named binary as the window
 # command (e.g. 2.1.185); map a version-like name (X.Y.Z) to "claude", pass others
 # through. (No-op on Linux, where the command already reads "claude".)
