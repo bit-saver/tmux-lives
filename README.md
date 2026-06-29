@@ -43,10 +43,11 @@ Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
 ### ShellFish tab color & non-ShellFish baseline
 
-A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client.
+A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-contrasts black or white by luminance.
 
 ```fish
 tmux-lives setup color "#1f6feb"            # set this server's ShellFish toolbar color
+tmux-lives setup color "#1f6feb" -i         # darker status bar
 tmux-lives setup color                      # show the current color
 tmux-lives setup color ""                   # clear it
 
