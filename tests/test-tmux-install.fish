@@ -117,6 +117,16 @@ set -e tmux_lives_baseline_conf
 t "setup help lists conf" 1 (string match -q '*conf*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports baseline" 1 (string match -q '*baseline*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 
+# status color derivation: lighten/darken + auto-contrast fg + parse scope
+t "derive: lighter #1f6feb"  "bg=#5793f0,fg=white" (__tmux_lives_derive_status "#1f6feb" 0)
+t "derive: darker  #1f6feb"  "bg=#1753b0,fg=white" (__tmux_lives_derive_status "#1f6feb" 1)
+t "derive: short hex == long" (__tmux_lives_derive_status "#1199ff" 0) (__tmux_lives_derive_status "#19f" 0)
+t "derive: rgb() == hex"      (__tmux_lives_derive_status "#1f6feb" 0) (__tmux_lives_derive_status "rgb(31, 111, 235)" 0)
+t "derive: light base -> black fg" "bg=#fff2a6,fg=black" (__tmux_lives_derive_status "#ffee88" 0)
+t "derive: dark base -> white fg"  "bg=#4c5864,fg=white" (__tmux_lives_derive_status "#102030" 0)
+t "derive: named -> empty" "" (__tmux_lives_derive_status "red" 0)
+t "derive: empty -> empty"  "" (__tmux_lives_derive_status "" 0)
+
 # post-update auto-refresh: a fisher update re-renders the fragment IFF one already exists,
 # so new wiring (e.g. the client-attached hook) lands without a manual `tmux-lives setup`.
 set -g tmux_lives_fragment_file /tmp/tli-pufrag-$fish_pid.conf

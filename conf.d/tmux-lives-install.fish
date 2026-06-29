@@ -293,6 +293,46 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
     test $changed -eq 1; and __tmux_lives_write_fragment
 end
 
+function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "bg=#rrggbb,fg=black|white" for status-style; empty if unparseable'
+    set -l color (string lower -- $argv[1])
+    set -l invert $argv[2]
+    test -n "$color"; or return
+    set -l r; set -l g; set -l b
+    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- $color)
+    if test (count $m) -eq 3
+        set r (math "0x$m[1]"); set g (math "0x$m[2]"); set b (math "0x$m[3]")
+    else
+        set m (string match -rg '^#([0-9a-f])([0-9a-f])([0-9a-f])$' -- $color)
+        if test (count $m) -eq 3
+            set r (math "0x$m[1]$m[1]"); set g (math "0x$m[2]$m[2]"); set b (math "0x$m[3]$m[3]")
+        else
+            set m (string match -rg '^rgba?\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)' -- $color)
+            if test (count $m) -eq 3
+                set r $m[1]; set g $m[2]; set b $m[3]
+            else
+                return
+            end
+        end
+    end
+    # clamp 0-255
+    for v in r g b
+        set -l x $$v
+        test "$x" -gt 255; and set $v 255
+    end
+    if test "$invert" = 1
+        set r (math "round($r * 0.75)"); set g (math "round($g * 0.75)"); set b (math "round($b * 0.75)")
+    else
+        set r (math "round($r + (255 - $r) * 0.25)"); set g (math "round($g + (255 - $g) * 0.25)"); set b (math "round($b + (255 - $b) * 0.25)")
+    end
+    set -l hex (printf '#%02x%02x%02x' $r $g $b)
+    # fish `math` has NO comparison operators — compute integer luminance (0-255) and
+    # compare with `test`. 0.55 * 255 ≈ 140, so L > 140 → black text, else white.
+    set -l fg white
+    set -l L (math "round(0.299 * $r + 0.587 * $g + 0.114 * $b)")
+    test $L -gt 140; and set fg black
+    echo "bg=$hex,fg=$fg"
+end
+
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>]: per-server ShellFish toolbar color'
     if test (count $argv) -eq 0
         set -l c (__tmux_lives_key tmux_lives_bar_color '')
