@@ -73,7 +73,7 @@ t "key: unset -> default" "S" (__tmux_lives_key _tl_k S)
 # setup color: stores the universal var + bakes into the re-rendered fragment
 set -l cfrag /tmp/tli-colorfrag-$fish_pid.conf
 function __tmux_lives_write_fragment --description 'test stub: render to a temp path'
-    __tmux_lives_render_fragment /X/cat.fish S M-s (__tmux_lives_key tmux_lives_bar_color '') > /tmp/tli-colorfrag-$fish_pid.conf
+    __tmux_lives_render_fragment /X/cat.fish S M-s (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) > /tmp/tli-colorfrag-$fish_pid.conf
 end
 # This block mutates the REAL universal var tmux_lives_bar_color (the command sets -U).
 # Save the user's value and restore it at the end so the suite never clobbers a configured color.
@@ -84,12 +84,28 @@ if set -q tmux_lives_bar_color
     set _bc_val $tmux_lives_bar_color
 end
 set -e tmux_lives_bar_color
+set -l _si_had 0
+set -l _si_val
+if set -q tmux_lives_status_invert
+    set _si_had 1
+    set _si_val $tmux_lives_status_invert
+end
+set -e tmux_lives_status_invert
 t "color: empty when unset" 1 (string match -q '*none*' -- (__tmux_lives_color_cmd); and echo 1; or echo 0)
 __tmux_lives_color_cmd "#ff8800" >/dev/null
 t "color: stored in universal var" "#ff8800" "$tmux_lives_bar_color"
 t "color: baked into fragment" 1 (string match -q '*#ff8800*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
 __tmux_lives_color_cmd "" >/dev/null
 t "color: cleared to empty" "" "$tmux_lives_bar_color"
+__tmux_lives_color_cmd "#1f6feb" -i >/dev/null
+t "color -i: invert var = 1"     "1" "$tmux_lives_status_invert"
+t "color -i: fragment darker"    1 (string match -q '*status-style bg=#1753b0*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
+__tmux_lives_color_cmd "#1f6feb" >/dev/null
+t "color no -i: invert var = 0"  "0" "$tmux_lives_status_invert"
+t "color: fragment lighter"      1 (string match -q '*status-style bg=#5793f0*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
+t "color show: reports lighter"  1 (string match -q '*status bar: lighter*' -- (__tmux_lives_color_cmd | string collect); and echo 1; or echo 0)
+t "color -i no color: rc1"       1 (__tmux_lives_color_cmd -i >/dev/null 2>&1; echo $status)
+__tmux_lives_color_cmd "" >/dev/null
 t "color: rejects unsafe value (rc1)" 1 (__tmux_lives_color_cmd "bad';x" >/dev/null 2>&1; echo $status)
 t "color: unsafe value not stored"    "" "$tmux_lives_bar_color"
 t "color: accepts rgb() with spaces"  0 (__tmux_lives_color_cmd "rgb(255, 0, 0)" >/dev/null 2>&1; echo $status)
@@ -100,10 +116,17 @@ if test $_bc_had -eq 1
 else
     set -e tmux_lives_bar_color
 end
+if test $_si_had -eq 1
+    set -U tmux_lives_status_invert $_si_val
+else
+    set -e tmux_lives_status_invert
+end
 rm -f $cfrag
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
+t "verify reports status direction" 1 (string match -q '*status bar:*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
+t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf

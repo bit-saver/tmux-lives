@@ -208,7 +208,12 @@ function __tmux_lives_status_lines --description 'One status line per tmux-lives
     set -l sk (__tmux_lives_key tmux_lives_switcher_key M-s); test -n "$sk"; or set sk '(off)'
     set -a r "OK switcher keys: prefix=$pk  no-prefix=$sk"
     set -l bc (__tmux_lives_key tmux_lives_bar_color ''); test -n "$bc"; or set bc '(none)'
-    set -a r "OK bar color: $bc"
+    if test "$bc" = '(none)'
+        set -a r "OK bar color: $bc"
+    else
+        set -l bdir lighter; test (__tmux_lives_key tmux_lives_status_invert 0) = 1; and set bdir darker
+        set -a r "OK bar color: $bc (status bar: $bdir)"
+    end
     set -l bf (__tmux_lives_baseline_path)
     test -e $bf; and set -a r "OK baseline $bf present"; or set -a r "OK baseline $bf (none yet)"
     printf '%s\n' $r
@@ -336,20 +341,38 @@ function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "b
     echo "bg=$hex,fg=$fg"
 end
 
-function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>]: per-server ShellFish toolbar color'
+function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert]: ShellFish tab color + derived status bar'
+    set -l invert 0
+    set -l color
+    set -l have_color 0
+    for a in $argv
+        switch $a
+            case -i --invert
+                set invert 1
+            case '*'
+                set color $a; set have_color 1
+        end
+    end
     if test (count $argv) -eq 0
         set -l c (__tmux_lives_key tmux_lives_bar_color '')
-        test -n "$c"; and echo "bar color: $c"; or echo "bar color: (none)"
+        set -l dir lighter; test (__tmux_lives_key tmux_lives_status_invert 0) = 1; and set dir darker
+        test -n "$c"; and echo "bar color: $c (status bar: $dir)"; or echo "bar color: (none)"
         return 0
     end
-    if test -n "$argv[1]"; and string match -qr '[^A-Za-z0-9#(),./% -]' -- $argv[1]
-        echo "tmux-lives setup color: invalid color '$argv[1]' — use a CSS color (red, #1f6feb, rgb(...), color(p3 ...))" >&2
+    if test $have_color -eq 0
+        echo "tmux-lives setup color: -i needs a color, e.g. tmux-lives setup color \"#1f6feb\" -i" >&2
         return 1
     end
-    set -U tmux_lives_bar_color $argv[1]
+    if test -n "$color"; and string match -qr '[^A-Za-z0-9#(),./% -]' -- $color
+        echo "tmux-lives setup color: invalid color '$color' — use a CSS color (red, #1f6feb, rgb(...), color(p3 ...))" >&2
+        return 1
+    end
+    set -U tmux_lives_bar_color $color
+    set -U tmux_lives_status_invert $invert
     __tmux_lives_write_fragment
-    if test -n "$argv[1]"
-        echo "tmux-lives: bar color set to $argv[1] (applied to ShellFish clients on attach)"
+    if test -n "$color"
+        set -l dir lighter; test $invert -eq 1; and set dir darker
+        echo "tmux-lives: bar color set to $color (ShellFish tab; status bar $dir)"
     else
         echo "tmux-lives: bar color cleared"
     end
@@ -411,7 +434,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "  -p, --prefix-key <key>    prefix-table bind (default: S; '' off)" \
         "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
-        'color [<css-color>]         set the per-server ShellFish toolbar color' \
+        'color [<css>] [-i]          ShellFish tab color (+ status bar; -i darker)' \
         'conf [edit|add <cmd>]       edit non-ShellFish baseline (~/.tmux-lives.conf)'
 end
 
