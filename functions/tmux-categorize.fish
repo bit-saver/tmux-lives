@@ -517,7 +517,10 @@ function __tcz_popup_truncate --argument-names text width --description 'truncat
         set -l ch $chars[$i]
         if test "$ch" = "$ESC"
             # Copy a whole escape sequence verbatim (zero display width). CSI/SGR ends
-            # on a final byte in A-Z/a-z; OSC ends on BEL. Never split across the cut.
+            # on a final byte in A-Z/a-z (the `m` of an SGR colour). `capture-pane -e`
+            # emits SGR only, so OSC (`\e]…`, ST/BEL-terminated) is intentionally out of
+            # scope here — the BEL check is a cheap guard, not full OSC parsing. Either
+            # way, never split a sequence across the cut.
             set out "$out$ch"; set sawsgr 1; set i (math $i + 1)
             while test $i -le $n
                 set -l c2 $chars[$i]

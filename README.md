@@ -59,6 +59,26 @@ tmux-lives setup conf reset                 # restore defaults (backs up to .bak
 
 `~/.tmux-lives.conf` is the general tmux-lives config — sourced by the managed fragment at load (every client) and re-applied on every non-ShellFish attach. It is seeded once with active status-bar polish: `❯ #{session_name}` on the left, longer name lengths, a 12-hour month-first clock in `@tmux_lives_status_right`, and bold current window. Edit it freely; `tmux-lives setup conf reset` backs up your version to `.bak` and restores the defaults. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
 
+### In-tmux command surface (modal + scratch split)
+
+When a full-screen program occupies your pane, two bindings let you drive tmux-lives without leaving it:
+
+**Command modal (`M-m`)** — a key-capturing `display-popup` with a colored legend. Single-key actions: `n` new · `c` clear · `g` categorize · `s` switcher · `t` scratch toggle · `b` set bar color (typed-input sub-state) · `Esc`/`q` close. When a scratch pane is open, arrows resize it and `h`/`w` change split orientation; `x` closes it. Falls back to a `display-menu` when `display-popup` is unavailable (same fallback as the switcher).
+
+**Scratch split toggle (`M-t`)** — splits a throwaway shell pane beside the active pane (marked `@tmux_lives_scratch`). Press again to refocus the original pane and kill the scratch.
+
+**Colored switcher preview** — the switcher's right-pane preview now shows the target session's real colors (`capture-pane -e` with ANSI-aware truncation), matching tmux's native `choose-tree`.
+
+Configure or disable the binds via `setup keys`:
+
+```fish
+tmux-lives setup keys --modal-key M-m    # default
+tmux-lives setup keys --scratch-key M-t  # default
+tmux-lives setup keys --modal-key ''     # disable
+```
+
+These binds become live on your next `fisher update` / `tmux-lives update`. If `M-m` or `M-t` collide with an existing terminal or tmux bind, rebind or disable them before updating.
+
 ## Uninstall
 
 ```fish
