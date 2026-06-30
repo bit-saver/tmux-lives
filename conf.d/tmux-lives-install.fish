@@ -301,7 +301,7 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
     test $changed -eq 1; and __tmux_lives_write_fragment
 end
 
-function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "bg=#rrggbb,fg=black|white" for status-style; empty if unparseable'
+function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "bg=#rrggbb,fg=#rrggbb" for status-style; empty if unparseable'
     set -l color (string lower -- $argv[1])
     set -l invert $argv[2]
     test -n "$color"; or return
@@ -333,12 +333,17 @@ function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "b
         set r (math "round($r + (255 - $r) * 0.25)"); set g (math "round($g + (255 - $g) * 0.25)"); set b (math "round($b + (255 - $b) * 0.25)")
     end
     set -l hex (printf '#%02x%02x%02x' $r $g $b)
-    # fish `math` has NO comparison operators — compute integer luminance (0-255) and
-    # compare with `test`. 0.55 * 255 ≈ 140, so L > 140 → black text, else white.
-    set -l fg white
+    # Tinted text (Light tint f=0.68): a hex shade of the bar's own hue, blended toward
+    # white (dark bar) or black (light bar). Palette-independent; visible hue, still clearly
+    # light/dark. fish `math` has no comparison operators -> integer luminance + test.
     set -l L (math "round(0.299 * $r + 0.587 * $g + 0.114 * $b)")
-    test $L -gt 140; and set fg black
-    echo "bg=$hex,fg=$fg"
+    set -l tr; set -l tg; set -l tb
+    if test $L -gt 140
+        set tr (math "round($r * 0.32)"); set tg (math "round($g * 0.32)"); set tb (math "round($b * 0.32)")
+    else
+        set tr (math "round($r + (255 - $r) * 0.68)"); set tg (math "round($g + (255 - $g) * 0.68)"); set tb (math "round($b + (255 - $b) * 0.68)")
+    end
+    echo "bg=$hex,fg="(printf '#%02x%02x%02x' $tr $tg $tb)
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert]: ShellFish tab color + derived status bar'

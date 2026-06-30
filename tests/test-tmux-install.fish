@@ -38,7 +38,7 @@ t "hook present without a color"      1 (string match -q '*client-attached*on-at
 t "3-arg call still renders the hook" 1 (string match -q '*client-attached*' -- (__tmux_lives_render_fragment /X/cat.fish S M-s | string collect); and echo 1; or echo 0)
 
 set -l fragss (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" 0 | string collect)
-t "fragment status-style lighter" 1 (string match -q '*set -g status-style bg=#5793f0,fg=white*' -- "$fragss"; and echo 1; or echo 0)
+t "fragment status-style lighter" 1 (string match -q '*set -g status-style bg=#5793f0,fg=#c9dcfa*' -- "$fragss"; and echo 1; or echo 0)
 set -l fragssi (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" 1 | string collect)
 t "fragment status-style darker"  1 (string match -q '*status-style bg=#1753b0*' -- "$fragssi"; and echo 1; or echo 0)
 set -l fragssn (__tmux_lives_render_fragment /X/cat.fish S M-s "" 0 | string collect)
@@ -149,12 +149,12 @@ t "setup help lists conf" 1 (string match -q '*conf*' -- (__tmux_lives_setup_hel
 t "verify reports baseline" 1 (string match -q '*baseline*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 
 # status color derivation: lighten/darken + auto-contrast fg + parse scope
-t "derive: lighter #1f6feb"  "bg=#5793f0,fg=white" (__tmux_lives_derive_status "#1f6feb" 0)
-t "derive: darker  #1f6feb"  "bg=#1753b0,fg=white" (__tmux_lives_derive_status "#1f6feb" 1)
+t "derive: lighter #1f6feb"  "bg=#5793f0,fg=#c9dcfa" (__tmux_lives_derive_status "#1f6feb" 0)
+t "derive: darker  #1f6feb"  "bg=#1753b0,fg=#b5c8e6" (__tmux_lives_derive_status "#1f6feb" 1)
 t "derive: short hex == long" (__tmux_lives_derive_status "#1199ff" 0) (__tmux_lives_derive_status "#19f" 0)
 t "derive: rgb() == hex"      (__tmux_lives_derive_status "#1f6feb" 0) (__tmux_lives_derive_status "rgb(31, 111, 235)" 0)
-t "derive: light base -> black fg" "bg=#fff2a6,fg=black" (__tmux_lives_derive_status "#ffee88" 0)
-t "derive: dark base -> white fg"  "bg=#4c5864,fg=white" (__tmux_lives_derive_status "#102030" 0)
+t "derive: light base tinted" "bg=#fff2a6,fg=#524d35" (__tmux_lives_derive_status "#ffee88" 0)
+t "derive: dark base tinted"  "bg=#4c5864,fg=#c6cacd" (__tmux_lives_derive_status "#102030" 0)
 t "derive: named -> empty" "" (__tmux_lives_derive_status "red" 0)
 t "derive: empty -> empty"  "" (__tmux_lives_derive_status "" 0)
 
