@@ -79,6 +79,7 @@ t "key: unset -> default" "S" (__tmux_lives_key _tl_k S)
 
 # setup color: stores the universal var + bakes into the re-rendered fragment
 set -l cfrag /tmp/tli-colorfrag-$fish_pid.conf
+functions --copy __tmux_lives_write_fragment __tmux_lives_wf_orig  # save the real one for later blocks
 function __tmux_lives_write_fragment --description 'test stub: render to a temp path'
     __tmux_lives_render_fragment /X/cat.fish S M-s (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) > /tmp/tli-colorfrag-$fish_pid.conf
 end
@@ -117,7 +118,7 @@ t "color: rejects unsafe value (rc1)" 1 (__tmux_lives_color_cmd "bad';x" >/dev/n
 t "color: unsafe value not stored"    "" "$tmux_lives_bar_color"
 t "color: accepts rgb() with spaces"  0 (__tmux_lives_color_cmd "rgb(255, 0, 0)" >/dev/null 2>&1; echo $status)
 __tmux_lives_color_cmd "" >/dev/null
-functions -e __tmux_lives_write_fragment
+functions -e __tmux_lives_write_fragment; functions --copy __tmux_lives_wf_orig __tmux_lives_write_fragment; functions -e __tmux_lives_wf_orig
 if test $_bc_had -eq 1
     set -U tmux_lives_bar_color $_bc_val
 else
@@ -148,6 +149,10 @@ t "baseline: keeps commented mouse"  1 (string match -q '*# set -g mouse off*' -
 printf '# hand edit\n' >> $tmux_lives_baseline_conf
 __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
 t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+# conf add/reset call `tmux source-file` — pin it to a throwaway -L socket so the suite
+# never reconfigures the user's real tmux server (README: tests never touch the real server).
+set -g tmux_lives_tmux_socket tli-conf-$fish_pid
+command tmux -L $tmux_lives_tmux_socket new-session -d 2>/dev/null
 __tmux_lives_conf_cmd add 'set -g mouse off' >/dev/null
 t "baseline: conf add appends line" 1 (grep -qF 'set -g mouse off' $tmux_lives_baseline_conf; and echo 1; or echo 0)
 t "baseline: conf add with no cmd rc1" 1 (__tmux_lives_conf_cmd add >/dev/null 2>&1; echo $status)
@@ -155,6 +160,8 @@ printf 'set -g @user_edit 1\n' > $tmux_lives_baseline_conf
 __tmux_lives_conf_cmd reset >/dev/null
 t "conf reset: backup has user edit" 1 (string match -q '*@user_edit*' -- (cat "$tmux_lives_baseline_conf.bak" | string collect); and echo 1; or echo 0)
 t "conf reset: file restored to template" 1 (string match -q '*@tmux_lives_status_right*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+command tmux -L $tmux_lives_tmux_socket kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
 rm -f "$tmux_lives_baseline_conf.bak"
 t "baseline: conf (no arg) shows path" 1 (string match -q "*$tmux_lives_baseline_conf*" -- (__tmux_lives_conf_cmd | string collect); and echo 1; or echo 0)
 rm -f $tmux_lives_baseline_conf

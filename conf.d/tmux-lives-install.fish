@@ -410,8 +410,8 @@ function __tmux_lives_baseline_template --description 'print the default ~/.tmux
         '# + continuum autosave attached (it sets the actual status-right). 12h, month-first:' \
         'set -g @tmux_lives_status_right "%-I:%M %p · %b %-d "' \
         '# make the active window stand out' \
-        'set -g window-status-format         " #I:#W "' \
-        'set -g window-status-current-format " #I:#W "' \
+        'set -g window-status-format         " #I:#W#{?window_flags,#F, } "' \
+        'set -g window-status-current-format " #I:#W#{?window_flags,#F, } "' \
         'set -g window-status-current-style  "bold"' \
         '' \
         '# --- non-ShellFish baseline (re-applied when a non-ShellFish client attaches) ---' \
@@ -423,6 +423,14 @@ end
 function __tmux_lives_seed_baseline --argument-names f --description 'create the baseline file from the template iff absent (never overwrites)'
     test -e $f; and return 0
     __tmux_lives_baseline_template > $f
+end
+
+function __tmux_lives_conf_source --argument-names f --description 'source the user conf into tmux (honors the tmux_lives_tmux_socket test seam)'
+    if set -q tmux_lives_tmux_socket
+        command tmux -L $tmux_lives_tmux_socket source-file $f 2>/dev/null
+    else
+        tmux source-file $f 2>/dev/null
+    end
 end
 
 function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <tmux-command>|reset]: manage ~/.tmux-lives.conf'
@@ -447,13 +455,14 @@ function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <t
             end
             __tmux_lives_seed_baseline $f
             printf '%s\n' (string join ' ' $argv[2..]) >> $f
-            tmux source-file $f 2>/dev/null
+            __tmux_lives_conf_source $f
             echo "tmux-lives: added to $f"
         case reset
-            test -e $f; and cp $f "$f.bak"
+            set -l backed 0
+            test -e $f; and cp $f "$f.bak"; and set backed 1
             __tmux_lives_baseline_template > $f
-            tmux source-file $f 2>/dev/null
-            if test -e "$f.bak"
+            __tmux_lives_conf_source $f
+            if test $backed -eq 1
                 echo "tmux-lives: restored defaults to $f (previous version saved to $f.bak)"
             else
                 echo "tmux-lives: wrote default $f"
