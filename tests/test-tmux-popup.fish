@@ -183,5 +183,40 @@ t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 
+# ---------------------------------------------------------------------
+# command modal — pure helpers
+# ---------------------------------------------------------------------
+function flat --description 'collapse a fish list (multiline) to one SGR-stripped space-joined string'
+    set -l s (string join ' ' $argv)
+    string replace -a (printf '\n') ' ' -- (vis "$s")
+end
+set -g LEG0 (flat (__tcz_modal_legend 0))
+t "legend has new/clear/categorize" yes (string match -q '*new*clear*categorize*' -- "$LEG0"; and echo yes; or echo no)
+t "legend has switcher/scratch/bar color" yes (string match -q '*switcher*scratch*bar color*' -- "$LEG0"; and echo yes; or echo no)
+t "legend(0) hides resize row" no (string match -q '*resize*' -- "$LEG0"; and echo yes; or echo no)
+set -g LEG1 (flat (__tcz_modal_legend 1))
+t "legend(1) shows resize row" yes (string match -q '*resize*split*close*' -- "$LEG1"; and echo yes; or echo no)
+
+t "action n -> new" new (__tcz_modal_action n 0)
+t "action c -> clear" clear (__tcz_modal_action c 0)
+t "action g -> categorize" categorize (__tcz_modal_action g 0)
+t "action s -> switcher" switcher (__tcz_modal_action s 0)
+t "action t -> scratch" scratch (__tcz_modal_action t 0)
+t "action b -> color" color (__tcz_modal_action b 0)
+t "action esc -> close" close (__tcz_modal_action esc 0)
+t "action q -> close" close (__tcz_modal_action q 0)
+t "action x no-scratch -> noop" noop (__tcz_modal_action x 0)
+t "action x with-scratch -> scratch-close" scratch-close (__tcz_modal_action x 1)
+t "action left with-scratch -> resize-left" resize-left (__tcz_modal_action left 1)
+t "action h with-scratch -> orient-h" orient-h (__tcz_modal_action h 1)
+t "action unknown -> noop" noop (__tcz_modal_action z 0)
+
+t "readkey n" n (printf 'n' | __tcz_modal_readkey 2>/dev/null)
+t "readkey x" x (printf 'x' | __tcz_modal_readkey 2>/dev/null)
+t "readkey enter" enter (printf '\r' | __tcz_modal_readkey 2>/dev/null)
+t "readkey CSI up" up (printf '\e[A' | __tcz_modal_readkey 2>/dev/null)
+t "readkey CSI left" left (printf '\e[D' | __tcz_modal_readkey 2>/dev/null)
+t "readkey bare esc" esc (printf '\e' | __tcz_modal_readkey 2>/dev/null)
+
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL

@@ -720,6 +720,78 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
     printf '\e[J\e[?2026l'
 end
 
+function __tcz_modal_legend --argument-names has_scratch --description 'pure: the command-modal key legend (ANSI); scratch-management row only when a scratch exists'
+    set -l O (printf '\e[38;5;208m')   # orange key accent
+    set -l D (printf '\e[2m')          # dim
+    set -l R (printf '\e[0m')
+    set -l rows
+    set -a rows "$O n$R new   $O c$R clear   $O g$R categorize"
+    set -a rows "$O s$R switcher   $O t$R scratch   $O b$R bar color"
+    test "$has_scratch" = 1; and set -a rows "$D scratch:$R $O ←→↑↓$R resize  $O h/w$R split  $O x$R close"
+    set -a rows "$O esc$R close"
+    printf '%s\n' $rows
+end
+
+function __tcz_modal_action --argument-names key has_scratch --description 'pure: modal keyname + scratch-state -> action token'
+    switch "$key"
+        case n; echo new
+        case c; echo clear
+        case g; echo categorize
+        case s; echo switcher
+        case t; echo scratch
+        case b; echo color
+        case esc q; echo close
+        case x;     test "$has_scratch" = 1; and echo scratch-close; or echo noop
+        case h;     test "$has_scratch" = 1; and echo orient-h; or echo noop
+        case w;     test "$has_scratch" = 1; and echo orient-w; or echo noop
+        case left;  test "$has_scratch" = 1; and echo resize-left; or echo noop
+        case right; test "$has_scratch" = 1; and echo resize-right; or echo noop
+        case up;    test "$has_scratch" = 1; and echo resize-up; or echo noop
+        case down;  test "$has_scratch" = 1; and echo resize-down; or echo noop
+        case '*';   echo noop
+    end
+end
+
+function __tcz_modal_readkey --description 'read one keystroke -> keyname (letters as tokens; arrows/enter/esc parsed)'
+    set -l b ''
+    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
+    test -z "$b"; and begin; echo close; return; end          # EOF
+    switch "$b"
+        case 0d 0a; echo enter; return
+        case 6e; echo n; return
+        case 63; echo c; return
+        case 67; echo g; return
+        case 73; echo s; return
+        case 74; echo t; return
+        case 62; echo b; return
+        case 68; echo h; return
+        case 77; echo w; return
+        case 78; echo x; return
+        case 71; echo q; return
+    end
+    if test "$b" = 1b                                          # ESC
+        stty min 0 time 1 2>/dev/null
+        set -l b2 ''
+        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
+        set -l b3 ''
+        if test "$b2" = 5b; or test "$b2" = 4f                 # [ or O
+            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
+        end
+        stty min 1 time 0 2>/dev/null
+        if test "$b2" = 5b; or test "$b2" = 4f
+            switch "$b3"
+                case 41; echo up; return
+                case 42; echo down; return
+                case 43; echo right; return
+                case 44; echo left; return
+            end
+            echo other; return
+        end
+        echo esc; return
+    end
+    echo other
+end
+
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
     set -l take ''
     contains -- --take $argv; and set take --take
