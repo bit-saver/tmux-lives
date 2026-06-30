@@ -1007,6 +1007,18 @@ function __tcz_on_attach --argument-names pid tty color --description 'on-attach
     return 0
 end
 
+function __tcz_recolor --argument-names color --description 'emit the ShellFish bar-color OSC to every attached ShellFish client (so setup color updates tabs without a reattach)'
+    test -n "$color"; or return 0
+    set -l TAB (printf '\t')
+    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}" 2>/dev/null)
+        set -l parts (string split $TAB -- $line)
+        set -l pid $parts[1]
+        set -l tty $parts[2]
+        test -n "$tty"; or continue
+        __tcz_client_is_shellfish $pid; and __tcz_emit_barcolor $tty $color
+    end
+end
+
 function __tcz_scratch_pane --description 'echo the marked scratch pane id in the current window (empty if none)'
     tmux list-panes -F '#{?#{==:#{@tmux_lives_scratch},1},#{pane_id},}' 2>/dev/null | string match -rv '^$'
 end
@@ -1058,6 +1070,8 @@ function __tcz_main
             __tcz_modal $argv[2..]
         case modal-menu
             __tcz_modal_menu $argv[2..]
+        case recolor
+            __tcz_recolor $argv[2..]
         case claim
             __tcz_claim $argv[2..]
         case ghosts

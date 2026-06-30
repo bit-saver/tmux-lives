@@ -562,6 +562,32 @@ t "main dispatches modal" yes (string match -q '*case modal*' -- "$MAINSRC"; and
 t "main dispatches modal-menu" yes (string match -q '*modal-menu*' -- "$MAINSRC"; and echo yes; or echo no)
 t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC"; and echo yes; or echo no)
 
+# ---------------------------------------------------------------------
+# recolor: emit the ShellFish OSC to attached ShellFish clients
+# ---------------------------------------------------------------------
+set -g tt1 /tmp/tcz-tty1-$fish_pid; set -g tt2 /tmp/tcz-tty2-$fish_pid
+rm -f $tt1 $tt2; touch $tt1 $tt2
+function tmux
+    if test "$argv[1]" = list-clients
+        printf '111\t%s\n222\t%s\n' "$tt1" "$tt2"
+    else
+        command tmux $argv
+    end
+end
+set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+__tcz_recolor '#1f6feb'
+t "recolor emits OSC to shellfish client 1" yes (test -s $tt1; and echo yes; or echo no)
+t "recolor emits OSC to shellfish client 2" yes (test -s $tt2; and echo yes; or echo no)
+t "recolor OSC carries settoolbar" yes (string match -q '*settoolbar*' -- (cat $tt1 | string collect); and echo yes; or echo no)
+# non-shellfish env -> no emit
+rm -f $tt1; touch $tt1
+set -gx tmux_lives_fake_environ "TERM=xterm"
+__tcz_recolor '#1f6feb'
+t "recolor skips non-shellfish client" no (test -s $tt1; and echo yes; or echo no)
+set -e tmux_lives_fake_environ
+functions -e tmux
+rm -f $tt1 $tt2
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
