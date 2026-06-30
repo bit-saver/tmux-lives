@@ -391,7 +391,10 @@ function __tmux_lives_write_fragment; end
 tmux-lives setup keys -p C-a
 t "setup keys -p persists" "C-a" "$tmux_lives_prefix_key"
 set -e tmux_lives_prefix_key
-functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
+# Keep __tmux_lives_write_fragment STUBBED through the post-update NOTE tests below: they
+# call the REAL _tmux_lives_post_update, and the real write_fragment writes the LIVE
+# ~/.config/tmux/tmux-lives.conf + reloads the user's running tmux server. The note/handler
+# tests don't need a real render. Restored after the last _tmux_lives_post_update call.
 
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
@@ -443,6 +446,8 @@ rm -f $_tld
 set -g _tmux_lives_updating 1
 t "post-update note silent under flag"  "" (_tmux_lives_post_update | string collect)
 set -e _tmux_lives_updating
+# Restore the real write_fragment now that the post-update note tests are done.
+functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
 
 # ---------------------------------------------------------------------
 # __tmux_lives_reload: source the conf into a RUNNING tmux (so `setup` needs no
