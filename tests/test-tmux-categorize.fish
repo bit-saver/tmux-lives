@@ -37,6 +37,18 @@ end
 set -g tmux_categorize_test 1
 source $plugindir/functions/tmux-categorize.fish
 
+# Reset the test server to a single fresh session, race-free. A `new-session` issued
+# right after `kill-server` can land on the still-dying old server (which then exits —
+# seen as "server exited unexpectedly"), so the new session/pane vanishes. Poll until
+# the old server is actually gone before creating the new one (condition, not sleep).
+function fresh_server --description 'kill the test server, wait until it is gone, then create one fresh detached session'
+    command tmux -L $sock kill-server 2>/dev/null
+    for i in (seq 50)
+        command tmux -L $sock list-sessions >/dev/null 2>&1; or break
+    end
+    command tmux -L $sock new-session -d -x 120 -y 40
+end
+
 # ---------------------------------------------------------------------
 # Pure-ish: __tcz_pane_is_claude (cmd fast-path + sh/comm fallback)
 # ---------------------------------------------------------------------
@@ -511,7 +523,7 @@ t "fisher-safe: sourcing categorizer doesn't abort caller" "CONTINUED" \
 # ---------------------------------------------------------------------
 # scratch split toggle (uses the PATH tmux shim -> isolated -L $sock)
 # ---------------------------------------------------------------------
-command tmux -L $sock new-session -d -x 120 -y 40
+fresh_server
 __tcz_scratch
 t "scratch create -> one marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
 t "scratch_pane echoes a pane id" yes (string match -qr '^%' -- (__tcz_scratch_pane); and echo yes; or echo no)
@@ -528,7 +540,7 @@ command tmux -L $sock kill-server 2>/dev/null
 # ---------------------------------------------------------------------
 # modal action runner
 # ---------------------------------------------------------------------
-command tmux -L $sock new-session -d -x 120 -y 40
+fresh_server
 t "run scratch -> stay" stay (__tcz_modal_run scratch '' | string collect)
 t "run scratch created a marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
 t "run categorize -> stay" stay (__tcz_modal_run categorize '' | string collect)
