@@ -525,6 +525,25 @@ __tcz_scratch_orient w
 t "scratch_orient keeps one marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
 command tmux -L $sock kill-server 2>/dev/null
 
+# ---------------------------------------------------------------------
+# modal action runner
+# ---------------------------------------------------------------------
+command tmux -L $sock new-session -d -x 120 -y 40
+t "run scratch -> stay" stay (__tcz_modal_run scratch '' | string collect)
+t "run scratch created a marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
+t "run categorize -> stay" stay (__tcz_modal_run categorize '' | string collect)
+t "run close -> close" close (__tcz_modal_run close '' | string collect)
+t "run color -> color (loop handles input)" color (__tcz_modal_run color '' | string collect)
+t "run noop -> stay" stay (__tcz_modal_run noop '' | string collect)
+command tmux -L $sock kill-server 2>/dev/null
+# loop wiring (source assertions — the interactive loop is not run headless)
+set -g MSRC (functions __tcz_modal | string collect)
+t "modal loop reads keys" yes (string match -q '*__tcz_modal_readkey*' -- "$MSRC"; and echo yes; or echo no)
+t "modal loop maps actions" yes (string match -q '*__tcz_modal_action*' -- "$MSRC"; and echo yes; or echo no)
+t "modal loop draws legend" yes (string match -q '*__tcz_modal_legend*' -- "$MSRC"; and echo yes; or echo no)
+t "modal loop runs actions" yes (string match -q '*__tcz_modal_run*' -- "$MSRC"; and echo yes; or echo no)
+t "modal loop has colour input sub-state" yes (string match -q '*tmux-lives setup color*' -- "$MSRC"; and echo yes; or echo no)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

@@ -792,6 +792,77 @@ function __tcz_modal_readkey --description 'read one keystroke -> keyname (lette
     echo other
 end
 
+function __tcz_modal_run --argument-names action client --description 'run a modal action token; echo close|stay (color is returned for the loop input sub-state)'
+    switch "$action"
+        case new
+            fish -c 'tmux-lives new' 2>/dev/null; echo close
+        case clear
+            fish -c 'tmux-lives clear' 2>/dev/null; echo stay
+        case categorize
+            __tcz_categorize >/dev/null 2>&1; echo stay
+        case switcher
+            __tcz_open_switcher "$client"; echo close
+        case scratch scratch-close
+            __tcz_scratch "$client"; echo stay
+        case orient-h
+            __tcz_scratch_orient h; echo stay
+        case orient-w
+            __tcz_scratch_orient w; echo stay
+        case resize-left
+            tmux resize-pane -t (__tcz_scratch_pane)[1] -L 4 2>/dev/null; echo stay
+        case resize-right
+            tmux resize-pane -t (__tcz_scratch_pane)[1] -R 4 2>/dev/null; echo stay
+        case resize-up
+            tmux resize-pane -t (__tcz_scratch_pane)[1] -U 2 2>/dev/null; echo stay
+        case resize-down
+            tmux resize-pane -t (__tcz_scratch_pane)[1] -D 2 2>/dev/null; echo stay
+        case color
+            echo color
+        case close
+            echo close
+        case '*'
+            echo stay
+    end
+end
+
+function __tcz_modal --argument-names client --description 'key-capturing command modal (runs inside display-popup)'
+    if test -z "$client"; or string match -q '*#{*' -- "$client"
+        set client (tmux display-message -p '#{client_name}' 2>/dev/null)
+    end
+    set -l saved (stty -g)
+    set -g __tcz_modal_saved $saved
+    function __tcz_modal_cleanup --on-signal INT --on-signal TERM
+        stty "$__tcz_modal_saved" 2>/dev/null
+        printf '\e[?25h\e[0m'
+        exit 130
+    end
+    stty -icanon -echo min 1 time 0
+    printf '\e[?25l'
+    while true
+        set -l sp (__tcz_scratch_pane)
+        set -l has 0; test -n "$sp[1]"; and set has 1
+        printf '\e[2J\e[H'
+        __tcz_modal_legend $has
+        set -l action (__tcz_modal_action (__tcz_modal_readkey) $has)
+        set -l verdict (__tcz_modal_run $action "$client")
+        if test "$verdict" = color
+            stty "$saved" 2>/dev/null
+            printf '\e[2J\e[H bar color (css), empty cancels: '
+            set -l val ''
+            read -l val
+            stty -icanon -echo min 1 time 0 2>/dev/null
+            test -n "$val"; and fish -c 'tmux-lives setup color $argv[1]' "$val" 2>/dev/null
+        else if test "$verdict" = close
+            break
+        end
+    end
+    functions -e __tcz_modal_cleanup
+    set -e __tcz_modal_saved
+    stty $saved
+    printf '\e[?25h\e[2J\e[H'
+    return 0
+end
+
 function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
     set -l take ''
     contains -- --take $argv; and set take --take
@@ -962,6 +1033,8 @@ function __tcz_main
             __tcz_popup $argv[2..]
         case scratch
             __tcz_scratch $argv[2..]
+        case modal
+            __tcz_modal $argv[2..]
         case claim
             __tcz_claim $argv[2..]
         case ghosts
