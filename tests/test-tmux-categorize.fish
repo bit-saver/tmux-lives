@@ -508,6 +508,23 @@ rm -rf $psshim
 t "fisher-safe: sourcing categorizer doesn't abort caller" "CONTINUED" \
     (fish --no-config -c "function f; source $plugindir/functions/tmux-categorize.fish; echo CONTINUED; end; f")
 
+# ---------------------------------------------------------------------
+# scratch split toggle (uses the PATH tmux shim -> isolated -L $sock)
+# ---------------------------------------------------------------------
+command tmux -L $sock new-session -d -x 120 -y 40
+__tcz_scratch
+t "scratch create -> one marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
+t "scratch_pane echoes a pane id" yes (string match -qr '^%' -- (__tcz_scratch_pane); and echo yes; or echo no)
+t "scratch create -> marked pane is active" 1 (command tmux -L $sock list-panes -F '#{?#{&&:#{pane_active},#{==:#{@tmux_lives_scratch},1}},1,}' | grep -c '^1$')
+__tcz_scratch
+t "scratch remove -> no marked panes" 0 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
+t "scratch remove -> back to one pane" 1 (command tmux -L $sock list-panes | wc -l | string trim)
+# orientation: recreate stacked, still exactly one marked pane
+__tcz_scratch
+__tcz_scratch_orient w
+t "scratch_orient keeps one marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
+command tmux -L $sock kill-server 2>/dev/null
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

@@ -843,6 +843,36 @@ function __tcz_on_attach --argument-names pid tty color --description 'on-attach
     return 0
 end
 
+function __tcz_scratch_pane --description 'echo the marked scratch pane id in the current window (empty if none)'
+    tmux list-panes -F '#{?#{==:#{@tmux_lives_scratch},1},#{pane_id},}' 2>/dev/null | string match -rv '^$'
+end
+
+function __tcz_scratch --description 'toggle a marked scratch shell pane beside the active pane (create+focus, or refocus origin + kill)'
+    set -l existing (__tcz_scratch_pane)
+    if test -n "$existing[1]"
+        set -l origin (tmux show-options -wqv @tmux_lives_scratch_origin 2>/dev/null)
+        test -n "$origin"; and tmux select-pane -t "$origin" 2>/dev/null
+        tmux kill-pane -t "$existing[1]" 2>/dev/null
+        tmux set-window-option -qu @tmux_lives_scratch_origin 2>/dev/null
+        return 0
+    end
+    set -l origin (tmux list-panes -F '#{?#{pane_active},#{pane_id},}' 2>/dev/null | string match -rv '^$')
+    test -n "$origin[1]"; and tmux set-window-option @tmux_lives_scratch_origin "$origin[1]" 2>/dev/null
+    tmux split-window -h -p 33 2>/dev/null
+    tmux set -p @tmux_lives_scratch 1 2>/dev/null
+    return 0
+end
+
+function __tcz_scratch_orient --argument-names dir --description 'recreate the scratch pane with a new orientation (h=side-by-side, w=stacked)'
+    set -l p (__tcz_scratch_pane)
+    test -n "$p[1]"; or return 0
+    set -l flag -h; test "$dir" = w; and set flag -v
+    tmux kill-pane -t "$p[1]" 2>/dev/null
+    tmux split-window $flag -p 33 2>/dev/null
+    tmux set -p @tmux_lives_scratch 1 2>/dev/null
+    return 0
+end
+
 function __tcz_main
     switch "$argv[1]"
         case categorize
@@ -858,6 +888,8 @@ function __tcz_main
             __tcz_open_switcher $argv[2..]
         case popup
             __tcz_popup $argv[2..]
+        case scratch
+            __tcz_scratch $argv[2..]
         case claim
             __tcz_claim $argv[2..]
         case ghosts
