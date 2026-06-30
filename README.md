@@ -43,7 +43,7 @@ Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
 ### ShellFish tab color & non-ShellFish baseline
 
-A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-contrasts black or white by luminance.
+A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-tints to the bar color.
 
 ```fish
 tmux-lives setup color "#1f6feb"            # set this server's ShellFish toolbar color
@@ -54,9 +54,10 @@ tmux-lives setup color ""                   # clear it
 tmux-lives setup conf                       # show / seed ~/.tmux-lives.conf
 tmux-lives setup conf edit                  # open it in $EDITOR
 tmux-lives setup conf add "set -g mouse off"  # append a tmux command
+tmux-lives setup conf reset                 # restore defaults (backs up to .bak)
 ```
 
-`~/.tmux-lives.conf` is user-owned: seeded once with a commented template, never overwritten by setup. Any tmux commands in it are `source-file`d on every non-ShellFish attach. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
+`~/.tmux-lives.conf` is the general tmux-lives config — sourced by the managed fragment at load (every client) and re-applied on every non-ShellFish attach. It is seeded once with active status-bar polish: `❯ #{session_name}` on the left, longer name lengths, a 12-hour month-first clock in `@tmux_lives_status_right`, and bold current window. Edit it freely; `tmux-lives setup conf reset` backs up your version to `.bak` and restores the defaults. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
 
 ## Uninstall
 
