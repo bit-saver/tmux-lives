@@ -141,7 +141,10 @@ rm -f $tmux_lives_baseline_conf
 t "baseline: path honors seam" "$tmux_lives_baseline_conf" (__tmux_lives_baseline_path)
 __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
 t "baseline: seeded file exists" 1 (test -e $tmux_lives_baseline_conf; and echo 1; or echo 0)
-t "baseline: template is commented" 1 (string match -q '*# set -g mouse off*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+t "baseline: seeds status-left"     1 (string match -q '*set -g status-left*session_name*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+t "baseline: seeds status-right var" 1 (string match -q '*@tmux_lives_status_right*%-I:%M*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+t "baseline: seeds window-current"  1 (string match -q '*window-status-current-style*bold*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+t "baseline: keeps commented mouse"  1 (string match -q '*# set -g mouse off*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
 printf '# hand edit\n' >> $tmux_lives_baseline_conf
 __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
 t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)

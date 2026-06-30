@@ -396,13 +396,33 @@ function __tmux_lives_baseline_path --description 'path to the user-owned non-Sh
     set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf"
 end
 
-function __tmux_lives_seed_baseline --argument-names f --description 'create the baseline file with a commented template iff absent (never overwrites)'
-    test -e $f; and return 0
+function __tmux_lives_baseline_template --description 'print the default ~/.tmux-lives.conf (status-bar polish + non-ShellFish baseline)'
     printf '%s\n' \
-        '# tmux-lives baseline — re-applied whenever a NON-ShellFish client attaches.' \
-        "# Put tmux settings here that ShellFish's integration shouldn't get to keep." \
+        '# ~/.tmux-lives.conf — your general tmux-lives config.' \
+        '# Sourced when tmux-lives loads (every client) and re-applied when a NON-ShellFish' \
+        "# client attaches. Edit freely; 'tmux-lives setup conf reset' restores these defaults." \
+        '' \
+        '# --- status bar ---' \
+        'set -g status-left " ❯ #{session_name} "' \
+        'set -g status-left-length 40' \
+        'set -g status-right-length 60' \
+        '# status-right content goes through this var so tmux-lives keeps the categorize tick' \
+        '# + continuum autosave attached (it sets the actual status-right). 12h, month-first:' \
+        'set -g @tmux_lives_status_right "%-I:%M %p · %b %-d "' \
+        '# make the active window stand out' \
+        'set -g window-status-format         " #I:#W "' \
+        'set -g window-status-current-format " #I:#W "' \
+        'set -g window-status-current-style  "bold"' \
+        '' \
+        '# --- non-ShellFish baseline (re-applied when a non-ShellFish client attaches) ---' \
+        "# Settings ShellFish's integration forces that you want undone for other clients." \
         '# Example:' \
-        '# set -g mouse off' > $f
+        '# set -g mouse off'
+end
+
+function __tmux_lives_seed_baseline --argument-names f --description 'create the baseline file from the template iff absent (never overwrites)'
+    test -e $f; and return 0
+    __tmux_lives_baseline_template > $f
 end
 
 function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <tmux-command>]: manage ~/.tmux-lives.conf'
