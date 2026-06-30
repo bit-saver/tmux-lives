@@ -27,6 +27,24 @@ t "disabled switcher: prefix kept" 1 (string match -q '*bind-key S display-popup
 set -l frags (__tmux_lives_render_fragment /X/cat.fish '' M-s | string collect)
 t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frags"; and echo 1; or echo 0)
 
+set -g FRAG (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t | string collect)
+t "fragment binds modal key (popup)" yes (string match -q '*bind-key -n M-m display-popup*cat.fish modal*' -- "$FRAG"; and echo yes; or echo no)
+t "fragment binds modal key (menu fallback)" yes (string match -q '*bind-key -n M-m run-shell*modal-menu*' -- "$FRAG"; and echo yes; or echo no)
+t "fragment binds scratch key" yes (string match -q '*bind-key -n M-t run-shell*cat.fish scratch*' -- "$FRAG"; and echo yes; or echo no)
+# empty modal/scratch keys -> no such binds
+set -g FRAG2 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 '' '' | string collect)
+t "no modal bind when key empty" no (string match -q '*cat.fish modal*' -- "$FRAG2"; and echo yes; or echo no)
+t "no scratch bind when key empty" no (string match -q '*cat.fish scratch*' -- "$FRAG2"; and echo yes; or echo no)
+# setup keys flags persist universals
+set -e tmux_lives_modal_key; set -e tmux_lives_scratch_key
+functions -c __tmux_lives_write_fragment __wf_bak
+function __tmux_lives_write_fragment; end
+__tmux_lives_keys_cmd --modal-key M-m --scratch-key M-t
+t "keys --modal-key persists" M-m "$tmux_lives_modal_key"
+t "keys --scratch-key persists" M-t "$tmux_lives_scratch_key"
+functions -e __tmux_lives_write_fragment; functions -c __wf_bak __tmux_lives_write_fragment; functions -e __wf_bak
+set -e tmux_lives_modal_key; set -e tmux_lives_scratch_key
+
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
 t "fragment has client-attached hook" 1 (string match -q '*client-attached*' -- "$fragbc"; and echo 1; or echo 0)
 t "fragment hook calls on-attach"     1 (string match -q '*on-attach*' -- "$fragbc"; and echo 1; or echo 0)
