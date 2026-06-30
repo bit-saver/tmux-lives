@@ -391,6 +391,27 @@ function __tcz_menu --description 'open the categorized session switcher (needs 
     tmux display-menu -T ' switch session ' -- $args
 end
 
+function __tcz_modal_menu_args --description 'display-menu triples (label/key/command) for the command-modal fallback'
+    # Each action is a label, a shortcut key, and a tmux command. CLI verbs run via
+    # `fish -c`; categorizer-native verbs re-enter this script ($__tcz_self).
+    printf '%s\n' \
+        'new session'    n "run-shell 'fish -c \"tmux-lives new\"'" \
+        'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
+        'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
+        'switcher'       s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
+        'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
+        'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
+end
+
+function __tcz_modal_menu --argument-names client --description 'display-menu fallback for the command modal (no display-popup)'
+    set -l args
+    __tcz_modal_menu_args | while read -l a
+        set -a args "$a"
+    end
+    test (count $args) -gt 0; or return 0
+    tmux display-menu -T ' tmux-lives ' -- $args
+end
+
 function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: ghost-detach, then switch the choosing client; --take detaches all other clients first'
     test -n "$session"; or return 0
     __tcz_ghosts "$session"
@@ -1035,6 +1056,8 @@ function __tcz_main
             __tcz_scratch $argv[2..]
         case modal
             __tcz_modal $argv[2..]
+        case modal-menu
+            __tcz_modal_menu $argv[2..]
         case claim
             __tcz_claim $argv[2..]
         case ghosts

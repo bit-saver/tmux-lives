@@ -544,6 +544,12 @@ t "modal loop draws legend" yes (string match -q '*__tcz_modal_legend*' -- "$MSR
 t "modal loop runs actions" yes (string match -q '*__tcz_modal_run*' -- "$MSRC"; and echo yes; or echo no)
 t "modal loop has colour input sub-state" yes (string match -q '*tmux-lives setup color*' -- "$MSRC"; and echo yes; or echo no)
 
+# dispatch smoke test: modal-menu wiring in __tcz_main
+set -g MAINSRC (functions __tcz_main | string collect)
+t "main dispatches modal" yes (string match -q '*case modal*' -- "$MAINSRC"; and echo yes; or echo no)
+t "main dispatches modal-menu" yes (string match -q '*modal-menu*' -- "$MAINSRC"; and echo yes; or echo no)
+t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC"; and echo yes; or echo no)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
