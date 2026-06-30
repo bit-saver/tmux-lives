@@ -117,16 +117,16 @@ t "selected row still ▐ (not ❯)"     yes (string match -q '*▐*' -- $CURL[2
 # ---------------------------------------------------------------------
 set -g CB (printf 'l1\nl2\nl3\nl4\n' | __tcz_popup_clip 10 2)
 t "clip keeps h lines"            2      (count $CB)
-t "clip bottom row = most recent" "l4"   "$CB[2]"
-t "clip shows the TAIL not head"  "l3"   "$CB[1]"
+t "clip bottom row = most recent" "l4"   (vis "$CB[2]")
+t "clip shows the TAIL not head"  "l3"   (vis "$CB[1]")
 # trailing blank lines stripped so the bottom is real content, not whitespace
 set -g CT (printf 'top\nmid\nlast\n\n\n' | __tcz_popup_clip 10 2)
-t "clip strips trailing blanks"   "last" "$CT[2]"
-t "clip row above the bottom"     "mid"  "$CT[1]"
+t "clip strips trailing blanks"   "last" (vis "$CT[2]")
+t "clip row above the bottom"     "mid"  (vis "$CT[1]")
 # short content bottom-anchored: padded to h with blank rows ON TOP, content at bottom
 set -g CS (printf 'only\n' | __tcz_popup_clip 10 3)
 t "clip pads to exactly h rows"   3      (count $CS)
-t "clip pins content to last row" "only" "$CS[3]"
+t "clip pins content to last row" "only" (vis "$CS[3]")
 t "clip top row blank when short" ""     "$CS[1]"
 # width truncation still applies, measured in COLUMNS (wide-char aware)
 set -g CW (printf 'aaaaa✅bbbbb\n' | __tcz_popup_clip 7 1)
@@ -135,6 +135,19 @@ t "clip truncates to w columns"   ok     (test (string length --visible "$CW[1]"
 set -g PV (functions __tcz_popup_preview | string collect)
 t "preview has no '=' target"   no  (string match -q '*-t "=*' -- "$PV"; and echo yes; or echo no)
 t "preview pipes through clip"  yes (string match -q '*__tcz_popup_clip*' -- "$PV"; and echo yes; or echo no)
+
+# clip: an SGR-only trailing line counts as blank, so real content is bottom-anchored
+set -g CBE (printf 'real\n%s[0m\n' $E | __tcz_popup_clip 10 2)
+t "clip treats SGR-only line as blank"  real (vis "$CBE[2]")
+# clip: each content line ends with a reset so colour can't bleed into the divider
+set -g CRS (printf '%s[31mhot\n' $E | __tcz_popup_clip 10 1)
+t "clip line ends with reset"  yes (printf '%s' "$CRS[1]" | string match -qr '\x1b\[0m$'; and echo yes; or echo no)
+# preview now captures WITH escapes
+set -g PVE (functions __tcz_popup_preview | string collect)
+t "preview uses capture-pane -e"  yes (string match -q '*capture-pane -e*' -- "$PVE"; and echo yes; or echo no)
+t "preview still pipes through clip"  yes (string match -q '*__tcz_popup_clip*' -- "$PVE"; and echo yes; or echo no)
+# strip helper
+t "strip_sgr removes colour"  abc (__tcz_strip_sgr (printf '%s[31mabc%s[0m' $E $E))
 
 # ---------------------------------------------------------------------
 # __tcz_popup_draw — rows must be separated by real newlines (regression)

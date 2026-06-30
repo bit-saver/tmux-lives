@@ -606,6 +606,10 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
     end
 end
 
+function __tcz_strip_sgr --description 'strip ANSI SGR (colour) escapes from argv[1]'
+    string replace -ra '\x1b\[[0-9;]*m' '' -- "$argv[1]"
+end
+
 function __tcz_popup_clip --argument-names w h --description 'stdin lines -> the BOTTOM h lines (trailing blanks stripped, newest last), each truncated to w cols, top-padded with blanks to exactly h so the most recent line sits on the last row (bottom-anchored)'
     test -n "$w"; and test "$w" -gt 0 2>/dev/null; or set w 40
     test -n "$h"; and test "$h" -gt 0 2>/dev/null; or set h 20
@@ -613,8 +617,8 @@ function __tcz_popup_clip --argument-names w h --description 'stdin lines -> the
     while read -l l
         set -a lines "$l"
     end
-    # drop trailing blank (whitespace-only) lines so the last kept line is real content
-    while test (count $lines) -gt 0; and test -z (string trim -- "$lines[-1]")
+    # drop trailing blank (whitespace-only, ignoring colour) lines so the last kept line is real
+    while test (count $lines) -gt 0; and test -z (string trim -- (__tcz_strip_sgr "$lines[-1]"))
         set -e lines[-1]
     end
     set -l n (count $lines)
@@ -630,14 +634,15 @@ function __tcz_popup_clip --argument-names w h --description 'stdin lines -> the
             echo ''
         end
     end
+    set -l RST (printf '\e[0m')
     for l in $lines
-        __tcz_popup_truncate "$l" $w
+        printf '%s%s\n' (__tcz_popup_truncate "$l" $w) $RST
     end
 end
 
-function __tcz_popup_preview --argument-names session w h --description 'plain capture-pane of session active pane, clipped to w×h'
+function __tcz_popup_preview --argument-names session w h --description 'colored capture-pane (-e) of session active pane, clipped to w×h'
     test -n "$session"; or return 0
-    tmux capture-pane -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
+    tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
 function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other'
