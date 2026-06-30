@@ -225,7 +225,7 @@ set -g MM (__tcz_modal_menu_args | string collect)
 t "menu-args lists new" yes (string match -q '*new session*' -- "$MM"; and echo yes; or echo no)
 t "menu-args lists scratch" yes (string match -q '*scratch*' -- "$MM"; and echo yes; or echo no)
 t "menu-args lists bar color" yes (string match -q '*bar color*' -- "$MM"; and echo yes; or echo no)
-t "menu-args binds key n to new" yes (string match -q '*new session*n*run-shell*' -- "$MM"; and echo yes; or echo no)
+t "menu-args binds key n to new" yes (string match -qr 'new session\nn\n' -- "$MM"; and echo yes; or echo no)
 
 test $FAIL -eq 0; and echo ALL PASS; or echo SOME FAILED
 exit $FAIL
