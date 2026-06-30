@@ -391,9 +391,18 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
         echo "tmux-lives setup color: invalid color '$color' — use a CSS color (red, #1f6feb, rgb(...), color(p3 ...))" >&2
         return 1
     end
+    # Normalize a bare 3/6-digit hex to #rrggbb so __tmux_lives_derive_status (which
+    # requires the leading #) can parse it; named colours / rgb()/color() are left alone.
+    if string match -qr '^[0-9A-Fa-f]{3}$' -- $color; or string match -qr '^[0-9A-Fa-f]{6}$' -- $color
+        set color "#$color"
+    end
     set -U tmux_lives_bar_color $color
     set -U tmux_lives_status_invert $invert
     __tmux_lives_write_fragment
+    # Re-emit the ShellFish OSC to attached clients now, so their tab colour updates
+    # without waiting for the next client-attached. The emit logic lives in the categorizer.
+    set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+    test -f $cat; and fish --no-config $cat recolor $color 2>/dev/null
     if test -n "$color"
         set -l dir lighter; test $invert -eq 1; and set dir darker
         echo "tmux-lives: bar color set to $color (ShellFish tab; status bar $dir)"

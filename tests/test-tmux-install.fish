@@ -136,6 +136,25 @@ t "color: rejects unsafe value (rc1)" 1 (__tmux_lives_color_cmd "bad';x" >/dev/n
 t "color: unsafe value not stored"    "" "$tmux_lives_bar_color"
 t "color: accepts rgb() with spaces"  0 (__tmux_lives_color_cmd "rgb(255, 0, 0)" >/dev/null 2>&1; echo $status)
 __tmux_lives_color_cmd "" >/dev/null
+# Bare-hex normalization test block: stubs write_fragment to avoid live mutations + sets
+# __fish_config_dir to nonexistent path so recolor's test-f guard short-circuits.
+set -g __old_fcd $__fish_config_dir
+set -g __fish_config_dir /tmp/tcz-nofish-$fish_pid
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
+functions -c __tmux_lives_write_fragment __wf2_bak
+function __tmux_lives_write_fragment; end
+__tmux_lives_color_cmd 1f6feb >/dev/null
+t "bare 6-hex normalized to #1f6feb" "#1f6feb" "$tmux_lives_bar_color"
+t "normalized hex yields non-empty status-style" yes (test -n (__tmux_lives_derive_status "$tmux_lives_bar_color" 0); and echo yes; or echo no)
+__tmux_lives_color_cmd abc >/dev/null
+t "bare 3-hex normalized to #abc" "#abc" "$tmux_lives_bar_color"
+__tmux_lives_color_cmd "#deadbe" >/dev/null
+t "already-hashed hex untouched" "#deadbe" "$tmux_lives_bar_color"
+__tmux_lives_color_cmd red >/dev/null
+t "named colour untouched" red "$tmux_lives_bar_color"
+functions -e __tmux_lives_write_fragment; functions -c __wf2_bak __tmux_lives_write_fragment; functions -e __wf2_bak
+set -g __fish_config_dir $__old_fcd; set -e __old_fcd
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
 functions -e __tmux_lives_write_fragment; functions --copy __tmux_lives_wf_orig __tmux_lives_write_fragment; functions -e __tmux_lives_wf_orig
 if test $_bc_had -eq 1
     set -U tmux_lives_bar_color $_bc_val
