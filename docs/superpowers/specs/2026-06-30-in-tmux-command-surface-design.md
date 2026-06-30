@@ -63,7 +63,7 @@ A new subcommand renders a key-capturing modal in a `display-popup -E`, reusing 
 
 The modal **stays open after non-context-changing actions** (clear, categorize, scratch toggle/resize) so actions can be chained; **context-changing actions** (`new`, `switcher`) close the modal first, then run, since they switch the client/session.
 
-**Bar-color input sub-state (`b`):** the modal switches its own input mode — restore a cooked tty line read, show a prompt line in the legend (`bar color (css) · esc cancels`), `read` a line with fish, run `tmux-lives setup color <value>` (sets the universal var + re-renders the fragment + reloads), then return to raw-key legend mode. The modal owns the input; no tmux `command-prompt` is needed. An empty line or Esc cancels.
+**Bar-color input sub-state (`b`):** the modal switches its own input mode — restore a cooked tty line read, show a prompt line in the legend (`bar color (css) · esc cancels`), `read` a line with fish, run `tmux-lives setup color <value>` (sets the universal var + re-renders the fragment + reloads), then return to raw-key legend mode. The modal owns the input; no tmux `command-prompt` is needed. An empty line or Esc cancels. Because `setup color` now re-emits the ShellFish OSC immediately (Part E), the tab color updates live from the modal rather than waiting for the next attach.
 
 **Dispatch mechanism:** actions shell out via `fish --no-config $__tcz_self <verb>` or issue `tmux` commands directly, the same pattern `__tcz_menu_args` already uses for the switcher.
 
@@ -96,10 +96,20 @@ Extend `__tmux_lives_keys_cmd` / `setup keys` with `--modal-key` and `--scratch-
 
 The fragment renderer (`__tmux_lives_render_fragment`) gains the open-modal and scratch-toggle `bind-key` lines (prefix and/or root table), wrapped in the same `display-popup`-capability `if-shell` guard as the switcher so the menu fallback is wired when popups are unavailable.
 
+## Part E — `setup color` robustness (supports the modal's bar-color action)
+
+Two fixes to `__tmux_lives_color_cmd` (`conf.d/tmux-lives-install.fish:357`), both surfaced while validating the modal's `b` action against real ShellFish behavior:
+
+1. **Immediate ShellFish re-emit.** Today `setup color` re-renders the fragment and updates the global `status-style` live, but the ShellFish toolbar OSC (`__tcz_emit_barcolor`) only fires from the `client-attached` hook (`__tcz_on_attach`), so an already-attached ShellFish tab keeps its old color until it re-attaches. (Observed symptom: a fresh ShellFish connect showed no tab color until a *new session* was created — the new attach was the only thing that re-ran the hook with the now-baked color.) Fix: after `__tmux_lives_write_fragment`, iterate the currently-attached clients (`tmux list-clients -F '#{client_pid} #{client_tty}'`) and emit the OSC to every ShellFish one, reusing `__tcz_client_is_shellfish` + `__tcz_emit_barcolor`. Those helpers live in `functions/tmux-categorize.fish`, so the color command invokes a new categorizer subcommand (`recolor <color>`) through the existing `fish --no-config $cat <verb>` dispatch. Clearing the color is a no-op emit (as today).
+
+2. **Bare-hex normalization.** A hashless hex (`1f6feb`) passes the charset validation (`:379`) but fails `__tmux_lives_derive_status`'s `#`-anchored parse, silently producing an empty `status-style`. Fix: before storing, if the value is a bare 3- or 6-digit hex (`^#?[0-9a-fA-F]{3}$` or `^#?[0-9a-fA-F]{6}$`) lacking a leading `#`, prepend it. Named colors, `rgb(...)`, and `color(p3 ...)` don't match the bare-hex pattern and are untouched. The normalized value is what gets stored, baked into the fragment, and sent to ShellFish.
+
+**Tests:** `recolor` emits the OSC to a faked ShellFish client and skips non-ShellFish ones (extends the `tmux_lives_fake_environ` + tty-capture patterns in `tests/test-tmux-categorize.fish`); `setup color 1f6feb` stores `#1f6feb` and yields a non-empty derived `status-style` (extends the color tests in `tests/test-tmux-install.fish`).
+
 ## Architecture / where things live
 
-- `functions/tmux-categorize.fish`: new `__tcz_modal` (+ render/handler/input-sub-state helpers) and `__tcz_scratch`; `modal` and `scratch` added to `__tcz_main`; `__tcz_menu_args` extended for the fallback; `__tcz_popup_preview` / `__tcz_popup_truncate` / `__tcz_popup_clip` made ANSI-aware.
-- `conf.d/tmux-lives-install.fish`: `__tmux_lives_render_fragment` emits the new binds; `__tmux_lives_keys_cmd` / `setup` help gains `--modal-key` / `--scratch-key`; effective-key resolution via the existing `__tmux_lives_key` helper.
+- `functions/tmux-categorize.fish`: new `__tcz_modal` (+ render/handler/input-sub-state helpers), `__tcz_scratch`, and `__tcz_recolor`; `modal`, `scratch`, and `recolor` added to `__tcz_main`; `__tcz_menu_args` extended for the fallback; `__tcz_popup_preview` / `__tcz_popup_truncate` / `__tcz_popup_clip` made ANSI-aware. Reuses `__tcz_client_is_shellfish` + `__tcz_emit_barcolor` for the re-emit.
+- `conf.d/tmux-lives-install.fish`: `__tmux_lives_render_fragment` emits the new binds; `__tmux_lives_keys_cmd` / `setup` help gains `--modal-key` / `--scratch-key`; `__tmux_lives_color_cmd` normalizes bare hex and invokes `recolor` after re-render; effective-key resolution via the existing `__tmux_lives_key` helper.
 - Reuse, don't reinvent: the modal borrows `__tcz_popup_readkey`, the synchronized-update draw, the box/border styling, and the popup-vs-menu capability branch already present for the switcher.
 
 ## Testing & isolation (non-negotiable)
