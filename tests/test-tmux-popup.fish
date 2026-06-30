@@ -48,6 +48,16 @@ t "truncate bounds columns (CJK)"             ok \
 t "truncate wide char straddling boundary"    ok \
     (test (string length --visible (__tcz_popup_truncate "abc✅def" 5)) -le 5; and echo ok; or echo OVER)
 
+# ANSI-aware: SGR escapes are zero-width, never split, reset before the …
+set -g E (printf '\e')
+set -g T_FIT (printf '\e[31mhi\e[0m')
+t "trunc keeps fitting colored text verbatim" "$T_FIT" (__tcz_popup_truncate "$T_FIT" 10)
+set -g T_LONG (printf '\e[31mabcdefghij\e[0m')
+set -g T_CUT (__tcz_popup_truncate "$T_LONG" 5)
+t "trunc honors visible width (5) ignoring escapes" 5 (string length --visible -- "$T_CUT")
+t "trunc resets colour before …" yes (printf '%s' "$T_CUT" | string match -qr '\x1b\[0m…$'; and echo yes; or echo no)
+t "trunc leaves no broken escape" "abcd…" (vis "$T_CUT")
+
 # ---------------------------------------------------------------------
 # __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
 # ---------------------------------------------------------------------

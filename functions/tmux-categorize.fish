@@ -476,26 +476,44 @@ function __tcz_popup_layout --argument-names cols --description 'cols -> "listwi
     echo "$list $prev"
 end
 
-function __tcz_popup_truncate --argument-names text width --description 'truncate text to <width> DISPLAY COLUMNS with trailing … (wide/zero-width aware; no ANSI in text)'
+function __tcz_popup_truncate --argument-names text width --description 'truncate text to <width> DISPLAY COLUMNS with trailing … (wide/zero-width AND SGR-aware; never cuts mid-escape; resets colour before the …)'
     test -n "$width"; and test "$width" -gt 0 2>/dev/null; or begin; echo ''; return 0; end
+    # Fast path: already fits. `string length --visible` ignores SGR escapes.
     if test (string length --visible -- "$text") -le $width
         echo -- "$text"
         return 0
     end
-    # Doesn't fit: keep chars until the next would push past width-1 COLUMNS, then add …
-    # `string length`/`string sub -l` count CHARACTERS, but a terminal lays out COLUMNS:
-    # a wide char (emoji/CJK) is 1 char yet 2 cols, so char-based slicing overflows the
-    # budget by a column, wrapping the popup row and scrolling the whole frame.
+    set -l ESC (printf '\e')
+    set -l BEL (printf '\a')
     set -l budget (math "$width - 1")
+    set -l chars (string split '' -- "$text")
+    set -l n (count $chars)
+    set -l i 1
     set -l acc 0
     set -l out ''
-    for ch in (string split '' -- "$text")
+    set -l sawsgr 0
+    while test $i -le $n
+        set -l ch $chars[$i]
+        if test "$ch" = "$ESC"
+            # Copy a whole escape sequence verbatim (zero display width). CSI/SGR ends
+            # on a final byte in A-Z/a-z; OSC ends on BEL. Never split across the cut.
+            set out "$out$ch"; set sawsgr 1; set i (math $i + 1)
+            while test $i -le $n
+                set -l c2 $chars[$i]
+                set out "$out$c2"; set i (math $i + 1)
+                if string match -qr '[A-Za-z]' -- "$c2"; or test "$c2" = "$BEL"
+                    break
+                end
+            end
+            continue
+        end
         set -l cw (string length --visible -- "$ch")
         test (math "$acc + $cw") -gt $budget; and break
-        set out "$out$ch"
-        set acc (math "$acc + $cw")
+        set out "$out$ch"; set acc (math "$acc + $cw"); set i (math $i + 1)
     end
-    echo -- "$out…"
+    set -l rst ''
+    test $sawsgr -eq 1; and set rst (printf '\e[0m')
+    echo -- "$out$rst…"
 end
 
 function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'overview (stdin) -> ANSI visual list: full-width category rules + session rows (pointer on #selidx, markers flush-right at listwidth)'
