@@ -45,6 +45,13 @@ set -l fragssn (__tmux_lives_render_fragment /X/cat.fish S M-s "" 0 | string col
 t "no color -> no status-style"   0 (string match -q '*status-style*' -- "$fragssn"; and echo 1; or echo 0)
 t "no color -> hook still there"  1 (string match -q '*client-attached*' -- "$fragssn"; and echo 1; or echo 0)
 
+set -l fragsr (__tmux_lives_render_fragment /X/cat.fish S M-s "" 0 | string collect)
+t "fragment sources user config"  1 (string match -q '*source-file*.tmux-lives.conf*' -- "$fragsr"; and echo 1; or echo 0)
+t "fragment default status-right var" 1 (string match -q '*set -g @tmux_lives_status_right*' -- "$fragsr"; and echo 1; or echo 0)
+t "fragment status-right uses T:@var" 1 (string match -q '*set -g status-right "#{T:@tmux_lives_status_right}*' -- "$fragsr"; and echo 1; or echo 0)
+t "fragment status-right keeps tick"  1 (string match -q '*#{T:@tmux_lives_status_right}#(fish*tick)*' -- "$fragsr"; and echo 1; or echo 0)
+t "fragment drops old -ga status-right" 0 (string match -q '*set -ga status-right*' -- "$fragsr"; and echo 1; or echo 0)
+
 # automatic-rename-format: macOS reports claude's version-named binary as the window
 # command (e.g. 2.1.185); map a version-like name (X.Y.Z) to "claude", pass others
 # through. (No-op on Linux, where the command already reads "claude".)

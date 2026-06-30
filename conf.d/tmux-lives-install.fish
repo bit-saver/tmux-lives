@@ -14,6 +14,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l skey $argv[3]   # no-prefix/direct key ('' = no direct bind)
     set -l color $argv[4]  # ShellFish bar color baked into the client-attached hook ('' = none)
     set -l invert $argv[5]  # 1 = darker status bar; else lighter
+    set -l baseline (__tmux_lives_baseline_path)
     set -l popup
     set -l menu
     if test -n "$pkey"
@@ -36,8 +37,15 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "# macOS reports claude's version-named binary (versions/X.Y.Z) as the window"
     set -a f "# command; show 'claude' for a version-like name, pass everything else through."
     set -a f "set -g automatic-rename-format '#{?pane_in_mode,[tmux],#{?#{m:*.*.*,#{pane_current_command}},claude,#{pane_current_command}}}#{?pane_dead,[dead],}'"
-    set -a f "if-shell '! tmux show-options -gv status-right 2>/dev/null | grep -q tmux-categorize' \\"
-    set -a f "    'set -ga status-right \"#(fish --no-config $cat tick)\"'"
+    # Source the user's general config (~/.tmux-lives.conf) if present — applies to every
+    # client at load (and is re-sourced on non-ShellFish attach). It sets status-left, the
+    # lengths, window-status styles, and overrides the @tmux_lives_status_right time below.
+    set -a f "set -g @tmux_lives_status_right \"%-I:%M %p · %b %-d \""
+    set -a f "if-shell '[ -f $baseline ]' 'source-file $baseline'"
+    # status-right = the time format via #{T:@var} (so strftime applies) + our tick.
+    # continuum prepends its autosave hook when TPM runs. The user's file sets only the
+    # @var, never status-right, so a re-source can't wipe the tick/continuum.
+    set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick)\""
     set -l ss (__tmux_lives_derive_status $color $invert)
     test -n "$ss"; and set -a f "set -g status-style $ss"
     if test -n "$popup"
