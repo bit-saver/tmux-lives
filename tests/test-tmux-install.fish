@@ -151,11 +151,17 @@ t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tm
 __tmux_lives_conf_cmd add 'set -g mouse off' >/dev/null
 t "baseline: conf add appends line" 1 (grep -qF 'set -g mouse off' $tmux_lives_baseline_conf; and echo 1; or echo 0)
 t "baseline: conf add with no cmd rc1" 1 (__tmux_lives_conf_cmd add >/dev/null 2>&1; echo $status)
+printf 'set -g @user_edit 1\n' > $tmux_lives_baseline_conf
+__tmux_lives_conf_cmd reset >/dev/null
+t "conf reset: backup has user edit" 1 (string match -q '*@user_edit*' -- (cat "$tmux_lives_baseline_conf.bak" | string collect); and echo 1; or echo 0)
+t "conf reset: file restored to template" 1 (string match -q '*@tmux_lives_status_right*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+rm -f "$tmux_lives_baseline_conf.bak"
 t "baseline: conf (no arg) shows path" 1 (string match -q "*$tmux_lives_baseline_conf*" -- (__tmux_lives_conf_cmd | string collect); and echo 1; or echo 0)
 rm -f $tmux_lives_baseline_conf
 set -e tmux_lives_baseline_conf
 # help + verify mention conf/baseline
 t "setup help lists conf" 1 (string match -q '*conf*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "help conf row shows reset" 1 (string match -q '*conf*reset*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports baseline" 1 (string match -q '*baseline*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 
 # status color derivation: lighten/darken + auto-contrast fg + parse scope

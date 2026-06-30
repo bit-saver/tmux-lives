@@ -425,7 +425,7 @@ function __tmux_lives_seed_baseline --argument-names f --description 'create the
     __tmux_lives_baseline_template > $f
 end
 
-function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <tmux-command>]: manage ~/.tmux-lives.conf'
+function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <tmux-command>|reset]: manage ~/.tmux-lives.conf'
     set -l f (__tmux_lives_baseline_path)
     switch "$argv[1]"
         case ''
@@ -449,9 +449,18 @@ function __tmux_lives_conf_cmd --description 'tmux-lives setup conf [edit|add <t
             printf '%s\n' (string join ' ' $argv[2..]) >> $f
             tmux source-file $f 2>/dev/null
             echo "tmux-lives: added to $f"
+        case reset
+            test -e $f; and cp $f "$f.bak"
+            __tmux_lives_baseline_template > $f
+            tmux source-file $f 2>/dev/null
+            if test -e "$f.bak"
+                echo "tmux-lives: restored defaults to $f (previous version saved to $f.bak)"
+            else
+                echo "tmux-lives: wrote default $f"
+            end
         case '*'
             echo "tmux-lives setup conf: unknown option '$argv[1]'" >&2
-            echo "usage: tmux-lives setup conf [edit|add <tmux-command>]" >&2
+            echo "usage: tmux-lives setup conf [edit|add <tmux-command>|reset]" >&2
             return 1
     end
 end
@@ -468,7 +477,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i]          ShellFish tab color (+ status bar; -i darker)' \
-        'conf [edit|add <cmd>]       edit non-ShellFish baseline (~/.tmux-lives.conf)'
+        'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
 function __tmux_lives_setup_help --description 'tmux-lives setup command list'
