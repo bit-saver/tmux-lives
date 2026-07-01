@@ -585,6 +585,25 @@ set -e tmux_lives_fake_environ
 functions -e tmux
 rm -f $tt1 $tt2
 
+# ---------------------------------------------------------------------
+# scratch resize verbs
+# ---------------------------------------------------------------------
+fresh_server
+__tcz_scratch      # create a scratch so there are two panes
+set -g w0 (command tmux -L $sock list-panes -F '#{pane_width}' | sort -n | head -1)
+__tcz_scratch_resize L
+set -g w1 (command tmux -L $sock list-panes -F '#{pane_width}' | sort -n | head -1)
+t "scratch_resize changes a pane width" yes (test "$w0" != "$w1"; and echo yes; or echo no)
+# resize-enter with a scratch switches the key table (assert via source: uses switch-client -T)
+t "resize_enter uses tmuxlives-resize table" yes (string match -q '*switch-client*tmuxlives-resize*' -- (functions __tcz_resize_enter | string collect); and echo yes; or echo no)
+t "resize_enter nudges when no scratch" yes (string match -q '*display-message*' -- (functions __tcz_resize_enter | string collect); and echo yes; or echo no)
+# no-scratch: resize-enter must NOT error
+fresh_server
+t "resize_enter no-scratch is clean" 0 (__tcz_resize_enter ''; echo $status)
+command tmux -L $sock kill-server 2>/dev/null
+t "main dispatches scratch-resize" yes (string match -q '*scratch-resize*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+t "main dispatches resize-enter" yes (string match -q '*resize-enter*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

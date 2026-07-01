@@ -1032,6 +1032,27 @@ function __tcz_scratch_orient --argument-names dir --description 'recreate the s
     return 0
 end
 
+function __tcz_scratch_resize --argument-names dir --description 'resize the marked scratch pane (L/R = 4 cols, U/D = 2 rows)'
+    set -l p (__tcz_scratch_pane)
+    test -n "$p[1]"; or return 0
+    switch "$dir"
+        case L; tmux resize-pane -t "$p[1]" -L 4 2>/dev/null
+        case R; tmux resize-pane -t "$p[1]" -R 4 2>/dev/null
+        case U; tmux resize-pane -t "$p[1]" -U 2 2>/dev/null
+        case D; tmux resize-pane -t "$p[1]" -D 2 2>/dev/null
+    end
+end
+
+function __tcz_resize_enter --argument-names client --description 'enter the native scratch resize key-table if a scratch exists; else nudge'
+    set -l p (__tcz_scratch_pane)
+    if test -z "$p[1]"
+        tmux display-message 'tmux-lives: no scratch pane — press the scratch key to create one' 2>/dev/null
+        return 0
+    end
+    test -n "$client"; and tmux switch-client -c "$client" -T tmuxlives-resize 2>/dev/null; or tmux switch-client -T tmuxlives-resize 2>/dev/null
+    tmux display-message -d 0 'scratch:  ←→↑↓ resize · h/w split · x close · esc done' 2>/dev/null
+end
+
 function __tcz_main
     switch "$argv[1]"
         case categorize
@@ -1049,6 +1070,10 @@ function __tcz_main
             __tcz_popup $argv[2..]
         case scratch
             __tcz_scratch $argv[2..]
+        case scratch-resize
+            __tcz_scratch_resize $argv[2]
+        case resize-enter
+            __tcz_resize_enter $argv[2..]
         case modal
             __tcz_modal $argv[2..]
         case modal-menu
