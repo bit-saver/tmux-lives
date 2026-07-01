@@ -747,37 +747,41 @@ end
 function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey resizekey switcherkey --description 'pure: the command-launcher legend box (design B: categorized commands + keybind table). Keys passed in so it reflects the effective binds.'
     set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')  # orange, dim-orange border
     set -l CY (printf '\e[36m'); set -l GR (printf '\e[32m')
-    set -l T (printf '\e[0m'); set -l M (printf '\e[2m')
-    set -l W 28                                   # inner width (between the borders)
-    # a full-width category rule: "cat ─────" padded to W, in colour $c
-    function __tcz_ml_rule --no-scope-shadowing
-        set -l label $argv[1]; set -l col $argv[2]; set -l w $argv[3]
-        set -l lead "$label "
-        set -l dash (string repeat -n (math "$w - "(string length -- "$lead")) ─)
-        printf '%s│%s %s%s%s │\n' $OD $col "$lead$dash" $OD
-    end
-    # a padded command/plain row (visible content already built; pad to W)
-    function __tcz_ml_row --no-scope-shadowing
-        set -l content $argv[1]; set -l vis $argv[2]; set -l w $argv[3]
+    set -l T (printf '\e[0m')
+    set -l KG (printf '\e[38;5;245m')             # keys-footer label: soft grey (was muddy dim)
+    set -l IW 30                                  # inner width (between the borders)
+    # one bordered line: colored content + its visible twin, padded to IW so
+    # EVERY line is the same width and the borders line up. Pad via a QUOTED
+    # var — an inline (string repeat -n 0 …) yields ZERO args and shifts
+    # printf's fields, collapsing the full-width rules to "││".
+    function __tcz_ml_ln --no-scope-shadowing --argument-names colored vis w od t
         set -l pad (math "$w - "(string length -- "$vis")); test $pad -lt 0; and set pad 0
-        printf '%s│%s%s%s│\n' $OD "$content"(string repeat -n $pad ' ') $OD
+        set -l padstr (string repeat -n $pad ' ')
+        printf '%s│%s%s│%s\n' $od "$colored$t$padstr" $od $t
     end
     set -l lines
     # top border with title
-    set -a lines $OD"╭─ "$O"tmux-lives"$OD" "(string repeat -n (math "$W - 12") ─)"╮"$T
-    set -a lines (__tcz_ml_rule "session" $O $W | string trim -r)
-    set -a lines (__tcz_ml_row "   $O"p"$T picker    $O"n"$T new" "   p picker    n new" $W)
-    set -a lines (__tcz_ml_row "   $O"c"$T clear     $O"g"$T categorize" "   c clear     g categorize" $W)
-    set -a lines (__tcz_ml_rule "scratch" $CY $W | string trim -r)
-    set -a lines (__tcz_ml_row "   $O"t"$T toggle    $O"r"$T resize…" "   t toggle    r resize…" $W)
-    set -a lines (__tcz_ml_rule "config" $GR $W | string trim -r)
-    set -a lines (__tcz_ml_row "   $O"b"$T bar color" "   b bar color" $W)
-    set -a lines (__tcz_ml_rule "keys" $M $W | string trim -r)
-    set -a lines (__tcz_ml_row "  $M$modalkey menu     $resizekey resize$T" "  $modalkey menu     $resizekey resize" $W)
-    set -a lines (__tcz_ml_row "  $M$scratchkey scratch  $switcherkey picker$T" "  $scratchkey scratch  $switcherkey picker" $W)
-    set -a lines (__tcz_ml_row "  $M"esc"$T close" "  esc close" $W)
-    set -a lines $OD"╰"(string repeat -n (math "$W + 1") ─)"╯"$T
-    functions -e __tcz_ml_rule __tcz_ml_row
+    set -a lines $OD"╭─ "$O"tmux-lives"$OD" "(string repeat -n (math "$IW - 13") ─)"╮"$T
+    for spec in "session:$O" "scratch:$CY" "config:$GR" "keys:$KG"
+        set -l lab (string split -f1 : $spec); set -l col (string split -f2 : $spec)
+        set -l rv " $lab "(string repeat -n (math "$IW - 3 - "(string length -- $lab)) ─)" "
+        set -a lines (__tcz_ml_ln "$col$rv" "$rv" $IW $OD $T)
+        switch $lab
+            case session
+                set -a lines (__tcz_ml_ln "   $O"p"$T picker    $O"n"$T new" "   p picker    n new" $IW $OD $T)
+                set -a lines (__tcz_ml_ln "   $O"c"$T clear     $O"g"$T categorize" "   c clear     g categorize" $IW $OD $T)
+            case scratch
+                set -a lines (__tcz_ml_ln "   $O"t"$T toggle    $O"r"$T resize…" "   t toggle    r resize…" $IW $OD $T)
+            case config
+                set -a lines (__tcz_ml_ln "   $O"b"$T bar color" "   b bar color" $IW $OD $T)
+            case keys
+                set -a lines (__tcz_ml_ln "   $O$modalkey$KG menu     $O$resizekey$KG resize" "   $modalkey menu     $resizekey resize" $IW $OD $T)
+                set -a lines (__tcz_ml_ln "   $O$scratchkey$KG scratch  $O$switcherkey$KG picker" "   $scratchkey scratch  $switcherkey picker" $IW $OD $T)
+                set -a lines (__tcz_ml_ln "   $O"esc"$KG close" "   esc close" $IW $OD $T)
+        end
+    end
+    set -a lines $OD"╰"(string repeat -n $IW ─)"╯"$T
+    functions -e __tcz_ml_ln
     printf '%s\n' $lines
 end
 
@@ -855,7 +859,7 @@ function __tcz_modal --argument-names client modalkey scratchkey resizekey switc
     set -l action (__tcz_modal_action (__tcz_modal_readkey))
     if test "$action" = color
         stty "$saved" 2>/dev/null
-        printf '\e[2J\e[H bar color (css), empty cancels: '
+        printf '\e[2J\e[H bar color (empty=skip): '
         set -l val ''
         read -l val
         test -n "$val"; and fish -c 'tmux-lives setup color $argv[1]' "$val" 2>/dev/null

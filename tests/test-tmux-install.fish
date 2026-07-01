@@ -38,6 +38,8 @@ t "no scratch bind when key empty" no (string match -q '*cat.fish scratch*' -- "
 
 set -g FRAGR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r | string collect)
 t "fragment modal bind passes keys" yes (string match -q "*cat.fish modal '#{client_name}' 'M-m' 'M-t' 'M-r' 'M-s'*" -- "$FRAGR"; and echo yes; or echo no)
+t "modal popup is borderless (-B)" yes (string match -q '*display-popup -B -E*' -- "$FRAGR"; and echo yes; or echo no)
+t "modal popup sized to the menu (not 64%)" yes (string match -q '*-w 34 -h 15*' -- "$FRAGR"; and not string match -q '*64%*' -- "$FRAGR"; and echo yes; or echo no)
 t "fragment binds M-r to resize-enter" yes (string match -q '*bind-key -n M-r run-shell*resize-enter*' -- "$FRAGR"; and echo yes; or echo no)
 t "fragment defines resize key-table" yes (string match -q '*bind-key -T tmuxlives-resize*' -- "$FRAGR"; and echo yes; or echo no)
 t "resize table arrow re-enters (sticky)" yes (string match -q '*tmuxlives-resize Left*scratch-resize L*switch-client -T tmuxlives-resize*' -- "$FRAGR"; and echo yes; or echo no)

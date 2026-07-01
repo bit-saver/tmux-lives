@@ -29,7 +29,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a menu  "    bind-key -n $skey run-shell 'fish --no-config $cat menu'"
     end
     if test -n "$modalkey"
-        set -a popup "    bind-key -n $modalkey display-popup -E -w 64% -h 55% -- fish --no-config $cat modal '#{client_name}' '$modalkey' '$scratchkey' '$resizekey' '$skey'"
+        set -a popup "    bind-key -n $modalkey display-popup -B -E -w 34 -h 15 -- fish --no-config $cat modal '#{client_name}' '$modalkey' '$scratchkey' '$resizekey' '$skey'"
         set -a menu  "    bind-key -n $modalkey run-shell 'fish --no-config $cat modal-menu'"
     end
     set -l f

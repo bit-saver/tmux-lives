@@ -205,6 +205,12 @@ t "legend config cmd b"         yes (string match -q '*b*bar color*' -- "$LG"; a
 t "legend keys table shows binds+fns" yes (string match -q '*M-m*menu*M-r*resize*' -- "$LG"; and string match -q '*M-t*scratch*M-s*picker*' -- "$LG"; and echo yes; or echo no)
 t "legend keys table honors configured binds" yes (string match -q '*C-a*menu*' -- (flat (__tcz_modal_legend 1 C-a M-t M-r M-s)); and echo yes; or echo no)
 t "legend esc close"            yes (string match -q '*esc*close*' -- "$LG"; and echo yes; or echo no)
+# every legend line must render at the same visible width so the borders line up
+set -g LGW
+for l in (__tcz_modal_legend 1 M-m M-t M-r M-s)
+    set -a LGW (string length --visible -- (vis "$l"))
+end
+t "legend lines all equal width (aligned pipes)" 1 (printf '%s\n' $LGW | sort -u | wc -l | string trim)
 
 t "action p -> picker" picker (__tcz_modal_action p)
 t "action n -> new" new (__tcz_modal_action n)
