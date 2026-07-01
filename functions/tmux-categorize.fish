@@ -398,7 +398,7 @@ function __tcz_modal_menu_args --description 'display-menu triples (label/key/co
         'new session'    n "run-shell 'fish -c \"tmux-lives new\"'" \
         'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
         'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
-        'switcher'       s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
+        'picker'         s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
         'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
         'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
 end
