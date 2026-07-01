@@ -186,16 +186,25 @@ t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 # ---------------------------------------------------------------------
 # command modal — pure helpers
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# command launcher legend (design B: categorized + keybind table)
+# ---------------------------------------------------------------------
 function flat --description 'collapse a fish list (multiline) to one SGR-stripped space-joined string'
     set -l s (string join ' ' $argv)
     string replace -a (printf '\n') ' ' -- (vis "$s")
 end
-set -g LEG0 (flat (__tcz_modal_legend 0))
-t "legend has new/clear/categorize" yes (string match -q '*new*clear*categorize*' -- "$LEG0"; and echo yes; or echo no)
-t "legend has switcher/scratch/bar color" yes (string match -q '*switcher*scratch*bar color*' -- "$LEG0"; and echo yes; or echo no)
-t "legend(0) hides resize row" no (string match -q '*resize*' -- "$LEG0"; and echo yes; or echo no)
-set -g LEG1 (flat (__tcz_modal_legend 1))
-t "legend(1) shows resize row" yes (string match -q '*resize*split*close*' -- "$LEG1"; and echo yes; or echo no)
+set -g LG (flat (__tcz_modal_legend 1 M-m M-t M-r M-s))
+t "legend title tmux-lives"     yes (string match -q '*tmux-lives*' -- "$LG"; and echo yes; or echo no)
+t "legend session header"       yes (string match -q '*session*' -- "$LG"; and echo yes; or echo no)
+t "legend scratch header"       yes (string match -q '*scratch*' -- "$LG"; and echo yes; or echo no)
+t "legend config header"        yes (string match -q '*config*' -- "$LG"; and echo yes; or echo no)
+t "legend says picker not switcher" yes (string match -q '*picker*' -- "$LG"; and string match -q '*switcher*' -- "$LG"; and echo no; or echo yes)
+t "legend command keys p/n/c/g" yes (string match -q '*p*picker*n*new*' -- "$LG"; and string match -q '*c*clear*g*categorize*' -- "$LG"; and echo yes; or echo no)
+t "legend scratch cmds t/r"     yes (string match -q '*t*toggle*r*resize*' -- "$LG"; and echo yes; or echo no)
+t "legend config cmd b"         yes (string match -q '*b*bar color*' -- "$LG"; and echo yes; or echo no)
+t "legend keys table shows binds+fns" yes (string match -q '*M-m*menu*M-r*resize*' -- "$LG"; and string match -q '*M-t*scratch*M-s*picker*' -- "$LG"; and echo yes; or echo no)
+t "legend keys table honors configured binds" yes (string match -q '*C-a*menu*' -- (flat (__tcz_modal_legend 1 C-a M-t M-r M-s)); and echo yes; or echo no)
+t "legend esc close"            yes (string match -q '*esc*close*' -- "$LG"; and echo yes; or echo no)
 
 t "action n -> new" new (__tcz_modal_action n 0)
 t "action c -> clear" clear (__tcz_modal_action c 0)

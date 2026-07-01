@@ -744,16 +744,41 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
     printf '\e[J\e[?2026l'
 end
 
-function __tcz_modal_legend --argument-names has_scratch --description 'pure: the command-modal key legend (ANSI); scratch-management row only when a scratch exists'
-    set -l O (printf '\e[38;5;208m')   # orange key accent
-    set -l D (printf '\e[2m')          # dim
-    set -l R (printf '\e[0m')
-    set -l rows
-    set -a rows "$O n$R new   $O c$R clear   $O g$R categorize"
-    set -a rows "$O s$R switcher   $O t$R scratch   $O b$R bar color"
-    test "$has_scratch" = 1; and set -a rows "$D scratch:$R $O ←→↑↓$R resize  $O h/w$R split  $O x$R close"
-    set -a rows "$O esc$R close"
-    printf '%s\n' $rows
+function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey resizekey switcherkey --description 'pure: the command-launcher legend box (design B: categorized commands + keybind table). Keys passed in so it reflects the effective binds.'
+    set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')  # orange, dim-orange border
+    set -l CY (printf '\e[36m'); set -l GR (printf '\e[32m')
+    set -l T (printf '\e[0m'); set -l M (printf '\e[2m'); set -l MO (printf '\e[22m')
+    set -l W 28                                   # inner width (between the borders)
+    # a full-width category rule: "cat ─────" padded to W, in colour $c
+    function __tcz_ml_rule --no-scope-shadowing
+        set -l label $argv[1]; set -l col $argv[2]; set -l w $argv[3]
+        set -l lead "$label "
+        set -l dash (string repeat -n (math "$w - "(string length -- "$lead")) ─)
+        printf '%s│%s %s%s%s │\n' $OD $col "$lead$dash" $OD
+    end
+    # a padded command/plain row (visible content already built; pad to W)
+    function __tcz_ml_row --no-scope-shadowing
+        set -l content $argv[1]; set -l vis $argv[2]; set -l w $argv[3]
+        set -l pad (math "$w - "(string length -- "$vis")); test $pad -lt 0; and set pad 0
+        printf '%s│%s%s%s│\n' $OD "$content"(string repeat -n $pad ' ') $OD
+    end
+    set -l lines
+    # top border with title
+    set -a lines $OD"╭─ "$O"tmux-lives"$OD" "(string repeat -n (math "$W - 12") ─)"╮"$T
+    set -a lines (__tcz_ml_rule "session" $O $W | string trim -r)
+    set -a lines (__tcz_ml_row "   $O"p"$T picker    $O"n"$T new" "   p picker    n new" $W)
+    set -a lines (__tcz_ml_row "   $O"c"$T clear     $O"g"$T categorize" "   c clear     g categorize" $W)
+    set -a lines (__tcz_ml_rule "scratch" $CY $W | string trim -r)
+    set -a lines (__tcz_ml_row "   $O"t"$T toggle    $O"r"$T resize…" "   t toggle    r resize…" $W)
+    set -a lines (__tcz_ml_rule "config" $GR $W | string trim -r)
+    set -a lines (__tcz_ml_row "   $O"b"$T bar color" "   b bar color" $W)
+    set -a lines (__tcz_ml_rule "keys" $M $W | string trim -r)
+    set -a lines (__tcz_ml_row "  $M$modalkey menu     $resizekey resize$T" "  $modalkey menu     $resizekey resize" $W)
+    set -a lines (__tcz_ml_row "  $M$scratchkey scratch  $switcherkey picker$T" "  $scratchkey scratch  $switcherkey picker" $W)
+    set -a lines (__tcz_ml_row "  $M"esc"$T close" "  esc close" $W)
+    set -a lines $OD"╰"(string repeat -n (math "$W + 1") ─)"╯"$T
+    functions -e __tcz_ml_rule __tcz_ml_row
+    printf '%s\n' $lines
 end
 
 function __tcz_modal_action --argument-names key has_scratch --description 'pure: modal keyname + scratch-state -> action token'
