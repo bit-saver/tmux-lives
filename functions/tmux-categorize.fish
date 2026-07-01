@@ -747,7 +747,7 @@ end
 function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey resizekey switcherkey --description 'pure: the command-launcher legend box (design B: categorized commands + keybind table). Keys passed in so it reflects the effective binds.'
     set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')  # orange, dim-orange border
     set -l CY (printf '\e[36m'); set -l GR (printf '\e[32m')
-    set -l T (printf '\e[0m'); set -l M (printf '\e[2m'); set -l MO (printf '\e[22m')
+    set -l T (printf '\e[0m'); set -l M (printf '\e[2m')
     set -l W 28                                   # inner width (between the borders)
     # a full-width category rule: "cat ─────" padded to W, in colour $c
     function __tcz_ml_rule --no-scope-shadowing
@@ -1075,7 +1075,9 @@ function __tcz_main
         case scratch-orient
             __tcz_scratch_orient $argv[2]
         case scratch-kill
-            __tcz_scratch   # toggle: since a scratch exists, this removes it
+            # kill-only: only toggle when a scratch actually exists, so a
+            # stray/unguarded call can never CREATE one (guarded pane-id form).
+            set -l p (__tcz_scratch_pane); test -n "$p[1]"; and __tcz_scratch
         case resize-enter
             __tcz_resize_enter $argv[2..]
         case modal
