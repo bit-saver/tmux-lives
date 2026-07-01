@@ -323,6 +323,8 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
                 set -U tmux_lives_modal_key $argv[2]; set changed 1; set -e argv[1..2]
             case --scratch-key
                 set -U tmux_lives_scratch_key $argv[2]; set changed 1; set -e argv[1..2]
+            case --resize-key
+                set -U tmux_lives_resize_key $argv[2]; set changed 1; set -e argv[1..2]
             case '*'
                 echo "tmux-lives setup keys: unknown option '$argv[1]'" >&2; return 1
         end
@@ -519,6 +521,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "  -s, --switcher-key <key>  no-prefix bind (default: M-s = Opt+s; '' off)" \
         "      --modal-key <key>     in-tmux command modal (default: M-m; '' off)" \
         "      --scratch-key <key>   scratch-split toggle (default: M-t; '' off)" \
+        "      --resize-key <key>    scratch resize mode (default: M-r; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i]          ShellFish tab color (+ status bar; -i darker)' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'

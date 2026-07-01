@@ -61,6 +61,14 @@ t "keys --scratch-key persists" M-t "$tmux_lives_scratch_key"
 functions -e __tmux_lives_write_fragment; functions -c __wf_bak __tmux_lives_write_fragment; functions -e __wf_bak
 set -e tmux_lives_modal_key; set -e tmux_lives_scratch_key
 
+set -e tmux_lives_resize_key
+functions -c __tmux_lives_write_fragment __wf3_bak
+function __tmux_lives_write_fragment; end
+__tmux_lives_keys_cmd --resize-key M-r
+t "keys --resize-key persists" M-r "$tmux_lives_resize_key"
+functions -e __tmux_lives_write_fragment; functions -c __wf3_bak __tmux_lives_write_fragment; functions -e __wf3_bak
+set -e tmux_lives_resize_key
+
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
 t "fragment has client-attached hook" 1 (string match -q '*client-attached*' -- "$fragbc"; and echo 1; or echo 0)
 t "fragment hook calls on-attach"     1 (string match -q '*on-attach*' -- "$fragbc"; and echo 1; or echo 0)
