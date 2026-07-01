@@ -1072,6 +1072,10 @@ function __tcz_main
             __tcz_scratch $argv[2..]
         case scratch-resize
             __tcz_scratch_resize $argv[2]
+        case scratch-orient
+            __tcz_scratch_orient $argv[2]
+        case scratch-kill
+            __tcz_scratch   # toggle: since a scratch exists, this removes it
         case resize-enter
             __tcz_resize_enter $argv[2..]
         case modal

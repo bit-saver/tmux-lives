@@ -16,6 +16,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l invert $argv[5]  # 1 = darker status bar; else lighter
     set -l modalkey $argv[6]   # root-table modal key ('' = no bind)
     set -l scratchkey $argv[7] # root-table scratch-toggle key ('' = no bind)
+    set -l resizekey $argv[8]   # root-table scratch-resize-mode key ('' = no bind)
     set -l baseline (__tmux_lives_baseline_path)
     set -l popup
     set -l menu
@@ -28,7 +29,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a menu  "    bind-key -n $skey run-shell 'fish --no-config $cat menu'"
     end
     if test -n "$modalkey"
-        set -a popup "    bind-key -n $modalkey display-popup -E -w 64% -h 45% -- fish --no-config $cat modal '#{client_name}'"
+        set -a popup "    bind-key -n $modalkey display-popup -E -w 64% -h 55% -- fish --no-config $cat modal '#{client_name}' '$modalkey' '$scratchkey' '$resizekey' '$skey'"
         set -a menu  "    bind-key -n $modalkey run-shell 'fish --no-config $cat modal-menu'"
     end
     set -l f
@@ -62,6 +63,18 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "}"
     end
     test -n "$scratchkey"; and set -a f "bind-key -n $scratchkey run-shell 'fish --no-config $cat scratch'"
+    if test -n "$resizekey"
+        set -a f "bind-key -n $resizekey run-shell \"fish --no-config $cat resize-enter '#{client_name}'\""
+        set -a f "bind-key -T tmuxlives-resize Left  { run-shell \"fish --no-config $cat scratch-resize L\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize Right { run-shell \"fish --no-config $cat scratch-resize R\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize Up    { run-shell \"fish --no-config $cat scratch-resize U\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize Down  { run-shell \"fish --no-config $cat scratch-resize D\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize h     { run-shell \"fish --no-config $cat scratch-orient h\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize w     { run-shell \"fish --no-config $cat scratch-orient w\" ; switch-client -T tmuxlives-resize }"
+        set -a f "bind-key -T tmuxlives-resize x       run-shell \"fish --no-config $cat scratch-kill\""
+        set -a f "bind-key -T tmuxlives-resize Escape  switch-client -T root"
+        set -a f "bind-key -T tmuxlives-resize Enter   switch-client -T root"
+    end
     set -a f "set-hook -g client-session-changed {"
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
     set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}'\""
@@ -135,7 +148,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
