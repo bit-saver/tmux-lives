@@ -538,23 +538,20 @@ t "scratch_orient keeps one marked pane" 1 (command tmux -L $sock list-panes -F 
 command tmux -L $sock kill-server 2>/dev/null
 
 # ---------------------------------------------------------------------
-# modal action runner
+# launcher dispatch (__tcz_modal_run) — single-shot, close-then-run
 # ---------------------------------------------------------------------
 fresh_server
-t "run scratch -> stay" stay (__tcz_modal_run scratch '' | string collect)
-t "run scratch created a marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
-t "run categorize -> stay" stay (__tcz_modal_run categorize '' | string collect)
-t "run close -> close" close (__tcz_modal_run close '' | string collect)
-t "run color -> color (loop handles input)" color (__tcz_modal_run color '' | string collect)
-t "run noop -> stay" stay (__tcz_modal_run noop '' | string collect)
+t "run scratch creates a marked pane" 1 (__tcz_modal_run scratch ''; command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
+fresh_server
+t "run categorize runs (no crash)" 0 (__tcz_modal_run categorize ''; echo $status)
+t "run close is a no-op" 0 (__tcz_modal_run close ''; echo $status)
+t "run picker uses deferred run-shell -b" yes (string match -q '*run-shell -b*open-switcher*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 command tmux -L $sock kill-server 2>/dev/null
-# loop wiring (source assertions — the interactive loop is not run headless)
+# loop-free launcher wiring (interactive popup is runtime-verified)
 set -g MSRC (functions __tcz_modal | string collect)
-t "modal loop reads keys" yes (string match -q '*__tcz_modal_readkey*' -- "$MSRC"; and echo yes; or echo no)
-t "modal loop maps actions" yes (string match -q '*__tcz_modal_action*' -- "$MSRC"; and echo yes; or echo no)
-t "modal loop draws legend" yes (string match -q '*__tcz_modal_legend*' -- "$MSRC"; and echo yes; or echo no)
-t "modal loop runs actions" yes (string match -q '*__tcz_modal_run*' -- "$MSRC"; and echo yes; or echo no)
-t "modal loop has colour input sub-state" yes (string match -q '*tmux-lives setup color*' -- "$MSRC"; and echo yes; or echo no)
+t "modal reads one key (no while loop)" yes (string match -q '*__tcz_modal_readkey*' -- "$MSRC"; and string match -q '*while true*' -- "$MSRC"; and echo no; or echo yes)
+t "modal draws legend" yes (string match -q '*__tcz_modal_legend*' -- "$MSRC"; and echo yes; or echo no)
+t "modal dispatches via run" yes (string match -q '*__tcz_modal_run*' -- "$MSRC"; and echo yes; or echo no)
 
 # dispatch smoke test: modal-menu wiring in __tcz_main
 set -g MAINSRC (functions __tcz_main | string collect)
