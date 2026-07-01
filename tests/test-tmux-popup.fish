@@ -211,6 +211,8 @@ for l in (__tcz_modal_legend 1 M-m M-t M-r M-s)
     set -a LGW (string length --visible -- (vis "$l"))
 end
 t "legend lines all equal width (aligned pipes)" 1 (printf '%s\n' $LGW | sort -u | wc -l | string trim)
+# session header uses the picker's muted yellow-orange (179), not plain orange (208)
+t "session header is picker-yellow (179)" yes (string match -q '*38;5;179m session*' -- (__tcz_modal_legend 1 M-m M-t M-r M-s | string collect); and echo yes; or echo no)
 
 t "action p -> picker" picker (__tcz_modal_action p)
 t "action n -> new" new (__tcz_modal_action n)

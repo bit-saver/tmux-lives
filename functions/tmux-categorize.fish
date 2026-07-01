@@ -746,6 +746,7 @@ end
 
 function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey resizekey switcherkey --description 'pure: the command-launcher legend box (design B: categorized commands + keybind table). Keys passed in so it reflects the effective binds.'
     set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')  # orange, dim-orange border
+    set -l YO (printf '\e[38;5;179m')             # muted yellow-orange (the picker's accent)
     set -l CY (printf '\e[36m'); set -l GR (printf '\e[32m')
     set -l T (printf '\e[0m')
     set -l KG (printf '\e[38;5;245m')             # keys-footer label: soft grey (was muddy dim)
@@ -762,7 +763,7 @@ function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey res
     set -l lines
     # top border with title
     set -a lines $OD"╭─ "$O"tmux-lives"$OD" "(string repeat -n (math "$IW - 13") ─)"╮"$T
-    for spec in "session:$O" "scratch:$CY" "config:$GR" "keys:$KG"
+    for spec in "session:$YO" "scratch:$CY" "config:$GR" "keys:$KG"
         set -l lab (string split -f1 : $spec); set -l col (string split -f2 : $spec)
         set -l rv " $lab "(string repeat -n (math "$IW - 3 - "(string length -- $lab)) ─)" "
         set -a lines (__tcz_ml_ln "$col$rv" "$rv" $IW $OD $T)
