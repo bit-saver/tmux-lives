@@ -781,62 +781,35 @@ function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey res
     printf '%s\n' $lines
 end
 
-function __tcz_modal_action --argument-names key has_scratch --description 'pure: modal keyname + scratch-state -> action token'
+function __tcz_modal_action --argument-names key --description 'pure: launcher keyname -> action token (single-shot; resize-mode gating is in __tcz_resize_enter)'
     switch "$key"
+        case p; echo picker
         case n; echo new
         case c; echo clear
         case g; echo categorize
-        case s; echo switcher
         case t; echo scratch
+        case r; echo resize
         case b; echo color
         case esc q; echo close
-        case x;     test "$has_scratch" = 1; and echo scratch-close; or echo noop
-        case h;     test "$has_scratch" = 1; and echo orient-h; or echo noop
-        case w;     test "$has_scratch" = 1; and echo orient-w; or echo noop
-        case left;  test "$has_scratch" = 1; and echo resize-left; or echo noop
-        case right; test "$has_scratch" = 1; and echo resize-right; or echo noop
-        case up;    test "$has_scratch" = 1; and echo resize-up; or echo noop
-        case down;  test "$has_scratch" = 1; and echo resize-down; or echo noop
-        case '*';   echo noop
+        case '*'; echo noop
     end
 end
 
-function __tcz_modal_readkey --description 'read one keystroke -> keyname (letters as tokens; arrows/enter/esc parsed)'
+function __tcz_modal_readkey --description 'read one keystroke -> keyname (launcher letters; enter/esc parsed)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
     test -z "$b"; and begin; echo close; return; end          # EOF
     switch "$b"
         case 0d 0a; echo enter; return
+        case 70; echo p; return
         case 6e; echo n; return
         case 63; echo c; return
         case 67; echo g; return
-        case 73; echo s; return
         case 74; echo t; return
+        case 72; echo r; return
         case 62; echo b; return
-        case 68; echo h; return
-        case 77; echo w; return
-        case 78; echo x; return
         case 71; echo q; return
-    end
-    if test "$b" = 1b                                          # ESC
-        stty min 0 time 1 2>/dev/null
-        set -l b2 ''
-        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
-        set -l b3 ''
-        if test "$b2" = 5b; or test "$b2" = 4f                 # [ or O
-            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
-        end
-        stty min 1 time 0 2>/dev/null
-        if test "$b2" = 5b; or test "$b2" = 4f
-            switch "$b3"
-                case 41; echo up; return
-                case 42; echo down; return
-                case 43; echo right; return
-                case 44; echo left; return
-            end
-            echo other; return
-        end
-        echo esc; return
+        case 1b; echo esc; return
     end
     echo other
 end
