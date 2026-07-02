@@ -220,6 +220,30 @@ else
     set -e tmux_lives_status_invert
 end
 rm -f $cfrag
+
+# setup color --apply: reapply stored color live (status-style via the socket seam; recolor guarded)
+set -g apsock tli-apply-$fish_pid
+command tmux -L $apsock new-session -d 2>/dev/null
+set -gx tmux_lives_tmux_socket $apsock
+set -g __old_fcd2 $__fish_config_dir
+set -g __fish_config_dir /tmp/tcz-nofish2-$fish_pid   # recolor's test -f guard short-circuits
+set -l _abc_had 0; set -l _abc_val
+if set -q tmux_lives_bar_color; set _abc_had 1; set _abc_val $tmux_lives_bar_color; end
+set -l _asi_had 0; set -l _asi_val
+if set -q tmux_lives_status_invert; set _asi_had 1; set _asi_val $tmux_lives_status_invert; end
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
+t "color --apply with no color: rc1" 1 (__tmux_lives_color_cmd --apply >/dev/null 2>&1; echo $status)
+set -U tmux_lives_bar_color "#1f6feb"; set -U tmux_lives_status_invert 0
+__tmux_lives_color_cmd --apply >/dev/null
+t "color --apply sets derived status-style live" 1 (string match -q '*bg=#5793f0*' -- (command tmux -L $apsock show -gv status-style); and echo 1; or echo 0)
+t "color -a rejects an extra color arg (rc1)" 1 (__tmux_lives_color_cmd -a "#abc" >/dev/null 2>&1; echo $status)
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
+if test $_abc_had -eq 1; set -U tmux_lives_bar_color $_abc_val; end
+if test $_asi_had -eq 1; set -U tmux_lives_status_invert $_asi_val; end
+set -g __fish_config_dir $__old_fcd2; set -e __old_fcd2
+set -e tmux_lives_tmux_socket
+command tmux -L $apsock kill-server 2>/dev/null
+
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)

@@ -395,13 +395,39 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
     set -l invert 0
     set -l color
     set -l have_color 0
+    set -l apply 0
     for a in $argv
         switch $a
             case -i --invert
                 set invert 1
+            case -a --apply
+                set apply 1
             case '*'
                 set color $a; set have_color 1
         end
+    end
+    if test $apply -eq 1
+        if test $have_color -eq 1
+            echo "tmux-lives setup color: --apply takes no color argument" >&2
+            return 1
+        end
+        set -l c (__tmux_lives_key tmux_lives_bar_color '')
+        if test -z "$c"
+            echo "tmux-lives: no bar color set — set one with: tmux-lives setup color \"#rrggbb\"" >&2
+            return 1
+        end
+        set -l ss (__tmux_lives_derive_status $c (__tmux_lives_key tmux_lives_status_invert 0))
+        if test -n "$ss"
+            if set -q tmux_lives_tmux_socket
+                command tmux -L $tmux_lives_tmux_socket set -g status-style $ss 2>/dev/null
+            else
+                tmux set -g status-style $ss 2>/dev/null
+            end
+        end
+        set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+        test -f $cat; and fish --no-config $cat recolor $c 2>/dev/null
+        echo "tmux-lives: reapplied bar color $c"
+        return 0
     end
     if test (count $argv) -eq 0
         set -l c (__tmux_lives_key tmux_lives_bar_color '')
