@@ -1027,6 +1027,24 @@ function __tcz_scratch --description 'toggle a marked scratch shell pane beside 
     return 0
 end
 
+function __tcz_write_state --description 'persist the live status-position + visibility to the state file (seam: tmux_lives_state_file; default mirrors __tmux_lives_state_path — keep in sync)'
+    set -l pos (tmux show -gv status-position 2>/dev/null); test -n "$pos"; or set pos bottom
+    set -l vis (tmux show -gv status 2>/dev/null); test -n "$vis"; or set vis on
+    set -l state (set -q tmux_lives_state_file; and echo $tmux_lives_state_file; or echo "$HOME/.config/tmux/tmux-lives-state.conf")
+    mkdir -p (path dirname $state) 2>/dev/null
+    printf 'set -g status-position %s\nset -g status %s\n' $pos $vis >$state
+end
+function __tcz_status_pos_toggle --description 'flip status-position top<->bottom, apply live + persist'
+    set -l new bottom; test (tmux show -gv status-position 2>/dev/null) = bottom; and set new top
+    tmux set -g status-position $new 2>/dev/null
+    __tcz_write_state
+end
+function __tcz_status_vis_toggle --description 'flip status on<->off, apply live + persist'
+    set -l new off; test (tmux show -gv status 2>/dev/null) = off; and set new on
+    tmux set -g status $new 2>/dev/null
+    __tcz_write_state
+end
+
 function __tcz_scratch_orient --argument-names dir --description 'recreate the scratch pane with a new orientation (h=side-by-side, w=stacked)'
     set -l p (__tcz_scratch_pane)
     test -n "$p[1]"; or return 0
@@ -1085,6 +1103,10 @@ function __tcz_main
             set -l p (__tcz_scratch_pane); test -n "$p[1]"; and __tcz_scratch
         case resize-enter
             __tcz_resize_enter $argv[2..]
+        case status-pos-toggle
+            __tcz_status_pos_toggle
+        case status-vis-toggle
+            __tcz_status_vis_toggle
         case modal
             __tcz_modal $argv[2..]
         case modal-menu

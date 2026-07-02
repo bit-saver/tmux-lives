@@ -604,6 +604,33 @@ command tmux -L $sock kill-server 2>/dev/null
 t "main dispatches scratch-resize" yes (string match -q '*scratch-resize*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 t "main dispatches resize-enter" yes (string match -q '*resize-enter*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 
+# ---------------------------------------------------------------------
+# status-bar toggles: flip the live option + persist to the state file
+# ---------------------------------------------------------------------
+set -g statefile /tmp/tcz-state-$fish_pid.conf
+set -gx tmux_lives_state_file $statefile
+rm -f $statefile
+fresh_server
+command tmux -L $sock set -g status-position bottom
+__tcz_status_pos_toggle
+t "pos toggle flips bottom->top (live)" top (command tmux -L $sock show -gv status-position)
+t "pos toggle writes the state file" yes (test -f $statefile; and echo yes; or echo no)
+t "state file records position top" yes (string match -q '*status-position top*' -- (cat $statefile | string collect); and echo yes; or echo no)
+__tcz_status_pos_toggle
+t "pos toggle flips top->bottom (live)" bottom (command tmux -L $sock show -gv status-position)
+command tmux -L $sock set -g status on
+__tcz_status_vis_toggle
+t "vis toggle flips on->off (live)" off (command tmux -L $sock show -gv status)
+t "state file records status off" yes (string match -q '*set -g status off*' -- (cat $statefile | string collect); and echo yes; or echo no)
+__tcz_status_vis_toggle
+t "vis toggle flips off->on (live)" on (command tmux -L $sock show -gv status)
+t "state file always writes both lines" 2 (cat $statefile | grep -c '^set -g status')
+t "main dispatches status-pos-toggle" yes (string match -q '*status-pos-toggle*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+t "main dispatches status-vis-toggle" yes (string match -q '*status-vis-toggle*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+command tmux -L $sock kill-server 2>/dev/null
+set -e tmux_lives_state_file
+rm -f $statefile
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
