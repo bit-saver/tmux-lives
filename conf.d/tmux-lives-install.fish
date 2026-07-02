@@ -152,6 +152,10 @@ end
 
 function __tmux_lives_write_fragment --description 'Render the managed fragment, wire ~/.tmux.conf, reload tmux'
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+    # Defense-in-depth: never render/wire/reload a fragment whose categorizer path
+    # does not exist (e.g. a stray call with a test's temp $__fish_config_dir). Returning
+    # here — before any write — keeps a rogue event from corrupting the live fragment.
+    test -f $cat; or return
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir

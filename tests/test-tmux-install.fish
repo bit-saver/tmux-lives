@@ -68,6 +68,10 @@ printf '%s\n' "$FRAGS" | string replace -a '/x/cat.fish' '/tmp/nope.fish' >/tmp/
 t "status fragment parses (source-file rc0)" 0 (command tmux -L $rsock2 source-file /tmp/tli-sbfrag-$fish_pid.conf 2>/dev/null; echo $status)
 command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid.conf
 
+# write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
+# (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
+t "write_fragment guards a missing categorizer" yes (string match -q '*test -f $cat*return*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+
 # setup keys flags persist universals
 set -e tmux_lives_modal_key; set -e tmux_lives_scratch_key
 functions -c __tmux_lives_write_fragment __wf_bak
