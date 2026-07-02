@@ -43,12 +43,13 @@ Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
 ### ShellFish tab color & non-ShellFish baseline
 
-A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-tints to the bar color.
+A `client-attached` hook colors ShellFish tabs on attach (the OSC escape goes directly to that client's tty — other clients see nothing) and re-applies a baseline config for every non-ShellFish client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-tints to the bar color. `setup color --apply` (short `-a`) reapplies the currently-stored color to both surfaces — the ShellFish tab OSC and the tmux status bar — without retyping it (handy if a new tab came up without the color).
 
 ```fish
 tmux-lives setup color "#1f6feb"            # set this server's ShellFish toolbar color
 tmux-lives setup color "#1f6feb" -i         # darker status bar
 tmux-lives setup color                      # show the current color
+tmux-lives setup color --apply              # reapply stored color live (tab OSC + status bar)
 tmux-lives setup color ""                   # clear it
 
 tmux-lives setup conf                       # show / seed ~/.tmux-lives.conf
@@ -69,6 +70,8 @@ When a full-screen program occupies your pane, a few bindings let you drive tmux
 
 **Scratch resize mode (`M-r`)** — with a scratch pane open, enters a native tmux key-table (the panes stay fully visible, unlike a popup): arrows resize the scratch, `h`/`w` switch it side-by-side vs stacked, `x` closes it, `Esc`/`Enter` exit. Also reachable via the launcher's `r` key. If no scratch pane exists yet, it nudges you to open one first.
 
+**Status-bar toggles (`C-M-a` / `C-M-s`)** — `Ctrl+Opt+A` flips the status bar between top and bottom; `Ctrl+Opt+S` hides/shows it. The chosen value is stored in `~/.config/tmux/tmux-lives-state.conf` (machine-owned) and reapplied on every load, so it survives new sessions and reboots. Configure or disable the keys with `setup keys --status-pos-key <k>` / `--status-vis-key <k>` (`''` disables).
+
 **Colored picker preview** — the picker's right-pane preview shows the target session's real colors (`capture-pane -e` with ANSI-aware truncation), matching tmux's native `choose-tree`.
 
 Configure or disable the binds via `setup keys`:
@@ -77,10 +80,12 @@ Configure or disable the binds via `setup keys`:
 tmux-lives setup keys --modal-key M-m    # default (command launcher)
 tmux-lives setup keys --scratch-key M-t  # default (scratch toggle)
 tmux-lives setup keys --resize-key M-r   # default (scratch resize mode)
+tmux-lives setup keys --status-pos-key C-M-a  # default (status bar top/bottom)
+tmux-lives setup keys --status-vis-key C-M-s  # default (status bar hide/show)
 tmux-lives setup keys --modal-key ''     # disable a bind
 ```
 
-These binds become live on your next `fisher update` / `tmux-lives update`. If `M-m`, `M-t`, or `M-r` collide with an existing terminal or tmux bind, rebind or disable them before updating.
+These binds become live on your next `fisher update` / `tmux-lives update`. If any of `M-m`, `M-t`, `M-r`, `C-M-a`, or `C-M-s` collide with an existing terminal or tmux bind, rebind or disable them before updating.
 
 ## Uninstall
 
