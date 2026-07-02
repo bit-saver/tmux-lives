@@ -395,7 +395,7 @@ function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "b
     echo "bg=$hex,fg="(printf '#%02x%02x%02x' $tr $tg $tb)
 end
 
-function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert]: ShellFish tab color + derived status bar'
+function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
     set -l have_color 0
@@ -571,7 +571,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --status-pos-key <key> status bar top/bottom (default: C-M-a; '' off)" \
         "      --status-vis-key <key> status bar hide/show  (default: C-M-s; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
-        'color [<css>] [-i]          ShellFish tab color (+ status bar; -i darker)' \
+        'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
