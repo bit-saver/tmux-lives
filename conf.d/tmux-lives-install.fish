@@ -17,7 +17,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l modalkey $argv[6]   # root-table modal key ('' = no bind)
     set -l scratchkey $argv[7] # root-table scratch-toggle key ('' = no bind)
     set -l resizekey $argv[8]   # root-table scratch-resize-mode key ('' = no bind)
+    set -l statusposkey $argv[9]   # root-table status-position toggle ('' = no bind)
+    set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l baseline (__tmux_lives_baseline_path)
+    set -l state (__tmux_lives_state_path)
     set -l popup
     set -l menu
     if test -n "$pkey"
@@ -55,6 +58,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick)\""
     set -l ss (__tmux_lives_derive_status $color $invert)
     test -n "$ss"; and set -a f "set -g status-style $ss"
+    # reapply the persisted status-position/visibility (written by the C-M-a/C-M-s toggles)
+    set -a f "if-shell '[ -f $state ]' 'source-file $state'"
     if test -n "$popup"
         set -a f "if-shell 'tmux list-commands 2>/dev/null | grep -q display-popup' {"
         set -a f $popup
@@ -75,6 +80,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "bind-key -T tmuxlives-resize Escape  switch-client -T root"
         set -a f "bind-key -T tmuxlives-resize Enter   switch-client -T root"
     end
+    test -n "$statusposkey"; and set -a f "bind-key -n $statusposkey run-shell 'fish --no-config $cat status-pos-toggle'"
+    test -n "$statusviskey"; and set -a f "bind-key -n $statusviskey run-shell 'fish --no-config $cat status-vis-toggle'"
     set -a f "set-hook -g client-session-changed {"
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
     set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}'\""
@@ -148,7 +155,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -429,6 +436,11 @@ end
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
     # Default mirrors __tcz_on_attach's baseline path in functions/tmux-categorize.fish — keep in sync.
     set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf"
+end
+
+function __tmux_lives_state_path --description 'path to the machine-owned status-toggle state file (seam: tmux_lives_state_file)'
+    # Default mirrors __tcz_write_state's inline path in functions/tmux-categorize.fish — keep in sync.
+    set -q tmux_lives_state_file; and echo $tmux_lives_state_file; or echo "$HOME/.config/tmux/tmux-lives-state.conf"
 end
 
 function __tmux_lives_baseline_template --description 'print the default ~/.tmux-lives.conf (status-bar polish + non-ShellFish baseline)'
