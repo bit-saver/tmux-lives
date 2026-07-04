@@ -55,7 +55,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # status-right = the time format via #{T:@var} (so strftime applies) + our tick.
     # continuum prepends its autosave hook when TPM runs. The user's file sets only the
     # @var, never status-right, so a re-source can't wipe the tick/continuum.
-    set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick)\""
+    set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
     set -l ss (__tmux_lives_derive_status $color $invert)
     test -n "$ss"; and set -a f "set -g status-style $ss"
     # reapply the persisted status-position/visibility (written by the C-M-a/C-M-s toggles)
