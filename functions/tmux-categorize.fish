@@ -1082,6 +1082,7 @@ function __tcz_main
             __tcz_categorize
         case tick
             __tcz_categorize >/dev/null 2>&1
+            test -n "$argv[2]"; and __tcz_recolor $argv[2]
             return 0
         case overview
             __tcz_overview

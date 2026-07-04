@@ -581,6 +581,21 @@ rm -f $tt1; touch $tt1
 set -gx tmux_lives_fake_environ "TERM=xterm"
 __tcz_recolor '#1f6feb'
 t "recolor skips non-shellfish client" no (test -s $tt1; and echo yes; or echo no)
+# tick re-emits the stored bar color (self-heal). Stub __tcz_categorize so the
+# tick verb does NOT run the full categorize against the live server; reuse the
+# recolor block's `tmux` list-clients stub + temp ttys ($tt1/$tt2) above.
+functions -c __tcz_categorize __tcz_cat_bak
+function __tcz_categorize; end
+rm -f $tt1; touch $tt1; set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+__tcz_main tick "#1f6feb"
+t "tick re-emits color to shellfish client" yes (string match -q '*settoolbar*' -- (cat $tt1 | string collect); and echo yes; or echo no)
+rm -f $tt1; touch $tt1
+__tcz_main tick ''
+t "tick with empty color does not emit" no (test -s $tt1; and echo yes; or echo no)
+rm -f $tt1; touch $tt1
+__tcz_main tick
+t "bare tick (no color) does not emit" no (test -s $tt1; and echo yes; or echo no)
+functions -e __tcz_categorize; functions -c __tcz_cat_bak __tcz_categorize; functions -e __tcz_cat_bak
 set -e tmux_lives_fake_environ
 functions -e tmux
 rm -f $tt1 $tt2
