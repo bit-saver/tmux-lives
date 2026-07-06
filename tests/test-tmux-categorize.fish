@@ -105,6 +105,17 @@ set -l bclongwant (printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' $
 t "barcolor: long color = single OSC" "$bclongwant" (cat $bcf)
 rm -f $bcf
 
+# --- title builders ---
+set -g tmux_lives_hostname macwork
+t "hostname uses the seam" macwork (__tcz_hostname)
+set -g __tcz_oldhome $HOME; set -g HOME /home/x
+t "dir_display basenames a path" tmux-lives (__tcz_dir_display /home/x/workspace/tmux-lives)
+t "dir_display shows ~ for HOME" '~' (__tcz_dir_display /home/x)
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome
+t "format_title plain" "rocket: neurotto" (__tcz_format_title rocket neurotto 0)
+t "format_title with claude" "macwork: tmux-lives (C)" (__tcz_format_title macwork tmux-lives 1)
+set -e tmux_lives_hostname
+
 # ---------------------------------------------------------------------
 # on-attach: ShellFish branch colors the tty; non-ShellFish sources baseline
 # ---------------------------------------------------------------------

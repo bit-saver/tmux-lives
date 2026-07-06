@@ -99,6 +99,25 @@ function __tcz_emit_barcolor --argument-names tty color --description 'write the
     printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64 | string join '') > $tty
 end
 
+function __tcz_hostname --description 'short hostname (cache + test seam: tmux_lives_hostname)'
+    if not set -q tmux_lives_hostname; or test -z "$tmux_lives_hostname"
+        set -g tmux_lives_hostname (hostname -s 2>/dev/null)
+        test -n "$tmux_lives_hostname"; or set -g tmux_lives_hostname (uname -n 2>/dev/null | string split -f1 .)
+    end
+    echo $tmux_lives_hostname
+end
+
+function __tcz_dir_display --argument-names path --description 'path -> display dir: $HOME as ~, else basename'
+    test -n "$path"; or return 0
+    test "$path" = "$HOME"; and echo '~'; or basename -- "$path"
+end
+
+function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>: <dir>[ (C)]"'
+    set -l s "$argv[1]: $argv[2]"
+    test "$argv[3]" = 1; and set s "$s (C)"
+    echo $s
+end
+
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
     # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.
