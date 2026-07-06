@@ -130,6 +130,8 @@ set -g FRAGT (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 | strin
 t "tick call bakes the bar color" yes (string match -q "*cat.fish tick '#1f6feb'*" -- "$FRAGT"; and echo yes; or echo no)
 set -g FRAGT0 (__tmux_lives_render_fragment /x/cat.fish S M-s "" 0 | string collect)
 t "tick call empty color when unset" yes (string match -q "*cat.fish tick ''*" -- "$FRAGT0"; and echo yes; or echo no)
+set -g FRAGT2 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 | string collect)
+t "client-session-changed hook re-titles" yes (string match -q "*client-session-changed*cat.fish retitle*" -- "$FRAGT2"; and echo yes; or echo no)
 
 # automatic-rename-format: macOS reports claude's version-named binary as the window
 # command (e.g. 2.1.185); map a version-like name (X.Y.Z) to "claude", pass others

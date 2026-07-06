@@ -1006,6 +1006,7 @@ end
 function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish -> set bar color; else re-apply the non-ShellFish baseline'
     if __tcz_client_is_shellfish $pid
         __tcz_emit_barcolor $tty $color
+        __tcz_retitle
     else
         # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
         set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
@@ -1138,6 +1139,7 @@ function __tcz_main
         case tick
             __tcz_categorize >/dev/null 2>&1
             test -n "$argv[2]"; and __tcz_recolor $argv[2]
+            __tcz_retitle
             return 0
         case overview
             __tcz_overview
@@ -1169,6 +1171,8 @@ function __tcz_main
             __tcz_modal_menu $argv[2..]
         case recolor
             __tcz_recolor $argv[2..]
+        case retitle
+            __tcz_retitle
         case claim
             __tcz_claim $argv[2..]
         case ghosts

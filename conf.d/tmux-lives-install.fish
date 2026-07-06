@@ -83,6 +83,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     test -n "$statusposkey"; and set -a f "bind-key -n $statusposkey run-shell 'fish --no-config $cat status-pos-toggle'"
     test -n "$statusviskey"; and set -a f "bind-key -n $statusviskey run-shell 'fish --no-config $cat status-vis-toggle'"
     set -a f "set-hook -g client-session-changed {"
+    set -a f "    run-shell \"fish --no-config $cat retitle\""
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
     set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}'\""
     set -a f "    }"
