@@ -1026,6 +1026,41 @@ function __tcz_recolor --argument-names color --description 'emit the ShellFish 
     end
 end
 
+function __tcz_emit_title --argument-names tty title --description 'write the OSC 2 title escape for <title> to <tty> (non-passthrough; client-tty level)'
+    test -n "$title"; or return 0
+    printf '\033]2;%s\a' "$title" > $tty
+end
+
+function __tcz_session_has_claude --argument-names session --description 'true if any pane in the session runs claude'
+    set -l TAB (printf '\t')
+    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
+        set -l p (string split $TAB -- $line)
+        __tcz_pane_is_claude "$p[1]" "$p[2]"; and return 0
+    end
+    return 1
+end
+
+function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'
+    test -n "$session"; or return 0
+    set -l path (tmux display-message -p -t "=$session" '#{pane_current_path}' 2>/dev/null)
+    set -l claude 0
+    __tcz_session_has_claude $session; and set claude 1
+    __tcz_format_title (__tcz_hostname) (__tcz_dir_display $path) $claude
+end
+
+function __tcz_retitle --description 'emit each attached ShellFish client its own OSC 2 title (per client session)'
+    set -l TAB (printf '\t')
+    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}$TAB#{client_session}" 2>/dev/null)
+        set -l parts (string split $TAB -- $line)
+        set -l pid $parts[1]
+        set -l tty $parts[2]
+        set -l session $parts[3]
+        test -n "$tty"; or continue
+        __tcz_client_is_shellfish $pid; or continue
+        __tcz_emit_title $tty (__tcz_session_title $session)
+    end
+end
+
 function __tcz_scratch_pane --description 'echo the marked scratch pane id in the current window (empty if none)'
     tmux list-panes -F '#{?#{==:#{@tmux_lives_scratch},1},#{pane_id},}' 2>/dev/null | string match -rv '^$'
 end

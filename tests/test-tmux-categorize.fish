@@ -611,6 +611,56 @@ set -e tmux_lives_fake_environ
 functions -e tmux
 rm -f $tt1 $tt2
 
+# --- title emit ---
+set -g ttl /tmp/tcz-title-$fish_pid; rm -f $ttl; touch $ttl
+__tcz_emit_title $ttl "macwork: tmux-lives (C)"
+# Match the literal OSC-2 introducer `]2;` + the title (single quotes don't interpret
+# `\033`, so match the literal `]2;` that follows the ESC byte in the file, not the ESC).
+t "emit_title writes OSC 2 + title" yes (string match -q '*]2;macwork: tmux-lives (C)*' -- (cat $ttl | string collect); and echo yes; or echo no)
+rm -f $ttl; touch $ttl
+__tcz_emit_title $ttl ""
+t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
+rm -f $ttl
+
+# session_has_claude / session_title via a tmux stub (switch on subcommand)
+function tmux
+    switch "$argv[1]"
+        case display-message   # __tcz_session_title reads only #{pane_current_path}
+            echo /home/x/workspace/tmux-lives
+        case list-panes        # __tcz_session_has_claude reads cmd\tpid per pane
+            printf '%s\n' $tcz_test_panes
+    end
+end
+set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
+set -g tcz_test_panes (printf 'fish\t999')
+t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
+t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
+set -g tcz_test_panes (printf 'claude\t999')
+t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
+t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
+functions -e tmux
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes
+
+# retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
+set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
+rm -f $rt1 $rt2; touch $rt1 $rt2
+functions -c __tcz_session_title __tcz_st_bak
+function __tcz_session_title; echo "macwork: dirX"; end
+function tmux
+    test "$argv[1]" = list-clients; and printf '111\t%s\tsA\n222\t%s\tsB\n' "$rt1" "$rt2"
+end
+set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+__tcz_retitle
+t "retitle titles shellfish client 1" yes (string match -q '*dirX*' -- (cat $rt1 | string collect); and echo yes; or echo no)
+t "retitle titles shellfish client 2" yes (string match -q '*dirX*' -- (cat $rt2 | string collect); and echo yes; or echo no)
+rm -f $rt1; touch $rt1
+set -gx tmux_lives_fake_environ "TERM=xterm"
+__tcz_retitle
+t "retitle skips non-shellfish client" no (test -s $rt1; and echo yes; or echo no)
+functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak __tcz_session_title; functions -e __tcz_st_bak
+set -e tmux_lives_fake_environ
+rm -f $rt1 $rt2
+
 # ---------------------------------------------------------------------
 # scratch resize verbs
 # ---------------------------------------------------------------------
