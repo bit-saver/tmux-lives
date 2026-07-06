@@ -1045,7 +1045,8 @@ function __tcz_session_title --argument-names session --description 'session -> 
     set -l path (tmux display-message -p -t "=$session" '#{pane_current_path}' 2>/dev/null)
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
-    __tcz_format_title (__tcz_hostname) (__tcz_dir_display $path) $claude
+    set -l dir (__tcz_dir_display $path)
+    __tcz_format_title (__tcz_hostname) "$dir" $claude
 end
 
 function __tcz_retitle --description 'emit each attached ShellFish client its own OSC 2 title (per client session)'

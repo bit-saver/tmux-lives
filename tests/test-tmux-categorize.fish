@@ -641,18 +641,32 @@ t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
 functions -e tmux
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes
 
+# empty active-pane path must not shift args (arg-shift guard)
+function tmux
+    switch "$argv[1]"
+        case display-message
+            echo ''
+        case list-panes
+            printf 'claude\t999\n'
+    end
+end
+set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
+t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
+functions -e tmux
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
+
 # retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
 set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
 rm -f $rt1 $rt2; touch $rt1 $rt2
 functions -c __tcz_session_title __tcz_st_bak
-function __tcz_session_title; echo "macwork: dirX"; end
+function __tcz_session_title; echo "t-$argv[1]"; end
 function tmux
     test "$argv[1]" = list-clients; and printf '111\t%s\tsA\n222\t%s\tsB\n' "$rt1" "$rt2"
 end
 set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
 __tcz_retitle
-t "retitle titles shellfish client 1" yes (string match -q '*dirX*' -- (cat $rt1 | string collect); and echo yes; or echo no)
-t "retitle titles shellfish client 2" yes (string match -q '*dirX*' -- (cat $rt2 | string collect); and echo yes; or echo no)
+t "retitle titles shellfish client 1" yes (string match -q '*t-sA*' -- (cat $rt1 | string collect); and echo yes; or echo no)
+t "retitle titles shellfish client 2" yes (string match -q '*t-sB*' -- (cat $rt2 | string collect); and echo yes; or echo no)
 rm -f $rt1; touch $rt1
 set -gx tmux_lives_fake_environ "TERM=xterm"
 __tcz_retitle
