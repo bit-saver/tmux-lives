@@ -7,6 +7,8 @@
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
 set -g __tcz_shells fish bash sh zsh dash
+# Boring pager/tailer commands: don't count as "running" for naming purposes.
+set -g __tcz_boring tail less watch cat more bat
 set -g __tcz_self (path resolve (status filename))
 
 function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9-])'
@@ -184,7 +186,7 @@ function __tcz_snapshot --description 'one line per session: name\tcategory\tatt
             if test -z "$cpid[$i]"
                 set cpid[$i] $f[3]; set cpath[$i] $f[4]; set ctitle[$i] "$f[5]"
             end
-        else if not contains -- $f[2] $__tcz_shells
+        else if not contains -- $f[2] $__tcz_shells; and not contains -- $f[2] $__tcz_boring
             test "$cats[$i]" = claude; or set cats[$i] running
             test -z "$firstcmd[$i]"; and set firstcmd[$i] $f[2]
         end

@@ -241,6 +241,27 @@ cleanup
 t "snap: no server -> empty" "" (__tcz_snapshot | string join ',')
 
 # ---------------------------------------------------------------------
+# Boring-command deprioritization: a session whose only non-shell pane
+# command is a pager/tailer (tail/less/watch/cat/more/bat) must NOT count
+# as "running" — it falls through to general (dir-named). A session
+# running a real program must still be categorized "running" (guard
+# must not over-reach).
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-boring-$fish_pid
+tmux new-session -d -s b1 -c $HOME/tcz-boring-$fish_pid 'tail -f /dev/null'
+tmux new-session -d -s real1 -c $HOME/tcz-boring-$fish_pid "node -e 'setInterval(function(){}, 1000)'"
+sleep 0.5
+t "snap: boring command -> general (not running)" "general" \
+    (__tcz_snapshot | string match -e 'b1	*' | cut -f2)
+t "snap: boring display = dir basename (not tail)" "~/tcz-boring-$fish_pid" \
+    (__tcz_snapshot | string match -e 'b1	*' | cut -f5)
+t "snap: real program -> still running (guard doesn't over-reach)" "running" \
+    (__tcz_snapshot | string match -e 'real1	*' | cut -f2)
+rm -rf $HOME/tcz-boring-$fish_pid
+cleanup
+
+# ---------------------------------------------------------------------
 # __tcz_categorize (integration)
 # ---------------------------------------------------------------------
 cleanup
