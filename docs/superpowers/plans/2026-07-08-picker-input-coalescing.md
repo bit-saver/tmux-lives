@@ -1,5 +1,7 @@
 # Picker Input Coalescing Implementation Plan
 
+> ⛔ **REVERTED 2026-07-08 (same day it shipped).** This plan was executed and merged, then reverted: the burst-coalescing regressed the picker *feel* on a fast local machine (held ↓ jumps in chunks instead of scrolling smoothly), and the LXC lag it targeted was host-side scheduling load, not the picker. See the design doc's Status block for the full post-mortem. Retained as an execution record. Do not re-run as-is.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the picker's up/down arrows responsive under host load by coalescing its read/draw loop so cost scales with input bursts instead of keystrokes.

@@ -170,73 +170,18 @@ rm -f /tmp/tcz-draw-$fish_pid
 t "draw has no trailing newline (rows-1)" 7 "$DNL"
 
 # ---------------------------------------------------------------------
-# __tcz_popup loop wiring — consumes bursts via read_keys + apply_keys,
-# and the byte-by-byte __tcz_popup_readkey is gone.
+# __tcz_popup_readkey — must accept SS3 (\eOA/\eOB) cursor keys, not only CSI
+# (\e[A/\e[B); many terminals/tmux send SS3 in application-cursor-keys mode.
+# Piped input has no tty (the stty calls no-op) but the byte parsing is what we test.
 # ---------------------------------------------------------------------
-set -g POPUP_SRC (functions __tcz_popup | string collect)
-t "loop uses read_keys"  yes (string match -q '*__tcz_popup_read_keys*'  -- "$POPUP_SRC"; and echo yes; or echo no)
-t "loop uses apply_keys" yes (string match -q '*__tcz_popup_apply_keys*' -- "$POPUP_SRC"; and echo yes; or echo no)
-t "old readkey removed"  yes (functions -q __tcz_popup_readkey; and echo no; or echo yes)
-
-# ---------------------------------------------------------------------
-# __tcz_popup_parse_keys — pure hex-byte -> key tokens (one per line)
-# ---------------------------------------------------------------------
-t "parse CSI up"        up     (__tcz_popup_parse_keys 1b 5b 41)
-t "parse CSI down"      down   (__tcz_popup_parse_keys 1b 5b 42)
-t "parse SS3 up"        up     (__tcz_popup_parse_keys 1b 4f 41)
-t "parse SS3 down"      down   (__tcz_popup_parse_keys 1b 4f 42)
-t "parse j=down"        down   (__tcz_popup_parse_keys 6a)
-t "parse k=up"          up     (__tcz_popup_parse_keys 6b)
-t "parse CR=enter"      enter  (__tcz_popup_parse_keys 0d)
-t "parse LF=enter"      enter  (__tcz_popup_parse_keys 0a)
-t "parse q=cancel"      cancel (__tcz_popup_parse_keys 71)
-t "parse x=kill"        kill   (__tcz_popup_parse_keys 78)
-t "parse bare ESC=cancel" cancel (__tcz_popup_parse_keys 1b)
-t "parse junk=other"    other  (__tcz_popup_parse_keys ff)
-t "parse triple down"   "down down down" (__tcz_popup_parse_keys 1b 5b 42 1b 5b 42 1b 5b 42 | string join ' ')
-t "parse mixed nav"     "down down up"   (__tcz_popup_parse_keys 1b 5b 42 6a 6b | string join ' ')
-t "parse nav then enter" "down enter"    (__tcz_popup_parse_keys 1b 5b 42 0d | string join ' ')
-t "parse burst nav then kill" "up kill"  (__tcz_popup_parse_keys 6b 78 | string join ' ')
-t "parse ESC+other swallows next byte" cancel (__tcz_popup_parse_keys 1b 6a | string join ' ')
-t "parse empty argv -> no tokens" 0 (count (__tcz_popup_parse_keys))
-t "parse incomplete CSI at end -> other" other (__tcz_popup_parse_keys 1b 5b | string join ' ')
-
-# ---------------------------------------------------------------------
-# __tcz_popup_hex_dangling — pure: ends mid escape-sequence?
-# ---------------------------------------------------------------------
-t "dangling lone ESC"     yes (__tcz_popup_hex_dangling 1b;       and echo yes; or echo no)
-t "dangling ESC["         yes (__tcz_popup_hex_dangling 1b 5b;    and echo yes; or echo no)
-t "dangling ESCO"         yes (__tcz_popup_hex_dangling 1b 4f;    and echo yes; or echo no)
-t "complete arrow ok"     no  (__tcz_popup_hex_dangling 1b 5b 41; and echo yes; or echo no)
-t "plain byte ok"         no  (__tcz_popup_hex_dangling 6a;       and echo yes; or echo no)
-t "empty ok"              no  (__tcz_popup_hex_dangling;          and echo yes; or echo no)
-
-# ---------------------------------------------------------------------
-# __tcz_popup_read_keys — one burst from stdin -> tokens (pipe-fed; stty no-ops)
-# ---------------------------------------------------------------------
-t "read_keys CSI up"      up   (printf '\e[A' | __tcz_popup_read_keys 2>/dev/null)
-t "read_keys SS3 down"    down (printf '\eOB' | __tcz_popup_read_keys 2>/dev/null)
-t "read_keys j=down"      down (printf 'j'    | __tcz_popup_read_keys 2>/dev/null)
-t "read_keys x=kill"      kill (printf 'x'    | __tcz_popup_read_keys 2>/dev/null)
-t "read_keys bare esc"    cancel (printf '\e' | __tcz_popup_read_keys 2>/dev/null)
-t "read_keys burst 2 down" "down down" (printf '\e[B\e[B' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
-t "read_keys burst nav+enter" "down enter" (printf '\e[B\r' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
-t "read_keys empty stdin -> 0 tokens" 0 (count (printf '' | __tcz_popup_read_keys 2>/dev/null))
-
-# ---------------------------------------------------------------------
-# __tcz_popup_apply_keys — pure: (sel n tokens...) -> "<newsel>\n<action>"
-# ---------------------------------------------------------------------
-t "apply 3 downs from 0/5"     "3 nav"    (__tcz_popup_apply_keys 0 5 down down down | string join ' ')
-t "apply up clamps at 0"       "0 nav"    (__tcz_popup_apply_keys 0 5 up | string join ' ')
-t "apply down clamps at n-1"   "4 nav"    (__tcz_popup_apply_keys 4 5 down | string join ' ')
-t "apply nav then enter"       "2 enter"  (__tcz_popup_apply_keys 0 5 down down enter | string join ' ')
-t "apply enter uses settled sel" "3 enter" (__tcz_popup_apply_keys 1 5 down down enter | string join ' ')
-t "apply up then cancel"       "1 cancel" (__tcz_popup_apply_keys 2 5 up cancel | string join ' ')
-t "apply down then kill"       "1 kill"   (__tcz_popup_apply_keys 0 5 down kill | string join ' ')
-t "apply other ignored"        "0 nav"    (__tcz_popup_apply_keys 0 5 other other | string join ' ')
-t "apply first terminal wins"  "1 enter"  (__tcz_popup_apply_keys 0 5 down enter cancel | string join ' ')
-t "apply n=1 down stays 0"     "0 nav"    (__tcz_popup_apply_keys 0 1 down | string join ' ')
-t "apply mixed up/down burst"  "3 nav"    (__tcz_popup_apply_keys 2 5 down up down | string join ' ')
+t "readkey SS3 up"   up   (printf '\eOA' | __tcz_popup_readkey 2>/dev/null)
+t "readkey SS3 down" down (printf '\eOB' | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI up"   up   (printf '\e[A' | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI down" down (printf '\e[B' | __tcz_popup_readkey 2>/dev/null)
+t "readkey j=down"   down (printf 'j'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 
 # ---------------------------------------------------------------------
 # command modal — pure helpers

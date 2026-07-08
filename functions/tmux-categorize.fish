@@ -695,108 +695,44 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_popup_parse_keys --description 'pure: hex byte list (argv) -> key tokens (up/down/enter/cancel/kill/other), one per line'
-    set -l N (count $argv)
-    set -l i 1
-    while test $i -le $N
-        switch $argv[$i]
-            case 6a
-                echo down                            # j
-            case 6b
-                echo up                              # k
-            case 71
-                echo cancel                          # q
-            case 78
-                echo kill                            # x
-            case 0d 0a
-                echo enter                           # CR / LF
-            case 1b                                  # ESC: CSI/SS3 arrow, or bare ESC
-                set -l b2 ''; set -l b3 ''
-                test (math $i + 1) -le $N; and set b2 $argv[(math $i + 1)]
-                test (math $i + 2) -le $N; and set b3 $argv[(math $i + 2)]
-                if test "$b2" = 5b; or test "$b2" = 4f     # [ or O
-                    switch "$b3"
-                        case 41
-                            echo up                  # A (up)
-                        case 42
-                            echo down                # B (down)
-                        case '*'
-                            echo other               # incomplete/unknown CSI/SS3
-                    end
-                    set i (math $i + 2)              # consumed b2 (+ b3)
-                else if test -z "$b2"
-                    echo cancel                      # bare trailing ESC
-                else
-                    echo cancel                      # ESC + non-arrow -> cancel (swallow b2, matches readkey)
-                    set i (math $i + 1)
-                end
-            case '*'
-                echo other
-        end
-        set i (math $i + 1)
+function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other'
+    # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
+    #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
+    #    sequences (treats them as cursor-move), so they never reach us.
+    #  - dd reads bytes verbatim, but it must be the HEAD of a pipeline in this
+    #    function — a command substitution `(dd …)` inside a function that is a
+    #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
+    #    sets VAR in scope. Bytes are compared as hex.
+    set -l b ''
+    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
+    test -z "$b"; and begin; echo cancel; return; end          # EOF
+    switch "$b"
+        case 6a; echo down; return                  # j
+        case 6b; echo up; return                    # k
+        case 71; echo cancel; return                # q
+        case 78; echo kill; return                  # x
+        case 0d 0a; echo enter; return              # CR / LF
     end
-end
-
-function __tcz_popup_hex_dangling --description 'pure: true if hex byte list ends mid escape sequence (lone 1b, or 1b 5b / 1b 4f awaiting final byte)'
-    set -l n (count $argv)
-    test $n -ge 1; or return 1
-    test $argv[$n] = 1b; and return 0
-    if test $n -ge 2; and test $argv[(math $n - 1)] = 1b
-        test $argv[$n] = 5b; or test $argv[$n] = 4f; and return 0
-    end
-    return 1
-end
-
-function __tcz_popup_read_keys --description 'read one input burst from stdin -> key tokens; drains all buffered bytes in one read, completes a split trailing escape'
-    # `dd` MUST be the HEAD of a real pipeline here, NOT wrapped in a command
-    # substitution. When this function runs as a pipe's RHS (as in the tests, and
-    # possible at runtime), a `(dd …)` command sub does NOT inherit the piped
-    # stdin — the same fish quirk the old __tcz_popup_readkey documented. So dd
-    # reads the tty/pipe as the pipeline head and `read -z` captures the hex into
-    # a function-scope var. One read grabs everything buffered (ambient stty is
-    # min 1 time 0: block for the first byte, return the whole burst). od can wrap
-    # to several lines for a big burst; `-z` reads them all, then flatten newlines.
-    set -l raw ''
-    dd bs=256 count=1 2>/dev/null | od -An -tx1 | read -lz raw
-    set -l hex (string split -n ' ' -- (string replace -a \n ' ' -- "$raw"))
-    # Rare: the burst was cut mid escape-sequence (byte stream split across reads,
-    # or a bare ESC). Grab the tail non-blocking, mirroring the old ESC follow-read.
-    # (On a pipe the stty calls no-op and dd hits EOF -> the loop breaks at once.)
-    if test (count $hex) -gt 0
+    if test "$b" = 1b                                # ESC
+        # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
         stty min 0 time 1 2>/dev/null
-        while __tcz_popup_hex_dangling $hex
-            set -l mraw ''
-            dd bs=8 count=1 2>/dev/null | od -An -tx1 | read -lz mraw
-            set -l more (string split -n ' ' -- (string replace -a \n ' ' -- "$mraw"))
-            test (count $more) -gt 0; or break
-            set hex $hex $more
+        set -l b2 ''
+        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
+        set -l b3 ''
+        if test "$b2" = 5b; or test "$b2" = 4f       # [ or O
+            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
         end
         stty min 1 time 0 2>/dev/null
-    end
-    __tcz_popup_parse_keys $hex
-end
-
-function __tcz_popup_apply_keys --argument-names sel n --description 'pure: reduce a key-token burst -> "<newsel>\n<action>" (action = nav|enter|cancel|kill); nav clamps 0..n-1'
-    set -e argv[1..2]                 # remaining argv = tokens
-    set -l s $sel
-    set -l action nav
-    for k in $argv
-        switch $k
-            case up
-                test $s -gt 0; and set s (math $s - 1)
-            case down
-                test $s -lt (math $n - 1); and set s (math $s + 1)
-            case enter
-                set action enter; break
-            case cancel
-                set action cancel; break
-            case kill
-                set action kill; break
-            case '*'
-                # 'other' -> ignore
+        if test "$b2" = 5b; or test "$b2" = 4f
+            switch "$b3"
+                case 41; echo up; return             # A (up)
+                case 42; echo down; return           # B (down)
+            end
+            echo other; return
         end
+        echo cancel; return                          # bare ESC
     end
-    printf '%s\n%s\n' $s $action
+    echo other
 end
 
 function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
@@ -1007,14 +943,11 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -l result ''
     while true
         __tcz_popup_draw $sel $listw $prevw $rows "$current" -- $model
-        set -l keys (__tcz_popup_read_keys)
-        # stdin EOF (popup tty closed) -> read_keys returns no tokens; exit
-        # cleanly, matching the old __tcz_popup_readkey EOF -> cancel path so the
-        # loop can't busy-spin re-reading EOF.
-        test (count $keys) -eq 0; and break
-        set -l act (__tcz_popup_apply_keys $sel $n $keys)
-        set sel $act[1]
-        switch $act[2]
+        switch (__tcz_popup_readkey)
+            case up
+                test $sel -gt 0; and set sel (math $sel - 1)
+            case down
+                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
             case enter
                 set result (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
                 break
@@ -1035,7 +968,6 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
                 end
             case cancel
                 break
-            # 'nav' -> sel already updated above; loop redraws once
         end
     end
     functions -e __tcz_popup_cleanup
