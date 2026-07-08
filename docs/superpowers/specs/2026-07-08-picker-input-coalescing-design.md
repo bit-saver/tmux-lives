@@ -1,7 +1,7 @@
 # Design — picker input coalescing (burst read + single redraw)
 
 **Date:** 2026-07-08
-**Status:** Designed (approved in brainstorming → writing-plans next)
+**Status:** SHIPPED to main 2026-07-08 (4 TDD tasks; final whole-branch review opus = ready-to-merge, no Critical/Important; 8/8 suites green). Pending: user's `fisher update` + live smoke (hold-↓ tracking, x→y/n confirm, SS3 nav).
 **Repo:** tmux-lives (`functions/tmux-categorize.fish`, `tests/test-tmux-popup.fish`)
 **Builds on:** the pure-fish two-pane popup switcher — `__tcz_popup` (the read/draw loop), `__tcz_popup_readkey` (byte→key reader, being replaced), `__tcz_popup_draw`/`__tcz_popup_preview` (the per-frame `capture-pane`).
 
