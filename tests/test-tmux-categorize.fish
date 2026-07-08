@@ -671,17 +671,23 @@ function tmux
             echo /home/x/workspace/tmux-lives
         case list-panes        # __tcz_session_has_claude reads cmd\tpid per pane
             printf '%s\n' $tcz_test_panes
+        case show-option       # @tmux_lives_name override (empty = fall back to dir)
+            echo $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 set -g tcz_test_panes (printf 'fish\t999')
+set -g tcz_test_name ''
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
+set -g tcz_test_panes (printf 'fish\t999')
+set -g tcz_test_name 'Neurotto CLI'
+t "session_title honors @tmux_lives_name over dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
-set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_name
 
 # empty active-pane path must not shift args (arg-shift guard)
 function tmux
