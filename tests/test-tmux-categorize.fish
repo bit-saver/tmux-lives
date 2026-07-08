@@ -282,6 +282,27 @@ t "cat: hand-named claude protected" "yes" \
 cleanup
 
 # ---------------------------------------------------------------------
+# @tmux_lives_name: explicit display override + claimed-session no-rename
+# Session name is numeric (42) rather than the brief's "dev1" example: a
+# non-numeric unstamped session is already protected by the pre-existing
+# __tcz_owned guard, so the no-rename assertion would pass trivially either
+# way. A numeric (owned) session WOULD be slug-renamed absent the new
+# claimed-skip check, so this actually exercises it.
+# ---------------------------------------------------------------------
+cleanup
+tmux new-session -d -s 42 'sleep 1000'
+tmux set-option -t 42 @tmux_lives_name "Neurotto CLI"
+sleep 0.5
+t "snap: @tmux_lives_name overrides display" "yes" \
+    (__tcz_snapshot | string match -q '42	*	Neurotto CLI'; and echo yes; or echo no)
+__tcz_categorize
+t "cat: claimed session keeps its tmux name" "yes" \
+    (tmux has-session -t =42 2>/dev/null; and echo yes; or echo no)
+t "cat: claimed session not slug-renamed" "no" \
+    (tmux has-session -t "=Neurotto-CLI" 2>/dev/null; and echo yes; or echo no)
+cleanup
+
+# ---------------------------------------------------------------------
 # lifecycle: rename when claude starts in a shell pane, revert when it exits
 # ---------------------------------------------------------------------
 cleanup

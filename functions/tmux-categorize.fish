@@ -157,7 +157,7 @@ end
 
 function __tcz_snapshot --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
-    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}')
+    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{@tmux_lives_name}')
     set -l panes (tmux list-panes -a -F $pane_fmt 2>/dev/null)
     test -n "$panes[1]"; or return
     set -l TAB (printf '\t')
@@ -190,11 +190,12 @@ function __tcz_snapshot --description 'one line per session: name\tcategory\tatt
         end
     end
     # attached / last_attached lookup
-    set -l snames; set -l satt; set -l slast
+    set -l snames; set -l satt; set -l slast; set -l sdisp
     for line in (tmux list-sessions -F $sess_fmt 2>/dev/null)
-        set -l f (string split $TAB -- $line)
+        set -l f (string split -m 3 $TAB -- $line)
         test (count $f) -ge 3; or continue
         set -a snames $f[1]; set -a satt $f[2]; set -a slast $f[3]
+        set -a sdisp (test (count $f) -ge 4; and echo $f[4]; or echo '')
     end
     for i in (seq (count $names))
         set -l att 0
@@ -221,6 +222,7 @@ function __tcz_snapshot --description 'one line per session: name\tcategory\tatt
                     set display $gpath[$i]
                 end
         end
+        test -n "$j"; and test -n "$sdisp[$j]"; and set display "$sdisp[$j]"
         printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $att $last "$display"
     end
 end
@@ -240,6 +242,9 @@ function __tcz_categorize --description 'rename every owned session to its live-
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
+        # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
+        set -l claimed (tmux show-option -qv -t "$cur" @tmux_lives_name 2>/dev/null)
+        test -n "$claimed"; and continue
         set -l desired
         switch $f[2]
             case claude running
