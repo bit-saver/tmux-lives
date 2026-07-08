@@ -198,6 +198,8 @@ t "parse mixed nav"     "down down up"   (__tcz_popup_parse_keys 1b 5b 42 6a 6b 
 t "parse nav then enter" "down enter"    (__tcz_popup_parse_keys 1b 5b 42 0d | string join ' ')
 t "parse burst nav then kill" "up kill"  (__tcz_popup_parse_keys 6b 78 | string join ' ')
 t "parse ESC+other swallows next byte" cancel (__tcz_popup_parse_keys 1b 6a | string join ' ')
+t "parse empty argv -> no tokens" 0 (count (__tcz_popup_parse_keys))
+t "parse incomplete CSI at end -> other" other (__tcz_popup_parse_keys 1b 5b | string join ' ')
 
 # ---------------------------------------------------------------------
 # __tcz_popup_hex_dangling — pure: ends mid escape-sequence?
@@ -233,6 +235,8 @@ t "apply up then cancel"       "1 cancel" (__tcz_popup_apply_keys 2 5 up cancel 
 t "apply down then kill"       "1 kill"   (__tcz_popup_apply_keys 0 5 down kill | string join ' ')
 t "apply other ignored"        "0 nav"    (__tcz_popup_apply_keys 0 5 other other | string join ' ')
 t "apply first terminal wins"  "1 enter"  (__tcz_popup_apply_keys 0 5 down enter cancel | string join ' ')
+t "apply n=1 down stays 0"     "0 nav"    (__tcz_popup_apply_keys 0 1 down | string join ' ')
+t "apply mixed up/down burst"  "3 nav"    (__tcz_popup_apply_keys 2 5 down up down | string join ' ')
 
 # ---------------------------------------------------------------------
 # command modal — pure helpers
