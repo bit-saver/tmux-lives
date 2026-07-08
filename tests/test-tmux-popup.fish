@@ -170,18 +170,13 @@ rm -f /tmp/tcz-draw-$fish_pid
 t "draw has no trailing newline (rows-1)" 7 "$DNL"
 
 # ---------------------------------------------------------------------
-# __tcz_popup_readkey — must accept SS3 (\eOA/\eOB) cursor keys, not only CSI
-# (\e[A/\e[B); many terminals/tmux send SS3 in application-cursor-keys mode.
-# Piped input has no tty (the stty calls no-op) but the byte parsing is what we test.
+# __tcz_popup loop wiring — consumes bursts via read_keys + apply_keys,
+# and the byte-by-byte __tcz_popup_readkey is gone.
 # ---------------------------------------------------------------------
-t "readkey SS3 up"   up   (printf '\eOA' | __tcz_popup_readkey 2>/dev/null)
-t "readkey SS3 down" down (printf '\eOB' | __tcz_popup_readkey 2>/dev/null)
-t "readkey CSI up"   up   (printf '\e[A' | __tcz_popup_readkey 2>/dev/null)
-t "readkey CSI down" down (printf '\e[B' | __tcz_popup_readkey 2>/dev/null)
-t "readkey j=down"   down (printf 'j'    | __tcz_popup_readkey 2>/dev/null)
-t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
-t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
-t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
+set -g POPUP_SRC (functions __tcz_popup | string collect)
+t "loop uses read_keys"  yes (string match -q '*__tcz_popup_read_keys*'  -- "$POPUP_SRC"; and echo yes; or echo no)
+t "loop uses apply_keys" yes (string match -q '*__tcz_popup_apply_keys*' -- "$POPUP_SRC"; and echo yes; or echo no)
+t "old readkey removed"  yes (functions -q __tcz_popup_readkey; and echo no; or echo yes)
 
 # ---------------------------------------------------------------------
 # __tcz_popup_parse_keys — pure hex-byte -> key tokens (one per line)

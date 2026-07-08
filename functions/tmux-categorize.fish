@@ -695,46 +695,6 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other'
-    # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
-    #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
-    #    sequences (treats them as cursor-move), so they never reach us.
-    #  - dd reads bytes verbatim, but it must be the HEAD of a pipeline in this
-    #    function — a command substitution `(dd …)` inside a function that is a
-    #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
-    #    sets VAR in scope. Bytes are compared as hex.
-    set -l b ''
-    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
-    test -z "$b"; and begin; echo cancel; return; end          # EOF
-    switch "$b"
-        case 6a; echo down; return                  # j
-        case 6b; echo up; return                    # k
-        case 71; echo cancel; return                # q
-        case 78; echo kill; return                  # x
-        case 0d 0a; echo enter; return              # CR / LF
-    end
-    if test "$b" = 1b                                # ESC
-        # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
-        stty min 0 time 1 2>/dev/null
-        set -l b2 ''
-        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
-        set -l b3 ''
-        if test "$b2" = 5b; or test "$b2" = 4f       # [ or O
-            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
-        end
-        stty min 1 time 0 2>/dev/null
-        if test "$b2" = 5b; or test "$b2" = 4f
-            switch "$b3"
-                case 41; echo up; return             # A (up)
-                case 42; echo down; return           # B (down)
-            end
-            echo other; return
-        end
-        echo cancel; return                          # bare ESC
-    end
-    echo other
-end
-
 function __tcz_popup_parse_keys --description 'pure: hex byte list (argv) -> key tokens (up/down/enter/cancel/kill/other), one per line'
     set -l N (count $argv)
     set -l i 1
@@ -1047,11 +1007,9 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -l result ''
     while true
         __tcz_popup_draw $sel $listw $prevw $rows "$current" -- $model
-        switch (__tcz_popup_readkey)
-            case up
-                test $sel -gt 0; and set sel (math $sel - 1)
-            case down
-                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
+        set -l act (__tcz_popup_apply_keys $sel $n (__tcz_popup_read_keys))
+        set sel $act[1]
+        switch $act[2]
             case enter
                 set result (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
                 break
@@ -1072,6 +1030,7 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
                 end
             case cancel
                 break
+            # 'nav' -> sel already updated above; loop redraws once
         end
     end
     functions -e __tcz_popup_cleanup
