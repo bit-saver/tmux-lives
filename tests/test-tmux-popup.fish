@@ -226,6 +226,19 @@ t "read_keys burst 2 down" "down down" (printf '\e[B\e[B' | __tcz_popup_read_key
 t "read_keys burst nav+enter" "down enter" (printf '\e[B\r' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
 
 # ---------------------------------------------------------------------
+# __tcz_popup_apply_keys — pure: (sel n tokens...) -> "<newsel>\n<action>"
+# ---------------------------------------------------------------------
+t "apply 3 downs from 0/5"     "3 nav"    (__tcz_popup_apply_keys 0 5 down down down | string join ' ')
+t "apply up clamps at 0"       "0 nav"    (__tcz_popup_apply_keys 0 5 up | string join ' ')
+t "apply down clamps at n-1"   "4 nav"    (__tcz_popup_apply_keys 4 5 down | string join ' ')
+t "apply nav then enter"       "2 enter"  (__tcz_popup_apply_keys 0 5 down down enter | string join ' ')
+t "apply enter uses settled sel" "3 enter" (__tcz_popup_apply_keys 1 5 down down enter | string join ' ')
+t "apply up then cancel"       "1 cancel" (__tcz_popup_apply_keys 2 5 up cancel | string join ' ')
+t "apply down then kill"       "1 kill"   (__tcz_popup_apply_keys 0 5 down kill | string join ' ')
+t "apply other ignored"        "0 nav"    (__tcz_popup_apply_keys 0 5 other other | string join ' ')
+t "apply first terminal wins"  "1 enter"  (__tcz_popup_apply_keys 0 5 down enter cancel | string join ' ')
+
+# ---------------------------------------------------------------------
 # command modal — pure helpers
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------

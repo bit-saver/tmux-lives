@@ -816,6 +816,29 @@ function __tcz_popup_read_keys --description 'read one input burst from stdin ->
     __tcz_popup_parse_keys $hex
 end
 
+function __tcz_popup_apply_keys --argument-names sel n --description 'pure: reduce a key-token burst -> "<newsel>\n<action>" (action = nav|enter|cancel|kill); nav clamps 0..n-1'
+    set -e argv[1..2]                 # remaining argv = tokens
+    set -l s $sel
+    set -l action nav
+    for k in $argv
+        switch $k
+            case up
+                test $s -gt 0; and set s (math $s - 1)
+            case down
+                test $s -lt (math $n - 1); and set s (math $s + 1)
+            case enter
+                set action enter; break
+            case cancel
+                set action cancel; break
+            case kill
+                set action kill; break
+            case '*'
+                # 'other' -> ignore
+        end
+    end
+    printf '%s\n%s\n' $s $action
+end
+
 function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
