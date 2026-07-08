@@ -202,6 +202,7 @@ t "parse triple down"   "down down down" (__tcz_popup_parse_keys 1b 5b 42 1b 5b 
 t "parse mixed nav"     "down down up"   (__tcz_popup_parse_keys 1b 5b 42 6a 6b | string join ' ')
 t "parse nav then enter" "down enter"    (__tcz_popup_parse_keys 1b 5b 42 0d | string join ' ')
 t "parse burst nav then kill" "up kill"  (__tcz_popup_parse_keys 6b 78 | string join ' ')
+t "parse ESC+other swallows next byte" cancel (__tcz_popup_parse_keys 1b 6a | string join ' ')
 
 # ---------------------------------------------------------------------
 # command modal — pure helpers

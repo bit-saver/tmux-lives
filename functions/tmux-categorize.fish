@@ -767,7 +767,8 @@ function __tcz_popup_parse_keys --description 'pure: hex byte list (argv) -> key
                 else if test -z "$b2"
                     echo cancel                      # bare trailing ESC
                 else
-                    echo cancel                      # ESC + non-arrow -> cancel (b2 reparsed next)
+                    echo cancel                      # ESC + non-arrow -> cancel (swallow b2, matches readkey)
+                    set i (math $i + 1)
                 end
             case '*'
                 echo other
