@@ -184,6 +184,26 @@ t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 
 # ---------------------------------------------------------------------
+# __tcz_popup_parse_keys — pure hex-byte -> key tokens (one per line)
+# ---------------------------------------------------------------------
+t "parse CSI up"        up     (__tcz_popup_parse_keys 1b 5b 41)
+t "parse CSI down"      down   (__tcz_popup_parse_keys 1b 5b 42)
+t "parse SS3 up"        up     (__tcz_popup_parse_keys 1b 4f 41)
+t "parse SS3 down"      down   (__tcz_popup_parse_keys 1b 4f 42)
+t "parse j=down"        down   (__tcz_popup_parse_keys 6a)
+t "parse k=up"          up     (__tcz_popup_parse_keys 6b)
+t "parse CR=enter"      enter  (__tcz_popup_parse_keys 0d)
+t "parse LF=enter"      enter  (__tcz_popup_parse_keys 0a)
+t "parse q=cancel"      cancel (__tcz_popup_parse_keys 71)
+t "parse x=kill"        kill   (__tcz_popup_parse_keys 78)
+t "parse bare ESC=cancel" cancel (__tcz_popup_parse_keys 1b)
+t "parse junk=other"    other  (__tcz_popup_parse_keys ff)
+t "parse triple down"   "down down down" (__tcz_popup_parse_keys 1b 5b 42 1b 5b 42 1b 5b 42 | string join ' ')
+t "parse mixed nav"     "down down up"   (__tcz_popup_parse_keys 1b 5b 42 6a 6b | string join ' ')
+t "parse nav then enter" "down enter"    (__tcz_popup_parse_keys 1b 5b 42 0d | string join ' ')
+t "parse burst nav then kill" "up kill"  (__tcz_popup_parse_keys 6b 78 | string join ' ')
+
+# ---------------------------------------------------------------------
 # command modal — pure helpers
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------

@@ -735,6 +735,47 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|
     echo other
 end
 
+function __tcz_popup_parse_keys --description 'pure: hex byte list (argv) -> key tokens (up/down/enter/cancel/kill/other), one per line'
+    set -l N (count $argv)
+    set -l i 1
+    while test $i -le $N
+        switch $argv[$i]
+            case 6a
+                echo down                            # j
+            case 6b
+                echo up                              # k
+            case 71
+                echo cancel                          # q
+            case 78
+                echo kill                            # x
+            case 0d 0a
+                echo enter                           # CR / LF
+            case 1b                                  # ESC: CSI/SS3 arrow, or bare ESC
+                set -l b2 ''; set -l b3 ''
+                test (math $i + 1) -le $N; and set b2 $argv[(math $i + 1)]
+                test (math $i + 2) -le $N; and set b3 $argv[(math $i + 2)]
+                if test "$b2" = 5b; or test "$b2" = 4f     # [ or O
+                    switch "$b3"
+                        case 41
+                            echo up                  # A (up)
+                        case 42
+                            echo down                # B (down)
+                        case '*'
+                            echo other               # incomplete/unknown CSI/SS3
+                    end
+                    set i (math $i + 2)              # consumed b2 (+ b3)
+                else if test -z "$b2"
+                    echo cancel                      # bare trailing ESC
+                else
+                    echo cancel                      # ESC + non-arrow -> cancel (b2 reparsed next)
+                end
+            case '*'
+                echo other
+        end
+        set i (math $i + 1)
+    end
+end
+
 function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
