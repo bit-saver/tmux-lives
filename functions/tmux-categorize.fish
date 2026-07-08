@@ -777,6 +777,45 @@ function __tcz_popup_parse_keys --description 'pure: hex byte list (argv) -> key
     end
 end
 
+function __tcz_popup_hex_dangling --description 'pure: true if hex byte list ends mid escape sequence (lone 1b, or 1b 5b / 1b 4f awaiting final byte)'
+    set -l n (count $argv)
+    test $n -ge 1; or return 1
+    test $argv[$n] = 1b; and return 0
+    if test $n -ge 2; and test $argv[(math $n - 1)] = 1b
+        test $argv[$n] = 5b; or test $argv[$n] = 4f; and return 0
+    end
+    return 1
+end
+
+function __tcz_popup_read_keys --description 'read one input burst from stdin -> key tokens; drains all buffered bytes in one read, completes a split trailing escape'
+    # `dd` MUST be the HEAD of a real pipeline here, NOT wrapped in a command
+    # substitution. When this function runs as a pipe's RHS (as in the tests, and
+    # possible at runtime), a `(dd …)` command sub does NOT inherit the piped
+    # stdin — the same fish quirk the old __tcz_popup_readkey documented. So dd
+    # reads the tty/pipe as the pipeline head and `read -z` captures the hex into
+    # a function-scope var. One read grabs everything buffered (ambient stty is
+    # min 1 time 0: block for the first byte, return the whole burst). od can wrap
+    # to several lines for a big burst; `-z` reads them all, then flatten newlines.
+    set -l raw ''
+    dd bs=256 count=1 2>/dev/null | od -An -tx1 | read -lz raw
+    set -l hex (string split -n ' ' -- (string replace -a \n ' ' -- "$raw"))
+    # Rare: the burst was cut mid escape-sequence (byte stream split across reads,
+    # or a bare ESC). Grab the tail non-blocking, mirroring the old ESC follow-read.
+    # (On a pipe the stty calls no-op and dd hits EOF -> the loop breaks at once.)
+    if test (count $hex) -gt 0
+        stty min 0 time 1 2>/dev/null
+        while __tcz_popup_hex_dangling $hex
+            set -l mraw ''
+            dd bs=8 count=1 2>/dev/null | od -An -tx1 | read -lz mraw
+            set -l more (string split -n ' ' -- (string replace -a \n ' ' -- "$mraw"))
+            test (count $more) -gt 0; or break
+            set hex $hex $more
+        end
+        stty min 1 time 0 2>/dev/null
+    end
+    __tcz_popup_parse_keys $hex
+end
+
 function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator

@@ -205,6 +205,27 @@ t "parse burst nav then kill" "up kill"  (__tcz_popup_parse_keys 6b 78 | string 
 t "parse ESC+other swallows next byte" cancel (__tcz_popup_parse_keys 1b 6a | string join ' ')
 
 # ---------------------------------------------------------------------
+# __tcz_popup_hex_dangling — pure: ends mid escape-sequence?
+# ---------------------------------------------------------------------
+t "dangling lone ESC"     yes (__tcz_popup_hex_dangling 1b;       and echo yes; or echo no)
+t "dangling ESC["         yes (__tcz_popup_hex_dangling 1b 5b;    and echo yes; or echo no)
+t "dangling ESCO"         yes (__tcz_popup_hex_dangling 1b 4f;    and echo yes; or echo no)
+t "complete arrow ok"     no  (__tcz_popup_hex_dangling 1b 5b 41; and echo yes; or echo no)
+t "plain byte ok"         no  (__tcz_popup_hex_dangling 6a;       and echo yes; or echo no)
+t "empty ok"              no  (__tcz_popup_hex_dangling;          and echo yes; or echo no)
+
+# ---------------------------------------------------------------------
+# __tcz_popup_read_keys — one burst from stdin -> tokens (pipe-fed; stty no-ops)
+# ---------------------------------------------------------------------
+t "read_keys CSI up"      up   (printf '\e[A' | __tcz_popup_read_keys 2>/dev/null)
+t "read_keys SS3 down"    down (printf '\eOB' | __tcz_popup_read_keys 2>/dev/null)
+t "read_keys j=down"      down (printf 'j'    | __tcz_popup_read_keys 2>/dev/null)
+t "read_keys x=kill"      kill (printf 'x'    | __tcz_popup_read_keys 2>/dev/null)
+t "read_keys bare esc"    cancel (printf '\e' | __tcz_popup_read_keys 2>/dev/null)
+t "read_keys burst 2 down" "down down" (printf '\e[B\e[B' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
+t "read_keys burst nav+enter" "down enter" (printf '\e[B\r' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
+
+# ---------------------------------------------------------------------
 # command modal — pure helpers
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
