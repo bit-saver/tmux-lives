@@ -1007,7 +1007,12 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -l result ''
     while true
         __tcz_popup_draw $sel $listw $prevw $rows "$current" -- $model
-        set -l act (__tcz_popup_apply_keys $sel $n (__tcz_popup_read_keys))
+        set -l keys (__tcz_popup_read_keys)
+        # stdin EOF (popup tty closed) -> read_keys returns no tokens; exit
+        # cleanly, matching the old __tcz_popup_readkey EOF -> cancel path so the
+        # loop can't busy-spin re-reading EOF.
+        test (count $keys) -eq 0; and break
+        set -l act (__tcz_popup_apply_keys $sel $n $keys)
         set sel $act[1]
         switch $act[2]
             case enter

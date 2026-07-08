@@ -219,6 +219,7 @@ t "read_keys x=kill"      kill (printf 'x'    | __tcz_popup_read_keys 2>/dev/nul
 t "read_keys bare esc"    cancel (printf '\e' | __tcz_popup_read_keys 2>/dev/null)
 t "read_keys burst 2 down" "down down" (printf '\e[B\e[B' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
 t "read_keys burst nav+enter" "down enter" (printf '\e[B\r' | __tcz_popup_read_keys 2>/dev/null | string join ' ')
+t "read_keys empty stdin -> 0 tokens" 0 (count (printf '' | __tcz_popup_read_keys 2>/dev/null))
 
 # ---------------------------------------------------------------------
 # __tcz_popup_apply_keys — pure: (sel n tokens...) -> "<newsel>\n<action>"
