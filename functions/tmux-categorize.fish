@@ -531,35 +531,40 @@ function __tcz_popup_truncate --argument-names text width --description 'truncat
         return 0
     end
     set -l ESC (printf '\e')
-    set -l BEL (printf '\a')
     set -l budget (math "$width - 1")
-    set -l chars (string split '' -- "$text")
-    set -l n (count $chars)
-    set -l i 1
-    set -l acc 0
+    # Tokenize into SGR/CSI escapes (zero display width, copied verbatim) and plain-text
+    # runs in ONE regex pass, then accumulate by RUN. This avoids the per-character
+    # `string length --visible`/`math` calls that made the old slow path O(line length)
+    # (~12ms/call on a wide colored pane -> ~130ms per 24-row preview redraw -> a laggy
+    # picker). Only a run that straddles the budget is walked, and only when it holds
+    # wide/zero-width chars. `capture-pane -e` emits SGR only, so a lone ESC (no `[`)
+    # falls through as its own token and is treated as zero-width, never split.
     set -l out ''
+    set -l acc 0
     set -l sawsgr 0
-    while test $i -le $n
-        set -l ch $chars[$i]
-        if test "$ch" = "$ESC"
-            # Copy a whole escape sequence verbatim (zero display width). CSI/SGR ends
-            # on a final byte in A-Z/a-z (the `m` of an SGR colour). `capture-pane -e`
-            # emits SGR only, so OSC (`\e]…`, ST/BEL-terminated) is intentionally out of
-            # scope here — the BEL check is a cheap guard, not full OSC parsing. Either
-            # way, never split a sequence across the cut.
-            set out "$out$ch"; set sawsgr 1; set i (math $i + 1)
-            while test $i -le $n
-                set -l c2 $chars[$i]
-                set out "$out$c2"; set i (math $i + 1)
-                if string match -qr '[A-Za-z]' -- "$c2"; or test "$c2" = "$BEL"
-                    break
-                end
-            end
+    for tok in (string match -a -r '\e\[[0-9;?]*[A-Za-z]|[^\e]+|\e' -- "$text")
+        if test (string sub -l 1 -- "$tok") = "$ESC"
+            set out "$out$tok"; set sawsgr 1
             continue
         end
-        set -l cw (string length --visible -- "$ch")
-        test (math "$acc + $cw") -gt $budget; and break
-        set out "$out$ch"; set acc (math "$acc + $cw"); set i (math $i + 1)
+        set -l vw (string length --visible -- "$tok")
+        if test (math "$acc + $vw") -le $budget
+            set out "$out$tok"; set acc (math "$acc + $vw")
+            continue
+        end
+        # this run overflows the budget: keep as many display columns as still fit
+        set -l need (math "$budget - $acc")
+        test $need -le 0; and break
+        if test (string length -- "$tok") -eq $vw
+            set out "$out"(string sub -l $need -- "$tok")     # all width-1 -> exact slice
+        else
+            for c in (string split '' -- "$tok")              # wide/zero-width -> walk this run only
+                set -l cw (string length --visible -- "$c")
+                test (math "$acc + $cw") -gt $budget; and break
+                set out "$out$c"; set acc (math "$acc + $cw")
+            end
+        end
+        break
     end
     set -l rst ''
     test $sawsgr -eq 1; and set rst (printf '\e[0m')

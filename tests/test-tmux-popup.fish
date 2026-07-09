@@ -57,6 +57,19 @@ set -g T_CUT (__tcz_popup_truncate "$T_LONG" 5)
 t "trunc honors visible width (5) ignoring escapes" 5 (string length --visible -- "$T_CUT")
 t "trunc resets colour before …" yes (printf '%s' "$T_CUT" | string match -qr '\x1b\[0m…$'; and echo yes; or echo no)
 t "trunc leaves no broken escape" "abcd…" (vis "$T_CUT")
+# characterization (pins exact output across the perf rewrite of the slow path)
+t "trunc plain long -> budget+…"        "abcdefghi…"           (__tcz_popup_truncate "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ" 10)
+t "trunc keeps SGR runs before the cut" (printf 'aaa\e[31mbb\e[0m…')  (__tcz_popup_truncate (printf 'aaa\e[31mbbbbbbbbbb\e[0mccc') 6)
+t "trunc wide chars after an SGR run"   (printf '\e[32m日本\e[0m…')    (__tcz_popup_truncate (printf '\e[32m日本語テストです') 6)
+# perf guard: truncate must NOT cost O(line length) with per-char builtin calls.
+# The old slow path was ~12ms/call on a wide colored pane -> ~130ms/redraw (24 rows)
+# -> a laggy picker. Coarse wall-clock bound (dev-box calibrated: old ~586ms/50 calls).
+set -g HEAVY ''
+for hi in (seq 40); set HEAVY "$HEAVY"(printf '\e[38;5;%smword%s ' (math "$hi % 256") $hi); end
+set -g TR_S (date +%s%N)
+for hi in (seq 50); __tcz_popup_truncate "$HEAVY" 40 >/dev/null; end
+set -g TR_MS (math "round(("(date +%s%N)" - $TR_S)/1000000)")
+t "truncate heavy colored line is fast (<300ms/50)" ok (test $TR_MS -lt 300; and echo ok; or echo "SLOW=$TR_MS""ms")
 
 # ---------------------------------------------------------------------
 # __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
