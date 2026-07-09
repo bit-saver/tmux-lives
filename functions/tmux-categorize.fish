@@ -1055,7 +1055,10 @@ end
 
 function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'
     test -n "$session"; or return 0
-    set -l path (tmux display-message -p -t "=$session" '#{pane_current_path}' 2>/dev/null)
+    # NB: `display-message -t "=$session" '#{pane_current_path}'` returns EMPTY in tmux
+    # 3.3a (the =exact-target quirk — see [[tmux-target-quirks]]); list-panes honors = AND
+    # resolves the active pane's path. Filter to the active pane of the session's window.
+    set -l path (tmux list-panes -t "=$session" -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
     set -l name (tmux show-option -qv -t "$session" @tmux_lives_name 2>/dev/null)

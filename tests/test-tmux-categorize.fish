@@ -667,16 +667,19 @@ rm -f $ttl
 # session_has_claude / session_title via a tmux stub (switch on subcommand)
 function tmux
     switch "$argv[1]"
-        case display-message   # __tcz_session_title reads only #{pane_current_path}
-            echo /home/x/workspace/tmux-lives
-        case list-panes        # __tcz_session_has_claude reads cmd\tpid per pane
-            printf '%s\n' $tcz_test_panes
+        case list-panes
+            if string match -q '*pane_current_path*' -- "$argv"
+                echo $tcz_test_path              # __tcz_session_title: active-pane cwd
+            else
+                printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
+            end
         case show-option       # @tmux_lives_name override (empty = fall back to dir)
             echo $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 set -g tcz_test_panes (printf 'fish\t999')
+set -g tcz_test_path /home/x/workspace/tmux-lives
 set -g tcz_test_name ''
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
@@ -687,21 +690,40 @@ set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_name 'Neurotto CLI'
 t "session_title honors @tmux_lives_name over dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
-set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_name
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name
 
 # empty active-pane path must not shift args (arg-shift guard)
 function tmux
     switch "$argv[1]"
-        case display-message
-            echo ''
         case list-panes
-            printf 'claude\t999\n'
+            if string match -q '*pane_current_path*' -- "$argv"
+                echo ''                          # empty active-pane path
+            else
+                printf 'claude\t999\n'           # session has claude
+            end
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
 functions -e tmux
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
+
+# real-tmux integration: __tcz_session_title must resolve the active pane's cwd.
+# REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
+# returns EMPTY in tmux 3.3a (the =exact-target quirk — same family as set/show-option),
+# so ShellFish tab titles rendered "<host>:  (C)" with a BLANK dir. The stub tests above
+# can't catch a real-tmux targeting quirk, so drive a private -L socket. The fix reads the
+# path via `list-panes -t "=$session"` (honors = AND resolves the pane path).
+set -g tsock tcz-title-$fish_pid
+set -g twdir /tmp/tcz-titledir-$fish_pid
+rm -rf $twdir; mkdir -p $twdir
+command tmux -L $tsock -f /dev/null new-session -d -s realsess -c $twdir 2>/dev/null
+function tmux; command tmux -L $tsock $argv; end
+set -g tmux_lives_hostname boxhost
+t "session_title resolves active-pane cwd (real tmux, =target)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+functions -e tmux
+command tmux -L $tsock kill-server 2>/dev/null
+set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir
 
 # retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
 set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
