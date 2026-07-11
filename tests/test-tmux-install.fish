@@ -81,7 +81,9 @@ t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux
 t "fragment current-format keeps bold + tints claude" yes (string match -q '*window-status-current-format*#[bold]*#{?#{==:#{window_name},claude}*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
 # cap bg must be QUOTED so a #rrggbb hex is not swallowed as a tmux comment (empty value).
-t "fragment cap bg derives from the shellfish color (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
+# cap bg is now the ADAPTIVE shade of the bar (lighter on a dark bar), NOT equal to the bar.
+t "fragment cap bg is the adaptive shade (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
@@ -100,7 +102,7 @@ printf '%s\n' $BARR > /tmp/tli-barrfrag-$fish_pid.conf
 t "real bar fragment parses (source-file rc0)" 0 (command tmux -L $brsock source-file /tmp/tli-barrfrag-$fish_pid.conf 2>/dev/null; echo $status)
 # the #rrggbb cap bg must SURVIVE the source (an unquoted # would be eaten as a comment ->
 # empty value even though source-file still returns rc0). Assert the live option is the hex.
-t "real: cap bg option stored non-empty hex" "#5793f0" (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "real: cap bg option stored non-empty hex" "#81aef4" (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "real: status-format[0] stored non-empty" 1 (test -n (command tmux -L $brsock show -gv status-format[0] 2>/dev/null); and echo 1; or echo 0)
 command tmux -L $brsock kill-server 2>/dev/null; rm -f /tmp/tli-barrfrag-$fish_pid.conf
 # baseline no longer owns the layout (fragment's status-format[0] does)
@@ -109,10 +111,17 @@ t "baseline no longer sets status-left" yes (string match -q '*set -g status-lef
 t "baseline no longer sets window-status-format" yes (string match -q '*window-status-format*' -- "$BT"; and echo no; or echo yes)
 t "baseline still sets the clock @var" yes (string match -q '*@tmux_lives_status_right*' -- "$BT"; and echo yes; or echo no)
 t "baseline keeps status-right-length (referenced by the new right zone)" yes (string match -q '*status-right-length*' -- "$BT"; and echo yes; or echo no)
+t "baseline clock is date-first (date then time)" yes (string match -q '*@tmux_lives_status_right "%b %-d · %-I:%M %p*' -- "$BT"; and echo yes; or echo no)
 # derive helper: just the bg hex of the derived status-style
 t "derive_status_bg: lighter #1f6feb" "#5793f0" (__tmux_lives_derive_status_bg "#1f6feb" 0)
 t "derive_status_bg: darker #1f6feb"  "#1753b0" (__tmux_lives_derive_status_bg "#1f6feb" 1)
 t "derive_status_bg: named -> empty"  ""        (__tmux_lives_derive_status_bg "red" 0)
+# adaptive cap bg: lighter on a dark bar, darker on a light bar (luminance threshold 140)
+t "derive_cap_bg: black bar -> lighter"        "#404040" (__tmux_lives_derive_cap_bg "#000000")
+t "derive_cap_bg: white bar -> darker"         "#bfbfbf" (__tmux_lives_derive_cap_bg "#ffffff")
+t "derive_cap_bg: dark bar (#36442d) lighter"  "#687362" (__tmux_lives_derive_cap_bg "#36442d")
+t "derive_cap_bg: light bar (#c8d0c0) darker"  "#969c90" (__tmux_lives_derive_cap_bg "#c8d0c0")
+t "derive_cap_bg: unparseable -> empty"        ""        (__tmux_lives_derive_cap_bg "colour236")
 
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file

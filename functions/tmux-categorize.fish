@@ -156,11 +156,11 @@ function __tcz_status_format --description 'pure: the status-format[0] string (a
     set -l win '#{W:#{T:window-status-format}#{?window_end_flag,,#{window-status-separator}},#{T:window-status-current-format}#{?window_end_flag,,#{window-status-separator}}}'
     set -l id (__tcz_status_identity)
     # host cap (far left): styled segment + slant into the bar, then the window list (flat)
-    set -l hostcap "#[fg=#{@tmux_lives_cap_fg},bg=$capbg] $glyph #{host_short} #[fg=$capbg,bg=default,none]$slantR#[default]"
+    set -l hostcap "#[fg=#{@tmux_lives_cap_fg},bg=$capbg] $glyph #{host_short} #[fg=$capbg,bg=#{@tmux_lives_bar_bg},none]$slantR#[default]"
     # centre: prefix chevron, else resize badge, else identity
     set -l centre "#{?client_prefix,❯ ,}#{?#{==:#{client_key_table},tmuxlives-resize},◇ RESIZE ◇  #[fg=#{@tmux_lives_cap_fg}]arrows move · x kill · esc/enter done,$id}"
     # clock cap (far right): slant opening the cap, then status-right (tick + continuum live here)
-    set -l clockcap "#[fg=$capbg,bg=default]$slantL#[fg=#{@tmux_lives_cap_fg},bg=$capbg] #{T;=/#{status-right-length}:status-right} #[default]"
+    set -l clockcap "#[fg=$capbg,bg=#{@tmux_lives_bar_bg}]$slantL#[fg=#{@tmux_lives_cap_fg},bg=$capbg] #{T;=/#{status-right-length}:status-right} #[default]"
     echo "#[align=left]$hostcap $win#[align=centre]$centre#[align=right]$clockcap"
 end
 

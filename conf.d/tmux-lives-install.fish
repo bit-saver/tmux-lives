@@ -66,11 +66,15 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g window-status-format '#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}'"
     set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}#[nobold]'"
     set -a f "set -g window-status-separator ' • '"
-    # cap/accent colors: cap bg from the ShellFish-derived bar bg; accents a fixed amber family.
-    set -l capbg (__tmux_lives_derive_status_bg $color $invert)   # just the bg hex, or a default
+    # cap/accent colors. bar bg = the ShellFish-derived status bg; cap bg = an ADAPTIVE shade of it
+    # (lighter on a dark bar / darker on a light bar) so the powerline caps read as a distinct segment.
+    set -l barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
+    test -n "$barbg"; or set barbg colour236
+    set -l capbg (__tmux_lives_derive_cap_bg $barbg)              # distinct adaptive shade of the bar
     test -n "$capbg"; or set capbg colour238
-    # QUOTE the value: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
+    # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
     # quotes keep the '#5793f0' bg intact (harmless around the colourNNN default too).
+    set -a f "set -g @tmux_lives_bar_bg '$barbg'"                 # slant transition target (cap -> bar)
     set -a f "set -g @tmux_lives_cap_bg '$capbg'"
     set -a f "set -g @tmux_lives_cap_fg colour231"
     set -a f "set -g @tmux_lives_prefix_color colour214"
@@ -433,6 +437,22 @@ function __tmux_lives_derive_status_bg --description 'css color + invert -> just
     string replace -rf '.*bg=([^,]+).*' '$1' -- $ss
 end
 
+function __tmux_lives_derive_cap_bg --argument-names hex --description 'bar bg #rrggbb -> a distinct powerline-cap bg: lighter on a dark bar, darker on a light bar (luminance-adaptive, threshold 140; same +25% / x0.75 shades as derive_status). Empty if unparseable.'
+    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
+    test (count $m) -eq 3; or return 0
+    set -l r (math "0x$m[1]"); set -l g (math "0x$m[2]"); set -l b (math "0x$m[3]")
+    set -l L (math "round(0.299 * $r + 0.587 * $g + 0.114 * $b)")
+    set -l nr; set -l ng; set -l nb
+    if test $L -gt 140
+        # light bar -> darker cap
+        set nr (math "round($r * 0.75)"); set ng (math "round($g * 0.75)"); set nb (math "round($b * 0.75)")
+    else
+        # dark bar -> lighter cap
+        set nr (math "round($r + (255 - $r) * 0.25)"); set ng (math "round($g + (255 - $g) * 0.25)"); set nb (math "round($b + (255 - $b) * 0.25)")
+    end
+    printf '#%02x%02x%02x' $nr $ng $nb
+end
+
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
@@ -528,7 +548,7 @@ function __tmux_lives_baseline_template --description 'print the default ~/.tmux
         'set -g status-right-length 60' \
         '# status-right content goes through this var so tmux-lives keeps the categorize tick' \
         '# + continuum autosave attached (it sets the actual status-right). 12h, month-first:' \
-        'set -g @tmux_lives_status_right "%-I:%M %p · %b %-d "' \
+        'set -g @tmux_lives_status_right "%b %-d · %-I:%M %p "' \
         '' \
         '# --- non-ShellFish baseline (re-applied when a non-ShellFish client attaches) ---' \
         "# Settings ShellFish's integration forces that you want undone for other clients." \
