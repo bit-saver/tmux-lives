@@ -109,6 +109,16 @@ function __tcz_hostname --description 'short hostname (cache + test seam: tmux_l
     echo $tmux_lives_hostname
 end
 
+function __tcz_host_kind --description 'remote|local: universal tmux_lives_host_kind override, else SSH env, else local'
+    if set -q tmux_lives_host_kind; and test -n "$tmux_lives_host_kind"
+        echo $tmux_lives_host_kind; return
+    end
+    if test -n "$SSH_CONNECTION"; or test -n "$SSH_TTY"
+        echo remote; return
+    end
+    echo local
+end
+
 function __tcz_dir_display --argument-names path --description 'path -> display dir: $HOME as ~, else basename'
     test -n "$path"; or return 0
     test "$path" = "$HOME"; and echo '~'; or basename -- "$path"

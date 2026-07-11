@@ -761,6 +761,24 @@ functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak _
 set -e tmux_lives_fake_environ
 rm -f $rt1 $rt2
 
+# --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
+set -e tmux_lives_host_kind
+set -l ssh_conn_save $SSH_CONNECTION
+set -l ssh_tty_save $SSH_TTY
+set -gx SSH_CONNECTION '10.0.0.5 40000 10.0.0.1 22'
+set -e SSH_TTY
+t "host_kind remote when SSH_CONNECTION set" remote (__tcz_host_kind)
+set -e SSH_CONNECTION
+set -e SSH_TTY
+t "host_kind local with no ssh env" local (__tcz_host_kind)
+set -gx tmux_lives_host_kind remote   # explicit override wins even locally
+t "host_kind override wins" remote (__tcz_host_kind)
+set -e tmux_lives_host_kind
+# restore SSH env for later tests
+if set -q ssh_conn_save; and test -n "$ssh_conn_save"; set -gx SSH_CONNECTION $ssh_conn_save; end
+if set -q ssh_tty_save; and test -n "$ssh_tty_save"; set -gx SSH_TTY $ssh_tty_save; end
+set -e ssh_conn_save ssh_tty_save
+
 # --- @tmux_lives_claude population (drives the ✦ name in the bar) ---
 set -g CLAUDE_SET ''
 function tmux
