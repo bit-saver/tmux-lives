@@ -1082,7 +1082,8 @@ function __tcz_recolor --argument-names color mode --description 'emit the Shell
         set -l tty $parts[2]
         test -n "$tty"; or continue
         __tcz_client_is_shellfish $pid; or continue
-        test "$mode" = dedup; and test "$color" = (__tcz_emit_get $tty color); and continue
+        set -l cached (__tcz_emit_get $tty color)
+        test "$mode" = dedup; and test "$color" = "$cached"; and continue
         __tcz_emit_barcolor $tty $color
         __tcz_emit_set $tty color $color
     end
@@ -1151,7 +1152,8 @@ function __tcz_retitle --argument-names mode --description 'emit each attached S
         __tcz_client_is_shellfish $pid; or continue
         set -l title (__tcz_session_title $session)
         test -n "$title"; or continue
-        test "$mode" = dedup; and test "$title" = (__tcz_emit_get $tty title); and continue
+        set -l cached (__tcz_emit_get $tty title)
+        test "$mode" = dedup; and test "$title" = "$cached"; and continue
         __tcz_emit_title $tty $title
         __tcz_emit_set $tty title $title
     end
