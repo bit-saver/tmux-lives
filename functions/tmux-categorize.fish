@@ -1088,6 +1088,18 @@ function __tcz_recolor --argument-names color mode --description 'emit the Shell
     end
 end
 
+function __tcz_heal_due --argument-names now --description 'true (rc0) when the color-only backstop is due: @tmux_lives_heal_interval>0 and now>=@tmux_lives_heal_at (unset=due); advances @tmux_lives_heal_at to now+interval. interval 0 (or unset->120) gates it.'
+    set -l interval (tmux show -gv @tmux_lives_heal_interval 2>/dev/null)
+    test -n "$interval"; or set interval 120
+    test "$interval" -gt 0 2>/dev/null; or return 1
+    set -l at (tmux show -gv @tmux_lives_heal_at 2>/dev/null)
+    if test -z "$at"; or test "$now" -ge "$at" 2>/dev/null
+        tmux set -g @tmux_lives_heal_at (math $now + $interval) 2>/dev/null
+        return 0
+    end
+    return 1
+end
+
 function __tcz_emit_title --argument-names tty title --description 'write the OSC 2 title escape for <title> to <tty> (non-passthrough; client-tty level)'
     test -n "$title"; or return 0
     printf '\033]2;%s\a' "$title" > $tty
@@ -1220,8 +1232,9 @@ function __tcz_main
             __tcz_categorize
         case tick
             __tcz_categorize >/dev/null 2>&1
-            test -n "$argv[2]"; and __tcz_recolor $argv[2]
-            __tcz_retitle
+            test -n "$argv[2]"; and __tcz_recolor $argv[2] dedup
+            __tcz_retitle dedup
+            test -n "$argv[2]"; and __tcz_heal_due (date +%s); and __tcz_recolor $argv[2]
             return 0
         case overview
             __tcz_overview

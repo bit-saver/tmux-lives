@@ -898,6 +898,28 @@ command tmux -L $sock kill-server 2>/dev/null
 set -e tmux_lives_state_file
 rm -f $statefile
 
+# ---------------------------------------------------------------------
+# __tcz_heal_due — the color-only backstop timer
+# ---------------------------------------------------------------------
+set -g HEAL_at ''; set -g HEAL_interval 120
+function tmux
+    switch "$argv[1]"
+        case show
+            string match -q '*heal_interval' -- "$argv[3]"; and echo $HEAL_interval
+            string match -q '*heal_at' -- "$argv[3]"; and echo $HEAL_at
+        case set
+            string match -q '*heal_at' -- "$argv[3]"; and set -g HEAL_at "$argv[-1]"
+        case '*'
+    end
+end
+t "heal due when unset (schedules)" 0 (__tcz_heal_due 1000; echo $status)
+t "heal_at advanced to now+interval" 1120 "$HEAL_at"
+t "heal not due before the interval" 1 (__tcz_heal_due 1100; echo $status)
+t "heal due at/after the schedule" 0 (__tcz_heal_due 1120; echo $status)
+set -g HEAL_interval 0
+t "heal disabled when interval 0" 1 (__tcz_heal_due 999999; echo $status)
+functions -e tmux; set -e HEAL_at; set -e HEAL_interval
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
