@@ -708,6 +708,22 @@ t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (
 functions -e tmux
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 
+# ---------------------------------------------------------------------
+# __tcz_status_format — pure status-format[0] builder
+# ---------------------------------------------------------------------
+set -g SF (__tcz_status_format)
+t "sf has all three align zones" yes (string match -q '*#[align=left]*' -- "$SF"; and string match -q '*#[align=centre]*' -- "$SF"; and string match -q '*#[align=right]*' -- "$SF"; and echo yes; or echo no)
+t "sf right zone renders status-right (tick/continuum preserved)" yes (string match -q '*#{T;=/#{status-right-length}:status-right}*' -- "$SF"; and echo yes; or echo no)
+t "sf window list is names-only, no trailing sep" yes (string match -q '*#{W:*window_end_flag*window-status-separator*' -- "$SF"; and echo yes; or echo no)
+t "sf window list template-expands the option" yes (string match -q '*#{T:window-status-format}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity honors @tmux_lives_name then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity shows claude name with diamond mark" yes (string match -q '*#{?#{!=:#{@tmux_lives_claude},}, ✦ #{@tmux_lives_claude},}*' -- "$SF"; and echo yes; or echo no)
+t "sf host cap picks glyph by host_kind" yes (string match -q '*#{?#{==:#{@tmux_lives_host_kind},remote},#{@tmux_lives_glyph_remote},#{@tmux_lives_glyph_local}}*' -- "$SF"; and echo yes; or echo no)
+t "sf host cap shows hostname" yes (string match -q '*#{host_short}*' -- "$SF"; and echo yes; or echo no)
+t "sf prefix shows chevron via client_prefix" yes (string match -q '*#{?client_prefix,*❯*' -- "$SF"; and echo yes; or echo no)
+t "sf resize badge via key-table" yes (string match -q '*#{?#{==:#{client_key_table},tmuxlives-resize},*◇ RESIZE ◇*' -- "$SF"; and echo yes; or echo no)
+t "sf caps recolor on prefix/resize" yes (string match -q '*#{@tmux_lives_prefix_color}*' -- "$SF"; and string match -q '*#{@tmux_lives_resize_color}*' -- "$SF"; and string match -q '*#{@tmux_lives_cap_bg}*' -- "$SF"; and echo yes; or echo no)
+
 # real-tmux integration: __tcz_session_title must resolve the active pane's cwd.
 # REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
 # returns EMPTY in tmux 3.3a (the =exact-target quirk — same family as set/show-option),

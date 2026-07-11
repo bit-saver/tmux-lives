@@ -120,6 +120,24 @@ function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>:
     echo $s
 end
 
+function __tcz_status_format --description 'pure: the status-format[0] string (all tunables are @options; right zone renders status-right so tick/continuum survive)'
+    # PUA glyphs via codepoints (never paste literal PUA): powerline slants.
+    set -l slantR (printf '\U0000e0b0')   # right-pointing, closes a left-anchored cap
+    set -l slantL (printf '\U0000e0b2')   # left-pointing, opens a right-anchored cap
+    # The cap background follows the mode: prefix -> prefix color, resize -> resize color, else the base cap bg.
+    set -l capbg '#{?client_prefix,#{@tmux_lives_prefix_color},#{?#{==:#{client_key_table},tmuxlives-resize},#{@tmux_lives_resize_color},#{@tmux_lives_cap_bg}}}'
+    set -l glyph '#{?#{==:#{@tmux_lives_host_kind},remote},#{@tmux_lives_glyph_remote},#{@tmux_lives_glyph_local}}'
+    set -l win '#{W:#{T:window-status-format}#{?window_end_flag,,#{window-status-separator}},#{T:window-status-current-format}#{?window_end_flag,,#{window-status-separator}}}'
+    set -l id '#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}#{?#{!=:#{@tmux_lives_claude},}, ✦ #{@tmux_lives_claude},}'
+    # host cap (far left): styled segment + slant into the bar, then the window list (flat)
+    set -l hostcap "#[fg=#{@tmux_lives_cap_fg},bg=$capbg] $glyph #{host_short} #[fg=$capbg,bg=default,none]$slantR#[default]"
+    # centre: prefix chevron, else resize badge, else identity
+    set -l centre "#{?client_prefix,❯ ,}#{?#{==:#{client_key_table},tmuxlives-resize},◇ RESIZE ◇  #[fg=#{@tmux_lives_cap_fg}]arrows move · x kill · esc/enter done,$id}"
+    # clock cap (far right): slant opening the cap, then status-right (tick + continuum live here)
+    set -l clockcap "#[fg=$capbg,bg=default]$slantL#[fg=#{@tmux_lives_cap_fg},bg=$capbg] #{T;=/#{status-right-length}:status-right} #[default]"
+    echo "#[align=left]$hostcap $win#[align=centre]$centre#[align=right]$clockcap"
+end
+
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
     # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.
