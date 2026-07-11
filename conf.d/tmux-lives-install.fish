@@ -61,8 +61,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # --- status bar overhaul: names-only window list, @option-driven caps, status-format[0] ---
     # Layout lives in status-format[0] (built by the categorizer's pure `status-format` verb);
     # every knob is a live-tunable @option so `tmux set -g @tmux_lives_*` retints with no re-render.
-    set -a f "set -g window-status-format '#W'"
-    set -a f "set -g window-status-current-format '#[bold]#W#[nobold]'"
+    # tint the auto-named `claude` window in @tmux_lives_claude_color; reset fg after so the
+    # separator / other windows are unaffected. Position unchanged; current stays bold.
+    set -a f "set -g window-status-format '#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}'"
+    set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}#[nobold]'"
     set -a f "set -g window-status-separator ' • '"
     # cap/accent colors: cap bg from the ShellFish-derived bar bg; accents a fixed amber family.
     set -l capbg (__tmux_lives_derive_status_bg $color $invert)   # just the bg hex, or a default
@@ -73,6 +75,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @tmux_lives_cap_fg colour231"
     set -a f "set -g @tmux_lives_prefix_color colour214"
     set -a f "set -g @tmux_lives_resize_color colour208"
+    set -a f "set -g @tmux_lives_claude_color '#D97757'"   # Claude coral; static, independent of the ShellFish bar color
+    set -a f "set -g @tmux_lives_heal_interval 120"        # color-only self-heal backstop seconds (0 = off)
     set -a f "set -g @tmux_lives_glyph_remote '"(printf '\U0000eb3a')"'"   # cod-remote
     set -a f "set -g @tmux_lives_glyph_local '"(printf '\U0000ea7a')"'"    # cod-vm
     # host-kind + status-format are computed at RENDER time by the categorizer (pure verbs).

@@ -74,8 +74,11 @@ command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid
 set -g BAR (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
 t "fragment sets status-format[0]" yes (string match -q '*set -g status-format[0]*' -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-right with the tick" yes (string match -q '*set -g status-right*tick*' -- "$BAR"; and echo yes; or echo no)
-t "fragment sets window-status-format names-only" yes (string match -q "*set -g window-status-format '#W'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment window-status-format tints the claude window" yes (string match -q "*set -g window-status-format '#{?#{==:#{window_name},claude}*" -- "$BAR"; and string match -q '*#{@tmux_lives_claude_color}*' -- "$BAR"; and echo yes; or echo no)
 t "fragment sets window-status-separator bullet" yes (string match -q '*window-status-separator*•*' -- "$BAR"; and echo yes; or echo no)
+t "fragment seeds @tmux_lives_claude_color (quoted hex)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux_lives_heal_interval 120*' -- "$BAR"; and echo yes; or echo no)
+t "fragment current-format keeps bold + tints claude" yes (string match -q '*window-status-current-format*#[bold]*#{?#{==:#{window_name},claude}*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
 # cap bg must be QUOTED so a #rrggbb hex is not swallowed as a tmux comment (empty value).
 t "fragment cap bg derives from the shellfish color (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
