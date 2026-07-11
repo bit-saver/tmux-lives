@@ -48,8 +48,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "# command; show 'claude' for a version-like name, pass everything else through."
     set -a f "set -g automatic-rename-format '#{?pane_in_mode,[tmux],#{?#{m:*.*.*,#{pane_current_command}},claude,#{pane_current_command}}}#{?pane_dead,[dead],}'"
     # Source the user's general config (~/.tmux-lives.conf) if present — applies to every
-    # client at load (and is re-sourced on non-ShellFish attach). It sets status-left, the
-    # lengths, window-status styles, and overrides the @tmux_lives_status_right time below.
+    # client at load (and is re-sourced on non-ShellFish attach). The baseline sets the clock
+    # @var (@tmux_lives_status_right) + status-right-length; layout (window list, identity, caps) now lives in status-format[0] below.
     set -a f "set -g @tmux_lives_status_right \"%-I:%M %p · %b %-d \""
     set -a f "if-shell '[ -f $baseline ]' 'source-file $baseline'"
     # status-right = the time format via #{T:@var} (so strftime applies) + our tick.
@@ -82,7 +82,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # (empty value). 2>/dev/null keeps a bad path from leaking "No such file" to stderr.
     set -l hostkind ""; set hostkind (fish --no-config $cat host-kind 2>/dev/null)
     set -l sfmt ""; set sfmt (fish --no-config $cat status-format 2>/dev/null)
-    set -a f "set -g @tmux_lives_host_kind $hostkind"
+    set -a f "set -g @tmux_lives_host_kind '$hostkind'"
     set -a f "set -g @tmux_lives_claude ''"
     set -a f "set -g status-format[0] \"$sfmt\""
     # reapply the persisted status-position/visibility (written by the C-M-a/C-M-s toggles)
