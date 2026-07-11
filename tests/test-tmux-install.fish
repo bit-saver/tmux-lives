@@ -68,6 +68,49 @@ printf '%s\n' "$FRAGS" | string replace -a '/x/cat.fish' '/tmp/nope.fish' >/tmp/
 t "status fragment parses (source-file rc0)" 0 (command tmux -L $rsock2 source-file /tmp/tli-sbfrag-$fish_pid.conf 2>/dev/null; echo $status)
 command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid.conf
 
+# --- status-bar overhaul: fragment carries the new bar + keeps the plumbing ---
+# Render with a color so status-style is emitted; fake cat path -> host-kind/status-format
+# substitutions yield empty (render silences their stderr), but the option NAMES are present.
+set -g BAR (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
+t "fragment sets status-format[0]" yes (string match -q '*set -g status-format[0]*' -- "$BAR"; and echo yes; or echo no)
+t "fragment still sets status-right with the tick" yes (string match -q '*set -g status-right*tick*' -- "$BAR"; and echo yes; or echo no)
+t "fragment sets window-status-format names-only" yes (string match -q "*set -g window-status-format '#W'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment sets window-status-separator bullet" yes (string match -q '*window-status-separator*•*' -- "$BAR"; and echo yes; or echo no)
+t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
+# cap bg must be QUOTED so a #rrggbb hex is not swallowed as a tmux comment (empty value).
+t "fragment cap bg derives from the shellfish color (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
+# rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
+set -g sfsock tli-bar-$fish_pid
+command tmux -L $sfsock new-session -d 2>/dev/null
+printf '%s\n' $BAR > /tmp/tli-barfrag-$fish_pid.conf
+t "bar fragment parses (source-file rc0)" 0 (command tmux -L $sfsock source-file /tmp/tli-barfrag-$fish_pid.conf 2>/dev/null; echo $status)
+command tmux -L $sfsock kill-server 2>/dev/null; rm -f /tmp/tli-barfrag-$fish_pid.conf
+# resolution 3: render with the REAL categorizer so status-format[0] is the actual Task-1
+# string (non-empty), and prove that string is valid tmux config on a live -L server.
+set -g realcat $plugindir/functions/tmux-categorize.fish
+set -g BARR (__tmux_lives_render_fragment $realcat S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
+t "real status-format[0] is non-empty" yes (string match -q '*◇ RESIZE ◇*' -- "$BARR"; and echo yes; or echo no)
+set -g brsock tli-barr-$fish_pid
+command tmux -L $brsock new-session -d 2>/dev/null
+printf '%s\n' $BARR > /tmp/tli-barrfrag-$fish_pid.conf
+t "real bar fragment parses (source-file rc0)" 0 (command tmux -L $brsock source-file /tmp/tli-barrfrag-$fish_pid.conf 2>/dev/null; echo $status)
+# the #rrggbb cap bg must SURVIVE the source (an unquoted # would be eaten as a comment ->
+# empty value even though source-file still returns rc0). Assert the live option is the hex.
+t "real: cap bg option stored non-empty hex" "#5793f0" (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "real: status-format[0] stored non-empty" 1 (test -n (command tmux -L $brsock show -gv status-format[0] 2>/dev/null); and echo 1; or echo 0)
+command tmux -L $brsock kill-server 2>/dev/null; rm -f /tmp/tli-barrfrag-$fish_pid.conf
+# baseline no longer owns the layout (fragment's status-format[0] does)
+set -g BT (__tmux_lives_baseline_template | string collect)
+t "baseline no longer sets status-left" yes (string match -q '*set -g status-left *' -- "$BT"; and echo no; or echo yes)
+t "baseline no longer sets window-status-format" yes (string match -q '*window-status-format*' -- "$BT"; and echo no; or echo yes)
+t "baseline still sets the clock @var" yes (string match -q '*@tmux_lives_status_right*' -- "$BT"; and echo yes; or echo no)
+t "baseline keeps status-right-length (referenced by the new right zone)" yes (string match -q '*status-right-length*' -- "$BT"; and echo yes; or echo no)
+# derive helper: just the bg hex of the derived status-style
+t "derive_status_bg: lighter #1f6feb" "#5793f0" (__tmux_lives_derive_status_bg "#1f6feb" 0)
+t "derive_status_bg: darker #1f6feb"  "#1753b0" (__tmux_lives_derive_status_bg "#1f6feb" 1)
+t "derive_status_bg: named -> empty"  ""        (__tmux_lives_derive_status_bg "red" 0)
+
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
 t "write_fragment guards a missing categorizer" yes (string match -q '*test -f $cat*return*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
@@ -267,9 +310,11 @@ rm -f $tmux_lives_baseline_conf
 t "baseline: path honors seam" "$tmux_lives_baseline_conf" (__tmux_lives_baseline_path)
 __tmux_lives_seed_baseline (__tmux_lives_baseline_path)
 t "baseline: seeded file exists" 1 (test -e $tmux_lives_baseline_conf; and echo 1; or echo 0)
-t "baseline: seeds status-left"     1 (string match -q '*set -g status-left*session_name*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+# layout (status-left / window-status-*) is now owned by the fragment's status-format[0];
+# the baseline only keeps the clock @var + status-right-length it feeds.
+t "baseline: no longer seeds status-left" 1 (string match -q '*set -g status-left*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 0; or echo 1)
 t "baseline: seeds status-right var" 1 (string match -q '*@tmux_lives_status_right*%-I:%M*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
-t "baseline: seeds window-current"  1 (string match -q '*window-status-current-style*bold*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
+t "baseline: no longer seeds window-status-current" 1 (string match -q '*window-status-current-style*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 0; or echo 1)
 t "baseline: keeps commented mouse"  1 (string match -q '*# set -g mouse off*' -- (cat $tmux_lives_baseline_conf | string collect); and echo 1; or echo 0)
 printf '# hand edit\n' >> $tmux_lives_baseline_conf
 __tmux_lives_seed_baseline (__tmux_lives_baseline_path)

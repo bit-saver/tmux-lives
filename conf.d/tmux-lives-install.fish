@@ -58,6 +58,33 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
     set -l ss (__tmux_lives_derive_status $color $invert)
     test -n "$ss"; and set -a f "set -g status-style $ss"
+    # --- status bar overhaul: names-only window list, @option-driven caps, status-format[0] ---
+    # Layout lives in status-format[0] (built by the categorizer's pure `status-format` verb);
+    # every knob is a live-tunable @option so `tmux set -g @tmux_lives_*` retints with no re-render.
+    set -a f "set -g window-status-format '#W'"
+    set -a f "set -g window-status-current-format '#[bold]#W#[nobold]'"
+    set -a f "set -g window-status-separator ' • '"
+    # cap/accent colors: cap bg from the ShellFish-derived bar bg; accents a fixed amber family.
+    set -l capbg (__tmux_lives_derive_status_bg $color $invert)   # just the bg hex, or a default
+    test -n "$capbg"; or set capbg colour238
+    # QUOTE the value: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
+    # quotes keep the '#5793f0' bg intact (harmless around the colourNNN default too).
+    set -a f "set -g @tmux_lives_cap_bg '$capbg'"
+    set -a f "set -g @tmux_lives_cap_fg colour231"
+    set -a f "set -g @tmux_lives_prefix_color colour214"
+    set -a f "set -g @tmux_lives_resize_color colour208"
+    set -a f "set -g @tmux_lives_glyph_remote '"(printf '\U0000eb3a')"'"   # cod-remote
+    set -a f "set -g @tmux_lives_glyph_local '"(printf '\U0000ea7a')"'"    # cod-vm
+    # host-kind + status-format are computed at RENDER time by the categorizer (pure verbs).
+    # Compute into a pre-declared var FIRST: a bad/absent $cat (e.g. a test's fake path) makes
+    # the substitution fail, which would skip an inline `set -a f "..."(…)` statement entirely
+    # (a broken fragment). This form leaves the var empty so the option line is still emitted
+    # (empty value). 2>/dev/null keeps a bad path from leaking "No such file" to stderr.
+    set -l hostkind ""; set hostkind (fish --no-config $cat host-kind 2>/dev/null)
+    set -l sfmt ""; set sfmt (fish --no-config $cat status-format 2>/dev/null)
+    set -a f "set -g @tmux_lives_host_kind $hostkind"
+    set -a f "set -g @tmux_lives_claude ''"
+    set -a f "set -g status-format[0] \"$sfmt\""
     # reapply the persisted status-position/visibility (written by the C-M-a/C-M-s toggles)
     set -a f "if-shell '[ -f $state ]' 'source-file $state'"
     if test -n "$popup"
@@ -396,6 +423,12 @@ function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "b
     echo "bg=$hex,fg="(printf '#%02x%02x%02x' $tr $tg $tb)
 end
 
+function __tmux_lives_derive_status_bg --description 'css color + invert -> just the bg hex of the derived status-style (empty if unparseable)'
+    set -l ss (__tmux_lives_derive_status $argv[1] $argv[2])
+    test -n "$ss"; or return 0
+    string replace -rf '.*bg=([^,]+).*' '$1' -- $ss
+end
+
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
@@ -485,16 +518,13 @@ function __tmux_lives_baseline_template --description 'print the default ~/.tmux
         "# client attaches. Edit freely; 'tmux-lives setup conf reset' restores these defaults." \
         '' \
         '# --- status bar ---' \
-        'set -g status-left " ❯ #{session_name} "' \
-        'set -g status-left-length 40' \
+        '# Layout (session name, window list, clock caps) is owned by the managed fragment via' \
+        "# status-format[0]; tune it live with 'tmux set -g @tmux_lives_*'. This file only carries" \
+        '# the clock content + its length, which the fragment renders inside the right cap.' \
         'set -g status-right-length 60' \
         '# status-right content goes through this var so tmux-lives keeps the categorize tick' \
         '# + continuum autosave attached (it sets the actual status-right). 12h, month-first:' \
         'set -g @tmux_lives_status_right "%-I:%M %p · %b %-d "' \
-        '# make the active window stand out' \
-        'set -g window-status-format         " #I:#W#{?window_flags,#F, } "' \
-        'set -g window-status-current-format " #I:#W#{?window_flags,#F, } "' \
-        'set -g window-status-current-style  "bold"' \
         '' \
         '# --- non-ShellFish baseline (re-applied when a non-ShellFish client attaches) ---' \
         "# Settings ShellFish's integration forces that you want undone for other clients." \

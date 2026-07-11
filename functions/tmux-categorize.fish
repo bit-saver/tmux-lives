@@ -1245,6 +1245,10 @@ function __tcz_main
             __tcz_slugify $argv[2..]
         case new-general
             __tcz_new_general
+        case host-kind
+            __tcz_host_kind
+        case status-format
+            __tcz_status_format
         case '*'
             echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|claim|ghosts|switch|commandeer|on-attach|slug|new-general" >&2
             return 1
