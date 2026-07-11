@@ -777,6 +777,42 @@ functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak _
 set -e tmux_lives_fake_environ
 rm -f $rt1 $rt2
 
+# ---------------------------------------------------------------------
+# per-tty emit dedup: the tick must emit only when the value changed
+# ---------------------------------------------------------------------
+set -g EMITTED
+functions -q __tcz_emit_barcolor; and functions -c __tcz_emit_barcolor __tcz_ebc_bak
+function __tcz_emit_barcolor; set -g EMITTED $EMITTED "c:$argv[2]"; end
+functions -q __tcz_client_is_shellfish; and functions -c __tcz_client_is_shellfish __tcz_cis_bak
+function __tcz_client_is_shellfish; return 0; end   # every client is ShellFish
+set -g DEDUP_color ''
+function tmux
+    switch "$argv[1]"
+        case list-clients; printf '111\t/dev/pts/9\n'
+        case show; echo $DEDUP_color            # show -gv @..._color
+        case set; set -g DEDUP_color "$argv[-1]"  # set -g @..._color <val>
+        case '*'
+    end
+end
+# key sanitization
+t "emit_key strips non-alnum" devpts9 (__tcz_emit_key /dev/pts/9)
+# force always emits + caches
+__tcz_recolor '#111111'
+t "recolor force emits" 'c:#111111' "$EMITTED[-1]"
+t "recolor force caches the value" '#111111' "$DEDUP_color"
+# dedup with cache == value -> skip
+set -g EMITTED
+__tcz_recolor '#111111' dedup
+t "recolor dedup skips unchanged" '' "$EMITTED"
+# dedup with a changed value -> emit + recache
+__tcz_recolor '#222222' dedup
+t "recolor dedup emits on change" 'c:#222222' "$EMITTED[-1]"
+t "recolor dedup recaches" '#222222' "$DEDUP_color"
+functions -e tmux __tcz_emit_barcolor __tcz_client_is_shellfish
+functions -q __tcz_ebc_bak; and functions -c __tcz_ebc_bak __tcz_emit_barcolor; and functions -e __tcz_ebc_bak
+functions -q __tcz_cis_bak; and functions -c __tcz_cis_bak __tcz_client_is_shellfish; and functions -e __tcz_cis_bak
+set -e EMITTED; set -e DEDUP_color
+
 # --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
 set -e tmux_lives_host_kind
 set -l ssh_conn_save $SSH_CONNECTION

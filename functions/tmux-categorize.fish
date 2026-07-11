@@ -101,6 +101,16 @@ function __tcz_emit_barcolor --argument-names tty color --description 'write the
     printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64 | string join '') > $tty
 end
 
+function __tcz_emit_key --argument-names tty --description 'sanitize a client tty into an @option-safe key (/dev/pts/9 -> devpts9)'
+    string replace -ra '[^a-zA-Z0-9]' '' -- "$tty"
+end
+function __tcz_emit_get --argument-names tty field --description 'read the last-emitted <field> (title|color) cached for <tty>'
+    tmux show -gv @tmux_lives_emit_(__tcz_emit_key $tty)_$field 2>/dev/null
+end
+function __tcz_emit_set --argument-names tty field value --description 'cache the last-emitted <field> (title|color) for <tty>'
+    tmux set -g @tmux_lives_emit_(__tcz_emit_key $tty)_$field "$value" 2>/dev/null
+end
+
 function __tcz_hostname --description 'short hostname (cache + test seam: tmux_lives_hostname)'
     if not set -q tmux_lives_hostname; or test -z "$tmux_lives_hostname"
         set -g tmux_lives_hostname (hostname -s 2>/dev/null)
@@ -1053,6 +1063,7 @@ end
 function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish -> set bar color; else re-apply the non-ShellFish baseline'
     if __tcz_client_is_shellfish $pid
         __tcz_emit_barcolor $tty $color
+        __tcz_emit_set $tty color $color
         __tcz_retitle
     else
         # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
@@ -1062,7 +1073,7 @@ function __tcz_on_attach --argument-names pid tty color --description 'on-attach
     return 0
 end
 
-function __tcz_recolor --argument-names color --description 'emit the ShellFish bar-color OSC to every attached ShellFish client (so setup color updates tabs without a reattach)'
+function __tcz_recolor --argument-names color mode --description 'emit the ShellFish bar-color OSC to attached ShellFish clients. mode=dedup emits only when the color changed for that tty; else force. Updates the per-tty cache on emit.'
     test -n "$color"; or return 0
     set -l TAB (printf '\t')
     for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}" 2>/dev/null)
@@ -1070,7 +1081,10 @@ function __tcz_recolor --argument-names color --description 'emit the ShellFish 
         set -l pid $parts[1]
         set -l tty $parts[2]
         test -n "$tty"; or continue
-        __tcz_client_is_shellfish $pid; and __tcz_emit_barcolor $tty $color
+        __tcz_client_is_shellfish $pid; or continue
+        test "$mode" = dedup; and test "$color" = (__tcz_emit_get $tty color); and continue
+        __tcz_emit_barcolor $tty $color
+        __tcz_emit_set $tty color $color
     end
 end
 
@@ -1114,7 +1128,7 @@ function __tcz_session_title --argument-names session --description 'session -> 
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
 
-function __tcz_retitle --description 'emit each attached ShellFish client its own OSC 2 title (per client session)'
+function __tcz_retitle --argument-names mode --description 'emit each attached ShellFish client its own OSC 2 title. mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit.'
     set -l TAB (printf '\t')
     for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}$TAB#{client_session}" 2>/dev/null)
         set -l parts (string split $TAB -- $line)
@@ -1123,7 +1137,11 @@ function __tcz_retitle --description 'emit each attached ShellFish client its ow
         set -l session $parts[3]
         test -n "$tty"; or continue
         __tcz_client_is_shellfish $pid; or continue
-        __tcz_emit_title $tty (__tcz_session_title $session)
+        set -l title (__tcz_session_title $session)
+        test -n "$title"; or continue
+        test "$mode" = dedup; and test "$title" = (__tcz_emit_get $tty title); and continue
+        __tcz_emit_title $tty $title
+        __tcz_emit_set $tty title $title
     end
 end
 
