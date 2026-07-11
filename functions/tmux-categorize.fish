@@ -262,6 +262,7 @@ function __tcz_categorize --description 'rename every owned session to its live-
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
+        __tcz_set_claude_opt $cur
         # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
         set -l claimed (tmux show-option -qv -t "$cur" @tmux_lives_name 2>/dev/null)
         test -n "$claimed"; and continue
@@ -1069,6 +1070,19 @@ function __tcz_session_has_claude --argument-names session --description 'true i
         __tcz_pane_is_claude "$p[1]" "$p[2]"; and return 0
     end
     return 1
+end
+
+function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name (empty if no claude pane). BARE name for set-option (=target quirk).'
+    test -n "$session"; or return
+    set -l TAB (printf '\t')
+    set -l name ''
+    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
+        set -l parts (string split $TAB -- $line)
+        test "$parts[1]" = claude; or continue
+        set name (__tcz_cmdline_name $parts[2])
+        test -n "$name"; and break
+    end
+    tmux set-option -t "$session" @tmux_lives_claude "$name" 2>/dev/null
 end
 
 function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'

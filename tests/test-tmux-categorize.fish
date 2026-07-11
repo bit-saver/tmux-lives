@@ -761,6 +761,26 @@ functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak _
 set -e tmux_lives_fake_environ
 rm -f $rt1 $rt2
 
+# --- @tmux_lives_claude population (drives the ✦ name in the bar) ---
+set -g CLAUDE_SET ''
+function tmux
+    switch "$argv[1]"
+        case set-option
+            set -g CLAUDE_SET "$argv"   # capture the last set-option
+        case list-panes
+            printf '%s\n' $tcz_claude_panes
+    end
+end
+set -g tcz_claude_panes (printf 'claude\t4242')
+functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
+__tcz_set_claude_opt sA
+t "set_claude_opt writes @tmux_lives_claude with the name" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+set -g tcz_claude_panes (printf 'fish\t4242')
+set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt clears @tmux_lives_claude for non-claude" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+functions -e tmux; set -e tcz_claude_panes; set -e CLAUDE_SET
+
 # ---------------------------------------------------------------------
 # scratch resize verbs
 # ---------------------------------------------------------------------
