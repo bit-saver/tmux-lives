@@ -772,6 +772,7 @@ function tmux
     end
 end
 set -g tcz_claude_panes (printf 'claude\t4242')
+functions -c __tcz_cmdline_name __tcz_cmdline_name_bak
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 __tcz_set_claude_opt sA
 t "set_claude_opt writes @tmux_lives_claude with the name" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
@@ -779,7 +780,7 @@ set -g tcz_claude_panes (printf 'fish\t4242')
 set -g CLAUDE_SET ''
 __tcz_set_claude_opt sA
 t "set_claude_opt clears @tmux_lives_claude for non-claude" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
-functions -e tmux; set -e tcz_claude_panes; set -e CLAUDE_SET
+functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET
 
 # ---------------------------------------------------------------------
 # scratch resize verbs
