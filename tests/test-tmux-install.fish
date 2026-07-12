@@ -128,6 +128,18 @@ t "derive_cap_bg: dark bar (#36442d) lighter"  "#687362" (__tmux_lives_derive_ca
 t "derive_cap_bg: light bar (#c8d0c0) darker"  "#969c90" (__tmux_lives_derive_cap_bg "#c8d0c0")
 t "derive_cap_bg: unparseable -> empty"        ""        (__tmux_lives_derive_cap_bg "colour236")
 
+# cap-color formulas: HSL hue-rotation + formula dispatch + contrast fg
+t "cap_hue complementary" "#755789" (__tmux_lives_cap_hue "#36442d" 180)
+t "cap_hue analogous+"    "#57895d" (__tmux_lives_cap_hue "#36442d" 30)
+t "cap_hue triadic-"      "#89576b" (__tmux_lives_cap_hue "#36442d" -120)
+t "cap_from_formula mono == derive_cap_bg" (__tmux_lives_derive_cap_bg "#36442d") (__tmux_lives_cap_from_formula "#36442d" mono)
+t "cap_from_formula complementary" "#755789" (__tmux_lives_cap_from_formula "#36442d" complementary)
+t "cap_from_formula analogous- token" "#838957" (__tmux_lives_cap_from_formula "#36442d" analogous-)
+t "cap_from_formula literal hex passthrough" "#123456" (__tmux_lives_cap_from_formula "#36442d" "#123456")
+t "cap_from_formula unknown -> mono" (__tmux_lives_derive_cap_bg "#36442d") (__tmux_lives_cap_from_formula "#36442d" wat)
+t "contrast_fg dark cap -> light" "#f4f7f4" (__tmux_lives_contrast_fg "#755789")
+t "contrast_fg light cap -> dark" "#1c1c1c" (__tmux_lives_contrast_fg "#e0e0e0")
+
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
 t "write_fragment guards a missing categorizer" yes (string match -q '*test -f $cat*return*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)

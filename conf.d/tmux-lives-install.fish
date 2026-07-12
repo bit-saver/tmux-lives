@@ -457,6 +457,81 @@ function __tmux_lives_derive_cap_bg --argument-names hex --description 'bar bg #
     printf '#%02x%02x%02x' $nr $ng $nb
 end
 
+function __tmux_lives_contrast_fg --argument-names hex --description 'cap bg hex -> readable fg: light on a dark cap, dark on a light cap'
+    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
+    test (count $m) -eq 3; or begin; echo '#f4f7f4'; return; end
+    set -l L (math "round(0.299*0x$m[1] + 0.587*0x$m[2] + 0.114*0x$m[3])")
+    test $L -lt 140; and echo '#f4f7f4'; or echo '#1c1c1c'
+end
+
+function __tmux_lives_cap_hue --argument-names hex deg --description 'bar #rrggbb + hue degrees -> cap #rrggbb (HSL rotate + adaptive lightness; colorsys algorithm)'
+    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
+    test (count $m) -eq 3; or return 0
+    set -l r (math "0x$m[1]/255"); set -l g (math "0x$m[2]/255"); set -l b (math "0x$m[3]/255")
+    set -l mx (math "max($r,$g,$b)"); set -l mn (math "min($r,$g,$b)")
+    set -l L (math "($mx+$mn)/2")
+    set -l H 0; set -l S 0
+    if test (math "$mx - $mn") != 0
+        if test $L -le 0.5
+            set S (math "($mx-$mn)/($mx+$mn)")
+        else
+            set S (math "($mx-$mn)/(2-$mx-$mn)")
+        end
+        set -l rc (math "($mx-$r)/($mx-$mn)"); set -l gc (math "($mx-$g)/($mx-$mn)"); set -l bc (math "($mx-$b)/($mx-$mn)")
+        if test "$r" = "$mx"
+            set H (math "$bc-$gc")
+        else if test "$g" = "$mx"
+            set H (math "2+$rc-$bc")
+        else
+            set H (math "4+$gc-$rc")
+        end
+        set H (math "($H/6) % 1"); test $H -lt 0; and set H (math "$H+1")
+    end
+    # rotate + floor S + adaptive L
+    # NB: fish's `math` has no comparison/logical operators ("Logical operations are not
+    # supported, use `test` instead") — unlike the plan's `math "$x < $y"` sketch, every
+    # comparison below uses fish's native `test -lt`/`-le`, which does numeric (not just
+    # integer) comparison on the decimal strings `math` returns.
+    set H (math "($H + $deg/360) % 1"); test $H -lt 0; and set H (math "$H+1")
+    set S (math "max($S,0.22)")
+    if test $L -lt 0.5
+        set L (math "$L+(1-$L)*0.28")
+    else
+        set L (math "$L*0.72")
+    end
+    # HSL -> RGB
+    set -l m2; if test $L -le 0.5; set m2 (math "$L*(1+$S)"); else; set m2 (math "$L+$S-$L*$S"); end
+    set -l m1 (math "2*$L-$m2")
+    printf '#%02x%02x%02x' (__tmux_lives_hue2rgb $m1 $m2 (math "$H+1/3")) (__tmux_lives_hue2rgb $m1 $m2 $H) (__tmux_lives_hue2rgb $m1 $m2 (math "$H-1/3"))
+end
+
+function __tmux_lives_hue2rgb --argument-names m1 m2 h --description 'colorsys _v helper -> 0-255 channel'
+    set h (math "$h % 1"); test $h -lt 0; and set h (math "$h+1")
+    set -l v $m1
+    if test $h -lt (math "1/6")
+        set v (math "$m1+($m2-$m1)*$h*6")
+    else if test $h -lt 0.5
+        set v $m2
+    else if test $h -lt (math "2/3")
+        set v (math "$m1+($m2-$m1)*(2/3-$h)*6")
+    end
+    math "round($v*255)"
+end
+
+function __tmux_lives_cap_from_formula --argument-names hex token --description 'bar #rrggbb + cap token -> cap #rrggbb (literal-hex | mono->derive_cap_bg | hue family)'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$token"; and begin; echo (string lower -- $token); return; end
+    switch "$token"
+        case complementary; __tmux_lives_cap_hue $hex 180
+        case analogous+; __tmux_lives_cap_hue $hex 30
+        case analogous-; __tmux_lives_cap_hue $hex -30
+        case split+; __tmux_lives_cap_hue $hex 150
+        case split-; __tmux_lives_cap_hue $hex 210
+        case triadic+; __tmux_lives_cap_hue $hex 120
+        case triadic-; __tmux_lives_cap_hue $hex -120
+        case '*'; __tmux_lives_derive_cap_bg $hex   # mono + unknown fallback
+    end
+end
+
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
