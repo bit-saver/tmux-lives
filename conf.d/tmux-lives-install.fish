@@ -20,6 +20,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusposkey $argv[9]   # root-table status-position toggle ('' = no bind)
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
+    set -l cap $argv[12]   # cap-color formula token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
     set -l popup
@@ -74,13 +75,14 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # (lighter on a dark bar / darker on a light bar) so the powerline caps read as a distinct segment.
     set -l barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
     test -n "$barbg"; or set barbg colour236
-    set -l capbg (__tmux_lives_derive_cap_bg $barbg)              # distinct adaptive shade of the bar
+    set -l capbg (__tmux_lives_cap_from_formula $barbg $cap)      # formula-driven shade (default mono = adaptive)
     test -n "$capbg"; or set capbg colour238
+    set -l capfg (__tmux_lives_contrast_fg $capbg)                # readable fg for whichever cap shade/hue was picked
     # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
     # quotes keep the '#5793f0' bg intact (harmless around the colourNNN default too).
     set -a f "set -g @tmux_lives_bar_bg '$barbg'"                 # slant transition target (cap -> bar)
     set -a f "set -g @tmux_lives_cap_bg '$capbg'"
-    set -a f "set -g @tmux_lives_cap_fg colour231"
+    set -a f "set -g @tmux_lives_cap_fg '$capfg'"
     set -a f "set -g @tmux_lives_prefix_color colour214"
     set -a f "set -g @tmux_lives_resize_color colour208"
     set -a f "set -g @tmux_lives_claude_color '#D97757'"   # Claude coral; static, independent of the ShellFish bar color
@@ -199,7 +201,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

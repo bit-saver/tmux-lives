@@ -85,6 +85,15 @@ t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@t
 t "fragment cap bg is the adaptive shade (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
+# cap-color formula wiring (argv[12] = cap token): cap_bg + cap_fg are derived via the
+# formula, not the old fixed derive_cap_bg / colour231 shade.
+# formula-driven cap: bar #1f6feb -> bar_bg #5793f0; complementary -> cap_hue(#5793f0,180)
+set -g FC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary | string collect)
+t "fragment cap_bg from formula" yes (string match -q "*set -g @tmux_lives_cap_bg '"(__tmux_lives_cap_from_formula "#5793f0" complementary)"'*" -- "$FC"; and echo yes; or echo no)
+t "fragment cap_fg auto-derived (not fixed colour231)" yes (string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg (__tmux_lives_cap_from_formula "#5793f0" complementary))"'*" -- "$FC"; and echo yes; or echo no)
+# default mono keeps the current shade
+set -g FM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono | string collect)
+t "fragment mono cap_bg == derive_cap_bg" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$FM"; and echo yes; or echo no)
 # cursor-style (arg 11): a steady style fixes the ShellFish cursor flicker; '' leaves tmux alone
 set -g FRAGCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block | string collect)
 t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-style block*' -- "$FRAGCUR"; and echo yes; or echo no)
