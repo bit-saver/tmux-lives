@@ -606,6 +606,77 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
     end
 end
 
+function __tmux_lives_cap_valid --argument-names token --description 'true if token is a valid cap-color formula: whitelist token or a #rrggbb hex'
+    switch "$token"
+        case mono complementary analogous+ analogous- split+ split- triadic+ triadic-
+            return 0
+    end
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$token"
+end
+
+function __tmux_lives_cap_list --description 'tmux-lives setup cap list: every formula token + a truecolor swatch of the resulting hex, against the current bar'
+    set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
+    test -n "$barbg"; or set barbg '#3a3a3a'   # no bar color configured yet -> neutral default so swatches still render
+    for token in mono complementary analogous+ analogous- split+ split- triadic+ triadic-
+        set -l hex (__tmux_lives_cap_from_formula $barbg $token)
+        set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $hex)
+        test (count $m) -eq 3; or continue
+        printf '\e[48;2;%d;%d;%dm  \e[0m %-14s %s\n' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]") $token $hex
+    end
+end
+
+function __tmux_lives_cap_picker --description 'tmux-lives setup cap (no arg): open the interactive cap-color picker in a popup (cap-picker verb: task 4)'
+    if not set -q TMUX
+        echo "tmux-lives setup cap: run this from inside a tmux session, or pass a token/list — see 'tmux-lives setup cap list'" >&2
+        return 1
+    end
+    if not tmux list-commands 2>/dev/null | grep -q display-popup
+        echo "tmux-lives setup cap: your tmux lacks display-popup — pass a token instead, e.g. tmux-lives setup cap complementary (see 'tmux-lives setup cap list')" >&2
+        return 1
+    end
+    set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+    if not test -f $cat
+        echo "tmux-lives setup cap: categorizer not found at $cat — pass a token instead: tmux-lives setup cap <token>" >&2
+        return 1
+    end
+    set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
+    tmux display-popup -B -E -w 34 -h 15 -- fish --no-config $cat cap-picker "$client"
+end
+
+function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<token>|list]: choose the powerline cap-color formula; no-arg opens the picker'
+    switch "$argv[1]"
+        case ''
+            __tmux_lives_cap_picker
+            return
+        case list
+            __tmux_lives_cap_list
+            return
+    end
+    set -l token $argv[1]
+    # Bare 6-hex -> #rrggbb, same normalization `setup color` applies to a bare hex.
+    string match -qr '^[0-9A-Fa-f]{6}$' -- $token; and set token "#$token"
+    if not __tmux_lives_cap_valid $token
+        echo "tmux-lives setup cap: invalid token '$token' — valid: mono, complementary, analogous+, analogous-, split+, split-, triadic+, triadic-, or #rrggbb" >&2
+        return 1
+    end
+    set -U tmux_lives_cap $token
+    # Apply live without a fragment re-render — same tmux_lives_tmux_socket seam as
+    # `setup color --apply`. barbg mirrors what the fragment itself derives at render time.
+    set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
+    test -n "$barbg"; or set barbg colour236
+    set -l capbg (__tmux_lives_cap_from_formula $barbg $token)
+    test -n "$capbg"; or set capbg colour238
+    set -l capfg (__tmux_lives_contrast_fg $capbg)
+    if set -q tmux_lives_tmux_socket
+        command tmux -L $tmux_lives_tmux_socket set -g @tmux_lives_cap_bg $capbg 2>/dev/null
+        command tmux -L $tmux_lives_tmux_socket set -g @tmux_lives_cap_fg $capfg 2>/dev/null
+    else
+        tmux set -g @tmux_lives_cap_bg $capbg 2>/dev/null
+        tmux set -g @tmux_lives_cap_fg $capfg 2>/dev/null
+    end
+    echo "tmux-lives: cap color formula set to $token"
+end
+
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
     # Default mirrors __tcz_on_attach's baseline path in functions/tmux-categorize.fish — keep in sync.
     set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf"
@@ -730,6 +801,8 @@ function __tmux_lives_setup_dispatch
             __tmux_lives_keys_cmd $argv[2..]
         case color
             __tmux_lives_color_cmd $argv[2..]
+        case cap
+            __tmux_lives_cap_cmd $argv[2..]
         case conf
             __tmux_lives_conf_cmd $argv[2..]
         case auto

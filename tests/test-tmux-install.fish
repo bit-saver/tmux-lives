@@ -335,6 +335,84 @@ set -g __fish_config_dir $__old_fcd2; set -e __old_fcd2
 set -e tmux_lives_tmux_socket
 command tmux -L $apsock kill-server 2>/dev/null
 
+# ---------------------------------------------------------------------
+# setup cap: choose the powerline cap-color formula (<token> | list | no-arg picker).
+# tmux_lives_cap is a UNIVERSAL var -> save/restore exactly like the bar-color block
+# above so the suite never leaks a value into the user's real fish_variables. The
+# live @tmux_lives_cap_bg/_fg writes are pinned to a throwaway -L socket.
+# ---------------------------------------------------------------------
+set -g capsock tli-cap-$fish_pid
+command tmux -L $capsock new-session -d 2>/dev/null
+set -gx tmux_lives_tmux_socket $capsock
+set -l _cap_had 0; set -l _cap_val
+if set -q tmux_lives_cap
+    set _cap_had 1; set _cap_val $tmux_lives_cap
+end
+set -e tmux_lives_cap
+set -l _capbc_had 0; set -l _capbc_val
+if set -q tmux_lives_bar_color
+    set _capbc_had 1; set _capbc_val $tmux_lives_bar_color
+end
+set -l _capsi_had 0; set -l _capsi_val
+if set -q tmux_lives_status_invert
+    set _capsi_had 1; set _capsi_val $tmux_lives_status_invert
+end
+set -U tmux_lives_bar_color "#1f6feb"
+set -U tmux_lives_status_invert 0
+set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
+
+t "cap: invalid token rc1"   1 (__tmux_lives_cap_cmd wat >/dev/null 2>&1; echo $status)
+t "cap: invalid token: universal left unset" 0 (set -q tmux_lives_cap; and echo 1; or echo 0)
+
+__tmux_lives_cap_cmd complementary >/dev/null
+t "cap: stores token in universal var"  "complementary" "$tmux_lives_cap"
+t "cap: writes non-empty cap_bg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null); and echo 1; or echo 0)
+t "cap: writes non-empty cap_fg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null); and echo 1; or echo 0)
+t "cap: live cap_bg matches the formula" (__tmux_lives_cap_from_formula $cap_barbg complementary) (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "cap: live cap_fg matches contrast_fg" (__tmux_lives_contrast_fg (__tmux_lives_cap_from_formula $cap_barbg complementary)) (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null)
+
+__tmux_lives_cap_cmd wat >/dev/null 2>&1
+t "cap: a later invalid token leaves the prior value" "complementary" "$tmux_lives_cap"
+
+set -l cap_list (__tmux_lives_cap_cmd list | string collect)
+for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic-
+    t "cap list mentions token $tok" 1 (string match -q "*$tok*" -- "$cap_list"; and echo 1; or echo 0)
+end
+set -l swatch_prefix (printf '\e[48;2;')
+t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$cap_list"; and echo 1; or echo 0)
+
+# no-arg -> the interactive picker (Task 4 supplies the categorizer's cap-picker verb).
+# Outside tmux this must fail cleanly (no crash, no live mutation) rather than try to
+# open a popup with no client to target.
+set -l _TMUX_had 0; set -l _TMUX_val
+if set -q TMUX
+    set _TMUX_had 1; set _TMUX_val $TMUX
+end
+set -e TMUX
+t "cap no-arg outside tmux: rc1" 1 (__tmux_lives_cap_cmd >/dev/null 2>&1; echo $status)
+if test $_TMUX_had -eq 1
+    set -gx TMUX $_TMUX_val
+end
+
+set -e tmux_lives_cap
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
+if test $_cap_had -eq 1
+    set -U tmux_lives_cap $_cap_val
+else
+    set -e tmux_lives_cap
+end
+if test $_capbc_had -eq 1
+    set -U tmux_lives_bar_color $_capbc_val
+end
+if test $_capsi_had -eq 1
+    set -U tmux_lives_status_invert $_capsi_val
+end
+set -e tmux_lives_tmux_socket
+command tmux -L $capsock kill-server 2>/dev/null
+
+# setup cap wired into the dispatch (list is side-effect-free: no live/universal mutation)
+t "setup dispatch routes cap list" 1 (string match -q '*mono*' -- (__tmux_lives_setup_dispatch cap list | string collect); and echo 1; or echo 0)
+
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "setup help documents color --apply/-a" 1 (string match -q '*-a*reapply*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
