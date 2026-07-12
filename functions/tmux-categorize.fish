@@ -1125,6 +1125,13 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
         set name (__tcz_cmdline_name $parts[2])
         test -n "$name"; and break
     end
+    # Dedup: only write when the value actually CHANGED. An unconditional set every tick /
+    # fish_postexec forces a redraw of the bar (@tmux_lives_claude is status-read), which makes
+    # tmux re-emit the cursor style → ShellFish cursor flicker (see [[shellfish-cursor-flicker]]).
+    # Capture+quote the current value (empty -> zero-word subst would throw; the empty-cache gotcha).
+    # BARE name for show/set-option (=target quirk).
+    set -l cur (tmux show-option -qv -t "$session" @tmux_lives_claude 2>/dev/null)
+    test "$name" = "$cur"; and return
     tmux set-option -t "$session" @tmux_lives_claude "$name" 2>/dev/null
 end
 

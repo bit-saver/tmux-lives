@@ -19,6 +19,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l resizekey $argv[8]   # root-table scratch-resize-mode key ('' = no bind)
     set -l statusposkey $argv[9]   # root-table status-position toggle ('' = no bind)
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
+    set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
     set -l popup
@@ -44,6 +45,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @resurrect-capture-pane-contents 'on'"
     set -a f "set -g @continuum-save-interval '15'"
     set -a f "set -g status-interval 15"
+    # Pin a STEADY cursor so tmux's cstyle re-emission on redraw doesn't flicker the ShellFish
+    # cursor (a steady style re-emitted is invisible). '' leaves tmux's default untouched.
+    test -n "$cursorstyle"; and set -a f "set -g cursor-style $cursorstyle"
     set -a f "# macOS reports claude's version-named binary (versions/X.Y.Z) as the window"
     set -a f "# command; show 'claude' for a version-like name, pass everything else through."
     set -a f "set -g automatic-rename-format '#{?pane_in_mode,[tmux],#{?#{m:*.*.*,#{pane_current_command}},claude,#{pane_current_command}}}#{?pane_dead,[dead],}'"
@@ -195,7 +199,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

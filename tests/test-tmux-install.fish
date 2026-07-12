@@ -85,6 +85,11 @@ t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@t
 t "fragment cap bg is the adaptive shade (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
+# cursor-style (arg 11): a steady style fixes the ShellFish cursor flicker; '' leaves tmux alone
+set -g FRAGCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block | string collect)
+t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-style block*' -- "$FRAGCUR"; and echo yes; or echo no)
+set -g FRAGNOCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s '' | string collect)
+t "fragment omits cursor-style when unset" yes (string match -q '*cursor-style*' -- "$FRAGNOCUR"; and echo no; or echo yes)
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
 command tmux -L $sfsock new-session -d 2>/dev/null

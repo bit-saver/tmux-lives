@@ -834,12 +834,16 @@ if set -q ssh_conn_save; and test -n "$ssh_conn_save"; set -gx SSH_CONNECTION $s
 if set -q ssh_tty_save; and test -n "$ssh_tty_save"; set -gx SSH_TTY $ssh_tty_save; end
 set -e ssh_conn_save ssh_tty_save
 
-# --- @tmux_lives_claude population (drives the ✦ name in the bar) ---
+# --- @tmux_lives_claude population + DEDUP (only set-option when the value CHANGED; the
+#     unconditional per-tick/per-command set forced needless bar redraws → ShellFish cursor flicker) ---
 set -g CLAUDE_SET ''
+set -g CLAUDE_CUR ''
 function tmux
     switch "$argv[1]"
         case set-option
             set -g CLAUDE_SET "$argv"   # capture the last set-option
+        case show-option
+            echo "$CLAUDE_CUR"          # simulated current @tmux_lives_claude
         case list-panes
             printf '%s\n' $tcz_claude_panes
     end
@@ -847,13 +851,24 @@ end
 set -g tcz_claude_panes (printf 'claude\t4242')
 functions -c __tcz_cmdline_name __tcz_cmdline_name_bak
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
+# changed (cur empty -> opus): sets
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
 __tcz_set_claude_opt sA
-t "set_claude_opt writes @tmux_lives_claude with the name" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+t "set_claude_opt writes @tmux_lives_claude when it changed" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# unchanged (cur already opus): SKIPS the set (no redraw)
+set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt skips the set when unchanged (no needless redraw)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
+# claude went away (cur opus, now non-claude -> ''): sets (clears)
 set -g tcz_claude_panes (printf 'fish\t4242')
-set -g CLAUDE_SET ''
+set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
 __tcz_set_claude_opt sA
-t "set_claude_opt clears @tmux_lives_claude for non-claude" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
-functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET
+t "set_claude_opt clears @tmux_lives_claude when a claude went away" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# already empty non-claude: SKIPS
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
+functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET; set -e CLAUDE_CUR
 
 # ---------------------------------------------------------------------
 # scratch resize verbs
