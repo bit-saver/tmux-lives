@@ -420,6 +420,10 @@ t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_s
 t "verify reports status direction" 1 (string match -q '*status bar:*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
+# help lists cap (Task 4 deferred item)
+t "setup help lists cap" 1 (string match -q '*cap*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "help cap row mentions the picker" 1 (string match -q '*cap*picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
 rm -f $tmux_lives_baseline_conf

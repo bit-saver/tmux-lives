@@ -196,6 +196,12 @@ t "readkey k=up"     up   (printf 'k'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey x=kill"   kill (printf 'x'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey q=cancel" cancel (printf 'q'  | __tcz_popup_readkey 2>/dev/null)
 
+# left/right (cap-picker's direction flip): CSI arrows + h/l, added alongside j/k/up/down.
+t "readkey h=left"   left  (printf 'h'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey l=right"  right (printf 'l'    | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI left"  left  (printf '\e[D' | __tcz_popup_readkey 2>/dev/null)
+t "readkey CSI right" right (printf '\e[C' | __tcz_popup_readkey 2>/dev/null)
+
 # ---------------------------------------------------------------------
 # command modal — pure helpers
 # ---------------------------------------------------------------------

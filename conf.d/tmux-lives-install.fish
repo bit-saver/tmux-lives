@@ -779,6 +779,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --status-vis-key <key> status bar hide/show  (default: C-M-s; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
+        'cap [<token>] [list]        cap color from a theory formula; no-arg = picker' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 

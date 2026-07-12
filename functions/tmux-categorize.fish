@@ -745,7 +745,7 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|cancel|other'
+function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|right|enter|cancel|other'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -753,12 +753,17 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|
     #    function — a command substitution `(dd …)` inside a function that is a
     #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
     #    sets VAR in scope. Bytes are compared as hex.
+    # left/right (h/l + CSI C/D) are only consumed by the cap-picker's direction
+    # flip; __tcz_popup's switch has no matching case for them so it silently
+    # ignores them there (same as any other token its cases don't list).
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
     test -z "$b"; and begin; echo cancel; return; end          # EOF
     switch "$b"
         case 6a; echo down; return                  # j
         case 6b; echo up; return                    # k
+        case 68; echo left; return                  # h
+        case 6c; echo right; return                 # l
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -777,6 +782,8 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|enter|
             switch "$b3"
                 case 41; echo up; return             # A (up)
                 case 42; echo down; return           # B (down)
+                case 43; echo right; return          # C (right)
+                case 44; echo left; return           # D (left)
             end
             echo other; return
         end
@@ -1040,6 +1047,107 @@ function __tcz_open_switcher --argument-names client --description 'open the two
     end
 end
 
+function __tcz_cap_families --description 'pure: ordered cap-color family tokens shown in the picker (directional families default to their + side; ←→ flips it)'
+    printf '%s\n' mono complementary analogous+ split+ triadic+
+end
+
+function __tcz_cap_flip --argument-names token --description 'pure: toggle a directional cap token +<->-; no-op for mono/complementary (they have no direction)'
+    switch "$token"
+        case '*+'
+            string replace -r '\+$' - -- $token
+        case '*-'
+            string replace -r -- '-$' + $token
+        case '*'
+            echo $token
+    end
+end
+
+function __tcz_cap_swatch_line --argument-names caphex token selected --description 'pure: one cap-picker row = selection marker + truecolor swatch of an ALREADY-COMPUTED <caphex> + <token> name + hex text. Never calls the install-side formula (see the --no-config runtime note on __tcz_cap_picker) — caphex is precomputed by the caller.'
+    set -l RST (printf '\e[0m')
+    set -l ORG (printf '\e[38;5;208m')
+    set -l SELBG (printf '\e[48;5;236m')
+    # truecolor swatch of caphex; a blank/unparseable hex degrades to a neutral
+    # two-space gap instead of crashing (e.g. no bar color configured yet).
+    set -l swatch '  '
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$caphex")
+    test (count $m) -eq 3; and set swatch (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
+    set -l name (printf '%-14s' "$token")
+    set -l hextxt $caphex
+    test -n "$hextxt"; or set hextxt '(none)'
+    if test "$selected" = 1
+        printf '%s%s▐%s %s %s %s%s' $SELBG $ORG $RST "$swatch" "$name" "$hextxt" $RST
+    else
+        printf '  %s %s %s' "$swatch" "$name" "$hextxt"
+    end
+end
+
+function __tcz_cap_picker --argument-names client --description 'interactive cap-color picker: 5 family swatch rows, ↑↓/jk move, ←→/hl flip the highlighted family''s direction, Enter applies (tmux-lives setup cap <token>), Esc/q cancels. Runs INSIDE a display-popup already opened by __tmux_lives_cap_picker (task 3) — this function does not open its own popup or provide a display-menu fallback (that gate already lives at the CLI layer, before the popup opens).'
+    # RUNTIME CONSTRAINT: this whole script runs as `fish --no-config` (see the file
+    # header), so install-side __tmux_lives_* functions (cap_from_formula, key, …)
+    # are NOT loaded here. Batch-compute the cap hex for EVERY directional token in
+    # ONE config-loaded `fish -c` subprocess (which DOES load conf.d) up front, so
+    # the install-side derivation stays the single source of truth and flipping a
+    # family's direction afterward is instant — a cache lookup, no subprocess.
+    set -l pairs (fish -c '
+        set -l bar (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
+        for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic-
+            printf "%s %s\n" $tok (__tmux_lives_cap_from_formula $bar $tok)
+        end' 2>/dev/null)
+    set -l toks; set -l hexes
+    for line in $pairs
+        set -l f (string split -m 1 ' ' -- $line)
+        test -n "$f[1]"; or continue
+        set -a toks $f[1]
+        set -a hexes (test (count $f) -ge 2; and echo $f[2]; or echo '')
+    end
+    set -l families (__tcz_cap_families)
+    set -l n (count $families)
+    set -l sel 0
+    set -l saved (stty -g)
+    # Restore the terminal even if the popup is killed mid-loop (mirrors __tcz_popup).
+    set -g __tcz_cap_saved $saved
+    function __tcz_cap_cleanup --on-signal INT --on-signal TERM
+        stty "$__tcz_cap_saved" 2>/dev/null
+        printf '\e[?25h\e[0m'
+        exit 130
+    end
+    stty -icanon -echo min 1 time 0
+    printf '\e[?25l\e[2J'
+    set -l result ''
+    while true
+        printf '\e[H cap color\e[K\n\e[K\n'
+        for i in (seq $n)
+            set -l tok $families[$i]
+            set -l idx (contains -i -- $tok $toks)
+            set -l hex ''
+            test -n "$idx"; and set hex $hexes[$idx]
+            set -l selflag 0
+            test $i -eq (math $sel + 1); and set selflag 1
+            printf '%s\e[K\n' (__tcz_cap_swatch_line "$hex" $tok $selflag)
+        end
+        printf '\e[K\n ↑↓ move · ←→ flip · ⏎ apply · esc cancel\e[K\e[J'
+        switch (__tcz_popup_readkey)
+            case up
+                test $sel -gt 0; and set sel (math $sel - 1)
+            case down
+                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
+            case left right
+                set families[(math $sel + 1)] (__tcz_cap_flip $families[(math $sel + 1)])
+            case enter
+                set result $families[(math $sel + 1)]
+                break
+            case cancel
+                break
+        end
+    end
+    functions -e __tcz_cap_cleanup
+    set -e __tcz_cap_saved
+    stty $saved
+    printf '\e[?25h\e[2J\e[H'
+    test -n "$result"; and fish -c 'tmux-lives setup cap $argv[1]' "$result" 2>/dev/null
+    return 0
+end
+
 function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claude rename (preexec)'
     test -n "$argv[1]"; or return 0
     set -l cur (tmux display-message -pt "$argv[1]" '#{session_name}' 2>/dev/null)
@@ -1253,6 +1361,8 @@ function __tcz_main
             __tcz_open_switcher $argv[2..]
         case popup
             __tcz_popup $argv[2..]
+        case cap-picker
+            __tcz_cap_picker $argv[2..]
         case scratch
             __tcz_scratch $argv[2..]
         case scratch-resize
