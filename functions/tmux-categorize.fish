@@ -470,6 +470,7 @@ function __tcz_modal_menu_args --description 'display-menu triples (label/key/co
         'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
         'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
         'picker'         s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
+        'cap color'      k "run-shell 'fish --no-config $__tcz_self cap-picker'" \
         'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
         'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
 end
@@ -861,6 +862,7 @@ function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey res
                 set -a lines (__tcz_ml_ln "   $O"t"$T toggle    $O"r"$T resize…" "   t toggle    r resize…" $IW $OD $T)
             case config
                 set -a lines (__tcz_ml_ln "   $O"b"$T bar color" "   b bar color" $IW $OD $T)
+                set -a lines (__tcz_ml_ln "   $O"k"$T cap color" "   k cap color" $IW $OD $T)
             case keys
                 set -a lines (__tcz_ml_ln "   $O$modalkey$KG menu     $O$resizekey$KG resize" "   $modalkey menu     $resizekey resize" $IW $OD $T)
                 set -a lines (__tcz_ml_ln "   $O$scratchkey$KG scratch  $O$switcherkey$KG picker" "   $scratchkey scratch  $switcherkey picker" $IW $OD $T)
@@ -881,6 +883,7 @@ function __tcz_modal_action --argument-names key --description 'pure: launcher k
         case t; echo scratch
         case r; echo resize
         case b; echo color
+        case k; echo cap
         case esc q; echo close
         case '*'; echo noop
     end
@@ -899,6 +902,7 @@ function __tcz_modal_readkey --description 'read one keystroke -> keyname (launc
         case 74; echo t; return
         case 72; echo r; return
         case 62; echo b; return
+        case 6b; echo k; return
         case 71; echo q; return
         case 1b; echo esc; return
     end
@@ -910,6 +914,9 @@ function __tcz_modal_run --argument-names action client --description 'perform o
         case picker
             # Defer: run AFTER this popup closes, so the picker popup is not nested.
             tmux run-shell -b "fish --no-config $__tcz_self open-switcher '$client'" 2>/dev/null
+        case cap
+            # Defer: run AFTER this popup closes, so the cap-picker popup is not nested.
+            tmux run-shell -b "fish --no-config $__tcz_self cap-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear

@@ -613,6 +613,20 @@ t "main dispatches modal-menu" yes (string match -q '*modal-menu*' -- "$MAINSRC"
 t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
+# M-m modal "k" cap-color entry (Task 6): opens cap-picker, mirroring picker/bar color
+# ---------------------------------------------------------------------
+t "modal action k -> cap" cap (__tcz_modal_action k)
+t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
+t "run cap uses deferred run-shell -b cap-picker" yes \
+    (string match -q '*run-shell -b*cap-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
+t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
+set -g MENUARGS (__tcz_modal_menu_args | string collect)
+t "menu_args has cap-picker verb" yes (string match -q '*cap-picker*' -- "$MENUARGS"; and echo yes; or echo no)
+t "menu_args cap color row bound to k (key line follows label)" yes \
+    (string match -qr 'cap color\nk\n' -- "$MENUARGS"; and echo yes; or echo no)
+
+# ---------------------------------------------------------------------
 # recolor: emit the ShellFish OSC to attached ShellFish clients
 # ---------------------------------------------------------------------
 set -g tt1 /tmp/tcz-tty1-$fish_pid; set -g tt2 /tmp/tcz-tty2-$fish_pid
