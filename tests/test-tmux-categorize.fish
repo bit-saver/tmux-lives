@@ -589,6 +589,9 @@ __tcz_scratch
 __tcz_scratch_orient w
 t "scratch_orient keeps one marked pane" 1 (command tmux -L $sock list-panes -F '#{@tmux_lives_scratch}' | grep -c '^1$')
 command tmux -L $sock kill-server 2>/dev/null
+# split width: 45% (source-guard, live split-window is manual smoke)
+t "scratch splits at 45%" 1 (functions __tcz_scratch | string match -q '*split-window*-p 45*'; and echo 1; or echo 0)
+t "scratch orient splits at 45%" 1 (functions __tcz_scratch_orient | string match -q '*-p 45*'; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
 # launcher dispatch (__tcz_modal_run) — single-shot, close-then-run

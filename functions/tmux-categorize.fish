@@ -1390,7 +1390,7 @@ function __tcz_scratch --description 'toggle a marked scratch shell pane beside 
     end
     set -l origin (tmux list-panes -F '#{?#{pane_active},#{pane_id},}' 2>/dev/null | string match -rv '^$')
     test -n "$origin[1]"; and tmux set-window-option @tmux_lives_scratch_origin "$origin[1]" 2>/dev/null
-    tmux split-window -h -p 33 2>/dev/null
+    tmux split-window -h -p 45 2>/dev/null
     tmux set -p @tmux_lives_scratch 1 2>/dev/null
     return 0
 end
@@ -1418,7 +1418,7 @@ function __tcz_scratch_orient --argument-names dir --description 'recreate the s
     test -n "$p[1]"; or return 0
     set -l flag -h; test "$dir" = w; and set flag -v
     tmux kill-pane -t "$p[1]" 2>/dev/null
-    tmux split-window $flag -p 33 2>/dev/null
+    tmux split-window $flag -p 45 2>/dev/null
     tmux set -p @tmux_lives_scratch 1 2>/dev/null
     return 0
 end
