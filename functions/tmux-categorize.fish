@@ -1112,6 +1112,19 @@ function __tcz_cap_sep --argument-names w od t --description 'pure: the picker f
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
 
+function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/sel-bg/sel-fg/reset)'
+    switch $role
+        case brand;  printf '\e[38;2;255;138;31m'
+        case border; printf '\e[38;2;168;106;44m'
+        case key;    printf '\e[38;2;245;207;138m'
+        case muted;  printf '\e[38;2;154;138;114m'
+        case value;  printf '\e[38;2;111;199;184m'
+        case sel-bg; printf '\e[48;2;52;51;47m'
+        case sel-fg; printf '\e[38;2;242;239;233m'
+        case reset;  printf '\e[0m'
+    end
+end
+
 function __tcz_cap_picker --argument-names client --description 'interactive cap-color picker: palette-strip rows (dim·muted·accent truecolor swatches per formula) inside a self-drawn orange frame; ↑↓/jk move, ←→/hl flip the highlighted family''s direction (cache lookup, no subprocess), v cycles vividness (subtle→balanced→vivid), w toggles the hue wheel (ryb↔perceptual) — both trigger a batch recompute; Enter applies (tmux-lives setup cap <token> --vividness <v> --wheel <w>), Esc/q cancels. Runs INSIDE a display-popup already opened by __tmux_lives_cap_picker (task 3) — this function does not open its own popup or provide a display-menu fallback (that gate already lives at the CLI layer, before the popup opens).'
     # RUNTIME CONSTRAINT: this whole script runs as `fish --no-config` (see the file
     # header), so install-side __tmux_lives_* functions (palette, key, derive_status_bg, …)

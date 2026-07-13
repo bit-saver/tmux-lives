@@ -1001,6 +1001,12 @@ t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -a
 
 t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
 
+t "theme brand is truecolor ff8a1f" 1 (test (__tcz_theme brand) = (printf '\e[38;2;255;138;31m'); and echo 1; or echo 0)
+t "theme key is f5cf8a"    1 (test (__tcz_theme key)    = (printf '\e[38;2;245;207;138m'); and echo 1; or echo 0)
+t "theme value is 6fc7b8"  1 (test (__tcz_theme value)  = (printf '\e[38;2;111;199;184m'); and echo 1; or echo 0)
+t "theme selbg is 34332f bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;52;51;47m'); and echo 1; or echo 0)
+t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or echo 0)
+
 set -g FAM (__tcz_cap_families)   # mono complementary analogous+ split+ triadic+ tetradic
 t "restore mono -> 0"          0 (__tcz_cap_restore mono $FAM)
 t "restore complementary -> 1" 1 (__tcz_cap_restore complementary $FAM)
