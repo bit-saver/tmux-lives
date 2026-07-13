@@ -996,6 +996,18 @@ t "swatch line: empty strip degrades cleanly (no crash, still names the token)" 
     (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
 t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
 
+set -g FAM (__tcz_cap_families)   # mono complementary analogous+ split+ triadic+ tetradic
+t "restore mono -> 0"          0 (__tcz_cap_restore mono $FAM)
+t "restore complementary -> 1" 1 (__tcz_cap_restore complementary $FAM)
+t "restore analogous- -> 2"    2 (__tcz_cap_restore analogous- $FAM)
+t "restore analogous+ -> 2"    2 (__tcz_cap_restore analogous+ $FAM)
+t "restore split- -> 3"        3 (__tcz_cap_restore split- $FAM)
+t "restore triadic- -> 4"      4 (__tcz_cap_restore triadic- $FAM)
+t "restore tetradic -> 5"      5 (__tcz_cap_restore tetradic $FAM)
+t "restore #hex -> -1"         -1 (__tcz_cap_restore "#123456" $FAM)
+t "restore unknown -> -1"      -1 (__tcz_cap_restore wat $FAM)
+t "restore empty -> -1"        -1 (__tcz_cap_restore "" $FAM)
+
 t "main dispatches cap-picker" yes (string match -q '*cap-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 
 rm -rf $shimdir

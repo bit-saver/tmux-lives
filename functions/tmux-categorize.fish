@@ -1063,6 +1063,19 @@ function __tcz_cap_families --description 'pure: ordered cap-color family tokens
     printf '%s\n' mono complementary analogous+ split+ triadic+ tetradic
 end
 
+function __tcz_cap_restore --argument-names formula --description 'pure: 0-based index of the families entry whose base matches <formula>''s base (trailing +/- stripped), or -1 if none (e.g. #hex/unknown)'
+    set -l families $argv[2..]
+    set -l base (string replace -r -- '[+-]$' '' $formula)
+    for i in (seq (count $families))
+        set -l fbase (string replace -r -- '[+-]$' '' $families[$i])
+        if test "$fbase" = "$base"
+            math $i - 1
+            return
+        end
+    end
+    echo -1
+end
+
 function __tcz_cap_flip --argument-names token --description 'pure: toggle a directional cap token +<->-; no-op for mono/complementary (they have no direction)'
     switch "$token"
         case '*+'
@@ -1107,13 +1120,16 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
     set -l init (fish -c '
         echo (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
         echo (__tmux_lives_key tmux_lives_cap_wheel ryb)
-        echo (__tmux_lives_key tmux_lives_cap_vividness vivid)' 2>/dev/null)
+        echo (__tmux_lives_key tmux_lives_cap_vividness vivid)
+        echo (__tmux_lives_key tmux_lives_cap mono)' 2>/dev/null)
     set -l bar ''; test (count $init) -ge 1; and set bar $init[1]
     test -n "$bar"; or set bar '#3a3a3a'   # no bar color configured yet -> neutral default (mirrors `setup cap list`)
     set -l wheel ''; test (count $init) -ge 2; and set wheel $init[2]
     test -n "$wheel"; or set wheel ryb
     set -l vividness ''; test (count $init) -ge 3; and set vividness $init[3]
     test -n "$vividness"; or set vividness vivid
+    set -l capformula ''; test (count $init) -ge 4; and set capformula $init[4]
+    test -n "$capformula"; or set capformula mono
 
     set -l toks; set -l dims; set -l muteds; set -l accents
     function __tcz_cap_reload --no-scope-shadowing --description 'refill the palette-strip cache (toks/dims/muteds/accents) for every directional cap token, at the current bar/wheel/vividness — the one fish -c that talks to __tmux_lives_palette (re-run on v/w change).'
@@ -1137,6 +1153,11 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
     set -l families (__tcz_cap_families)
     set -l n (count $families)
     set -l sel 0
+    set -l ridx (__tcz_cap_restore $capformula $families)
+    if test $ridx -ge 0
+        set sel $ridx
+        set families[(math $sel + 1)] $capformula
+    end
     set -l saved (stty -g)
     # Restore the terminal even if the popup is killed mid-loop (mirrors __tcz_popup).
     set -g __tcz_cap_saved $saved
