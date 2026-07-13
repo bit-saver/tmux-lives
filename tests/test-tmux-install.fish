@@ -81,19 +81,24 @@ t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux
 t "fragment current-format keeps bold + tints claude" yes (string match -q '*window-status-current-format*#[bold]*#{?#{==:#{window_name},claude}*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
 # cap bg must be QUOTED so a #rrggbb hex is not swallowed as a tmux comment (empty value).
-# cap bg is now the ADAPTIVE shade of the bar (lighter on a dark bar), NOT equal to the bar.
-t "fragment cap bg is the adaptive shade (quoted)" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$BAR"; and echo yes; or echo no)
+# cap bg is the OKLCH palette's mono accent for the bar (default formula, default vividness/wheel).
+t "fragment cap bg is the palette mono accent (quoted)" yes (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); string match -q "*@tmux_lives_cap_bg '"$p[4]"'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
 # cap-color formula wiring (argv[12] = cap token): cap_bg + cap_fg are derived via the
-# formula, not the old fixed derive_cap_bg / colour231 shade.
-# formula-driven cap: bar #1f6feb -> bar_bg #5793f0; complementary -> cap_hue(#5793f0,180)
+# OKLCH palette's accent role (argv[13]=vividness, argv[14]=wheel), not the old naive-HSL
+# __tmux_lives_cap_from_formula shade.
+# formula-driven cap: bar #1f6feb -> bar_bg #5793f0; complementary accent via the palette
 set -g FC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary | string collect)
-t "fragment cap_bg from formula" yes (string match -q "*set -g @tmux_lives_cap_bg '"(__tmux_lives_cap_from_formula "#5793f0" complementary)"'*" -- "$FC"; and echo yes; or echo no)
-t "fragment cap_fg auto-derived (not fixed colour231)" yes (string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg (__tmux_lives_cap_from_formula "#5793f0" complementary))"'*" -- "$FC"; and echo yes; or echo no)
-# default mono keeps the current shade
+t "fragment cap_bg from formula" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC"; and echo yes; or echo no)
+t "fragment cap_fg auto-derived (not fixed colour231)" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $p[4])"'*" -- "$FC"; and echo yes; or echo no)
+# argv[13]/[14] explicit (vividness=vivid, wheel=ryb) -> same palette accent as the defaults above
+set -g FC2 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary vivid ryb | string collect)
+t "fragment cap_bg = palette accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC2"; and echo yes; or echo no)
+t "fragment cap_fg = contrast of accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $p[4])"'*" -- "$FC2"; and echo yes; or echo no)
+# default mono keeps the OKLCH mono accent (not the old cap_from_formula/derive_cap_bg shade)
 set -g FM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono | string collect)
-t "fragment mono cap_bg == derive_cap_bg" yes (string match -q "*@tmux_lives_cap_bg '#81aef4'*" -- "$FM"; and echo yes; or echo no)
+t "fragment mono cap_bg == palette mono accent" yes (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); string match -q "*@tmux_lives_cap_bg '"$p[4]"'*" -- "$FM"; and echo yes; or echo no)
 # cursor-style (arg 11): a steady style fixes the ShellFish cursor flicker; '' leaves tmux alone
 set -g FRAGCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block | string collect)
 t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-style block*' -- "$FRAGCUR"; and echo yes; or echo no)
@@ -116,7 +121,7 @@ printf '%s\n' $BARR > /tmp/tli-barrfrag-$fish_pid.conf
 t "real bar fragment parses (source-file rc0)" 0 (command tmux -L $brsock source-file /tmp/tli-barrfrag-$fish_pid.conf 2>/dev/null; echo $status)
 # the #rrggbb cap bg must SURVIVE the source (an unquoted # would be eaten as a comment ->
 # empty value even though source-file still returns rc0). Assert the live option is the hex.
-t "real: cap bg option stored non-empty hex" "#81aef4" (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "real: cap bg option stored non-empty hex" (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); echo $p[4]) (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "real: status-format[0] stored non-empty" 1 (test -n (command tmux -L $brsock show -gv status-format[0] 2>/dev/null); and echo 1; or echo 0)
 command tmux -L $brsock kill-server 2>/dev/null; rm -f /tmp/tli-barrfrag-$fish_pid.conf
 # baseline no longer owns the layout (fragment's status-format[0] does)

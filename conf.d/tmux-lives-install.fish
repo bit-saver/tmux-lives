@@ -25,6 +25,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l cap $argv[12]   # cap-color formula token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
+    set -l vividness $argv[13]   # OKLCH palette accent-chroma tier (subtle|balanced|vivid); '' = vivid
+    set -l wheel $argv[14]   # OKLCH palette hue wheel (ryb|rgb); '' = ryb
+    test -n "$vividness"; or set vividness vivid
+    test -n "$wheel"; or set wheel ryb
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
     set -l popup
@@ -79,7 +83,21 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # (lighter on a dark bar / darker on a light bar) so the powerline caps read as a distinct segment.
     set -l barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
     test -n "$barbg"; or set barbg colour236
-    set -l capbg (__tmux_lives_cap_from_formula $barbg $cap)      # formula-driven shade (default mono = adaptive)
+    # __tmux_lives_palette's OKLCH core assumes a real #rrggbb baseHex (no guard for a bare
+    # tmux colour name/number) — only call it when barbg parsed to hex; the "no color configured"
+    # fallback above (colour236, a literal tmux colour name) must skip straight to colour238
+    # below, same as v1's __tmux_lives_cap_from_formula silently no-op'd on a non-hex hex arg.
+    set -l capbg
+    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$barbg"
+        # NB $cap is $argv[12]: a render_fragment call with fewer than 12 args (several test
+        # call sites do this) makes $cap a ZERO-element list, not an empty string — unquoted,
+        # it would vanish from this 4-arg call and shift $wheel/$vividness left (the same
+        # zero-arg hazard documented elsewhere in this file). Quoting "$cap" pins it to one
+        # (possibly empty) arg; an empty formula falls through __tmux_lives_palette's switch
+        # to its mono default.
+        set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap color
+        set capbg $pal[4]
+    end
     test -n "$capbg"; or set capbg colour238
     set -l capfg (__tmux_lives_contrast_fg $capbg)                # readable fg for whichever cap shade/hue was picked
     # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
@@ -205,7 +223,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
