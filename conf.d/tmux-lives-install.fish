@@ -673,19 +673,6 @@ function __tmux_lives_palette --argument baseHex formula wheel vividness --descr
     printf "%s\n" $baseHex $dim $muted $accent $text
 end
 
-function __tmux_lives_hue2rgb --argument-names m1 m2 h --description 'colorsys _v helper -> 0-255 channel'
-    set h (math "$h % 1"); test $h -lt 0; and set h (math "$h+1")
-    set -l v $m1
-    if test $h -lt (math "1/6")
-        set v (math "$m1+($m2-$m1)*$h*6")
-    else if test $h -lt 0.5
-        set v $m2
-    else if test $h -lt (math "2/3")
-        set v (math "$m1+($m2-$m1)*(2/3-$h)*6")
-    end
-    math "round($v*255)"
-end
-
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
