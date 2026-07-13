@@ -163,6 +163,23 @@ t "cap_from_formula unknown -> mono" (__tmux_lives_derive_cap_bg "#36442d") (__t
 t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#755789")
 t "contrast_fg light cap -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
 
+# OKLCH palette engine (task 2): RYB/perceptual hue targeting + role-structured palette
+# triadic- is the palette the user chose (warm accent). Roles order: bg dim muted accent text
+set -g PAL (__tmux_lives_palette "#36442d" "triadic-" ryb vivid)
+t "palette bg is base"      "#36442d" $PAL[1]
+t "palette dim"             "#4b6244" $PAL[2]
+t "palette muted (triadic- secondary = +120)" "#8769b0" $PAL[3]
+t "palette accent (triadic- primary = -120)"  "#f66336" $PAL[4]
+t "palette text"            "#d8e1d5" $PAL[5]
+# flip swaps primary/secondary: triadic+ accent is the violet
+t "triadic+ accent (primary = +120)" "#b075f7" (set -l p (__tmux_lives_palette "#36442d" "triadic+" ryb vivid); echo $p[4])
+# mono accent = base hue at the accent target
+t "mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" mono ryb vivid); echo $p[4])
+# literal hex passthrough -> accent verbatim
+t "palette #hex accent passthrough" "#123456" (set -l p (__tmux_lives_palette "#36442d" "#123456" ryb vivid); echo $p[4])
+# unknown formula -> mono
+t "palette unknown == mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" wat ryb vivid); echo $p[4])
+
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
 t "write_fragment guards a missing categorizer" yes (string match -q '*test -f $cat*return*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)

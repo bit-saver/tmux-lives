@@ -547,6 +547,133 @@ function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> 
     if test $Lrel -gt 0.179; echo "#111111"; else; echo "#f5f5f5"; end
 end
 
+# --- RYB ("artist's wheel") hue mode + role-structured palette generator (v2) ---
+function __tmux_lives_interp7 --description 'piecewise-linear interpolation over 7 fixed control points: argv = h x1..x7 y1..y7'
+    set -l h $argv[1]
+    set -l xs $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7] $argv[8]
+    set -l ys $argv[9] $argv[10] $argv[11] $argv[12] $argv[13] $argv[14] $argv[15]
+    for i in (seq 1 6)
+        set -l x0 $xs[$i]
+        set -l ip1 (math "$i + 1")
+        set -l x1 $xs[$ip1]
+        if test $h -ge $x0
+            if test $h -le $x1
+                set -l y0 $ys[$i]
+                set -l y1 $ys[$ip1]
+                if test $x1 = $x0
+                    echo $y0
+                    return
+                end
+                math "$y0 + ($y1 - $y0) * ($h - $x0) / ($x1 - $x0)"
+                return
+            end
+        end
+    end
+    echo $ys[7]
+end
+function __tmux_lives_rgb_to_ryb_hue --argument h --description 'RGB hue (deg) -> RYB ("artist wheel") hue (deg)'
+    __tmux_lives_interp7 $h 0 30 60 120 240 300 360 0 60 120 180 240 300 360
+end
+function __tmux_lives_ryb_to_rgb_hue --argument h --description 'RYB hue (deg) -> RGB hue (deg)'
+    __tmux_lives_interp7 $h 0 60 120 180 240 300 360 0 30 60 120 240 300 360
+end
+function __tmux_lives_hsl_hue --argument r g b --description 'sRGB (0-1) -> HSL hue (deg), standard max/min formula'
+    set -l maxc $r
+    if test $g -gt $maxc; set maxc $g; end
+    if test $b -gt $maxc; set maxc $b; end
+    set -l minc $r
+    if test $g -lt $minc; set minc $g; end
+    if test $b -lt $minc; set minc $b; end
+    set -l d (math "$maxc - $minc")
+    if test $d = 0; echo 0; return; end
+    set -l h 0
+    if test $maxc = $r
+        set h (math "60 * (($g - $b) / $d)")
+    else if test $maxc = $g
+        set h (math "60 * ((($b - $r) / $d) + 2)")
+    else
+        set h (math "60 * ((($r - $g) / $d) + 4)")
+    end
+    __tmux_lives_norm360 $h
+end
+function __tmux_lives_hsl_to_rgb --argument h s l --description 'HSL -> sRGB (0-1), standard formula'
+    set -l c (math "(1 - abs(2*$l - 1)) * $s")
+    set -l hp (math "$h / 60")
+    set -l hpm $hp
+    while test $hpm -ge 2
+        set hpm (math "$hpm - 2")
+    end
+    set -l x (math "$c * (1 - abs($hpm - 1))")
+    set -l m (math "$l - $c / 2")
+    set -l r1 0
+    set -l g1 0
+    set -l b1 0
+    if test $hp -ge 0; and test $hp -lt 1
+        set r1 $c; set g1 $x; set b1 0
+    else if test $hp -ge 1; and test $hp -lt 2
+        set r1 $x; set g1 $c; set b1 0
+    else if test $hp -ge 2; and test $hp -lt 3
+        set r1 0; set g1 $c; set b1 $x
+    else if test $hp -ge 3; and test $hp -lt 4
+        set r1 0; set g1 $x; set b1 $c
+    else if test $hp -ge 4; and test $hp -lt 5
+        set r1 $x; set g1 0; set b1 $c
+    else
+        set r1 $c; set g1 0; set b1 $x
+    end
+    printf "%s\n" (math "$r1 + $m") (math "$g1 + $m") (math "$b1 + $m")
+end
+function __tmux_lives_target_hue --argument baseHex offset wheel --description 'base hex + hue offset (deg) -> OKLCH target hue, via the ryb or perceptual wheel'
+    set -l rgb (__tmux_lives_hex_to_rgb01 $baseHex)
+    if test "$wheel" = perceptual
+        set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+        __tmux_lives_norm360 (math "$ok[3] + $offset")
+    else
+        set -l rgbHue (__tmux_lives_hsl_hue $rgb[1] $rgb[2] $rgb[3])
+        set -l rybHue2 (__tmux_lives_norm360 (math (__tmux_lives_rgb_to_ryb_hue $rgbHue)" + $offset"))
+        set -l rgbHue2 (__tmux_lives_ryb_to_rgb_hue $rybHue2)
+        set -l pure (__tmux_lives_hsl_to_rgb $rgbHue2 1 0.5)
+        set -l ok (__tmux_lives_rgb_to_oklch $pure[1] $pure[2] $pure[3])
+        echo $ok[3]
+    end
+end
+function __tmux_lives_palette --argument baseHex formula wheel vividness --description 'base hex + formula + wheel + vividness -> 5 role hexes, one per line, order: bg dim muted accent text'
+    # vividness -> accent chroma multiplier
+    set -l vm 1.0
+    switch "$vividness"
+        case subtle; set vm 0.55
+        case balanced; set vm 0.80
+    end
+    set -l Cacc (math "0.19 * $vm")
+    # base-hue roles
+    set -l bh (__tmux_lives_target_hue $baseHex 0 $wheel)
+    set -l text (__tmux_lives_oklch_hex 0.90 0.02 $bh)
+    set -l dim (__tmux_lives_oklch_hex 0.47 0.055 $bh)
+    # literal #hex escape hatch -> accent verbatim, neutral muted
+    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$formula"
+        printf "%s\n" $baseHex $dim (__tmux_lives_oklch_hex 0.58 0.11 $bh) (string lower -- $formula) $text
+        return
+    end
+    # formula -> primary/secondary offsets
+    set -l po 0; set -l so 0
+    switch "$formula"
+        case complementary;  set po 180; set so 0
+        case analogous+;     set po 30;  set so -30
+        case analogous-;     set po -30; set so 30
+        case split+;         set po 150; set so -150
+        case split-;         set po -150; set so 150
+        case triadic+;       set po 120; set so -120
+        case triadic-;       set po -120; set so 120
+        case tetradic;       set po 90;  set so 180
+        case '*';            set po 0;   set so 0   # mono + unknown
+    end
+    set -l ah (__tmux_lives_target_hue $baseHex $po $wheel)
+    set -l mh (__tmux_lives_target_hue $baseHex $so $wheel)
+    set -l accent (__tmux_lives_oklch_hex 0.68 $Cacc $ah)
+    set -l muted (__tmux_lives_oklch_hex 0.58 0.11 $mh)
+    printf "%s\n" $baseHex $dim $muted $accent $text
+end
+
 function __tmux_lives_cap_hue --argument-names hex deg --description 'bar #rrggbb + hue degrees -> cap #rrggbb (HSL rotate + adaptive lightness; colorsys algorithm)'
     set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
     test (count $m) -eq 3; or return 0
