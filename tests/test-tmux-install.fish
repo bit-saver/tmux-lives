@@ -86,8 +86,8 @@ t "fragment cap bg is the palette mono accent (quoted)" yes (set -l p (__tmux_li
 t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
 # cap-color formula wiring (argv[12] = cap token): cap_bg + cap_fg are derived via the
-# OKLCH palette's accent role (argv[13]=vividness, argv[14]=wheel), not the old naive-HSL
-# __tmux_lives_cap_from_formula shade.
+# OKLCH palette's accent role (argv[13]=vividness, argv[14]=wheel), not the old v1
+# naive-HSL hue-rotation shade.
 # formula-driven cap: bar #1f6feb -> bar_bg #5793f0; complementary accent via the palette
 set -g FC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary | string collect)
 t "fragment cap_bg from formula" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC"; and echo yes; or echo no)
@@ -96,7 +96,7 @@ t "fragment cap_fg auto-derived (not fixed colour231)" yes (set -l p (__tmux_liv
 set -g FC2 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary vivid ryb | string collect)
 t "fragment cap_bg = palette accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC2"; and echo yes; or echo no)
 t "fragment cap_fg = contrast of accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $p[4])"'*" -- "$FC2"; and echo yes; or echo no)
-# default mono keeps the OKLCH mono accent (not the old cap_from_formula/derive_cap_bg shade)
+# default mono keeps the OKLCH mono accent (not the old v1 naive-HSL shade)
 set -g FM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono | string collect)
 t "fragment mono cap_bg == palette mono accent" yes (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); string match -q "*@tmux_lives_cap_bg '"$p[4]"'*" -- "$FM"; and echo yes; or echo no)
 # cursor-style (arg 11): a steady style fixes the ShellFish cursor flicker; '' leaves tmux alone
@@ -135,13 +135,6 @@ t "baseline clock is date-first (date then time)" yes (string match -q '*@tmux_l
 t "derive_status_bg: lighter #1f6feb" "#5793f0" (__tmux_lives_derive_status_bg "#1f6feb" 0)
 t "derive_status_bg: darker #1f6feb"  "#1753b0" (__tmux_lives_derive_status_bg "#1f6feb" 1)
 t "derive_status_bg: named -> empty"  ""        (__tmux_lives_derive_status_bg "red" 0)
-# adaptive cap bg: lighter on a dark bar, darker on a light bar (luminance threshold 140)
-t "derive_cap_bg: black bar -> lighter"        "#404040" (__tmux_lives_derive_cap_bg "#000000")
-t "derive_cap_bg: white bar -> darker"         "#bfbfbf" (__tmux_lives_derive_cap_bg "#ffffff")
-t "derive_cap_bg: dark bar (#36442d) lighter"  "#687362" (__tmux_lives_derive_cap_bg "#36442d")
-t "derive_cap_bg: light bar (#c8d0c0) darker"  "#969c90" (__tmux_lives_derive_cap_bg "#c8d0c0")
-t "derive_cap_bg: unparseable -> empty"        ""        (__tmux_lives_derive_cap_bg "colour236")
-
 # OKLCH conversion core (validated reference values; lock fish output if ±1)
 set -g OK (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "#ff0000"))
 t "oklch #ff0000 L" "0.627955" $OK[1]
@@ -156,15 +149,6 @@ t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#36442d")
 t "contrast_fg vivid mid -> dark" "#111111" (__tmux_lives_contrast_fg "#f66336")
 t "contrast_fg near-white -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
 
-# cap-color formulas: HSL hue-rotation + formula dispatch + contrast fg
-t "cap_hue complementary" "#755789" (__tmux_lives_cap_hue "#36442d" 180)
-t "cap_hue analogous+"    "#57895d" (__tmux_lives_cap_hue "#36442d" 30)
-t "cap_hue triadic-"      "#89576b" (__tmux_lives_cap_hue "#36442d" -120)
-t "cap_from_formula mono == derive_cap_bg" (__tmux_lives_derive_cap_bg "#36442d") (__tmux_lives_cap_from_formula "#36442d" mono)
-t "cap_from_formula complementary" "#755789" (__tmux_lives_cap_from_formula "#36442d" complementary)
-t "cap_from_formula analogous- token" "#838957" (__tmux_lives_cap_from_formula "#36442d" analogous-)
-t "cap_from_formula literal hex passthrough" "#123456" (__tmux_lives_cap_from_formula "#36442d" "#123456")
-t "cap_from_formula unknown -> mono" (__tmux_lives_derive_cap_bg "#36442d") (__tmux_lives_cap_from_formula "#36442d" wat)
 t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#755789")
 t "contrast_fg light cap -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
 

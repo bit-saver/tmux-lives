@@ -3,7 +3,7 @@
 
 # module-scope constant for the OKLCH conversion core below (__tmux_lives_rgb_to_oklch /
 # __tmux_lives_oklch_to_linrgb use it for the atan2/cos/sin hue math).
-set -g __tmux_lives_pi (math "atan2(0, -1)")
+set -q __tmux_lives_pi; or set -g __tmux_lives_pi (math "atan2(0, -1)")
 
 function __tmux_lives_key --description 'Effective switcher key: VARNAME unset -> DEFAULT; set (even empty) -> its value'
     set -l name $argv[1]
@@ -79,25 +79,16 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g window-status-format '#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}'"
     set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}#[nobold]'"
     set -a f "set -g window-status-separator ' • '"
-    # cap/accent colors. bar bg = the ShellFish-derived status bg; cap bg = an ADAPTIVE shade of it
-    # (lighter on a dark bar / darker on a light bar) so the powerline caps read as a distinct segment.
+    # cap/accent colors. bar bg = the ShellFish-derived status bg; the cap = the OKLCH palette's
+    # ACCENT role. __tmux_lives_palette self-guards a non-hex baseHex (returns empty), so the
+    # colour236 "no bar color configured" fallback flows straight to the colour238 default below.
     set -l barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
     test -n "$barbg"; or set barbg colour236
-    # __tmux_lives_palette's OKLCH core assumes a real #rrggbb baseHex (no guard for a bare
-    # tmux colour name/number) — only call it when barbg parsed to hex; the "no color configured"
-    # fallback above (colour236, a literal tmux colour name) must skip straight to colour238
-    # below, same as v1's __tmux_lives_cap_from_formula silently no-op'd on a non-hex hex arg.
-    set -l capbg
-    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$barbg"
-        # NB $cap is $argv[12]: a render_fragment call with fewer than 12 args (several test
-        # call sites do this) makes $cap a ZERO-element list, not an empty string — unquoted,
-        # it would vanish from this 4-arg call and shift $wheel/$vividness left (the same
-        # zero-arg hazard documented elsewhere in this file). Quoting "$cap" pins it to one
-        # (possibly empty) arg; an empty formula falls through __tmux_lives_palette's switch
-        # to its mono default.
-        set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap color
-        set capbg $pal[4]
-    end
+    # NB "$cap" is quoted: $argv[12] may be a ZERO-element list when render_fragment is called
+    # with <12 args (several test sites do this); unquoted it would shift $wheel/$vividness left.
+    # An empty formula falls through __tmux_lives_palette's switch to its mono default.
+    set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap
+    set -l capbg $pal[4]
     test -n "$capbg"; or set capbg colour238
     set -l capfg (__tmux_lives_contrast_fg $capbg)                # readable fg for whichever cap shade/hue was picked
     # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
@@ -465,31 +456,15 @@ function __tmux_lives_derive_status_bg --description 'css color + invert -> just
     string replace -rf '.*bg=([^,]+).*' '$1' -- $ss
 end
 
-function __tmux_lives_derive_cap_bg --argument-names hex --description 'bar bg #rrggbb -> a distinct powerline-cap bg: lighter on a dark bar, darker on a light bar (luminance-adaptive, threshold 140; same +25% / x0.75 shades as derive_status). Empty if unparseable.'
-    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
-    test (count $m) -eq 3; or return 0
-    set -l r (math "0x$m[1]"); set -l g (math "0x$m[2]"); set -l b (math "0x$m[3]")
-    set -l L (math "round(0.299 * $r + 0.587 * $g + 0.114 * $b)")
-    set -l nr; set -l ng; set -l nb
-    if test $L -gt 140
-        # light bar -> darker cap
-        set nr (math "round($r * 0.75)"); set ng (math "round($g * 0.75)"); set nb (math "round($b * 0.75)")
-    else
-        # dark bar -> lighter cap
-        set nr (math "round($r + (255 - $r) * 0.25)"); set ng (math "round($g + (255 - $g) * 0.25)"); set nb (math "round($b + (255 - $b) * 0.25)")
-    end
-    printf '#%02x%02x%02x' $nr $ng $nb
-end
-
 # --- OKLCH conversion core (perceptual color space; feeds the v2 palette engine) ---
 # sRGB <-> linear-light helpers (IEC 61966-2-1).
-function __tmux_lives_lin_decode --argument c
+function __tmux_lives_lin_decode --argument c --description 'sRGB channel [0,1] -> linear-light (IEC 61966-2-1 EOTF)'
     if test $c -le 0.04045; math "$c / 12.92"; else; math "(($c + 0.055) / 1.055) ^ 2.4"; end
 end
-function __tmux_lives_lin_encode --argument c   # c already clipped to [0,1]
+function __tmux_lives_lin_encode --argument c --description 'linear-light channel [0,1] -> sRGB (IEC 61966-2-1 OETF); c already clipped to [0,1]'
     if test $c -le 0.0031308; math "$c * 12.92"; else; math "1.055 * ($c ^ (1 / 2.4)) - 0.055"; end
 end
-function __tmux_lives_clip01 --argument v
+function __tmux_lives_clip01 --argument v --description 'clamp a number into [0,1]'
     if test $v -lt 0; echo 0; return; end
     if test $v -gt 1; echo 1; return; end
     echo $v
@@ -498,7 +473,7 @@ function __tmux_lives_hex_to_rgb01 --argument hex --description '#rrggbb -> r,g,
     set -l h (string replace -r '^#' '' $hex)
     printf "%s\n" (math "0x"(string sub -s 1 -l 2 $h)"/255") (math "0x"(string sub -s 3 -l 2 $h)"/255") (math "0x"(string sub -s 5 -l 2 $h)"/255")
 end
-function __tmux_lives_linrgb_to_hex --argument r g b
+function __tmux_lives_linrgb_to_hex --argument r g b --description 'linear-light r,g,b (unclamped) -> #rrggbb (gamma-encode + clip01 + round)'
     set -l re (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $r)))
     set -l ge (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $g)))
     set -l be (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $b)))
@@ -698,47 +673,6 @@ function __tmux_lives_palette --argument baseHex formula wheel vividness --descr
     printf "%s\n" $baseHex $dim $muted $accent $text
 end
 
-function __tmux_lives_cap_hue --argument-names hex deg --description 'bar #rrggbb + hue degrees -> cap #rrggbb (HSL rotate + adaptive lightness; colorsys algorithm)'
-    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
-    test (count $m) -eq 3; or return 0
-    set -l r (math "0x$m[1]/255"); set -l g (math "0x$m[2]/255"); set -l b (math "0x$m[3]/255")
-    set -l mx (math "max($r,$g,$b)"); set -l mn (math "min($r,$g,$b)")
-    set -l L (math "($mx+$mn)/2")
-    set -l H 0; set -l S 0
-    if test (math "$mx - $mn") != 0
-        if test $L -le 0.5
-            set S (math "($mx-$mn)/($mx+$mn)")
-        else
-            set S (math "($mx-$mn)/(2-$mx-$mn)")
-        end
-        set -l rc (math "($mx-$r)/($mx-$mn)"); set -l gc (math "($mx-$g)/($mx-$mn)"); set -l bc (math "($mx-$b)/($mx-$mn)")
-        if test "$r" = "$mx"
-            set H (math "$bc-$gc")
-        else if test "$g" = "$mx"
-            set H (math "2+$rc-$bc")
-        else
-            set H (math "4+$gc-$rc")
-        end
-        set H (math "($H/6) % 1"); test $H -lt 0; and set H (math "$H+1")
-    end
-    # rotate + floor S + adaptive L
-    # NB: fish's `math` has no comparison/logical operators ("Logical operations are not
-    # supported, use `test` instead") — unlike the plan's `math "$x < $y"` sketch, every
-    # comparison below uses fish's native `test -lt`/`-le`, which does numeric (not just
-    # integer) comparison on the decimal strings `math` returns.
-    set H (math "($H + $deg/360) % 1"); test $H -lt 0; and set H (math "$H+1")
-    set S (math "max($S,0.22)")
-    if test $L -lt 0.5
-        set L (math "$L+(1-$L)*0.28")
-    else
-        set L (math "$L*0.72")
-    end
-    # HSL -> RGB
-    set -l m2; if test $L -le 0.5; set m2 (math "$L*(1+$S)"); else; set m2 (math "$L+$S-$L*$S"); end
-    set -l m1 (math "2*$L-$m2")
-    printf '#%02x%02x%02x' (__tmux_lives_hue2rgb $m1 $m2 (math "$H+1/3")) (__tmux_lives_hue2rgb $m1 $m2 $H) (__tmux_lives_hue2rgb $m1 $m2 (math "$H-1/3"))
-end
-
 function __tmux_lives_hue2rgb --argument-names m1 m2 h --description 'colorsys _v helper -> 0-255 channel'
     set h (math "$h % 1"); test $h -lt 0; and set h (math "$h+1")
     set -l v $m1
@@ -750,20 +684,6 @@ function __tmux_lives_hue2rgb --argument-names m1 m2 h --description 'colorsys _
         set v (math "$m1+($m2-$m1)*(2/3-$h)*6")
     end
     math "round($v*255)"
-end
-
-function __tmux_lives_cap_from_formula --argument-names hex token --description 'bar #rrggbb + cap token -> cap #rrggbb (literal-hex | mono->derive_cap_bg | hue family)'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$token"; and begin; echo (string lower -- $token); return; end
-    switch "$token"
-        case complementary; __tmux_lives_cap_hue $hex 180
-        case analogous+; __tmux_lives_cap_hue $hex 30
-        case analogous-; __tmux_lives_cap_hue $hex -30
-        case split+; __tmux_lives_cap_hue $hex 150
-        case split-; __tmux_lives_cap_hue $hex 210
-        case triadic+; __tmux_lives_cap_hue $hex 120
-        case triadic-; __tmux_lives_cap_hue $hex -120
-        case '*'; __tmux_lives_derive_cap_bg $hex   # mono + unknown fallback
-    end
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
