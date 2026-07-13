@@ -393,6 +393,16 @@ set -l _capsi_had 0; set -l _capsi_val
 if set -q tmux_lives_status_invert
     set _capsi_had 1; set _capsi_val $tmux_lives_status_invert
 end
+set -l _capv_had 0; set -l _capv_val
+if set -q tmux_lives_cap_vividness
+    set _capv_had 1; set _capv_val $tmux_lives_cap_vividness
+end
+set -e tmux_lives_cap_vividness
+set -l _capw_had 0; set -l _capw_val
+if set -q tmux_lives_cap_wheel
+    set _capw_had 1; set _capw_val $tmux_lives_cap_wheel
+end
+set -e tmux_lives_cap_wheel
 set -U tmux_lives_bar_color "#1f6feb"
 set -U tmux_lives_status_invert 0
 set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
@@ -404,18 +414,31 @@ __tmux_lives_cap_cmd complementary >/dev/null
 t "cap: stores token in universal var"  "complementary" "$tmux_lives_cap"
 t "cap: writes non-empty cap_bg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null); and echo 1; or echo 0)
 t "cap: writes non-empty cap_fg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null); and echo 1; or echo 0)
-t "cap: live cap_bg matches the formula" (__tmux_lives_cap_from_formula $cap_barbg complementary) (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "cap: live cap_fg matches contrast_fg" (__tmux_lives_contrast_fg (__tmux_lives_cap_from_formula $cap_barbg complementary)) (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null)
+t "cap: live cap_bg matches the formula" (set -l p (__tmux_lives_palette $cap_barbg complementary ryb vivid); echo $p[4]) (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "cap: live cap_fg matches contrast_fg" (__tmux_lives_contrast_fg (set -l p (__tmux_lives_palette $cap_barbg complementary ryb vivid); echo $p[4])) (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null)
 
 __tmux_lives_cap_cmd wat >/dev/null 2>&1
 t "cap: a later invalid token leaves the prior value" "complementary" "$tmux_lives_cap"
 
+# invalid formula: errors + leaves the universal unset (fresh, no prior value in play)
+set -e tmux_lives_cap
+t "invalid formula errors, no set" 1 (__tmux_lives_cap_cmd wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap; and echo bad; or echo 1; end)
+__tmux_lives_cap_cmd complementary >/dev/null   # restore for the tests below
+
 set -l cap_list (__tmux_lives_cap_cmd list | string collect)
-for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic-
+for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic
     t "cap list mentions token $tok" 1 (string match -q "*$tok*" -- "$cap_list"; and echo 1; or echo 0)
 end
 set -l swatch_prefix (printf '\e[48;2;')
 t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$cap_list"; and echo 1; or echo 0)
+t "cap list has a formula + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
+
+# --vividness/--wheel flags: validate, set -U, and re-apply live (no formula arg needed)
+t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)
+t "cap --wheel perceptual sets universal" perceptual (__tmux_lives_cap_cmd --wheel perceptual >/dev/null; echo $tmux_lives_cap_wheel)
+t "cap --vividness bogus rc1, universal unchanged" "subtle" (__tmux_lives_cap_cmd --vividness bogus >/dev/null 2>&1; echo $tmux_lives_cap_vividness)
+t "cap --wheel bogus rc1, universal unchanged" "perceptual" (__tmux_lives_cap_cmd --wheel bogus >/dev/null 2>&1; echo $tmux_lives_cap_wheel)
+set -e tmux_lives_cap_vividness; set -e tmux_lives_cap_wheel   # back to defaults for anything below
 
 # no-arg -> the interactive picker (Task 4 supplies the categorizer's cap-picker verb).
 # Outside tmux this must fail cleanly (no crash, no live mutation) rather than try to
@@ -443,6 +466,12 @@ end
 if test $_capsi_had -eq 1
     set -U tmux_lives_status_invert $_capsi_val
 end
+if test $_capv_had -eq 1
+    set -U tmux_lives_cap_vividness $_capv_val
+end
+if test $_capw_had -eq 1
+    set -U tmux_lives_cap_wheel $_capw_val
+end
 set -e tmux_lives_tmux_socket
 command tmux -L $capsock kill-server 2>/dev/null
 
@@ -459,6 +488,7 @@ t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_
 # help lists cap (Task 4 deferred item)
 t "setup help lists cap" 1 (string match -q '*cap*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "help cap row mentions the picker" 1 (string match -q '*cap*picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "setup help says formula not token" 1 (string match -q '*formula*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
