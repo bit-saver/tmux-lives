@@ -745,7 +745,7 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|right|enter|cancel|other'
+function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|right|v|w|enter|cancel|kill|other'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -753,9 +753,10 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|r
     #    function — a command substitution `(dd …)` inside a function that is a
     #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
     #    sets VAR in scope. Bytes are compared as hex.
-    # left/right (h/l + CSI C/D) are only consumed by the cap-picker's direction
-    # flip; __tcz_popup's switch has no matching case for them so it silently
-    # ignores them there (same as any other token its cases don't list).
+    # left/right (h/l + CSI C/D) and v/w are only consumed by the cap-picker's
+    # direction-flip / vividness / wheel controls; __tcz_popup's switch has no
+    # matching case for any of them so it silently ignores them there (same as
+    # any other token its cases don't list).
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
     test -z "$b"; and begin; echo cancel; return; end          # EOF
@@ -764,6 +765,8 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|r
         case 6b; echo up; return                    # k
         case 68; echo left; return                  # h
         case 6c; echo right; return                 # l
+        case 76; echo v; return                      # v (cap-picker: cycle vividness)
+        case 77; echo w; return                      # w (cap-picker: toggle wheel)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1047,8 +1050,8 @@ function __tcz_open_switcher --argument-names client --description 'open the two
     end
 end
 
-function __tcz_cap_families --description 'pure: ordered cap-color family tokens shown in the picker (directional families default to their + side; ←→ flips it)'
-    printf '%s\n' mono complementary analogous+ split+ triadic+
+function __tcz_cap_families --description 'pure: ordered cap-color family tokens shown in the picker (directional families default to their + side; ←→ flips it; tetradic has no direction, same as mono/complementary)'
+    printf '%s\n' mono complementary analogous+ split+ triadic+ tetradic
 end
 
 function __tcz_cap_flip --argument-names token --description 'pure: toggle a directional cap token +<->-; no-op for mono/complementary (they have no direction)'
@@ -1062,44 +1065,66 @@ function __tcz_cap_flip --argument-names token --description 'pure: toggle a dir
     end
 end
 
-function __tcz_cap_swatch_line --argument-names caphex token selected --description 'pure: one cap-picker row = selection marker + truecolor swatch of an ALREADY-COMPUTED <caphex> + <token> name + hex text. Never calls the install-side formula (see the --no-config runtime note on __tcz_cap_picker) — caphex is precomputed by the caller.'
+function __tcz_cap_swatch_line --argument-names dimhex mutedhex accenthex token selected --description 'pure: one cap-picker row = selection marker + a 3-cell palette strip (dim·muted·accent, ALREADY-COMPUTED truecolor swatches) + <token> name. Never calls the install-side palette engine (see the --no-config runtime note on __tcz_cap_picker) — the three hexes are precomputed by the caller (mirrors __tmux_lives_cap_list''s strip rendering).'
     set -l RST (printf '\e[0m')
     set -l ORG (printf '\e[38;5;208m')
     set -l SELBG (printf '\e[48;5;236m')
-    # truecolor swatch of caphex; a blank/unparseable hex degrades to a neutral
+    # 3-cell truecolor strip; each blank/unparseable hex degrades to a neutral
     # two-space gap instead of crashing (e.g. no bar color configured yet).
-    set -l swatch '  '
-    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$caphex")
-    test (count $m) -eq 3; and set swatch (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
-    set -l name (printf '%-14s' "$token")
-    set -l hextxt $caphex
-    test -n "$hextxt"; or set hextxt '(none)'
+    set -l strip ''
+    for hex in $dimhex $mutedhex $accenthex
+        set -l cell '  '
+        set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
+        test (count $m) -eq 3; and set cell (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
+        set strip "$strip$cell"
+    end
+    set -l name (printf '%-13s' "$token")
     if test "$selected" = 1
-        printf '%s%s▐%s %s %s %s%s' $SELBG $ORG $RST "$swatch" "$name" "$hextxt" $RST
+        printf '%s%s▐%s %s %s%s' $SELBG $ORG $RST "$strip" "$name" $RST
     else
-        printf '  %s %s %s' "$swatch" "$name" "$hextxt"
+        printf '  %s %s' "$strip" "$name"
     end
 end
 
-function __tcz_cap_picker --argument-names client --description 'interactive cap-color picker: 5 family swatch rows, ↑↓/jk move, ←→/hl flip the highlighted family''s direction, Enter applies (tmux-lives setup cap <token>), Esc/q cancels. Runs INSIDE a display-popup already opened by __tmux_lives_cap_picker (task 3) — this function does not open its own popup or provide a display-menu fallback (that gate already lives at the CLI layer, before the popup opens).'
+function __tcz_cap_picker --argument-names client --description 'interactive cap-color picker: palette-strip rows (dim·muted·accent truecolor swatches per formula) inside a self-drawn orange frame; ↑↓/jk move, ←→/hl flip the highlighted family''s direction (cache lookup, no subprocess), v cycles vividness (subtle→balanced→vivid), w toggles the hue wheel (ryb↔perceptual) — both trigger a batch recompute; Enter applies (tmux-lives setup cap <token> --vividness <v> --wheel <w>), Esc/q cancels. Runs INSIDE a display-popup already opened by __tmux_lives_cap_picker (task 3) — this function does not open its own popup or provide a display-menu fallback (that gate already lives at the CLI layer, before the popup opens).'
     # RUNTIME CONSTRAINT: this whole script runs as `fish --no-config` (see the file
-    # header), so install-side __tmux_lives_* functions (cap_from_formula, key, …)
-    # are NOT loaded here. Batch-compute the cap hex for EVERY directional token in
-    # ONE config-loaded `fish -c` subprocess (which DOES load conf.d) up front, so
-    # the install-side derivation stays the single source of truth and flipping a
-    # family's direction afterward is instant — a cache lookup, no subprocess.
-    set -l pairs (fish -c '
-        set -l bar (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-        for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic-
-            printf "%s %s\n" $tok (__tmux_lives_cap_from_formula $bar $tok)
-        end' 2>/dev/null)
-    set -l toks; set -l hexes
-    for line in $pairs
-        set -l f (string split -m 1 ' ' -- $line)
-        test -n "$f[1]"; or continue
-        set -a toks $f[1]
-        set -a hexes (test (count $f) -ge 2; and echo $f[2]; or echo '')
+    # header), so install-side __tmux_lives_* functions (palette, key, derive_status_bg, …)
+    # are NOT loaded here. Batch-compute the palette STRIP (dim/muted/accent) for EVERY
+    # directional token in ONE config-loaded `fish -c` subprocess (which DOES load conf.d)
+    # up front, so the install-side __tmux_lives_palette engine stays the single source of
+    # truth. v/w change the dim/muted/accent math for every family, so they re-run the
+    # whole batch (__tcz_cap_reload below); flipping a family's direction is a pure cache
+    # lookup — both the + and - variants are always present in the batch.
+    set -l init (fish -c '
+        echo (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
+        echo (__tmux_lives_key tmux_lives_cap_wheel ryb)
+        echo (__tmux_lives_key tmux_lives_cap_vividness vivid)' 2>/dev/null)
+    set -l bar ''; test (count $init) -ge 1; and set bar $init[1]
+    test -n "$bar"; or set bar '#3a3a3a'   # no bar color configured yet -> neutral default (mirrors `setup cap list`)
+    set -l wheel ''; test (count $init) -ge 2; and set wheel $init[2]
+    test -n "$wheel"; or set wheel ryb
+    set -l vividness ''; test (count $init) -ge 3; and set vividness $init[3]
+    test -n "$vividness"; or set vividness vivid
+
+    set -l toks; set -l dims; set -l muteds; set -l accents
+    function __tcz_cap_reload --no-scope-shadowing --description 'refill the palette-strip cache (toks/dims/muteds/accents) for every directional cap token, at the current bar/wheel/vividness — the one fish -c that talks to __tmux_lives_palette (re-run on v/w change).'
+        set toks; set dims; set muteds; set accents
+        for line in (fish -c '
+            for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic
+                set -l p (__tmux_lives_palette $argv[1] $tok $argv[2] $argv[3])
+                test (count $p) -eq 5; or set p "" "" "" "" ""
+                printf "%s %s %s %s\n" $tok $p[2] $p[3] $p[4]
+            end' $bar $wheel $vividness 2>/dev/null)
+            set -l f (string split ' ' -- $line)
+            test -n "$f[1]"; or continue
+            set -a toks $f[1]
+            set -a dims $f[2]
+            set -a muteds $f[3]
+            set -a accents $f[4]
+        end
     end
+    __tcz_cap_reload
+
     set -l families (__tcz_cap_families)
     set -l n (count $families)
     set -l sel 0
@@ -1111,21 +1136,42 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         printf '\e[?25h\e[0m'
         exit 130
     end
+    # frame helpers — mirror __tcz_modal_legend's box (orange border, ╭─ title ─╮ / ╰─╯)
+    # and its __tcz_ml_ln padder; padding is computed from the SGR-stripped visible
+    # length and passed as a QUOTED variable, never an inline (string repeat -n 0 …)
+    # spliced straight into printf's arg list — an empty repeat there yields ZERO args
+    # and silently drops the trailing fields (the __tmux_lives_box gotcha).
+    set -l IW 30
+    set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')
+    set -l T (printf '\e[0m')
+    function __tcz_cap_ln --argument-names content w od t --description 'pad an ALREADY-COLORED content string to visible width w (via __tcz_strip_sgr) and wrap it in the orange-bordered frame'
+        set -l vis (__tcz_strip_sgr "$content")
+        set -l pad (math "$w - "(string length -- "$vis"))
+        test $pad -lt 0; and set pad 0
+        set -l padstr (string repeat -n $pad ' ')
+        printf '%s│%s%s│%s\n' $od "$content$t$padstr" $od $t
+    end
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l result ''
     while true
-        printf '\e[H cap color\e[K\n\e[K\n'
+        set -l lines
+        set -a lines $OD"╭─ "$O"cap color"$OD" "(string repeat -n (math "$IW - 12") ─)"╮"$T
         for i in (seq $n)
             set -l tok $families[$i]
             set -l idx (contains -i -- $tok $toks)
-            set -l hex ''
-            test -n "$idx"; and set hex $hexes[$idx]
+            set -l dimhex ''; set -l mutedhex ''; set -l accenthex ''
+            if test -n "$idx"
+                set dimhex $dims[$idx]; set mutedhex $muteds[$idx]; set accenthex $accents[$idx]
+            end
             set -l selflag 0
             test $i -eq (math $sel + 1); and set selflag 1
-            printf '%s\e[K\n' (__tcz_cap_swatch_line "$hex" $tok $selflag)
+            set -a lines (__tcz_cap_ln (__tcz_cap_swatch_line "$dimhex" "$mutedhex" "$accenthex" $tok $selflag) $IW $OD $T)
         end
-        printf '\e[K\n ↑↓ move · ←→ flip · ⏎ apply · esc cancel\e[K\e[J'
+        set -a lines $OD"╰"(string repeat -n $IW ─)"╯"$T
+        printf '\e[H'
+        printf '%s\e[K\n' $lines
+        printf '\e[K\n ↑↓ move  ←→ flip\e[K\n v vivid  w wheel\e[K\n ⏎ apply  esc cancel\e[K\n [%s / %s]\e[K\e[J' $wheel $vividness
         switch (__tcz_popup_readkey)
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
@@ -1133,6 +1179,20 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
                 test $sel -lt (math $n - 1); and set sel (math $sel + 1)
             case left right
                 set families[(math $sel + 1)] (__tcz_cap_flip $families[(math $sel + 1)])
+            case v
+                switch "$vividness"
+                    case subtle;   set vividness balanced
+                    case balanced; set vividness vivid
+                    case '*';      set vividness subtle
+                end
+                __tcz_cap_reload
+            case w
+                if test "$wheel" = ryb
+                    set wheel perceptual
+                else
+                    set wheel ryb
+                end
+                __tcz_cap_reload
             case enter
                 set result $families[(math $sel + 1)]
                 break
@@ -1141,10 +1201,12 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         end
     end
     functions -e __tcz_cap_cleanup
+    functions -e __tcz_cap_reload
+    functions -e __tcz_cap_ln
     set -e __tcz_cap_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
-    test -n "$result"; and fish -c 'tmux-lives setup cap $argv[1]' "$result" 2>/dev/null
+    test -n "$result"; and fish -c 'tmux-lives setup cap $argv[1] --vividness $argv[2] --wheel $argv[3]' "$result" "$vividness" "$wheel" 2>/dev/null
     return 0
 end
 

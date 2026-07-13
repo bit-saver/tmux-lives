@@ -942,25 +942,33 @@ functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 # cap-picker — pure helpers (families/flip/swatch-line). The interactive raw-tty
 # loop, __tcz_cap_picker, is manual-smoke only (like __tcz_popup) — not unit tested.
 # ---------------------------------------------------------------------
-t "cap families, in order" "mono complementary analogous+ split+ triadic+" (__tcz_cap_families | string join ' ')
+t "cap families, in order (incl. tetradic)" "mono complementary analogous+ split+ triadic+ tetradic" (__tcz_cap_families | string join ' ')
 
 t "cap flip analogous+ -> analogous-" analogous- (__tcz_cap_flip analogous+)
 t "cap flip analogous- -> analogous+" analogous+ (__tcz_cap_flip analogous-)
 t "cap flip split+ -> split-"     split-     (__tcz_cap_flip split+)
+t "cap flip triadic+ -> triadic-" triadic-   (__tcz_cap_flip triadic+)
 t "cap flip triadic- -> triadic+" triadic+   (__tcz_cap_flip triadic-)
 t "cap flip mono is a no-op"          mono          (__tcz_cap_flip mono)
 t "cap flip complementary is a no-op" complementary (__tcz_cap_flip complementary)
+t "cap flip tetradic is a no-op"      tetradic      (__tcz_cap_flip tetradic)
 
-set -g SWL (__tcz_cap_swatch_line "#755789" complementary 1)
+# swatch line now renders a 3-cell palette strip (dim/muted/accent, precomputed by the
+# caller) instead of one caphex. ANSI idiom note: a single-quoted '*\e[48;2;*' matches a
+# literal backslash-e, never a real ESC byte — match on the bracket-only '[48;2;' instead.
+set -g SWL (__tcz_cap_swatch_line "#402030" "#755789" "#e0a030" complementary 1)
 t "swatch line: selected marker" yes (string match -q '*▐*' -- "$SWL"; and echo yes; or echo no)
-t "swatch line: shows the hex"   yes (string match -q '*#755789*' -- "$SWL"; and echo yes; or echo no)
 t "swatch line: shows the token" yes (string match -q '*complementary*' -- "$SWL"; and echo yes; or echo no)
-t "swatch line: truecolor bg escape" yes (string match -q '*48;2;117;87;137*' -- "$SWL"; and echo yes; or echo no)
-set -g SWLU (__tcz_cap_swatch_line "#755789" complementary 0)
+t "swatch line: 3 truecolor swatches (one per strip color)" 3 (count (string match -ar -- '\[48;2;' "$SWL"))
+t "swatch line: dim swatch rgb"    yes (string match -q '*[48;2;64;32;48*'    -- "$SWL"; and echo yes; or echo no)
+t "swatch line: muted swatch rgb"  yes (string match -q '*[48;2;117;87;137*' -- "$SWL"; and echo yes; or echo no)
+t "swatch line: accent swatch rgb" yes (string match -q '*[48;2;224;160;48*' -- "$SWL"; and echo yes; or echo no)
+set -g SWLU (__tcz_cap_swatch_line "#402030" "#755789" "#e0a030" complementary 0)
 t "swatch line: unselected has no marker" no (string match -q '*▐*' -- "$SWLU"; and echo yes; or echo no)
-set -g SWLE (__tcz_cap_swatch_line "" mono 0)
-t "swatch line: empty hex degrades cleanly (no crash, still names the token)" yes \
+set -g SWLE (__tcz_cap_swatch_line "" "" "" mono 0)
+t "swatch line: empty strip degrades cleanly (no crash, still names the token)" yes \
     (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
+t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
 
 t "main dispatches cap-picker" yes (string match -q '*cap-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 
