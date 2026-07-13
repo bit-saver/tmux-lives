@@ -1108,6 +1108,10 @@ function __tcz_cap_swatch_line --argument-names dimhex mutedhex accenthex token 
     end
 end
 
+function __tcz_cap_sep --argument-names w od t --description 'pure: the picker frame''s mid separator line (├──…──┤), inner width w, OD-colored'
+    printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
+end
+
 function __tcz_cap_picker --argument-names client --description 'interactive cap-color picker: palette-strip rows (dim·muted·accent truecolor swatches per formula) inside a self-drawn orange frame; ↑↓/jk move, ←→/hl flip the highlighted family''s direction (cache lookup, no subprocess), v cycles vividness (subtle→balanced→vivid), w toggles the hue wheel (ryb↔perceptual) — both trigger a batch recompute; Enter applies (tmux-lives setup cap <token> --vividness <v> --wheel <w>), Esc/q cancels. Runs INSIDE a display-popup already opened by __tmux_lives_cap_picker (task 3) — this function does not open its own popup or provide a display-menu fallback (that gate already lives at the CLI layer, before the popup opens).'
     # RUNTIME CONSTRAINT: this whole script runs as `fish --no-config` (see the file
     # header), so install-side __tmux_lives_* functions (palette, key, derive_status_bg, …)
@@ -1198,10 +1202,15 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
             test $i -eq (math $sel + 1); and set selflag 1
             set -a lines (__tcz_cap_ln (__tcz_cap_swatch_line "$dimhex" "$mutedhex" "$accenthex" $tok $selflag) $IW $OD $T)
         end
+        set -a lines (__tcz_cap_sep $IW $OD $T)
+        set -a lines (__tcz_cap_ln " ↑↓ move   ←→ flip" $IW $OD $T)
+        set -a lines (__tcz_cap_ln " v vivid   w wheel" $IW $OD $T)
+        set -a lines (__tcz_cap_ln " ⏎ apply   esc cancel" $IW $OD $T)
+        set -a lines (__tcz_cap_ln " wheel $wheel · $vividness" $IW $OD $T)
         set -a lines $OD"╰"(string repeat -n $IW ─)"╯"$T
         printf '\e[H'
         printf '%s\e[K\n' $lines
-        printf '\e[K\n ↑↓ move  ←→ flip\e[K\n v vivid  w wheel\e[K\n ⏎ apply  esc cancel\e[K\n [%s / %s]\e[K\e[J' $wheel $vividness
+        printf '\e[J'
         switch (__tcz_popup_readkey)
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)

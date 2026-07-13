@@ -996,6 +996,8 @@ t "swatch line: empty strip degrades cleanly (no crash, still names the token)" 
     (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
 t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
 
+t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
+
 set -g FAM (__tcz_cap_families)   # mono complementary analogous+ split+ triadic+ tetradic
 t "restore mono -> 0"          0 (__tcz_cap_restore mono $FAM)
 t "restore complementary -> 1" 1 (__tcz_cap_restore complementary $FAM)
