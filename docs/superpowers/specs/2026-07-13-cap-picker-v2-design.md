@@ -48,8 +48,8 @@ Add `square` to: `__tmux_lives_cap_valid` (whitelist), `__tmux_lives_palette`'s 
 The cap is no longer hard-wired to `accent`; the user picks `dim`/`muted`/`accent`.
 - **New universal `tmux_lives_cap_role`** ∈ `{dim,muted,accent}`, default `accent`. Role→palette index: `dim`=`$pal[2]`, `muted`=`$pal[3]`, `accent`=`$pal[4]`.
 - **Fragment** — `__tmux_lives_render_fragment` gains **argv[16] = cap_role** (empty → `accent`). The cap seed computes `set -l pal (__tmux_lives_palette $barbg $cap $wheel $vividness)`, then `capbg = $pal[<role-index>]` (map role→index; empty/unknown → accent), `capfg = __tmux_lives_contrast_fg $capbg`. The `write_fragment` call site appends `(__tmux_lives_key tmux_lives_cap_role accent)`.
-- **CLI** — `__tmux_lives_cap_apply_live` computes `capbg` from the stored role (not `$pal[4]`). `__tmux_lives_cap_cmd` gains `--role <dim|muted|accent>` (validate, `set -U tmux_lives_cap_role`, apply live), alongside the existing positional formula + `--vividness`/`--wheel`.
-- **Picker** — `←→` cycles the active role (`dim`↔`muted`↔`accent`); the swatch strip outlines/marks the active column, the `d m a` header highlights the active letter (`key` color), and the primary cluster's `role` value + swatch + `#hex` track it. `Enter` applies via `fish -c 'tmux-lives setup cap <formula> --role <role> --vividness <v> --wheel <w>'`.
+- **CLI** — `__tmux_lives_cap_apply_live` computes `capbg` from the stored role (not `$pal[4]`). `__tmux_lives_cap_cmd` gains `--role <dim|muted|accent>` (validate, `set -U tmux_lives_cap_role`, apply live), alongside the existing positional scheme + `--vividness`/`--wheel`.
+- **Picker** — `←→` cycles the active role (`dim`↔`muted`↔`accent`); the swatch strip outlines/marks the active column, the `d m a` header highlights the active letter (`key` color), and the primary cluster's `role` value + swatch + `#hex` track it. `Enter` applies via `fish -c 'tmux-lives setup cap <scheme> --role <role> --vividness <v> --wheel <w>'`.
 - Restore-on-open restores formula + role + v/w from the universals.
 
 ## 5 · Picker layout (redesign — see the approved v7 mock)
@@ -74,10 +74,16 @@ Rows, all drawn with the tl palette + the `__tcz_cap_ln` padder (≥1 space betw
 - Selection = **neutral gray** bg + bright name (no orange marker biasing the swatches).
 - Primary cluster = **cluster A** (label row / value row, 3 aligned columns: primary/scheme/role).
 - Legend `d dim · m muted · a accent` (letter=key, word=muted) **right-aligned on the `d m a` row**.
-- Terminology: **scheme** (the harmony name), **role** (dim/muted/accent). Footer/status use these. The CLI keeps `setup cap <formula>` (token unchanged) to avoid churn; the picker just *labels* it "scheme".
+- Terminology: **scheme** everywhere (the harmony name) + **role** (dim/muted/accent). See §7.
 
 ## 6 · Popup sizing
 The redesigned picker is ~19–20 rows tall, ~40 cols wide. Bump the host `display-popup` height/width at all three open sites: `__tmux_lives_cap_picker` (install.fish, currently `-w 34 -h 15`), the `M-k` bind (fragment), and the `M-m` modal `k` deferred open — to about `-w 44 -h 22` (final values tuned on smoke). Keep them consistent.
+
+## 7 · Terminology rename: `formula` → `scheme`
+For consistency (the picker, CLI, and docs must use one word), rename the user-facing term to **scheme** everywhere:
+- **CLI** — `setup cap <scheme>`: the help row (`cap [<scheme>] [list]  …`), the three `setup cap` error/usage strings, and every `<formula>`/"formula" placeholder become `<scheme>`/"scheme". The positional value tokens (`mono`/`triadic-`/`#hex`/…) and the universal `tmux_lives_cap` are unchanged — only the *label* changes.
+- **Internal** — rename the `formula` argument/local names to `scheme` in the functions this build already edits (`__tmux_lives_palette`, `__tmux_lives_target_hue` if touched, `__tcz_cap_restore`, `__tmux_lives_cap_cmd`) and their call sites/tests, so code-level naming matches. Function names themselves (`__tmux_lives_cap_valid`, `__tmux_lives_cap_cmd`, `__tcz_cap_*`) stay — only the "formula" *word* goes.
+- **Docs** — CLAUDE.md / memory references say "scheme".
 
 ## Testing
 - **Unit (pure):** `__tcz_cap_families` (flat, 10, incl `square`); `__tcz_cap_restore` (flat token→index; role restore); the theme accessor (`__tcz_theme accent` → expected SGR); `__tcz_cap_swatch_line` (3-cell strip + active-column marker); the palette generator `square` case (locked hex); `__tmux_lives_cap_valid` (+`square`; `--role` values).
