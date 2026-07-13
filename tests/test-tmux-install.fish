@@ -137,6 +137,20 @@ t "derive_cap_bg: dark bar (#36442d) lighter"  "#687362" (__tmux_lives_derive_ca
 t "derive_cap_bg: light bar (#c8d0c0) darker"  "#969c90" (__tmux_lives_derive_cap_bg "#c8d0c0")
 t "derive_cap_bg: unparseable -> empty"        ""        (__tmux_lives_derive_cap_bg "colour236")
 
+# OKLCH conversion core (validated reference values; lock fish output if ±1)
+set -g OK (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "#ff0000"))
+t "oklch #ff0000 L" "0.627955" $OK[1]
+t "oklch #ff0000 C" "0.257684" $OK[2]
+t "oklch #ff0000 H" "29.233916" $OK[3]
+t "oklch_hex round-trips #ff0000" "#ff0000" (__tmux_lives_oklch_hex $OK[1] $OK[2] $OK[3])
+t "oklch_hex round-trips #36442d" "#36442d" (__tmux_lives_oklch_hex 0.367244 0.042157 133.601539)
+# gamut clamp never exceeds target, stays in range
+t "gamut_chroma caps at target" 1 (set -l c (__tmux_lives_gamut_chroma 0.62 30 0.19); test (math -s5 "min($c,0.19)") = (math -s5 "$c"); and echo 1; or echo 0)
+# WCAG contrast fg (new OKLCH-era helper; crossover 0.179 relative luminance)
+t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#36442d")
+t "contrast_fg vivid mid -> dark" "#111111" (__tmux_lives_contrast_fg "#f66336")
+t "contrast_fg near-white -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
+
 # cap-color formulas: HSL hue-rotation + formula dispatch + contrast fg
 t "cap_hue complementary" "#755789" (__tmux_lives_cap_hue "#36442d" 180)
 t "cap_hue analogous+"    "#57895d" (__tmux_lives_cap_hue "#36442d" 30)
@@ -146,8 +160,8 @@ t "cap_from_formula complementary" "#755789" (__tmux_lives_cap_from_formula "#36
 t "cap_from_formula analogous- token" "#838957" (__tmux_lives_cap_from_formula "#36442d" analogous-)
 t "cap_from_formula literal hex passthrough" "#123456" (__tmux_lives_cap_from_formula "#36442d" "#123456")
 t "cap_from_formula unknown -> mono" (__tmux_lives_derive_cap_bg "#36442d") (__tmux_lives_cap_from_formula "#36442d" wat)
-t "contrast_fg dark cap -> light" "#f4f7f4" (__tmux_lives_contrast_fg "#755789")
-t "contrast_fg light cap -> dark" "#1c1c1c" (__tmux_lives_contrast_fg "#e0e0e0")
+t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#755789")
+t "contrast_fg light cap -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
 
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file

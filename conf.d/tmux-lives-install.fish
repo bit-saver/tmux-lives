@@ -1,6 +1,10 @@
 # tmux-lives install/uninstall/status. All functions live here (one conf.d file
 # per feature). No startup trigger — these are user-invoked commands.
 
+# module-scope constant for the OKLCH conversion core below (__tmux_lives_rgb_to_oklch /
+# __tmux_lives_oklch_to_linrgb use it for the atan2/cos/sin hue math).
+set -g __tmux_lives_pi (math "atan2(0, -1)")
+
 function __tmux_lives_key --description 'Effective switcher key: VARNAME unset -> DEFAULT; set (even empty) -> its value'
     set -l name $argv[1]
     set -q $name; or begin; echo $argv[2]; return; end
@@ -459,11 +463,88 @@ function __tmux_lives_derive_cap_bg --argument-names hex --description 'bar bg #
     printf '#%02x%02x%02x' $nr $ng $nb
 end
 
-function __tmux_lives_contrast_fg --argument-names hex --description 'cap bg hex -> readable fg: light on a dark cap, dark on a light cap'
-    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- (string lower -- $hex))
-    test (count $m) -eq 3; or begin; echo '#f4f7f4'; return; end
-    set -l L (math "round(0.299*0x$m[1] + 0.587*0x$m[2] + 0.114*0x$m[3])")
-    test $L -lt 140; and echo '#f4f7f4'; or echo '#1c1c1c'
+# --- OKLCH conversion core (perceptual color space; feeds the v2 palette engine) ---
+# sRGB <-> linear-light helpers (IEC 61966-2-1).
+function __tmux_lives_lin_decode --argument c
+    if test $c -le 0.04045; math "$c / 12.92"; else; math "(($c + 0.055) / 1.055) ^ 2.4"; end
+end
+function __tmux_lives_lin_encode --argument c   # c already clipped to [0,1]
+    if test $c -le 0.0031308; math "$c * 12.92"; else; math "1.055 * ($c ^ (1 / 2.4)) - 0.055"; end
+end
+function __tmux_lives_clip01 --argument v
+    if test $v -lt 0; echo 0; return; end
+    if test $v -gt 1; echo 1; return; end
+    echo $v
+end
+function __tmux_lives_hex_to_rgb01 --argument hex --description '#rrggbb -> r,g,b (0-1) one per line'
+    set -l h (string replace -r '^#' '' $hex)
+    printf "%s\n" (math "0x"(string sub -s 1 -l 2 $h)"/255") (math "0x"(string sub -s 3 -l 2 $h)"/255") (math "0x"(string sub -s 5 -l 2 $h)"/255")
+end
+function __tmux_lives_linrgb_to_hex --argument r g b
+    set -l re (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $r)))
+    set -l ge (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $g)))
+    set -l be (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $b)))
+    printf "#%02x%02x%02x\n" (math "round($re*255)") (math "round($ge*255)") (math "round($be*255)")
+end
+function __tmux_lives_rgb_to_oklch --argument r g b --description 'sRGB (0-1) -> OKLCH: prints L, C, H(deg 0-360) one per line'
+    set -l rl (__tmux_lives_lin_decode $r); set -l gl (__tmux_lives_lin_decode $g); set -l bl (__tmux_lives_lin_decode $b)
+    set -l l (math "0.4122214708*$rl + 0.5363325363*$gl + 0.0514459929*$bl")
+    set -l m (math "0.2119034982*$rl + 0.6806995451*$gl + 0.1073969566*$bl")
+    set -l s (math "0.0883024619*$rl + 0.2817188376*$gl + 0.6299787005*$bl")
+    set -l lp (math "$l ^ (1/3)"); set -l mp (math "$m ^ (1/3)"); set -l sp (math "$s ^ (1/3)")
+    set -l L (math "0.2104542553*$lp + 0.7936177850*$mp - 0.0040720468*$sp")
+    set -l a (math "1.9779984951*$lp - 2.4285922050*$mp + 0.4505937099*$sp")
+    set -l b (math "0.0259040371*$lp + 0.7827717662*$mp - 0.8086757660*$sp")
+    set -l C (math "sqrt($a^2 + $b^2)")
+    set -l H (math "atan2($b, $a) * 180 / $__tmux_lives_pi")
+    if test $H -lt 0; set H (math "$H + 360"); end
+    printf "%s\n" $L $C $H
+end
+function __tmux_lives_oklch_to_linrgb --argument L C H --description 'OKLCH -> linear r,g,b (unclamped) one per line'
+    set -l Hrad (math "$H * $__tmux_lives_pi / 180")
+    set -l a (math "$C * cos($Hrad)"); set -l b (math "$C * sin($Hrad)")
+    set -l lp (math "$L + 0.3963377774*$a + 0.2158037573*$b")
+    set -l mp (math "$L - 0.1055613458*$a - 0.0638541728*$b")
+    set -l sp (math "$L - 0.0894841775*$a - 1.2914855480*$b")
+    set -l l (math "$lp ^ 3"); set -l m (math "$mp ^ 3"); set -l s (math "$sp ^ 3")
+    printf "%s\n" (math "4.0767416621*$l - 3.3077115913*$m + 0.2309699292*$s") (math "-1.2684380046*$l + 2.6097574011*$m - 0.3413193965*$s") (math "-0.0041960863*$l - 0.7034186147*$m + 1.7076147010*$s")
+end
+function __tmux_lives_in_gamut --argument r g b --description 'linear r,g,b each in [0,1]? -> 1/0'
+    for v in $r $g $b
+        if test $v -lt 0; echo 0; return; end
+        if test $v -gt 1; echo 0; return; end
+    end
+    echo 1
+end
+function __tmux_lives_gamut_chroma --argument L H Ctarget --description 'max in-gamut chroma <= Ctarget (12-iter bisection)'
+    set -l rgb (__tmux_lives_oklch_to_linrgb $L $Ctarget $H)
+    if test (__tmux_lives_in_gamut $rgb[1] $rgb[2] $rgb[3]) -eq 1; echo $Ctarget; return; end
+    set -l lo 0; set -l hi $Ctarget
+    for i in (seq 1 12)
+        set -l mid (math "($lo + $hi) / 2")
+        set -l rgb2 (__tmux_lives_oklch_to_linrgb $L $mid $H)
+        if test (__tmux_lives_in_gamut $rgb2[1] $rgb2[2] $rgb2[3]) -eq 1; set lo $mid; else; set hi $mid; end
+    end
+    echo $lo
+end
+function __tmux_lives_oklch_hex --argument L C H --description 'OKLCH -> #rrggbb (chroma gamut-clamped, gamma-encoded, clipped)'
+    set -l Cg (__tmux_lives_gamut_chroma $L $H $C)
+    set -l rgb (__tmux_lives_oklch_to_linrgb $L $Cg $H)
+    __tmux_lives_linrgb_to_hex $rgb[1] $rgb[2] $rgb[3]
+end
+function __tmux_lives_norm360 --argument h --description 'wrap a hue in degrees into [0,360)'
+    set -l hh $h
+    while test $hh -lt 0; set hh (math "$hh + 360"); end
+    while test $hh -ge 360; set hh (math "$hh - 360"); end
+    echo $hh
+end
+
+function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
+    set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
+    test (count $m) -eq 1; or begin; echo '#f5f5f5'; return; end
+    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
+    set -l Lrel (math "0.2126*"(__tmux_lives_lin_decode $rgb[1])" + 0.7152*"(__tmux_lives_lin_decode $rgb[2])" + 0.0722*"(__tmux_lives_lin_decode $rgb[3]))
+    if test $Lrel -gt 0.179; echo "#111111"; else; echo "#f5f5f5"; end
 end
 
 function __tmux_lives_cap_hue --argument-names hex deg --description 'bar #rrggbb + hue degrees -> cap #rrggbb (HSL rotate + adaptive lightness; colorsys algorithm)'
