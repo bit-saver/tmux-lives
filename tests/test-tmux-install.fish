@@ -203,6 +203,22 @@ t "help documents --status-pos-key" yes (string match -q '*--status-pos-key*' --
 t "help documents --status-vis-key" yes (string match -q '*--status-vis-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_lives_setup_help_lines); set -l w (string length --visible -- $l); test $w -gt $mx; and set mx $w; end; test (math "$mx + 4") -le 80; and echo yes; or echo no)
 
+# dedicated M-k cap-picker keybind (argv[15] = cap_key)
+set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k | string collect)
+t "fragment bakes the cap-key bind" 1 (string match -q "*bind-key -n M-k display-popup*cap-picker*" -- "$CK"; and echo 1; or echo 0)
+set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb '' | string collect)
+t "empty cap-key omits the bind" 1 (string match -q '*cap-picker*' -- "$CK0"; and echo 0; or echo 1)
+
+set -e tmux_lives_cap_key
+functions -c __tmux_lives_write_fragment __wf5_bak
+function __tmux_lives_write_fragment; end
+__tmux_lives_keys_cmd --cap-key M-k
+t "keys --cap-key persists" M-k "$tmux_lives_cap_key"
+functions -e __tmux_lives_write_fragment; functions -c __wf5_bak __tmux_lives_write_fragment; functions -e __wf5_bak
+set -e tmux_lives_cap_key
+
+t "setup help documents --cap-key" yes (string match -q '*--cap-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
 t "fragment has client-attached hook" 1 (string match -q '*client-attached*' -- "$fragbc"; and echo 1; or echo 0)
 t "fragment hook calls on-attach"     1 (string match -q '*on-attach*' -- "$fragbc"; and echo 1; or echo 0)

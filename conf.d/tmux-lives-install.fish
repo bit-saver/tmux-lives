@@ -27,6 +27,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l cap $argv[12]   # cap-color formula token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
     set -l vividness $argv[13]   # OKLCH palette accent-chroma tier (subtle|balanced|vivid); '' = vivid
     set -l wheel $argv[14]   # OKLCH palette hue wheel (ryb|rgb); '' = ryb
+    set -l capkey $argv[15]   # root-table cap-picker key ('' = no bind)
     test -n "$vividness"; or set vividness vivid
     test -n "$wheel"; or set wheel ryb
     set -l baseline (__tmux_lives_baseline_path)
@@ -122,6 +123,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "}"
     end
     test -n "$scratchkey"; and set -a f "bind-key -n $scratchkey run-shell 'fish --no-config $cat scratch'"
+    test -n "$capkey"; and set -a f "bind-key -n $capkey display-popup -B -E -w 34 -h 15 -- fish --no-config $cat cap-picker '#{client_name}'"
     if test -n "$resizekey"
         set -a f "bind-key -n $resizekey run-shell \"fish --no-config $cat resize-enter '#{client_name}'\""
         set -a f "bind-key -T tmuxlives-resize Left  { run-shell \"fish --no-config $cat scratch-resize L\" ; switch-client -T tmuxlives-resize }"
@@ -214,7 +216,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -395,6 +397,8 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
                 set -U tmux_lives_status_pos_key $argv[2]; set changed 1; set -e argv[1..2]
             case --status-vis-key
                 set -U tmux_lives_status_vis_key $argv[2]; set changed 1; set -e argv[1..2]
+            case --cap-key
+                set -U tmux_lives_cap_key $argv[2]; set changed 1; set -e argv[1..2]
             case '*'
                 echo "tmux-lives setup keys: unknown option '$argv[1]'" >&2; return 1
         end
@@ -981,6 +985,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --resize-key <key>    scratch resize mode (default: M-r; '' off)" \
         "      --status-pos-key <key> status bar top/bottom (default: C-M-a; '' off)" \
         "      --status-vis-key <key> status bar hide/show  (default: C-M-s; '' off)" \
+        "      --cap-key <key>       cap-color picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
         'cap [<formula>] [list]      formula/vividness/wheel; no-arg=picker' \
