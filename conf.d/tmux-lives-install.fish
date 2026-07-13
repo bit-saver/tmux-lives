@@ -28,6 +28,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l vividness $argv[13]   # OKLCH palette accent-chroma tier (subtle|balanced|vivid); '' = vivid
     set -l wheel $argv[14]   # OKLCH palette hue wheel (ryb|rgb); '' = ryb
     set -l capkey $argv[15]   # root-table cap-picker key ('' = no bind)
+    set -l caprole $argv[16]  # palette role the powerline cap renders (dim|muted|accent); '' = accent
+    test -n "$caprole"; or set caprole accent
     test -n "$vividness"; or set vividness vivid
     test -n "$wheel"; or set wheel ryb
     set -l baseline (__tmux_lives_baseline_path)
@@ -89,7 +91,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # with <12 args (several test sites do this); unquoted it would shift $wheel/$vividness left.
     # An empty formula falls through __tmux_lives_palette's switch to its mono default.
     set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap
-    set -l capbg $pal[4]
+    set -l ridx 4
+    switch $caprole
+        case dim; set ridx 2
+        case muted; set ridx 3
+    end
+    set -l capbg $pal[$ridx]
     test -n "$capbg"; or set capbg colour238
     set -l capfg (__tmux_lives_contrast_fg $capbg)                # readable fg for whichever cap shade/hue was picked
     # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
@@ -216,7 +223,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

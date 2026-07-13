@@ -212,6 +212,18 @@ t "fragment bakes the cap-key bind" 1 (string match -q "*bind-key -n M-k display
 set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb '' | string collect)
 t "empty cap-key omits the bind" 1 (string match -q '*cap-picker*' -- "$CK0"; and echo 0; or echo 1)
 
+# cap_role (argv[16] = cap_role): pick which palette column the powerline cap renders
+# from (dim/muted/accent). Empty defaults to accent (unchanged prior behavior).
+set -g RP (__tmux_lives_palette "#5793f0" mono ryb vivid)
+set -g FR_ACC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
+t "cap_role accent -> pal[4]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[4]"'*" -- "$FR_ACC"; and echo yes; or echo no)
+set -g FR_DIM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k dim | string collect)
+t "cap_role dim -> pal[2]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[2]"'*" -- "$FR_DIM"; and echo yes; or echo no)
+set -g FR_MUT (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k muted | string collect)
+t "cap_role muted -> pal[3]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[3]"'*" -- "$FR_MUT"; and echo yes; or echo no)
+set -g FR_DEF (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k '' | string collect)
+t "empty cap_role defaults accent" yes (string match -q "*@tmux_lives_cap_bg '"$RP[4]"'*" -- "$FR_DEF"; and echo yes; or echo no)
+
 set -e tmux_lives_cap_key
 functions -c __tmux_lives_write_fragment __wf5_bak
 function __tmux_lives_write_fragment; end
