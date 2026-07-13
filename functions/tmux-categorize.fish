@@ -470,7 +470,7 @@ function __tcz_modal_menu_args --description 'display-menu triples (label/key/co
         'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
         'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
         'picker'         s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
-        'cap color'      k "run-shell 'fish --no-config $__tcz_self cap-picker'" \
+        'cap color'      k "command-prompt -p 'cap formula:' 'run-shell \"fish -c \\\"tmux-lives setup cap %%\\\"\"'" \
         'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
         'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
 end
@@ -915,8 +915,10 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes, so the picker popup is not nested.
             tmux run-shell -b "fish --no-config $__tcz_self open-switcher '$client'" 2>/dev/null
         case cap
-            # Defer: run AFTER this popup closes, so the cap-picker popup is not nested.
-            tmux run-shell -b "fish --no-config $__tcz_self cap-picker '$client'" 2>/dev/null
+            # Defer: run AFTER this popup closes; open cap-picker in its OWN popup
+            # (the cap-picker verb runs INSIDE a popup, unlike open-switcher which
+            # opens one itself — so we must wrap it here). Mirrors __tmux_lives_cap_picker.
+            tmux run-shell -b "tmux display-popup -B -E -w 34 -h 15 -- fish --no-config $__tcz_self cap-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear

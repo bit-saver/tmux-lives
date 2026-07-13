@@ -617,12 +617,24 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 # ---------------------------------------------------------------------
 t "modal action k -> cap" cap (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
-t "run cap uses deferred run-shell -b cap-picker" yes \
-    (string match -q '*run-shell -b*cap-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+# Tighter than a whole-function substring match: extract ONLY the `case cap`
+# block (up to the next `case `) so this can't pass just because an EARLIER
+# case (`picker`) also mentions run-shell -b / cap-picker further down in the
+# function body. cap-picker does NOT open its own popup (unlike open-switcher)
+# -- __tcz_modal_run must wrap it in display-popup itself, or pressing k opens
+# nothing. Requires BOTH tokens inside the SAME case block.
+set -g MRSRC (functions __tcz_modal_run | string collect)
+set -g CAPBLOCK (string match -r -- '(?s)case cap\n.*?\n *case ' -- "$MRSRC" | string collect)
+t "run cap opens cap-picker in its own display-popup" yes \
+    (string match -q '*display-popup*' -- "$CAPBLOCK"; and string match -q '*cap-picker*' -- "$CAPBLOCK"; and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)
-t "menu_args has cap-picker verb" yes (string match -q '*cap-picker*' -- "$MENUARGS"; and echo yes; or echo no)
+# display-menu is the no-display-popup fallback -- opening a popup there is
+# impossible, so this row prompts for a formula value and shells out to the
+# CLI instead, mirroring the sibling "bar color" row (no cap-picker verb).
+t "menu_args cap color row prompts via command-prompt + setup cap" yes \
+    (string match -q '*cap color*k*command-prompt*setup cap*' -- "$MENUARGS"; and echo yes; or echo no)
 t "menu_args cap color row bound to k (key line follows label)" yes \
     (string match -qr 'cap color\nk\n' -- "$MENUARGS"; and echo yes; or echo no)
 
