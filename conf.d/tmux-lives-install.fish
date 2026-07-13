@@ -634,7 +634,7 @@ function __tmux_lives_target_hue --argument baseHex offset wheel --description '
         echo $ok[3]
     end
 end
-function __tmux_lives_palette --argument baseHex formula wheel vividness --description 'base hex + formula + wheel + vividness -> 5 role hexes, one per line, order: bg dim muted accent text'
+function __tmux_lives_palette --argument baseHex scheme wheel vividness --description 'base hex + scheme + wheel + vividness -> 5 role hexes, one per line, order: bg dim muted accent text'
     # Central guard (DRY fix requested by both prior reviewers — this was duplicated at
     # each call site instead of owned here): an unparseable base (e.g. no bar color
     # configured yet) emits nothing. Callers use `test -n $x; or set x <fallback>`, so an
@@ -653,13 +653,13 @@ function __tmux_lives_palette --argument baseHex formula wheel vividness --descr
     set -l text (__tmux_lives_oklch_hex 0.90 0.02 $bh)
     set -l dim (__tmux_lives_oklch_hex 0.47 0.055 $bh)
     # literal #hex escape hatch -> accent verbatim, neutral muted
-    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$formula"
-        printf "%s\n" $baseHex $dim (__tmux_lives_oklch_hex 0.58 0.11 $bh) (string lower -- $formula) $text
+    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$scheme"
+        printf "%s\n" $baseHex $dim (__tmux_lives_oklch_hex 0.58 0.11 $bh) (string lower -- $scheme) $text
         return
     end
-    # formula -> primary/secondary offsets
+    # scheme -> primary/secondary offsets
     set -l po 0; set -l so 0
-    switch "$formula"
+    switch "$scheme"
         case complementary;  set po 180; set so 0
         case analogous+;     set po 30;  set so -30
         case analogous-;     set po -30; set so 30
@@ -668,6 +668,7 @@ function __tmux_lives_palette --argument baseHex formula wheel vividness --descr
         case triadic+;       set po 120; set so -120
         case triadic-;       set po -120; set so 120
         case tetradic;       set po 90;  set so 180
+        case square;         set po 90;  set so 270
         case '*';            set po 0;   set so 0   # mono + unknown
     end
     set -l ah (__tmux_lives_target_hue $baseHex $po $wheel)
@@ -751,7 +752,7 @@ end
 
 function __tmux_lives_cap_valid --argument-names token --description 'true if token is a valid cap-color formula: whitelist token or a #rrggbb hex'
     switch "$token"
-        case mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic
+        case mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
             return 0
     end
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$token"
@@ -815,13 +816,13 @@ function __tmux_lives_cap_apply_live --description 'internal: push the effective
     end
 end
 
-function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<formula>|list] [--vividness <v>] [--wheel <w>]: choose the powerline cap-color palette (formula/vividness/wheel); no-arg opens the picker'
+function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list] [--vividness <v>] [--wheel <w>]: choose the powerline cap-color palette (scheme/vividness/wheel); no-arg opens the picker'
     if test (count $argv) -eq 0
         __tmux_lives_cap_picker
         return
     end
-    set -l formula
-    set -l have_formula 0
+    set -l scheme
+    set -l have_scheme 0
     set -l vividness
     set -l have_vividness 0
     set -l wheel
@@ -841,12 +842,12 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<formula>|lis
                 __tmux_lives_cap_list
                 return
             case '*'
-                set formula $argv[$i]
-                set have_formula 1
+                set scheme $argv[$i]
+                set have_scheme 1
         end
         set i (math $i + 1)
     end
-    # Validate everything before mutating any state — an invalid flag/formula anywhere in
+    # Validate everything before mutating any state — an invalid flag/scheme anywhere in
     # the call must leave ALL universals (including ones earlier in argv) untouched.
     if test $have_vividness -eq 1
         switch "$vividness"
@@ -864,23 +865,23 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<formula>|lis
                 return 1
         end
     end
-    if test $have_formula -eq 1
+    if test $have_scheme -eq 1
         # Bare 6-hex -> #rrggbb, same normalization `setup color` applies to a bare hex.
-        string match -qr '^[0-9A-Fa-f]{6}$' -- $formula; and set formula "#$formula"
-        if not __tmux_lives_cap_valid $formula
-            echo "tmux-lives setup cap: invalid formula '$formula' — valid: mono, complementary, analogous+, analogous-, split+, split-, triadic+, triadic-, tetradic, or #rrggbb" >&2
+        string match -qr '^[0-9A-Fa-f]{6}$' -- $scheme; and set scheme "#$scheme"
+        if not __tmux_lives_cap_valid $scheme
+            echo "tmux-lives setup cap: invalid scheme '$scheme' — valid: mono, complementary, analogous+, analogous-, split+, split-, triadic+, triadic-, tetradic, square, or #rrggbb" >&2
             return 1
         end
     end
     test $have_vividness -eq 1; and set -U tmux_lives_cap_vividness $vividness
     test $have_wheel -eq 1; and set -U tmux_lives_cap_wheel $wheel
-    test $have_formula -eq 1; and set -U tmux_lives_cap $formula
+    test $have_scheme -eq 1; and set -U tmux_lives_cap $scheme
     # Apply live without a fragment re-render — same tmux_lives_tmux_socket seam as
     # `setup color --apply`. Recomputes from whichever universal(s) this call just touched
     # (or the existing stored ones), so a lone --vividness/--wheel call re-tints the current
-    # formula too.
+    # scheme too.
     __tmux_lives_cap_apply_live
-    test $have_formula -eq 1; and echo "tmux-lives: cap color formula set to $formula"
+    test $have_scheme -eq 1; and echo "tmux-lives: cap color scheme set to $scheme"
     test $have_vividness -eq 1; and echo "tmux-lives: cap vividness set to $vividness"
     test $have_wheel -eq 1; and echo "tmux-lives: cap wheel set to $wheel"
 end
@@ -988,7 +989,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --cap-key <key>       cap-color picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'cap [<formula>] [list]      formula/vividness/wheel; no-arg=picker' \
+        'cap [<scheme>] [list]      scheme/vividness/wheel; no-arg=picker' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 

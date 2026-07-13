@@ -166,8 +166,11 @@ t "triadic+ accent (primary = +120)" "#b075f7" (set -l p (__tmux_lives_palette "
 t "mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" mono ryb vivid); echo $p[4])
 # literal hex passthrough -> accent verbatim
 t "palette #hex accent passthrough" "#123456" (set -l p (__tmux_lives_palette "#36442d" "#123456" ryb vivid); echo $p[4])
-# unknown formula -> mono
+# unknown scheme -> mono
 t "palette unknown == mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" wat ryb vivid); echo $p[4])
+# square: primary +90, secondary +270 (locked hex; see plan Task 2)
+t "palette square accent (#36442d,ryb,vivid)" "#6892ff" (set -l p (__tmux_lives_palette "#36442d" square ryb vivid); echo $p[4])
+t "cap_valid accepts square" 0 (__tmux_lives_cap_valid square; echo $status)
 
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
@@ -409,6 +412,7 @@ set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
 
 t "cap: invalid token rc1"   1 (__tmux_lives_cap_cmd wat >/dev/null 2>&1; echo $status)
 t "cap: invalid token: universal left unset" 0 (set -q tmux_lives_cap; and echo 1; or echo 0)
+t "invalid scheme error says scheme" 1 (__tmux_lives_cap_cmd wat 2>&1 | string match -q '*invalid scheme*'; and echo 1; or echo 0)
 
 __tmux_lives_cap_cmd complementary >/dev/null
 t "cap: stores token in universal var"  "complementary" "$tmux_lives_cap"
@@ -420,9 +424,9 @@ t "cap: live cap_fg matches contrast_fg" (__tmux_lives_contrast_fg (set -l p (__
 __tmux_lives_cap_cmd wat >/dev/null 2>&1
 t "cap: a later invalid token leaves the prior value" "complementary" "$tmux_lives_cap"
 
-# invalid formula: errors + leaves the universal unset (fresh, no prior value in play)
+# invalid scheme: errors + leaves the universal unset (fresh, no prior value in play)
 set -e tmux_lives_cap
-t "invalid formula errors, no set" 1 (__tmux_lives_cap_cmd wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap; and echo bad; or echo 1; end)
+t "invalid scheme errors, no set" 1 (__tmux_lives_cap_cmd wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap; and echo bad; or echo 1; end)
 __tmux_lives_cap_cmd complementary >/dev/null   # restore for the tests below
 
 set -l cap_list (__tmux_lives_cap_cmd list | string collect)
@@ -431,9 +435,9 @@ for tok in mono complementary analogous+ analogous- split+ split- triadic+ triad
 end
 set -l swatch_prefix (printf '\e[48;2;')
 t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$cap_list"; and echo 1; or echo 0)
-t "cap list has a formula + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
+t "cap list has a scheme + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
 
-# --vividness/--wheel flags: validate, set -U, and re-apply live (no formula arg needed)
+# --vividness/--wheel flags: validate, set -U, and re-apply live (no scheme arg needed)
 t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)
 t "cap --wheel perceptual sets universal" perceptual (__tmux_lives_cap_cmd --wheel perceptual >/dev/null; echo $tmux_lives_cap_wheel)
 t "cap --vividness bogus rc1, universal unchanged" "subtle" (__tmux_lives_cap_cmd --vividness bogus >/dev/null 2>&1; echo $tmux_lives_cap_vividness)
@@ -488,7 +492,7 @@ t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_
 # help lists cap (Task 4 deferred item)
 t "setup help lists cap" 1 (string match -q '*cap*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "help cap row mentions the picker" 1 (string match -q '*cap*picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-t "setup help says formula not token" 1 (string match -q '*formula*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+t "setup help says <scheme> not <formula>" 1 (string match -q '*<scheme>*' -- (__tmux_lives_setup_help_lines | string collect); and string match -q '*<formula>*' -- (__tmux_lives_setup_help_lines | string collect); and echo 0; or echo 1)
 
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
