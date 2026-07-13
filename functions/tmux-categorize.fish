@@ -1059,31 +1059,17 @@ function __tcz_open_switcher --argument-names client --description 'open the two
     end
 end
 
-function __tcz_cap_families --description 'pure: ordered cap-color family tokens shown in the picker (directional families default to their + side; ←→ flips it; tetradic has no direction, same as mono/complementary)'
-    printf '%s\n' mono complementary analogous+ split+ triadic+ tetradic
+function __tcz_cap_families --description 'pure: ordered flat list of the 10 cap-color scheme tokens shown in the picker (every variant, incl. square, is its own row)'
+    printf '%s\n' mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
 end
 
-function __tcz_cap_restore --argument-names formula --description 'pure: 0-based index of the families entry whose base matches <formula>''s base (trailing +/- stripped), or -1 if none (e.g. #hex/unknown)'
+function __tcz_cap_restore --argument-names scheme --description 'pure: 0-based index of the exact <scheme> token within the passed families list (via contains -i), or -1 if not present (e.g. #hex/unknown)'
     set -l families $argv[2..]
-    set -l base (string replace -r -- '[+-]$' '' $formula)
-    for i in (seq (count $families))
-        set -l fbase (string replace -r -- '[+-]$' '' $families[$i])
-        if test "$fbase" = "$base"
-            math $i - 1
-            return
-        end
-    end
-    echo -1
-end
-
-function __tcz_cap_flip --argument-names token --description 'pure: toggle a directional cap token +<->-; no-op for mono/complementary (they have no direction)'
-    switch "$token"
-        case '*+'
-            string replace -r '\+$' - -- $token
-        case '*-'
-            string replace -r -- '-$' + $token
-        case '*'
-            echo $token
+    set -l idx (contains -i -- $scheme $families)
+    if test -n "$idx"
+        math $idx - 1
+    else
+        echo -1
     end
 end
 
@@ -1230,7 +1216,8 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
             case down
                 test $sel -lt (math $n - 1); and set sel (math $sel + 1)
             case left right
-                set families[(math $sel + 1)] (__tcz_cap_flip $families[(math $sel + 1)])
+                # no-op: the flat list (Task 3) has no per-row direction to flip;
+                # ←→ is repurposed for role-shift when Task 6 rewrites this picker.
             case v
                 switch "$vividness"
                     case subtle;   set vividness balanced

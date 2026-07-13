@@ -968,19 +968,12 @@ t "heal disabled when interval 0" 1 (__tcz_heal_due 999999; echo $status)
 functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 
 # ---------------------------------------------------------------------
-# cap-picker — pure helpers (families/flip/swatch-line). The interactive raw-tty
+# cap-picker — pure helpers (families/swatch-line). The interactive raw-tty
 # loop, __tcz_cap_picker, is manual-smoke only (like __tcz_popup) — not unit tested.
 # ---------------------------------------------------------------------
-t "cap families, in order (incl. tetradic)" "mono complementary analogous+ split+ triadic+ tetradic" (__tcz_cap_families | string join ' ')
-
-t "cap flip analogous+ -> analogous-" analogous- (__tcz_cap_flip analogous+)
-t "cap flip analogous- -> analogous+" analogous+ (__tcz_cap_flip analogous-)
-t "cap flip split+ -> split-"     split-     (__tcz_cap_flip split+)
-t "cap flip triadic+ -> triadic-" triadic-   (__tcz_cap_flip triadic+)
-t "cap flip triadic- -> triadic+" triadic+   (__tcz_cap_flip triadic-)
-t "cap flip mono is a no-op"          mono          (__tcz_cap_flip mono)
-t "cap flip complementary is a no-op" complementary (__tcz_cap_flip complementary)
-t "cap flip tetradic is a no-op"      tetradic      (__tcz_cap_flip tetradic)
+t "families flat = 10 tokens" 10 (count (__tcz_cap_families))
+t "families order" "mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square" (__tcz_cap_families | string join ' ')
+t "cap_flip removed" 0 (functions -q __tcz_cap_flip; and echo 1; or echo 0)
 
 # swatch line now renders a 3-cell palette strip (dim/muted/accent, precomputed by the
 # caller) instead of one caphex. ANSI idiom note: a single-quoted '*\e[48;2;*' matches a
@@ -1007,14 +1000,17 @@ t "theme value is 6fc7b8"  1 (test (__tcz_theme value)  = (printf '\e[38;2;111;1
 t "theme selbg is 34332f bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;52;51;47m'); and echo 1; or echo 0)
 t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or echo 0)
 
-set -g FAM (__tcz_cap_families)   # mono complementary analogous+ split+ triadic+ tetradic
-t "restore mono -> 0"          0 (__tcz_cap_restore mono $FAM)
-t "restore complementary -> 1" 1 (__tcz_cap_restore complementary $FAM)
-t "restore analogous- -> 2"    2 (__tcz_cap_restore analogous- $FAM)
-t "restore analogous+ -> 2"    2 (__tcz_cap_restore analogous+ $FAM)
-t "restore split- -> 3"        3 (__tcz_cap_restore split- $FAM)
-t "restore triadic- -> 4"      4 (__tcz_cap_restore triadic- $FAM)
-t "restore tetradic -> 5"      5 (__tcz_cap_restore tetradic $FAM)
+set -g FAM (__tcz_cap_families)   # mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
+t "restore exact mono"         0 (__tcz_cap_restore mono $FAM)
+t "restore exact complementary" 1 (__tcz_cap_restore complementary $FAM)
+t "restore exact analogous+"   2 (__tcz_cap_restore analogous+ $FAM)
+t "restore exact analogous-"   3 (__tcz_cap_restore analogous- $FAM)
+t "restore exact split+"       4 (__tcz_cap_restore split+ $FAM)
+t "restore exact split-"       5 (__tcz_cap_restore split- $FAM)
+t "restore exact triadic+"     6 (__tcz_cap_restore triadic+ $FAM)
+t "restore exact triadic-"     7 (__tcz_cap_restore triadic- $FAM)
+t "restore exact tetradic"     8 (__tcz_cap_restore tetradic $FAM)
+t "restore exact square"       9 (__tcz_cap_restore square $FAM)
 t "restore #hex -> -1"         -1 (__tcz_cap_restore "#123456" $FAM)
 t "restore unknown -> -1"      -1 (__tcz_cap_restore wat $FAM)
 t "restore empty -> -1"        -1 (__tcz_cap_restore "" $FAM)
