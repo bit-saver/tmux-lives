@@ -486,7 +486,20 @@ t "engine: accent DOES follow scheme"  1 (test "$_p_mono[4]" != "$_p_tri[4]"; an
 t "engine: dim ignores vividness"      1 (test "$_p_sub[2]" = "$_p_viv[2]"; and echo 1; or echo 0)
 t "engine: muted ignores vividness"    1 (test "$_p_sub[3]" = "$_p_viv[3]"; and echo 1; or echo 0)
 t "engine: accent DOES follow vividness" 1 (test "$_p_sub[4]" != "$_p_viv[4]"; and echo 1; or echo 0)
-t "engine: dim DOES follow the wheel"  1 (test "$_p_mono[2]" != "$_p_ryb[2]"; and echo 1; or echo 0)
+t "engine: dim follows the wheel (UNSATURATED base)" 1 (test "$_p_mono[2]" != "$_p_ryb[2]"; and echo 1; or echo 0)
+# ...but NOT for a fully-saturated base: at min-channel ~0 both wheels agree at offset 0,
+# so dim is wheel-inert there. __tcz_cap_inert deliberately still reports `wheel` live
+# (erring toward not warning rather than greying a working key) — pin the boundary so that
+# trade-off stays a decision rather than an accident.
+set -l _ps_p (__tmux_lives_palette "#ff0000" mono perceptual balanced)
+set -l _ps_r (__tmux_lives_palette "#ff0000" mono ryb balanced)
+t "engine: dim is wheel-INERT at a saturated base" 1 (test "$_ps_p[2]" = "$_ps_r[2]"; and echo 1; or echo 0)
+# the scheme/vividness invariants must hold on the ryb wheel too, not just perceptual
+set -l _pr_mono (__tmux_lives_palette $_pb mono ryb balanced)
+set -l _pr_tri  (__tmux_lives_palette $_pb triadic- ryb balanced)
+set -l _pr_viv  (__tmux_lives_palette $_pb mono ryb vivid)
+t "engine: dim scheme-invariant on ryb too"  1 (test "$_pr_mono[2]" = "$_pr_tri[2]"; and echo 1; or echo 0)
+t "engine: muted vividness-invariant on ryb" 1 (test "$_pr_mono[3]" = "$_pr_viv[3]"; and echo 1; or echo 0)
 
 # --vividness/--wheel flags: validate, set -U, and re-apply live (no scheme arg needed)
 t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)

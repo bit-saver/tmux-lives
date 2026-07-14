@@ -140,9 +140,23 @@ drift): `__tmux_lives_palette` computes `dim` and `text` at hue offset 0 under a
 
 | cap role | `↑↓` scheme | `v` vividness | `w` wheel |
 |---|---|---|---|
-| `dim` | **inert** | **inert** | moves |
+| `dim` | **inert** | **inert** | moves¹ |
 | `muted` | moves | **inert** | moves |
 | `accent` | moves | moves | moves |
+
+¹ **Not universal.** For a fully-saturated base (min RGB channel ≈ 0, e.g. `#ff0000`,
+`#0066ff`) both wheels agree at offset 0, so `dim` is wheel-inert there too. The picker
+still reports `wheel` live unconditionally: detecting it exactly needs a live palette
+comparison, and the error is *false-live* (we fail to warn) rather than false-grey (we
+never de-emphasise a working key). Consequence at a saturated bar with `role=dim`: `↑↓`
+and `v` grey correctly, `w` stays tan, and nothing in the picker can actually move the cap.
+Acceptable — it is the pre-fix status quo, and it does not arise at the user's `#485B3C`.
+
+The scheme and vividness columns, by contrast, are **exact for every base** — and
+structurally so, not merely measured: `dim`/`text` are computed from `target_hue(base, 0)`,
+an expression `$scheme` is not an input to at all, and `muted`'s chroma is the literal
+`0.11` with only `accent` reading `$Cacc`. (Verified across 24 bar colours × 2 wheels × 10
+schemes × 3 vividness levels: zero violations.)
 
 So `v` is dead at `muted` too — a second silent trap, not just a `dim` quirk. This is not a
 math bug: `dim`/`text` were designed as palette roles for Phase B whole-bar theming, where
@@ -163,10 +177,30 @@ Rejected: a hint line in the status row (the wheel value `perceptual` is 10 char
 the 40-col budget); a new `off` theme role (`muted` already reads as recessive against a tan
 key, and the palette shouldn't grow a role it doesn't need).
 
-**Known imprecision:** `↑↓` still moves the cursor and the scheme label at `role=dim` — it
-is the *cap* that won't change, not the key. "Greyed" therefore means "cannot reach your
-cap," not "disabled." Accepted: that is exactly the confusion being fixed, and the user
-judges it live.
+**Known imprecision.** The table is per-*control*, so it cannot express per-*step* dead
+ends — a live key may still no-op on a particular press:
+
+- `↑↓` still moves the cursor and the scheme label at `role=dim`; it is the *cap* that
+  won't change, not the key. "Greyed" means "cannot reach your cap," not "disabled."
+- `mono` and `complementary` both use `so=0`, so they share an identical `muted` — at
+  `role=muted` that one `↑↓` step does nothing (muted is 9 distinct across 10 schemes).
+  `tetradic`/`square` likewise share an `accent` (`po=90`), already known and intentional.
+- The gamut clamp collapses `balanced`↔`vivid` for `accent` in ~29% of base×scheme combos
+  (e.g. `#485B3C` + `analogous+` → `#00b47f` for both). `v` stays correctly live because
+  `subtle` always differs, but one of its three presses is often a no-op.
+
+All accepted: the table's job is to kill the *systematic* lie (a control that can never
+reach the cap at this role), not to predict every individual keypress. The user judges the
+result live.
+
+**Considered and deferred.** `__tcz_cap_reload` already caches `dims`/`muteds`/`accents`
+for all 10 schemes, so scheme-inertness could be derived empirically and exactly for free
+(`all dims identical` → inert), removing the cross-file coupling for that column. Not done:
+the static rule is already exact for every base (it is structural, per above), the engine
+facts it rests on are now pinned by tests in `test-tmux-install.fish`, and a second
+mechanism for one of three columns costs coherence for no correctness gain. Deriving the
+vividness/wheel columns the same way would need extra palette runs per open — rejected on
+the picker's history of open-latency regressions.
 
 ## Out of scope
 

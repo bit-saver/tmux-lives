@@ -645,8 +645,12 @@ t "picker suppresses the final row's newline" 1 (functions __tcz_cap_picker | st
 # bare-name grep would still pass if the call itself were deleted.
 t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*(__tcz_cap_dma $activecol)*'; and echo 1; or echo 0)
 # the footer must actually consult __tcz_cap_inert, else the greying is dead code
-t "picker greys the inert scheme key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert $role scheme; and set r_scheme muted*'; and echo 1; or echo 0)
-t "picker greys the inert vividness key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert $role vividness; and set r_viv muted*'; and echo 1; or echo 0)
+t "picker greys the inert scheme key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert "$role" scheme; and set r_scheme muted*'; and echo 1; or echo 0)
+t "picker greys the inert vividness key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert "$role" vividness; and set r_viv muted*'; and echo 1; or echo 0)
+# ...and each computed colour must reach its OWN key: without pinning the kv call sites,
+# swapping $r_scheme/$r_viv would grey the wrong keys and still pass the two greps above.
+t "scheme colour goes to the ↑↓ row" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_kv ↑↓ scheme ←→ "cap role" $r_scheme key*'; and echo 1; or echo 0)
+t "vividness colour goes to the v row" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_kv v vividness w wheel $r_viv key*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)

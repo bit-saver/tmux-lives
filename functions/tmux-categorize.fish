@@ -1120,18 +1120,21 @@ function __tcz_cap_sep --argument-names w od t --description 'pure: the picker f
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
 
-function __tcz_cap_inert --argument-names caprole control --description 'pure: true when <control> (scheme|vividness|wheel) CANNOT affect the cap at cap role <caprole> (dim|muted|accent). The picker greys such controls so it stops silently lying — at role=dim you could otherwise cursor through all 10 schemes and never change your cap. Derived from the install-side __tmux_lives_palette (whose facts are asserted in test-tmux-install.fish — keep the two in sync): dim/text are BASE-HUE roles computed at offset 0, so no scheme''s hue rotation reaches them; and only accent''s chroma is scaled by the vividness multiplier (dim C0.055 / muted C0.11 are pinned). The wheel re-maps the hue even at offset 0, so it moves every role. Unknown control or role -> live: never de-emphasise a key we cannot reason about (and the picker already defaults an unknown role to accent).'
+function __tcz_cap_inert --argument-names caprole control --description 'pure: true when <control> (scheme|vividness|wheel) CANNOT affect the cap at cap role <caprole> (dim|muted|accent). The picker greys such controls so it stops silently lying — at role=dim you could otherwise cursor through all 10 schemes and never change your cap. Derived from the install-side __tmux_lives_palette (whose facts are asserted in test-tmux-install.fish — keep the two in sync): dim/text are BASE-HUE roles computed at offset 0, so no scheme''s hue rotation reaches them; and only accent''s chroma is scaled by the vividness multiplier (dim C0.055 / muted C0.11 are pinned). The wheel re-maps the hue even at offset 0, so it USUALLY moves every role — but NOT always: for a fully-saturated base (min RGB channel ~0, e.g. #ff0000) both wheels agree at offset 0, so `dim` is wheel-inert there too and this returns a false "live". That errs on the safe side (we fail to warn rather than greying a key that works) and would cost a live palette comparison to detect, so `wheel` is reported live unconditionally. Unknown control or role -> live: never de-emphasise a key we cannot reason about (and the picker already defaults an unknown role to accent).'
     switch "$control"
         case scheme
+            # exact for every base: dim/text simply are not functions of $scheme
             test "$caprole" = dim
             return
         case vividness
+            # exact for every base: only accent's chroma reads $Cacc
             switch "$caprole"
                 case dim muted
                     return 0
             end
             return 1
         case wheel
+            # deliberately never inert — see the saturated-base caveat above
             return 1
     end
     return 1
@@ -1337,8 +1340,8 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         # lying: at role=dim neither the scheme nor vividness reaches the cap, and at
         # role=muted vividness doesn't either (see __tcz_cap_inert for the engine reasons).
         # ←→/w/⏎/esc always act, so they stay live.
-        set -l r_scheme key; __tcz_cap_inert $role scheme; and set r_scheme muted
-        set -l r_viv key; __tcz_cap_inert $role vividness; and set r_viv muted
+        set -l r_scheme key; __tcz_cap_inert "$role" scheme; and set r_scheme muted
+        set -l r_viv key; __tcz_cap_inert "$role" vividness; and set r_viv muted
         set -a lines (__tcz_cap_ln " "(__tcz_cap_kv ↑↓ scheme ←→ "cap role" $r_scheme key) $IW $BORDER $RST)
         set -a lines (__tcz_cap_ln " "(__tcz_cap_kv v vividness w wheel $r_viv key) $IW $BORDER $RST)
         set -a lines (__tcz_cap_ln " "(__tcz_cap_kv ⏎ apply esc cancel) $IW $BORDER $RST)
