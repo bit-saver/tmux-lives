@@ -24,7 +24,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusposkey $argv[9]   # root-table status-position toggle ('' = no bind)
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
-    set -l cap $argv[12]   # cap-color formula token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
+    set -l cap $argv[12]   # cap-color scheme token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
     set -l vividness $argv[13]   # OKLCH palette accent-chroma tier (subtle|balanced|vivid); '' = vivid
     set -l wheel $argv[14]   # OKLCH palette hue wheel (ryb|rgb); '' = ryb
     set -l capkey $argv[15]   # root-table cap-picker key ('' = no bind)
@@ -89,7 +89,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     test -n "$barbg"; or set barbg colour236
     # NB "$cap" is quoted: $argv[12] may be a ZERO-element list when render_fragment is called
     # with <12 args (several test sites do this); unquoted it would shift $wheel/$vividness left.
-    # An empty formula falls through __tmux_lives_palette's switch to its mono default.
+    # An empty scheme falls through __tmux_lives_palette's switch to its mono default.
     set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap
     set -l ridx 4
     switch $caprole
@@ -757,7 +757,7 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
     end
 end
 
-function __tmux_lives_cap_valid --argument-names token --description 'true if token is a valid cap-color formula: whitelist token or a #rrggbb hex'
+function __tmux_lives_cap_valid --argument-names token --description 'true if token is a valid cap-color scheme: whitelist token or a #rrggbb hex'
     switch "$token"
         case mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
             return 0
@@ -785,16 +785,16 @@ end
 
 function __tmux_lives_cap_picker --description 'tmux-lives setup cap (no arg): open the interactive cap-color picker in a popup (cap-picker verb: task 4)'
     if not set -q TMUX
-        echo "tmux-lives setup cap: run this from inside a tmux session, or pass a formula/list — see 'tmux-lives setup cap list'" >&2
+        echo "tmux-lives setup cap: run this from inside a tmux session, or pass a scheme/list — see 'tmux-lives setup cap list'" >&2
         return 1
     end
     if not tmux list-commands 2>/dev/null | grep -q display-popup
-        echo "tmux-lives setup cap: your tmux lacks display-popup — pass a formula instead, e.g. tmux-lives setup cap complementary (see 'tmux-lives setup cap list')" >&2
+        echo "tmux-lives setup cap: your tmux lacks display-popup — pass a scheme instead, e.g. tmux-lives setup cap complementary (see 'tmux-lives setup cap list')" >&2
         return 1
     end
     set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
     if not test -f $cat
-        echo "tmux-lives setup cap: categorizer not found at $cat — pass a formula instead: tmux-lives setup cap <formula>" >&2
+        echo "tmux-lives setup cap: categorizer not found at $cat — pass a scheme instead: tmux-lives setup cap <scheme>" >&2
         return 1
     end
     set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)

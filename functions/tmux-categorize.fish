@@ -470,7 +470,7 @@ function __tcz_modal_menu_args --description 'display-menu triples (label/key/co
         'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
         'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
         'picker'         s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
-        'cap color'      k "command-prompt -p 'cap formula:' 'run-shell \"fish -c \\\"tmux-lives setup cap %%\\\"\"'" \
+        'cap color'      k "command-prompt -p 'cap scheme:' 'run-shell \"fish -c \\\"tmux-lives setup cap %%\\\"\"'" \
         'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
         'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
 end
