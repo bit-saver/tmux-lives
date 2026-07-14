@@ -426,6 +426,16 @@ if set -q tmux_lives_cap_wheel
     set _capw_had 1; set _capw_val $tmux_lives_cap_wheel
 end
 set -e tmux_lives_cap_wheel
+# tmux_lives_cap_role must be saved+cleared HERE, at the top of the cap section, not just
+# around the --role tests below: __tmux_lives_cap_cmd reads it on EVERY apply, so a user
+# who has set it (e.g. to `dim` from the picker) would otherwise make the live-apply
+# assertions below compare pal[4] against their pal[2]. Mirrors _capv/_capw. Restored at
+# the end of the section.
+set -l _capr_had 0; set -l _capr_val
+if set -q tmux_lives_cap_role
+    set _capr_had 1; set _capr_val $tmux_lives_cap_role
+end
+set -e tmux_lives_cap_role
 set -U tmux_lives_bar_color "#1f6feb"
 set -U tmux_lives_status_invert 0
 set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
@@ -466,13 +476,8 @@ t "cap --wheel bogus rc1, universal unchanged" "perceptual" (__tmux_lives_cap_cm
 set -e tmux_lives_cap_vividness; set -e tmux_lives_cap_wheel   # back to defaults for anything below
 
 # --role flag: pick which palette column (dim/muted/accent) the powerline cap renders
-# from. tmux_lives_cap_role is a UNIVERSAL var -> save/clear/restore like _vividness/_wheel.
-set -l _capr_had 0; set -l _capr_val
-if set -q tmux_lives_cap_role
-    set _capr_had 1; set _capr_val $tmux_lives_cap_role
-end
-set -e tmux_lives_cap_role
-
+# from. tmux_lives_cap_role is a UNIVERSAL var — saved+cleared at the top of this section
+# (see the note there) and restored just below.
 t "cap --role sets universal" muted (__tmux_lives_cap_cmd --role muted >/dev/null; echo $tmux_lives_cap_role)
 t "cap --role applies pal[3] live" 1 (set -l p (__tmux_lives_palette $cap_barbg (__tmux_lives_key tmux_lives_cap mono) ryb vivid); test (command tmux -L $capsock show -gv @tmux_lives_cap_bg) = $p[3]; and echo 1; or echo 0)
 t "cap --role rejects junk" 1 (set -e tmux_lives_cap_role; __tmux_lives_cap_cmd --role wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap_role; and echo bad; or echo 1; end)
