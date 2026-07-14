@@ -468,6 +468,26 @@ t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$c
 t "cap list has a scheme + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
 t "cap list includes square" 1 (string match -q '*square*' -- (__tmux_lives_cap_list | string collect); and echo 1; or echo 0)
 
+# Engine facts behind the picker's inert-control greying (__tcz_cap_inert, categorizer
+# side). Asserted HERE because the palette engine lives here — if these ever change, the
+# picker's greying silently starts lying and the categorize-side table must follow.
+# dim/text are BASE-HUE roles (offset 0) -> no scheme can move them; only accent's chroma
+# is scaled by vividness (muted is pinned at a fixed C0.11).
+set -l _pb "#36442d"
+set -l _p_mono (__tmux_lives_palette $_pb mono perceptual balanced)
+set -l _p_tri  (__tmux_lives_palette $_pb triadic- perceptual balanced)
+set -l _p_sub  (__tmux_lives_palette $_pb mono perceptual subtle)
+set -l _p_viv  (__tmux_lives_palette $_pb mono perceptual vivid)
+set -l _p_ryb  (__tmux_lives_palette $_pb mono ryb balanced)
+t "engine: dim is scheme-invariant"    1 (test "$_p_mono[2]" = "$_p_tri[2]"; and echo 1; or echo 0)
+t "engine: text is scheme-invariant"   1 (test "$_p_mono[5]" = "$_p_tri[5]"; and echo 1; or echo 0)
+t "engine: muted DOES follow scheme"   1 (test "$_p_mono[3]" != "$_p_tri[3]"; and echo 1; or echo 0)
+t "engine: accent DOES follow scheme"  1 (test "$_p_mono[4]" != "$_p_tri[4]"; and echo 1; or echo 0)
+t "engine: dim ignores vividness"      1 (test "$_p_sub[2]" = "$_p_viv[2]"; and echo 1; or echo 0)
+t "engine: muted ignores vividness"    1 (test "$_p_sub[3]" = "$_p_viv[3]"; and echo 1; or echo 0)
+t "engine: accent DOES follow vividness" 1 (test "$_p_sub[4]" != "$_p_viv[4]"; and echo 1; or echo 0)
+t "engine: dim DOES follow the wheel"  1 (test "$_p_mono[2]" != "$_p_ryb[2]"; and echo 1; or echo 0)
+
 # --vividness/--wheel flags: validate, set -U, and re-apply live (no scheme arg needed)
 t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)
 t "cap --wheel perceptual sets universal" perceptual (__tmux_lives_cap_cmd --wheel perceptual >/dev/null; echo $tmux_lives_cap_wheel)

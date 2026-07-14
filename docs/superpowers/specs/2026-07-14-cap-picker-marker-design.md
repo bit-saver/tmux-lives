@@ -128,12 +128,46 @@ picker tests.
 | `__tcz_cap_dma` colours only the active letter `key` | per activecol 1/2/3 |
 | draw suppresses the final newline | source-grep `$lines[1..-2]` |
 
+## Addendum — inert-control marking (approved, same branch)
+
+The `dim` finding above turned out to be broader than `dim`, and the user chose option
+(b): keep every role selectable, but make the picker say which controls do nothing.
+
+**The engine facts** (measured, and now asserted in `test-tmux-install.fish` so they cannot
+drift): `__tmux_lives_palette` computes `dim` and `text` at hue offset 0 under an explicit
+`# base-hue roles` comment, and scales only `accent`'s chroma by the vividness multiplier
+(`dim` C0.055 and `muted` C0.11 are pinned). Therefore:
+
+| cap role | `↑↓` scheme | `v` vividness | `w` wheel |
+|---|---|---|---|
+| `dim` | **inert** | **inert** | moves |
+| `muted` | moves | **inert** | moves |
+| `accent` | moves | moves | moves |
+
+So `v` is dead at `muted` too — a second silent trap, not just a `dim` quirk. This is not a
+math bug: `dim`/`text` were designed as palette roles for Phase B whole-bar theming, where
+they would colour different *elements*. v2 made the cap role user-selectable and thereby
+exposed them as cap choices they were never meant to be.
+
+**Design.** A new pure `__tcz_cap_inert <caprole> <control>` encodes the table above. The
+picker's footer renders an inert control's **key glyph** in `muted` instead of `key`, so
+the entry goes uniformly muted and visibly recedes beside a live tan key. `←→`, `w`, `⏎`
+and `esc` always act and stay live.
+
+Chosen because it costs **zero rows** — the frame is exactly as tall as the popup (see
+above), so any added hint row would reintroduce the top-border scroll — and because it
+generalises to `muted` rather than special-casing `dim`. Row widths are unchanged: only the
+SGR differs, never the padding.
+
+Rejected: a hint line in the status row (the wheel value `perceptual` is 10 chars and blows
+the 40-col budget); a new `off` theme role (`muted` already reads as recessive against a tan
+key, and the palette shouldn't grow a role it doesn't need).
+
+**Known imprecision:** `↑↓` still moves the cursor and the scheme label at `role=dim` — it
+is the *cap* that won't change, not the key. "Greyed" therefore means "cannot reach your
+cap," not "disabled." Accepted: that is exactly the confusion being fixed, and the user
+judges it live.
+
 ## Out of scope
 
-- **`dim` is scheme-invariant.** At the user's bar (`#36442d`), `dim` is `#4e6242` for all
-  ten schemes — only `muted`/`accent` take the scheme's hue rotation. At `cap_role = dim`
-  (the user's current setting) the scheme choice therefore has no effect on the cap, and
-  the `d` column renders as ten identical swatches. Real finding, separate decision
-  (engine gap vs. intentional "dim = neutral shade of the bar"); tracked for the user's
-  return.
-- Phase B whole-bar theming.
+- Phase B whole-bar theming (where `dim`/`text` would finally drive real elements).

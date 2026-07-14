@@ -644,6 +644,9 @@ t "picker suppresses the final row's newline" 1 (functions __tcz_cap_picker | st
 # match the CALL, not the bare name: the draw loop's comment also says __tcz_cap_dma, so a
 # bare-name grep would still pass if the call itself were deleted.
 t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*(__tcz_cap_dma $activecol)*'; and echo 1; or echo 0)
+# the footer must actually consult __tcz_cap_inert, else the greying is dead code
+t "picker greys the inert scheme key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert $role scheme; and set r_scheme muted*'; and echo 1; or echo 0)
+t "picker greys the inert vividness key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert $role vividness; and set r_viv muted*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)
@@ -1045,6 +1048,24 @@ t "cap_dma strips to 'd m a'" 1 (test (__tcz_strip_sgr (__tcz_cap_dma 2)) = 'd m
 t "cap_dma activecol 1 -> d in key" yes (string match -q (__tcz_theme key)'d*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
 t "cap_dma activecol 3 -> a in key" yes (string match -q '*'(__tcz_theme key)'a*' -- (__tcz_cap_dma 3); and echo yes; or echo no)
 t "cap_dma non-active letters are muted" yes (string match -q '*'(__tcz_theme muted)'m*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
+
+# Which picker controls can actually move the cap at a given role. Derived from
+# __tmux_lives_palette (install side, so the engine facts themselves are asserted in
+# test-tmux-install.fish — keep the two in sync): dim/text are BASE-HUE roles computed at
+# offset 0, so no scheme can move them; and only accent's chroma is scaled by vividness
+# (muted is pinned at a fixed C0.11). Without this the picker silently lies — you cursor
+# through 10 schemes at role=dim and your cap never changes.
+t "inert: dim ignores scheme"           1 (__tcz_cap_inert dim scheme; and echo 1; or echo 0)
+t "inert: dim ignores vividness"        1 (__tcz_cap_inert dim vividness; and echo 1; or echo 0)
+t "inert: dim still follows the wheel"  0 (__tcz_cap_inert dim wheel; and echo 1; or echo 0)
+t "inert: muted follows scheme"         0 (__tcz_cap_inert muted scheme; and echo 1; or echo 0)
+t "inert: muted ignores vividness"      1 (__tcz_cap_inert muted vividness; and echo 1; or echo 0)
+t "inert: accent follows scheme"        0 (__tcz_cap_inert accent scheme; and echo 1; or echo 0)
+t "inert: accent follows vividness"     0 (__tcz_cap_inert accent vividness; and echo 1; or echo 0)
+t "inert: accent follows the wheel"     0 (__tcz_cap_inert accent wheel; and echo 1; or echo 0)
+# an unknown control/role must NOT be greyed — never de-emphasise a key we can't reason about
+t "inert: unknown control is live"      0 (__tcz_cap_inert dim bogus; and echo 1; or echo 0)
+t "inert: unknown role behaves as accent" 0 (__tcz_cap_inert wat scheme; and echo 1; or echo 0)
 
 t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
 

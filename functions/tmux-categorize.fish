@@ -1120,6 +1120,23 @@ function __tcz_cap_sep --argument-names w od t --description 'pure: the picker f
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
 
+function __tcz_cap_inert --argument-names caprole control --description 'pure: true when <control> (scheme|vividness|wheel) CANNOT affect the cap at cap role <caprole> (dim|muted|accent). The picker greys such controls so it stops silently lying — at role=dim you could otherwise cursor through all 10 schemes and never change your cap. Derived from the install-side __tmux_lives_palette (whose facts are asserted in test-tmux-install.fish — keep the two in sync): dim/text are BASE-HUE roles computed at offset 0, so no scheme''s hue rotation reaches them; and only accent''s chroma is scaled by the vividness multiplier (dim C0.055 / muted C0.11 are pinned). The wheel re-maps the hue even at offset 0, so it moves every role. Unknown control or role -> live: never de-emphasise a key we cannot reason about (and the picker already defaults an unknown role to accent).'
+    switch "$control"
+        case scheme
+            test "$caprole" = dim
+            return
+        case vividness
+            switch "$caprole"
+                case dim muted
+                    return 0
+            end
+            return 1
+        case wheel
+            return 1
+    end
+    return 1
+end
+
 function __tcz_cap_dma --argument-names activecol --description 'pure: the cap-picker''s d/m/a column header — "d m a" at LETTER PITCH 2 (5 visible cols), the activecol (1|2|3 = dim/muted/accent) letter in __tcz_theme key, the others muted. Pitch 2 matches the 2-wide swatch cells so each letter sits directly over its column (inner cols 3/5/7, given the picker draws this with a 2-space lead and the strip starts at col 3). Lives out here rather than inline in the draw loop so the alignment — the thing that actually broke — is reachable by the unit suite.'
     set -l RST (__tcz_theme reset)
     set -l KEY (__tcz_theme key)
@@ -1241,8 +1258,10 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         test "$width" -gt 0; and set t (string pad --right -w $width -- "$text")
         printf '%s%s%s' (__tcz_theme $role) "$t" (__tcz_theme reset)
     end
-    function __tcz_cap_kv --argument-names k1 d1 k2 d2 --description 'one two-column "<key> <desc>" row (keys in key color, desc in muted) — used for the legend + footer rows'
-        printf '%s %s  %s %s' (__tcz_cap_field key $k1 4) (__tcz_cap_field muted $d1 12) (__tcz_cap_field key $k2 4) (__tcz_cap_field muted $d2 0)
+    function __tcz_cap_kv --argument-names k1 d1 k2 d2 r1 r2 --description 'one two-column "<key> <desc>" row — descs in muted, keys in the __tcz_theme role r1/r2 (default `key`). An INERT control (see __tcz_cap_inert) passes `muted` for its key so the whole entry goes uniformly muted and visibly recedes next to a live tan key. Widths are unchanged either way, so the row stays the same size.'
+        test -n "$r1"; or set r1 key
+        test -n "$r2"; or set r2 key
+        printf '%s %s  %s %s' (__tcz_cap_field $r1 $k1 4) (__tcz_cap_field muted $d1 12) (__tcz_cap_field $r2 $k2 4) (__tcz_cap_field muted $d2 0)
     end
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
@@ -1314,8 +1333,14 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
             set -a lines (__tcz_cap_ln "$row" $IW $BORDER $RST)
         end
         set -a lines (__tcz_cap_sep $IW $BORDER $RST)
-        set -a lines (__tcz_cap_ln " "(__tcz_cap_kv ↑↓ scheme ←→ "cap role") $IW $BORDER $RST)
-        set -a lines (__tcz_cap_ln " "(__tcz_cap_kv v vividness w wheel) $IW $BORDER $RST)
+        # Grey the keys that cannot move the cap at THIS role, so the picker stops silently
+        # lying: at role=dim neither the scheme nor vividness reaches the cap, and at
+        # role=muted vividness doesn't either (see __tcz_cap_inert for the engine reasons).
+        # ←→/w/⏎/esc always act, so they stay live.
+        set -l r_scheme key; __tcz_cap_inert $role scheme; and set r_scheme muted
+        set -l r_viv key; __tcz_cap_inert $role vividness; and set r_viv muted
+        set -a lines (__tcz_cap_ln " "(__tcz_cap_kv ↑↓ scheme ←→ "cap role" $r_scheme key) $IW $BORDER $RST)
+        set -a lines (__tcz_cap_ln " "(__tcz_cap_kv v vividness w wheel $r_viv key) $IW $BORDER $RST)
         set -a lines (__tcz_cap_ln " "(__tcz_cap_kv ⏎ apply esc cancel) $IW $BORDER $RST)
         set -a lines (__tcz_cap_sep $IW $BORDER $RST)
         set -l statusrow (string join ' ' (__tcz_cap_field key wheel 0) (__tcz_cap_field value $wheel 0) (__tcz_cap_field muted · 0) (__tcz_cap_field key vividness 0) (__tcz_cap_field value $vividness 0))
