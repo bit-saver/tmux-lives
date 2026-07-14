@@ -641,7 +641,9 @@ t "picker apply suppresses stdout confirmations" 1 (functions __tcz_cap_picker |
 # terminal scrolls one line and row 1 is gone. Emit rows 1..-2 with \n, the final row
 # without, so the frame hugs the popup exactly at -h 22 (no scroll, no dead row).
 t "picker suppresses the final row's newline" 1 (functions __tcz_cap_picker | string match -q '*lines[1..-2]*'; and echo 1; or echo 0)
-t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_dma*'; and echo 1; or echo 0)
+# match the CALL, not the bare name: the draw loop's comment also says __tcz_cap_dma, so a
+# bare-name grep would still pass if the call itself were deleted.
+t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*(__tcz_cap_dma $activecol)*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)

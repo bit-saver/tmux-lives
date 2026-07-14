@@ -482,11 +482,6 @@ t "cap --role sets universal" muted (__tmux_lives_cap_cmd --role muted >/dev/nul
 t "cap --role applies pal[3] live" 1 (set -l p (__tmux_lives_palette $cap_barbg (__tmux_lives_key tmux_lives_cap mono) ryb vivid); test (command tmux -L $capsock show -gv @tmux_lives_cap_bg) = $p[3]; and echo 1; or echo 0)
 t "cap --role rejects junk" 1 (set -e tmux_lives_cap_role; __tmux_lives_cap_cmd --role wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap_role; and echo bad; or echo 1; end)
 
-set -e tmux_lives_cap_role
-if test $_capr_had -eq 1
-    set -U tmux_lives_cap_role $_capr_val
-end
-
 # no-arg -> the interactive picker (Task 4 supplies the categorizer's cap-picker verb).
 # Outside tmux this must fail cleanly (no crash, no live mutation) rather than try to
 # open a popup with no client to target.
@@ -518,6 +513,14 @@ if test $_capv_had -eq 1
 end
 if test $_capw_had -eq 1
     set -U tmux_lives_cap_wheel $_capw_val
+end
+# restore cap_role HERE with its siblings, not right after the --role tests: the
+# tmux_lives_tmux_socket seam stays pinned until just below, so restoring earlier would
+# leave the user's real role live while apply-assertions can still run — reintroducing
+# exactly the leak this guard exists to close.
+set -e tmux_lives_cap_role
+if test $_capr_had -eq 1
+    set -U tmux_lives_cap_role $_capr_val
 end
 set -e tmux_lives_tmux_socket
 command tmux -L $capsock kill-server 2>/dev/null
