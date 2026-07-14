@@ -765,13 +765,13 @@ function __tmux_lives_cap_valid --argument-names token --description 'true if to
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$token"
 end
 
-function __tmux_lives_cap_list --description 'tmux-lives setup cap list: every formula + a palette strip (dim/muted/accent truecolor swatches) against the current bar, at the effective wheel/vividness'
+function __tmux_lives_cap_list --description 'tmux-lives setup cap list: every scheme + a palette strip (dim/muted/accent truecolor swatches) against the current bar, at the effective wheel/vividness'
     set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
     test -n "$barbg"; or set barbg '#3a3a3a'   # no bar color configured yet -> neutral default so swatches still render
     set -l wheel (__tmux_lives_key tmux_lives_cap_wheel ryb)
     set -l vividness (__tmux_lives_key tmux_lives_cap_vividness vivid)
-    for formula in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic
-        set -l pal (__tmux_lives_palette $barbg $formula $wheel $vividness)
+    for scheme in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
+        set -l pal (__tmux_lives_palette $barbg $scheme $wheel $vividness)
         test (count $pal) -eq 5; or continue
         set -l strip
         for hex in $pal[2] $pal[3] $pal[4]
@@ -779,7 +779,7 @@ function __tmux_lives_cap_list --description 'tmux-lives setup cap list: every f
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-14s %s\n' (string join '' $strip) $formula $pal[4]
+        printf '%s %-14s %s\n' (string join '' $strip) $scheme $pal[4]
     end
 end
 
@@ -801,17 +801,24 @@ function __tmux_lives_cap_picker --description 'tmux-lives setup cap (no arg): o
     tmux display-popup -B -E -w 34 -h 15 -- fish --no-config $cat cap-picker "$client"
 end
 
-function __tmux_lives_cap_apply_live --description 'internal: push the effective formula/wheel/vividness palette accent to @tmux_lives_cap_bg/_fg on the live server (tmux_lives_tmux_socket seam)'
+function __tmux_lives_cap_apply_live --description 'internal: push the effective scheme/wheel/vividness/role palette color to @tmux_lives_cap_bg/_fg on the live server (tmux_lives_tmux_socket seam)'
     set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
     test -n "$barbg"; or set barbg colour236
-    set -l formula (__tmux_lives_key tmux_lives_cap mono)
+    set -l scheme (__tmux_lives_key tmux_lives_cap mono)
     set -l wheel (__tmux_lives_key tmux_lives_cap_wheel ryb)
     set -l vividness (__tmux_lives_key tmux_lives_cap_vividness vivid)
     # __tmux_lives_palette's central guard emits nothing for a non-hex barbg (e.g. the
     # colour236 fallback above) -> pal is empty -> capbg falls through to colour238,
     # mirroring the render_fragment call-site's own fallback.
-    set -l pal (__tmux_lives_palette $barbg $formula $wheel $vividness)
-    set -l capbg $pal[4]
+    set -l pal (__tmux_lives_palette $barbg $scheme $wheel $vividness)
+    # role -> palette index: same map as __tmux_lives_render_fragment (Task 4, argv[16]).
+    set -l caprole (__tmux_lives_key tmux_lives_cap_role accent)
+    set -l ridx 4
+    switch $caprole
+        case dim; set ridx 2
+        case muted; set ridx 3
+    end
+    set -l capbg $pal[$ridx]
     test -n "$capbg"; or set capbg colour238
     set -l capfg (__tmux_lives_contrast_fg $capbg)
     if set -q tmux_lives_tmux_socket
@@ -823,7 +830,7 @@ function __tmux_lives_cap_apply_live --description 'internal: push the effective
     end
 end
 
-function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list] [--vividness <v>] [--wheel <w>]: choose the powerline cap-color palette (scheme/vividness/wheel); no-arg opens the picker'
+function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list] [--vividness <v>] [--wheel <w>] [--role <r>]: choose the powerline cap-color palette (scheme/vividness/wheel/role); no-arg opens the picker'
     if test (count $argv) -eq 0
         __tmux_lives_cap_picker
         return
@@ -834,6 +841,8 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list
     set -l have_vividness 0
     set -l wheel
     set -l have_wheel 0
+    set -l role
+    set -l have_role 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -845,6 +854,10 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list
                 set i (math $i + 1)
                 set wheel $argv[$i]
                 set have_wheel 1
+            case --role
+                set i (math $i + 1)
+                set role $argv[$i]
+                set have_role 1
             case list
                 __tmux_lives_cap_list
                 return
@@ -872,6 +885,14 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list
                 return 1
         end
     end
+    if test $have_role -eq 1
+        switch "$role"
+            case dim muted accent
+            case '*'
+                echo "tmux-lives setup cap: invalid role '$role' — valid: dim, muted, accent" >&2
+                return 1
+        end
+    end
     if test $have_scheme -eq 1
         # Bare 6-hex -> #rrggbb, same normalization `setup color` applies to a bare hex.
         string match -qr '^[0-9A-Fa-f]{6}$' -- $scheme; and set scheme "#$scheme"
@@ -882,15 +903,17 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list
     end
     test $have_vividness -eq 1; and set -U tmux_lives_cap_vividness $vividness
     test $have_wheel -eq 1; and set -U tmux_lives_cap_wheel $wheel
+    test $have_role -eq 1; and set -U tmux_lives_cap_role $role
     test $have_scheme -eq 1; and set -U tmux_lives_cap $scheme
     # Apply live without a fragment re-render — same tmux_lives_tmux_socket seam as
     # `setup color --apply`. Recomputes from whichever universal(s) this call just touched
-    # (or the existing stored ones), so a lone --vividness/--wheel call re-tints the current
-    # scheme too.
+    # (or the existing stored ones), so a lone --vividness/--wheel/--role call re-tints/re-picks
+    # the current scheme too.
     __tmux_lives_cap_apply_live
     test $have_scheme -eq 1; and echo "tmux-lives: cap color scheme set to $scheme"
     test $have_vividness -eq 1; and echo "tmux-lives: cap vividness set to $vividness"
     test $have_wheel -eq 1; and echo "tmux-lives: cap wheel set to $wheel"
+    test $have_role -eq 1; and echo "tmux-lives: cap role set to $role"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'

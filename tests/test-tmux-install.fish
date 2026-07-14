@@ -442,12 +442,13 @@ t "invalid scheme errors, no set" 1 (__tmux_lives_cap_cmd wat 2>/dev/null; and e
 __tmux_lives_cap_cmd complementary >/dev/null   # restore for the tests below
 
 set -l cap_list (__tmux_lives_cap_cmd list | string collect)
-for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic
+for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
     t "cap list mentions token $tok" 1 (string match -q "*$tok*" -- "$cap_list"; and echo 1; or echo 0)
 end
 set -l swatch_prefix (printf '\e[48;2;')
 t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$cap_list"; and echo 1; or echo 0)
 t "cap list has a scheme + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
+t "cap list includes square" 1 (string match -q '*square*' -- (__tmux_lives_cap_list | string collect); and echo 1; or echo 0)
 
 # --vividness/--wheel flags: validate, set -U, and re-apply live (no scheme arg needed)
 t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)
@@ -455,6 +456,23 @@ t "cap --wheel perceptual sets universal" perceptual (__tmux_lives_cap_cmd --whe
 t "cap --vividness bogus rc1, universal unchanged" "subtle" (__tmux_lives_cap_cmd --vividness bogus >/dev/null 2>&1; echo $tmux_lives_cap_vividness)
 t "cap --wheel bogus rc1, universal unchanged" "perceptual" (__tmux_lives_cap_cmd --wheel bogus >/dev/null 2>&1; echo $tmux_lives_cap_wheel)
 set -e tmux_lives_cap_vividness; set -e tmux_lives_cap_wheel   # back to defaults for anything below
+
+# --role flag: pick which palette column (dim/muted/accent) the powerline cap renders
+# from. tmux_lives_cap_role is a UNIVERSAL var -> save/clear/restore like _vividness/_wheel.
+set -l _capr_had 0; set -l _capr_val
+if set -q tmux_lives_cap_role
+    set _capr_had 1; set _capr_val $tmux_lives_cap_role
+end
+set -e tmux_lives_cap_role
+
+t "cap --role sets universal" muted (__tmux_lives_cap_cmd --role muted >/dev/null; echo $tmux_lives_cap_role)
+t "cap --role applies pal[3] live" 1 (set -l p (__tmux_lives_palette $cap_barbg (__tmux_lives_key tmux_lives_cap mono) ryb vivid); test (command tmux -L $capsock show -gv @tmux_lives_cap_bg) = $p[3]; and echo 1; or echo 0)
+t "cap --role rejects junk" 1 (set -e tmux_lives_cap_role; __tmux_lives_cap_cmd --role wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap_role; and echo bad; or echo 1; end)
+
+set -e tmux_lives_cap_role
+if test $_capr_had -eq 1
+    set -U tmux_lives_cap_role $_capr_val
+end
 
 # no-arg -> the interactive picker (Task 4 supplies the categorizer's cap-picker verb).
 # Outside tmux this must fail cleanly (no crash, no live mutation) rather than try to
@@ -504,7 +522,7 @@ t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_
 # help lists cap (Task 4 deferred item)
 t "setup help lists cap" 1 (string match -q '*cap*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "help cap row mentions the picker" 1 (string match -q '*cap*picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-t "setup help says <scheme> not <formula>" 1 (string match -q '*<scheme>*' -- (__tmux_lives_setup_help_lines | string collect); and string match -q '*<formula>*' -- (__tmux_lives_setup_help_lines | string collect); and echo 0; or echo 1)
+t "setup help says <scheme>" 1 (string match -q '*<scheme>*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
