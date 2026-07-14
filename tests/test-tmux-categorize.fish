@@ -992,6 +992,13 @@ t "swatch line: empty strip degrades cleanly (no crash, still names the token)" 
     (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
 t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
 
+# Task 6: swatch line grows a 6th arg (activecol 1|2|3 = dim/muted/accent) that marks
+# which palette column is the current cap role, in __tcz_theme key color.
+set -g SWLA (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 1 3)
+t "swatch(activecol) has 3 truecolor cells" 3 (count (string match -ar -- '\[48;2;' -- $SWLA))
+t "swatch(activecol) shows scheme name" 1 (string match -q '*triadic-*' -- $SWLA; and echo 1; or echo 0)
+t "swatch(activecol) marks active col 3" 1 (string match -q '*'(__tcz_theme key)'*' -- $SWLA; and echo 1; or echo 0)
+
 t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
 
 t "theme brand is truecolor ff8a1f" 1 (test (__tcz_theme brand) = (printf '\e[38;2;255;138;31m'); and echo 1; or echo 0)
