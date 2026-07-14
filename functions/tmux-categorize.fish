@@ -1073,28 +1073,39 @@ function __tcz_cap_restore --argument-names scheme --description 'pure: 0-based 
     end
 end
 
-function __tcz_cap_swatch_line --argument-names dimhex mutedhex accenthex scheme selected activecol --description 'pure: one cap-picker row = selection marker + a 3-cell palette strip (dim·muted·accent, ALREADY-COMPUTED truecolor swatches, degrading to a blank gap on bad/blank hex) + an active-role-column marker (activecol 1|2|3 = dim/muted/accent, drawn in __tcz_theme key) + the <scheme> name (sel-fg+bold if selected, else muted). Never calls the install-side palette engine (see the --no-config runtime note on __tcz_cap_picker) — the three hexes are precomputed by the caller (mirrors __tmux_lives_cap_list''s strip rendering).'
+function __tcz_cap_swatch_line --argument-names dimhex mutedhex accenthex scheme selected activecol --description 'pure: one cap-picker row = selection marker + a 3-cell palette strip (dim·muted·accent, ALREADY-COMPUTED truecolor swatches, degrading to a blank gap on bad/blank hex) + the <scheme> name (sel-fg+bold if selected, else muted). On the SELECTED row only, the activecol cell (1|2|3 = dim/muted/accent) is underlined in __tcz_theme mark to show which palette column is the current cap role. Never calls the install-side palette engine (see the --no-config runtime note on __tcz_cap_picker) — the three hexes are precomputed by the caller (mirrors __tmux_lives_cap_list''s strip rendering).'
     set -l RST (__tcz_theme reset)
     set -l KEY (__tcz_theme key)
     set -l SELFG (__tcz_theme sel-fg)
     set -l MUTED (__tcz_theme muted)
+    set -l MARK (__tcz_theme mark)
+    set -l UL (printf '\e[4m')
     set -l BOLD (printf '\e[1m')
-    # 3-cell truecolor strip; each blank/unparseable hex degrades to a neutral
-    # two-space gap instead of crashing (e.g. no bar color configured yet). The
-    # column that is the CURRENT cap role (activecol) gets a small key-colored
-    # tick prepended so the active column reads the same on every row. NB: the
-    # ▐ selection marker below is intentionally a foreground-only (38;2;) color —
-    # a background (48;2;) marker here would inflate the "3 truecolor cells"
-    # count this helper is unit-tested on. Full-row sel-bg highlighting (per the
-    # mock's "sel row = sel-bg + sel-fg") is layered on OUTSIDE this pure helper,
-    # by the __tcz_cap_picker draw loop, so it stays out of this return value.
+    # 3-cell truecolor strip; each blank/unparseable hex degrades to a neutral two-space
+    # gap instead of crashing (e.g. no bar color configured yet). Cells are ALWAYS
+    # adjacent: the strip is exactly 6 visible columns no matter which column is active,
+    # so the row is a fixed 22 cols and the d/m/a header can align statically over it.
+    # (v2 prepended a ▎ to the active cell, which INSERTED a column and slid the cells out
+    # from under the static header — that shift WAS the reported misalignment.)
+    # The active-role cue is instead an SGR-4 underline, and only on the SELECTED row: the
+    # picker's primary cluster already previews the cursor row's scheme × role, so marking
+    # every row answers a question that is never asked about the rows you aren't on, while
+    # breaking up the colour band it sits in. An explicit `mark` fg makes the rule draw
+    # neutral grey rather than inheriting whatever fg is current.
+    # NB the ▐ selection marker below is intentionally foreground-only (38;2;) — a
+    # background (48;2;) marker would inflate the "3 truecolor cells" count this helper is
+    # unit-tested on. Underline adds no 48;2; either, so the count still holds. Full-row
+    # sel-bg highlighting is layered on OUTSIDE this pure helper by the draw loop.
     set -l hexes $dimhex $mutedhex $accenthex
     set -l strip ''
     for i in 1 2 3
         set -l cell '  '
         set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hexes[$i]")
-        test (count $m) -eq 3; and set cell (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
-        test "$i" = "$activecol"; and set cell "$KEY▎$RST$cell"
+        if test (count $m) -eq 3
+            set -l pre ''
+            test "$selected" = 1; and test "$i" = "$activecol"; and set pre "$UL$MARK"
+            set cell (printf '%s\e[48;2;%d;%d;%dm  \e[0m' "$pre" (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
+        end
         set strip "$strip$cell"
     end
     set -l name (printf '%-13s' "$scheme")
@@ -1109,13 +1120,33 @@ function __tcz_cap_sep --argument-names w od t --description 'pure: the picker f
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
 
-function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/sel-bg/sel-fg/reset)'
+function __tcz_cap_dma --argument-names activecol --description 'pure: the cap-picker''s d/m/a column header — "d m a" at LETTER PITCH 2 (5 visible cols), the activecol (1|2|3 = dim/muted/accent) letter in __tcz_theme key, the others muted. Pitch 2 matches the 2-wide swatch cells so each letter sits directly over its column (inner cols 3/5/7, given the picker draws this with a 2-space lead and the strip starts at col 3). Lives out here rather than inline in the draw loop so the alignment — the thing that actually broke — is reachable by the unit suite.'
+    set -l RST (__tcz_theme reset)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l out ''
+    for i in 1 2 3
+        set -l c $MUTED
+        test "$i" = "$activecol"; and set c $KEY
+        set out "$out$c"(string sub -s $i -l 1 -- dma)"$RST"
+        test $i -lt 3; and set out "$out "
+    end
+    printf '%s' "$out"
+end
+
+function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/sel-bg/sel-fg/reset)'
     switch $role
         case brand;  printf '\e[38;2;255;138;31m'
         case border; printf '\e[38;2;168;106;44m'
         case key;    printf '\e[38;2;245;207;138m'
         case muted;  printf '\e[38;2;154;138;114m'
         case value;  printf '\e[38;2;111;199;184m'
+        # mark: a TRUE neutral grey for the active-column rule. Intentionally neither `key`
+        # (tan — the ▐ selector; sharing it read as a colour collision) nor `muted` (a WARM
+        # tan-grey). The rule sits inside the swatch strip, so it must recede from the
+        # colour story rather than join it; neutral grey also stays legible both ways —
+        # darker than a light swatch, lighter than a dark one.
+        case mark;   printf '\e[38;2;138;138;138m'
         case sel-bg; printf '\e[48;2;52;51;47m'
         case sel-fg; printf '\e[38;2;242;239;233m'
         case reset;  printf '\e[0m'
@@ -1247,17 +1278,17 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         set -l valuesrow (string join ' ' "$curswatch" (__tcz_cap_field value $curhexlabel 8) (__tcz_cap_field muted $curscheme 14) (__tcz_cap_field muted $role 0))
         set -a lines (__tcz_cap_ln " $valuesrow" $IW $BORDER $RST)
         set -a lines (__tcz_cap_sep $IW $BORDER $RST)
-        # d/m/a column heads (active column in key, others muted) + a right-aligned legend
-        set -l dcolor $MUTED; test $activecol -eq 1; and set dcolor $KEY
-        set -l mcolor $MUTED; test $activecol -eq 2; and set mcolor $KEY
-        set -l acolor $MUTED; test $activecol -eq 3; and set acolor $KEY
-        set -l dma (string join '' $dcolor"d"$RST"  " $mcolor"m"$RST"  " $acolor"a"$RST)
+        # d/m/a column heads (active column in key, others muted) + a right-aligned legend.
+        # TWO leading spaces, and __tcz_cap_dma is pitch 2, so d/m/a land at inner cols
+        # 3/5/7 — directly over the swatch cells at 3-4 / 5-6 / 7-8 (the strip also starts
+        # at col 3, after each row's 2-col ▐/blank lead). The gap therefore budgets IW-2.
+        set -l dma (__tcz_cap_dma $activecol)
         set -l legend (string join '' $KEY"d"$RST" "$MUTED"dim"$RST" · " $KEY"m"$RST" "$MUTED"muted"$RST" · " $KEY"a"$RST" "$MUTED"accent"$RST)
         set -l dma_vis (__tcz_strip_sgr "$dma")
         set -l legend_vis (__tcz_strip_sgr "$legend")
-        set -l gap (math "($IW - 1) - "(string length -- "$dma_vis")" - "(string length -- "$legend_vis"))
+        set -l gap (math "($IW - 2) - "(string length -- "$dma_vis")" - "(string length -- "$legend_vis"))
         test $gap -lt 1; and set gap 1
-        set -a lines (__tcz_cap_ln " $dma"(string repeat -n $gap ' ')"$legend" $IW $BORDER $RST)
+        set -a lines (__tcz_cap_ln "  $dma"(string repeat -n $gap ' ')"$legend" $IW $BORDER $RST)
         for i in (seq $n)
             set -l tok $families[$i]
             set -l idx (contains -i -- $tok $toks)
@@ -1291,7 +1322,14 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
         set -a lines (__tcz_cap_ln " $statusrow" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         printf '\e[H'
-        printf '%s\e[K\n' $lines
+        # The final row gets NO trailing newline. The frame is exactly as tall as the
+        # popup (22 rows at -h 22), so a \n after the last row would put the cursor on
+        # row 23, scroll the terminal one line, and silently eat row 1 — the top border.
+        # Cursor parks at the end of the last row instead; \e[J below still clears any
+        # stale tail. Guard the count: `printf '%s\n'` with a zero-element list emits one
+        # spurious blank line (the project's recurring zero-output-collapse hazard).
+        test (count $lines) -gt 1; and printf '%s\e[K\n' $lines[1..-2]
+        printf '%s\e[K' $lines[-1]
         printf '\e[J'
         switch (__tcz_popup_readkey)
             case up

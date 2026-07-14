@@ -636,6 +636,12 @@ t "modal k open is taller" 1 (functions __tcz_modal_run | string match -q '*-w 4
 # line per flag (scheme/vividness/wheel/role) — all 4 flash as display-popup -E
 # closes, so the apply must suppress stdout too (not just stderr).
 t "picker apply suppresses stdout confirmations" 1 (functions __tcz_cap_picker | string match -q '*setup cap*>/dev/null 2>&1*'; and echo 1; or echo 0)
+# The top border was scrolling off: the frame is exactly 22 rows and every row (including
+# the LAST) got a trailing \n, pushing the cursor to row 23 of a 22-row popup -> the
+# terminal scrolls one line and row 1 is gone. Emit rows 1..-2 with \n, the final row
+# without, so the frame hugs the popup exactly at -h 22 (no scroll, no dead row).
+t "picker suppresses the final row's newline" 1 (functions __tcz_cap_picker | string match -q '*lines[1..-2]*'; and echo 1; or echo 0)
+t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_dma*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)
@@ -998,12 +1004,45 @@ t "swatch line: empty strip degrades cleanly (no crash, still names the token)" 
     (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
 t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
 
-# Task 6: swatch line grows a 6th arg (activecol 1|2|3 = dim/muted/accent) that marks
-# which palette column is the current cap role, in __tcz_theme key color.
+# activecol (arg 6) = 1|2|3 = dim/muted/accent. C2 (2026-07-14): it no longer PREPENDS a
+# ▎ to the active cell — that INSERTED a column, shifting the cell and everything right of
+# it, which the static header could not track (the reported misalignment). Instead the
+# active cell is UNDERLINED (SGR 4 + neutral `mark` grey), and ONLY on the selected row:
+# the primary cluster already previews the cursor row's scheme×role, so marking rows 4-10
+# answers a question nobody asks, at the cost of a jarring band.
+# Build patterns from REAL ESC bytes (command substitution) rather than the bracket-only
+# idiom above: adjacency is the whole point here, and '*' between parts would defeat it.
+set -g UL (printf '\e[4m')
+set -g MK (__tcz_theme mark)
 set -g SWLA (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 1 3)
 t "swatch(activecol) has 3 truecolor cells" 3 (count (string match -ar -- '\[48;2;' -- $SWLA))
 t "swatch(activecol) shows scheme name" 1 (string match -q '*triadic-*' -- $SWLA; and echo 1; or echo 0)
-t "swatch(activecol) marks active col 3" 1 (string match -q '*'(__tcz_theme key)'*' -- $SWLA; and echo 1; or echo 0)
+# the rule must land on the ACTIVE cell: assert SGR4+mark IMMEDIATELY precedes that cell's
+# own truecolor bg (accent #f66336 -> 246;99;54), not merely appear somewhere in the row.
+t "swatch: selected underlines the active (accent) cell" yes \
+    (string match -q "*$UL$MK"(printf '\e[48;2;246;99;54m')"*" -- "$SWLA"; and echo yes; or echo no)
+set -g SWLA1 (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 1 1)
+t "swatch: activecol 1 underlines the dim cell instead" yes \
+    (string match -q "*$UL$MK"(printf '\e[48;2;75;98;68m')"*" -- "$SWLA1"; and echo yes; or echo no)
+set -g SWLAU (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 0 3)
+t "swatch: unselected row has NO underline" 0 (count (string match -ar -- '\[4m' -- $SWLAU))
+t "swatch: the inserted ▎ marker is gone" no (string match -q '*▎*' -- "$SWLA"; and echo yes; or echo no)
+# The anti-shift guard. NB comparing activecol 1 vs 3 is NOT enough — the old ▎ prepended
+# to BOTH, so the totals matched while the cells still moved. Assert the FIXED width:
+# 2 lead + 6 strip + 1 + 13 name = 22, for every activecol and both selection states.
+# The ▎ made it 23 and slid the cells out from under the header.
+t "swatch: row is exactly 22 visible cols (activecol 3)" 22 (string length -- (__tcz_strip_sgr "$SWLA"))
+t "swatch: row is exactly 22 visible cols (activecol 1)" 22 (string length -- (__tcz_strip_sgr "$SWLA1"))
+t "swatch: unselected row is the same 22 cols" 22 (string length -- (__tcz_strip_sgr "$SWLAU"))
+
+# `d m a` header, extracted from the picker's draw loop so the alignment that broke is
+# reachable by the suite. Letter pitch 2 (5 visible cols) puts d/m/a at inner cols 3/5/7,
+# directly over the 2-wide cells at 3-4 / 5-6 / 7-8. Was `d  m  a` (pitch 3): only m lined up.
+t "cap_dma is 5 visible cols" 5 (string length -- (__tcz_strip_sgr (__tcz_cap_dma 1)))
+t "cap_dma strips to 'd m a'" 1 (test (__tcz_strip_sgr (__tcz_cap_dma 2)) = 'd m a'; and echo 1; or echo 0)
+t "cap_dma activecol 1 -> d in key" yes (string match -q (__tcz_theme key)'d*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
+t "cap_dma activecol 3 -> a in key" yes (string match -q '*'(__tcz_theme key)'a*' -- (__tcz_cap_dma 3); and echo yes; or echo no)
+t "cap_dma non-active letters are muted" yes (string match -q '*'(__tcz_theme muted)'m*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
 
 t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
 
@@ -1012,6 +1051,13 @@ t "theme key is f5cf8a"    1 (test (__tcz_theme key)    = (printf '\e[38;2;245;2
 t "theme value is 6fc7b8"  1 (test (__tcz_theme value)  = (printf '\e[38;2;111;199;184m'); and echo 1; or echo 0)
 t "theme selbg is 34332f bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;52;51;47m'); and echo 1; or echo 0)
 t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or echo 0)
+# `mark` = the neutral-grey rule for the active-column underline. Deliberately NOT `key`
+# (tan — the ▐ selector) and NOT `muted` (a WARM tan-grey): the marker must read as a
+# rule, not as part of the warm palette or of the colour story it sits next to. The
+# key/marker colour collision was a live-smoke complaint, so assert the distinctness.
+t "theme mark is neutral grey 8a8a8a" 1 (test (__tcz_theme mark) = (printf '\e[38;2;138;138;138m'); and echo 1; or echo 0)
+t "theme mark differs from key"   1 (test (__tcz_theme mark) != (__tcz_theme key); and echo 1; or echo 0)
+t "theme mark differs from muted" 1 (test (__tcz_theme mark) != (__tcz_theme muted); and echo 1; or echo 0)
 
 set -g FAM (__tcz_cap_families)   # mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
 t "restore exact mono"         0 (__tcz_cap_restore mono $FAM)
