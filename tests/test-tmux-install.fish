@@ -212,6 +212,12 @@ t "fragment bakes the cap-key bind" 1 (string match -q "*bind-key -n M-k display
 set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb '' | string collect)
 t "empty cap-key omits the bind" 1 (string match -q '*cap-picker*' -- "$CK0"; and echo 0; or echo 1)
 
+# Task 7 — cap-picker popup grown to the taller v2 layout (-w 44 -h 22).
+# Leaves the modal launcher (-w 34 -h 15) alone.
+t "cap_picker popup is taller" 1 (functions __tmux_lives_cap_picker | string match -q '*-w 44 -h 22*'; and echo 1; or echo 0)
+set -g MK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
+t "M-k bind is taller" 1 (string match -q '*display-popup -B -E -w 44 -h 22*cap-picker*' -- "$MK"; and echo 1; or echo 0)
+
 # cap_role (argv[16] = cap_role): pick which palette column the powerline cap renders
 # from (dim/muted/accent). Empty defaults to accent (unchanged prior behavior).
 set -g RP (__tmux_lives_palette "#5793f0" mono ryb vivid)

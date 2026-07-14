@@ -630,6 +630,8 @@ set -g MRSRC (functions __tcz_modal_run | string collect)
 set -g CAPBLOCK (string match -r -- '(?s)case cap\n.*?\n *case ' -- "$MRSRC" | string collect)
 t "run cap opens cap-picker in its own display-popup" yes \
     (string match -q '*display-popup*' -- "$CAPBLOCK"; and string match -q '*cap-picker*' -- "$CAPBLOCK"; and echo yes; or echo no)
+# Task 7 — the modal "k" open uses the taller v2 cap-picker popup (-w 44 -h 22).
+t "modal k open is taller" 1 (functions __tcz_modal_run | string match -q '*-w 44 -h 22*cap-picker*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)

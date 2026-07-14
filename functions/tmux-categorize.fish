@@ -918,7 +918,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open cap-picker in its OWN popup
             # (the cap-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here). Mirrors __tmux_lives_cap_picker.
-            tmux run-shell -b "tmux display-popup -B -E -w 34 -h 15 -- fish --no-config $__tcz_self cap-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 44 -h 22 -- fish --no-config $__tcz_self cap-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear

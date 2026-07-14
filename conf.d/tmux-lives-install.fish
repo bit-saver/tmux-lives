@@ -130,7 +130,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "}"
     end
     test -n "$scratchkey"; and set -a f "bind-key -n $scratchkey run-shell 'fish --no-config $cat scratch'"
-    test -n "$capkey"; and set -a f "bind-key -n $capkey display-popup -B -E -w 34 -h 15 -- fish --no-config $cat cap-picker '#{client_name}'"
+    test -n "$capkey"; and set -a f "bind-key -n $capkey display-popup -B -E -w 44 -h 22 -- fish --no-config $cat cap-picker '#{client_name}'"
     if test -n "$resizekey"
         set -a f "bind-key -n $resizekey run-shell \"fish --no-config $cat resize-enter '#{client_name}'\""
         set -a f "bind-key -T tmuxlives-resize Left  { run-shell \"fish --no-config $cat scratch-resize L\" ; switch-client -T tmuxlives-resize }"
@@ -798,7 +798,7 @@ function __tmux_lives_cap_picker --description 'tmux-lives setup cap (no arg): o
         return 1
     end
     set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
-    tmux display-popup -B -E -w 34 -h 15 -- fish --no-config $cat cap-picker "$client"
+    tmux display-popup -B -E -w 44 -h 22 -- fish --no-config $cat cap-picker "$client"
 end
 
 function __tmux_lives_cap_apply_live --description 'internal: push the effective scheme/wheel/vividness/role palette color to @tmux_lives_cap_bg/_fg on the live server (tmux_lives_tmux_socket seam)'
