@@ -1196,7 +1196,7 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
     set -l IW 40
     set -l BORDER (__tcz_theme border); set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key); set -l MUTED (__tcz_theme muted)
-    set -l VALUE (__tcz_theme value); set -l SELBG (__tcz_theme sel-bg)
+    set -l SELBG (__tcz_theme sel-bg)
     set -l RST (__tcz_theme reset)
     function __tcz_cap_ln --argument-names content w od t --description 'pad an ALREADY-COLORED content string to visible width w (via __tcz_strip_sgr) and wrap it in the themed frame'
         set -l vis (__tcz_strip_sgr "$content")
