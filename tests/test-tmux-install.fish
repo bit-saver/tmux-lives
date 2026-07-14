@@ -205,6 +205,8 @@ set -e tmux_lives_status_pos_key; set -e tmux_lives_status_vis_key
 t "help documents --status-pos-key" yes (string match -q '*--status-pos-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "help documents --status-vis-key" yes (string match -q '*--status-vis-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_lives_setup_help_lines); set -l w (string length --visible -- $l); test $w -gt $mx; and set mx $w; end; test (math "$mx + 4") -le 80; and echo yes; or echo no)
+# the cap row must enumerate the new --role tunable alongside vividness/wheel
+t "help cap row documents role" yes (string match -q '*scheme/vividness/wheel/role*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 # dedicated M-k cap-picker keybind (argv[15] = cap_key)
 set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k | string collect)

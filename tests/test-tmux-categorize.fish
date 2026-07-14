@@ -632,6 +632,10 @@ t "run cap opens cap-picker in its own display-popup" yes \
     (string match -q '*display-popup*' -- "$CAPBLOCK"; and string match -q '*cap-picker*' -- "$CAPBLOCK"; and echo yes; or echo no)
 # Task 7 — the modal "k" open uses the taller v2 cap-picker popup (-w 44 -h 22).
 t "modal k open is taller" 1 (functions __tcz_modal_run | string match -q '*-w 44 -h 22*cap-picker*'; and echo 1; or echo 0)
+# the picker's enter-apply routes through the CLI, which echoes one confirmation
+# line per flag (scheme/vividness/wheel/role) — all 4 flash as display-popup -E
+# closes, so the apply must suppress stdout too (not just stderr).
+t "picker apply suppresses stdout confirmations" 1 (functions __tcz_cap_picker | string match -q '*setup cap*>/dev/null 2>&1*'; and echo 1; or echo 0)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)

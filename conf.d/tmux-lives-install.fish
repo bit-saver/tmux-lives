@@ -1019,7 +1019,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --cap-key <key>       cap-color picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'cap [<scheme>] [list]      scheme/vividness/wheel; no-arg=picker' \
+        'cap [<scheme>] [list]       scheme/vividness/wheel/role; no-arg=picker' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 

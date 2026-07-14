@@ -1339,7 +1339,10 @@ function __tcz_cap_picker --argument-names client --description 'interactive cap
     set -e __tcz_cap_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
-    test -n "$scheme"; and fish -c 'tmux-lives setup cap $argv[1] --role $argv[2] --vividness $argv[3] --wheel $argv[4]' "$scheme" "$role" "$vividness" "$wheel" 2>/dev/null
+    # >/dev/null 2>&1 (not just 2>): the CLI echoes one confirmation line per flag
+    # (scheme/vividness/wheel/role) — all 4 would flash to stdout as display-popup -E
+    # closes. The visible bar change is the feedback; suppress the popup's apply noise.
+    test -n "$scheme"; and fish -c 'tmux-lives setup cap $argv[1] --role $argv[2] --vividness $argv[3] --wheel $argv[4]' "$scheme" "$role" "$vividness" "$wheel" >/dev/null 2>&1
     return 0
 end
 
