@@ -143,7 +143,7 @@ end
 function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" (@tmux_lives_name, else the claude --name) — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Non-claude: @tmux_lives_name, else session_name.'
     # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name if set, else the claude name).
     # otherwise: @tmux_lives_name if set, else the session slug. No mark, no doubling.
-    echo '#{?#{!=:#{@tmux_lives_claude},},✦ #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
+    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
 end
 
 function __tcz_status_format --description 'pure: the status-format[0] string (all tunables are @options; right zone renders status-right so tick/continuum survive)'
@@ -153,12 +153,12 @@ function __tcz_status_format --description 'pure: the status-format[0] string (a
     # The cap background follows the mode: prefix -> prefix color, resize -> resize color, else the base cap bg.
     set -l capbg '#{?client_prefix,#{@tmux_lives_prefix_color},#{?#{==:#{client_key_table},tmuxlives-resize},#{@tmux_lives_resize_color},#{@tmux_lives_cap_bg}}}'
     set -l glyph '#{?#{==:#{@tmux_lives_host_kind},remote},#{@tmux_lives_glyph_remote},#{@tmux_lives_glyph_local}}'
-    set -l win '#{W:#{T:window-status-format}#{?window_end_flag,,#{window-status-separator}},#{T:window-status-current-format}#{?window_end_flag,,#{window-status-separator}}}'
+    set -l win '#{W:#{T:window-status-format}#{?window_end_flag,,#{T:window-status-separator}},#{T:window-status-current-format}#{?window_end_flag,,#{T:window-status-separator}}}'
     set -l id (__tcz_status_identity)
     # host cap (far left): styled segment + slant into the bar, then the window list (flat)
     set -l hostcap "#[fg=#{@tmux_lives_cap_fg},bg=$capbg] $glyph #{host_short} #[fg=$capbg,bg=#{@tmux_lives_bar_bg},none]$slantR#[default]"
     # centre: prefix chevron, else resize badge, else identity
-    set -l centre "#{?client_prefix,❯ ,}#{?#{==:#{client_key_table},tmuxlives-resize},◇ RESIZE ◇  #[fg=#{@tmux_lives_cap_fg}]arrows move · x kill · esc/enter done,$id}"
+    set -l centre "#{?client_prefix,❯ ,}#{?#{==:#{client_key_table},tmuxlives-resize},◇ RESIZE ◇  #[fg=#{@tmux_lives_cap_fg}]arrows move · x kill · esc/enter done,#[fg=#{@tmux_lives_text_fg}]$id#[fg=default]}"
     # clock cap (far right): slant opening the cap, then status-right (tick + continuum live here)
     set -l clockcap "#[fg=$capbg,bg=#{@tmux_lives_bar_bg}]$slantL#[fg=#{@tmux_lives_cap_fg},bg=$capbg] #{T;=/#{status-right-length}:status-right} #[default]"
     echo "#[align=left]$hostcap $win#[align=centre]$centre#[align=right]$clockcap"
