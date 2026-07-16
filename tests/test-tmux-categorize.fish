@@ -1046,6 +1046,14 @@ t "picker drain re-asserts non-blocking each iteration" 2 (string match -a -r 'w
 set -l catfile $plugindir/functions/tmux-categorize.fish
 t "v2 cap cluster gone from the categorizer" 0 (grep -c '__tcz_cap_' $catfile)
 t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette' $catfile)
+# live-smoke regressions (2026-07-16): a QUOTED math-index ("$pals[(math ...)]") is an
+# fish "Invalid index value" ERROR that sprays a 3-line stderr trace into the popup on
+# EVERY draw (frame scrolls out + flicker + empty preview palette); the title edge must
+# span the full inner width like every other row; and the frame must paint atomically
+# (DECSET 2026, the __tcz_popup_draw pattern) or each redraw visibly flickers.
+t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z]*\[(math' $catfile)
+t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_theme_picker | string collect); and string match -q '*2026l*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

@@ -1256,8 +1256,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l curpal ''
         set -l curfg '#f5f5f5'
         if test $sel -lt $n
-            set curpal "$pals[(math $sel + 1)]"
-            set -l cf "$fgs[(math $sel + 1)]"
+            # index via a var, UNQUOTED: a double-quoted list index built from a
+            # math substitution is a fish "Invalid index value" error (empty result
+            # + a 3-line stderr trace into the popup EVERY draw — the 2026-07-16
+            # live-smoke bug: frame scrolled out, flicker, colorless preview).
+            set -l pidx (math $sel + 1)
+            set curpal $pals[$pidx]
+            set -l cf $fgs[$pidx]
             test -n "$cf"; and set curfg $cf
         else
             set -l lb "$legacy"
@@ -1266,7 +1271,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set curfg '#f5f5f5'
         end
         set -l lines
-        set -a lines $BORDER"╭─ "$BRAND"theme"$BORDER" ─ preview "(string repeat -n (math "$IW - 20") ─)"╮"$RST
+        set -a lines $BORDER"╭─ "$BRAND"theme"$BORDER" ─ preview "(string repeat -n (math "$IW - 18") ─)"╮"$RST
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " "(__tcz_theme muted)(__tcz_thp_info "$seed" "$phase" "$viv" "$shape" "$ease")$RST $IW $BORDER $RST)
         set -a lines (__tcz_thp_sep $IW $BORDER $RST)
@@ -1293,10 +1298,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln " $KEY"b"$RST$MUTED seed · $KEY⏎$RST$MUTED apply · $KEY"esc"$RST$MUTED close$RST" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
-        printf '\e[H'
+        # Synchronized update (DECSET 2026): commit the whole frame atomically so a
+        # redraw never flickers mid-paint (the __tcz_popup_draw pattern; unsupported
+        # terminals ignore the private mode harmlessly).
+        printf '\e[?2026h\e[H'
         test (count $lines) -gt 1; and printf '%s\e[K\n' $lines[1..-2]
         printf '%s\e[K' $lines[-1]
-        printf '\e[J'
+        printf '\e[J\e[?2026l'
         switch (__tcz_popup_readkey)
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
