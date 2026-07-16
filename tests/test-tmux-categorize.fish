@@ -643,15 +643,13 @@ t "modal k opens the theme picker (deferred, own popup)" yes \
     (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
+# display-menu is the no-display-popup fallback for tmux builds WITHOUT
+# display-popup — so a theme row that itself opens a display-popup could never
+# work there (Task 8 review carry-over). Dropped from the menu; the CLI
+# (`tmux-lives setup theme list`/knobs) is the no-popup surface instead.
 set -g MENUARGS (__tcz_modal_menu_args | string collect)
-# display-menu is the no-display-popup fallback. theme-picker runs INSIDE a
-# popup (like the old cap-picker), so this row opens one directly — no need to
-# defer through run-shell -b here, since (unlike the M-m launcher's own popup)
-# there is no already-open popup that must close first.
-t "menu_args theme row opens the theme picker in its own popup" yes \
-    (string match -q '*theme*k*display-popup -B -E -w 52 -h 20*theme-picker*' -- "$MENUARGS"; and echo yes; or echo no)
-t "menu_args theme row bound to k (key line follows label)" yes \
-    (string match -qr 'theme\nk\n' -- "$MENUARGS"; and echo yes; or echo no)
+t "menu_args no longer offers a theme row (no-display-popup fallback can't use it)" no \
+    (string match -q '*theme*theme-picker*' -- "$MENUARGS"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
 # recolor: emit the ShellFish OSC to attached ShellFish clients
@@ -1030,6 +1028,14 @@ t "thp_restore finds a scheme" 1 (__tcz_thp_restore warm mono warm cool)
 t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool)
 t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
 t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
+
+# --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
+t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_lives_theme_schemes*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.

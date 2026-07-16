@@ -465,12 +465,15 @@ end
 function __tcz_modal_menu_args --description 'display-menu triples (label/key/command) for the command-modal fallback'
     # Each action is a label, a shortcut key, and a tmux command. CLI verbs run via
     # `fish -c`; categorizer-native verbs re-enter this script ($__tcz_self).
+    # NB: no "theme" row here — this menu is the fallback for tmux builds WITHOUT
+    # display-popup, so a row that itself opens a display-popup could never work
+    # (Task 8 review carry-over). The CLI (`tmux-lives setup theme list`/knobs) is
+    # the no-popup surface for that build instead.
     printf '%s\n' \
         'new session'    n "run-shell 'fish -c \"tmux-lives new\"'" \
         'clear idle'     c "run-shell 'fish -c \"tmux-lives clear\"'" \
         'categorize'     g "run-shell 'fish --no-config $__tcz_self tick'" \
         'picker'         s "run-shell 'fish --no-config $__tcz_self open-switcher'" \
-        'theme'          k "display-popup -B -E -w 52 -h 20 -- fish --no-config $__tcz_self theme-picker" \
         'scratch toggle' t "run-shell 'fish --no-config $__tcz_self scratch'" \
         'bar color'      b "command-prompt -p 'bar color (css):' 'run-shell \"fish -c \\\"tmux-lives setup color %%\\\"\"'"
 end
@@ -1159,6 +1162,227 @@ function __tcz_thp_restore --argument-names scheme --description '<scheme> <toke
     test -n "$i"; and echo (math $i - 1); or echo 0
 end
 
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, b set seed (cooked read, applies immediately via setup color), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
+    # This script runs under fish --no-config: all engine math happens in config-loaded
+    # fish -c subprocesses (the cap-picker pattern). One init read + one batch per knob
+    # change; ←→ recomputes only the cursor scheme (net-delta coalesced).
+    set -l seed ''
+    set -l theme mono
+    set -l phase 0
+    set -l viv balanced
+    set -l shape arc
+    set -l ease linear
+    set -l tl1 0.20
+    set -l tl2 0.92
+    set -l legacy ''
+    function __tcz_thp_init --no-scope-shadowing
+        set -l init (fish -c '
+            echo (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
+            echo (__tmux_lives_key tmux_lives_theme mono)
+            echo (__tmux_lives_key tmux_lives_theme_phase 0)
+            echo (__tmux_lives_key tmux_lives_theme_vividness balanced)
+            echo (__tmux_lives_key tmux_lives_theme_shape arc)
+            echo (__tmux_lives_key tmux_lives_theme_ease linear)
+            set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
+            echo $tl[1]
+            echo $tl[2]
+            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))' 2>/dev/null)
+        test (count $init) -ge 1; and set seed $init[1]
+        test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
+        test (count $init) -ge 3; and test -n "$init[3]"; and set phase $init[3]
+        test (count $init) -ge 4; and test -n "$init[4]"; and set viv $init[4]
+        test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
+        test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
+        test (count $init) -ge 7; and test -n "$init[7]"; and set tl1 $init[7]
+        test (count $init) -ge 8; and test -n "$init[8]"; and set tl2 $init[8]
+        set legacy ''
+        test (count $init) -ge 9; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[9]")
+        test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
+    end
+    __tcz_thp_init
+    set -l toks
+    set -l pals
+    set -l fgs
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 10 palettes + cap fgs in ONE config-loaded fish -c'
+        set toks; set pals; set fgs
+        for line in (fish -c '
+            for tok in (__tmux_lives_theme_schemes)
+                set -l p (__tmux_lives_theme_palette $argv[1] $tok $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7])
+                test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
+                printf "%s|%s|%s\n" $tok (string join " " $p) (__tmux_lives_contrast_fg "$p[6]")
+            end' $seed $phase $viv $tl1 $tl2 $shape $ease 2>/dev/null)
+            set -l f (string split '|' -- $line)
+            test -n "$f[1]"; or continue
+            set -a toks $f[1]
+            set -a pals "$f[2]"
+            set -a fgs "$f[3]"
+        end
+    end
+    function __tcz_thp_reload_one --no-scope-shadowing --argument-names tok --description 'recompute one scheme (phase nudges)'
+        set -l i (contains -i -- $tok $toks)
+        test -n "$i"; or return
+        set -l line (fish -c '
+            set -l p (__tmux_lives_theme_palette $argv[1] $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7] $argv[8])
+            test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
+            printf "%s|%s\n" (string join " " $p) (__tmux_lives_contrast_fg "$p[6]")' $seed $tok $phase $viv $tl1 $tl2 $shape $ease 2>/dev/null)
+        set -l f (string split '|' -- "$line")
+        set pals[$i] "$f[1]"
+        set fgs[$i] "$f[2]"
+    end
+    __tcz_thp_reload
+    set -l n (count $toks)          # 10 scheme rows; index n (0-based) = the off row
+    set -l sel (__tcz_thp_restore "$theme" $toks)
+    set -l saved (stty -g)
+    set -g __tcz_thp_saved $saved
+    function __tcz_thp_cleanup --on-signal INT --on-signal TERM
+        stty "$__tcz_thp_saved" 2>/dev/null
+        printf '\e[?25h\e[0m'
+        exit 130
+    end
+    set -l IW 50
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l host (__tcz_hostname)
+    set -l note ''
+    stty -icanon -echo min 1 time 0
+    printf '\e[?25l\e[2J'
+    set -l apply ''
+    while true
+        # cursor row palette (off row -> legacy colors: derived bar + plain text)
+        set -l curpal ''
+        set -l curfg '#f5f5f5'
+        if test $sel -lt $n
+            set curpal "$pals[(math $sel + 1)]"
+            set -l cf "$fgs[(math $sel + 1)]"
+            test -n "$cf"; and set curfg $cf
+        else
+            set -l lb "$legacy"
+            test -n "$lb"; or set lb '#444444'
+            set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
+            set curfg '#f5f5f5'
+        end
+        set -l lines
+        set -a lines $BORDER"╭─ "$BRAND"theme"$BORDER" ─ preview "(string repeat -n (math "$IW - 20") ─)"╮"$RST
+        set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " "(__tcz_theme muted)(__tcz_thp_info "$seed" "$phase" "$viv" "$shape" "$ease")$RST $IW $BORDER $RST)
+        set -a lines (__tcz_thp_sep $IW $BORDER $RST)
+        for i in (seq $n)
+            set -l selflag 0
+            test $i -eq (math $sel + 1); and set selflag 1
+            set -l row (__tcz_thp_row "$pals[$i]" $toks[$i] $selflag)
+            if test $selflag -eq 1
+                set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
+                set row "$SELBG$row$RST"
+            end
+            set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
+        end
+        set -l offflag 0
+        test $sel -eq $n; and set offflag 1
+        set -l offrow (__tcz_thp_off_row "$legacy" $offflag)
+        if test $offflag -eq 1
+            set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
+            set offrow "$SELBG$offrow$RST"
+        end
+        set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_sep $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $KEY↑↓$RST$MUTED scheme · $KEY←→$RST$MUTED phase · $KEY"v"$RST$MUTED vivid · $KEY"s"$RST$MUTED shape · $KEY"e"$RST$MUTED ease$RST" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $KEY"b"$RST$MUTED seed · $KEY⏎$RST$MUTED apply · $KEY"esc"$RST$MUTED close$RST" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
+        set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
+        printf '\e[H'
+        test (count $lines) -gt 1; and printf '%s\e[K\n' $lines[1..-2]
+        printf '%s\e[K' $lines[-1]
+        printf '\e[J'
+        switch (__tcz_popup_readkey)
+            case up
+                test $sel -gt 0; and set sel (math $sel - 1)
+            case down
+                test $sel -lt $n; and set sel (math $sel + 1)
+            case left
+                # net-delta coalescing: drain buffered arrows into ONE recompute
+                set -l delta -5
+                stty min 0 time 0 2>/dev/null
+                while true
+                    set -l k2 (__tcz_popup_readkey)
+                    switch "$k2"
+                        case left;  set delta (math $delta - 5)
+                        case right; set delta (math $delta + 5)
+                        case '*';   break   # cancel = drained (EOF); anything else ends the burst
+                    end
+                end
+                stty min 1 time 0 2>/dev/null
+                set phase (math "($phase + $delta) % 360")
+                test $sel -lt $n; and __tcz_thp_reload_one $toks[(math $sel + 1)]
+            case right
+                set -l delta 5
+                stty min 0 time 0 2>/dev/null
+                while true
+                    set -l k2 (__tcz_popup_readkey)
+                    switch "$k2"
+                        case left;  set delta (math $delta - 5)
+                        case right; set delta (math $delta + 5)
+                        case '*';   break
+                    end
+                end
+                stty min 1 time 0 2>/dev/null
+                set phase (math "($phase + $delta) % 360")
+                test $sel -lt $n; and __tcz_thp_reload_one $toks[(math $sel + 1)]
+            case v
+                switch "$viv"
+                    case soft;     set viv balanced
+                    case balanced; set viv vivid
+                    case '*';      set viv soft
+                end
+                __tcz_thp_reload
+            case s
+                test "$shape" = arc; and set shape flat; or set shape arc
+                __tcz_thp_reload
+            case e
+                test "$ease" = linear; and set ease cubic; or set ease linear
+                __tcz_thp_reload
+            case b
+                stty "$saved" 2>/dev/null
+                printf '\e[2J\e[H seed (hex, empty=keep): '
+                set -l val ''
+                read -l val
+                stty -icanon -echo min 1 time 0
+                if test -n "$val"
+                    fish -c 'tmux-lives setup color $argv[1]' "$val" >/dev/null 2>&1
+                    __tcz_thp_init
+                    __tcz_thp_reload
+                    set note "seed applied: $seed"
+                end
+                printf '\e[2J'
+            case enter
+                if test $sel -lt $n
+                    set apply $toks[(math $sel + 1)]
+                else
+                    set apply off
+                end
+                break
+            case cancel
+                break
+        end
+    end
+    functions -e __tcz_thp_cleanup
+    functions -e __tcz_thp_init
+    functions -e __tcz_thp_reload
+    functions -e __tcz_thp_reload_one
+    set -e __tcz_thp_saved
+    stty $saved
+    printf '\e[?25h\e[2J\e[H'
+    if test "$apply" = off
+        fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
+    else if test -n "$apply"
+        fish -c 'tmux-lives setup theme $argv[1] --phase $argv[2] --vividness $argv[3] --shape $argv[4] --ease $argv[5]' "$apply" "$phase" "$viv" "$shape" "$ease" >/dev/null 2>&1
+    end
+    return 0
+end
+
 function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/sel-bg/sel-fg/reset)'
     switch $role
         case brand;  printf '\e[38;2;255;138;31m'
@@ -1398,6 +1622,8 @@ function __tcz_main
             __tcz_open_switcher $argv[2..]
         case popup
             __tcz_popup $argv[2..]
+        case theme-picker
+            __tcz_theme_picker $argv[2..]
         case scratch
             __tcz_scratch $argv[2..]
         case scratch-resize

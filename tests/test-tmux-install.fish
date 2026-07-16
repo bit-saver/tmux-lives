@@ -858,7 +858,13 @@ functions -c __tmux_lives_write_fragment __wfth_bak
 function __tmux_lives_write_fragment; end
 
 # no-arg shows state; validation refuses before mutating
-t "theme no-arg defaults to mono" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+# no-arg: outside tmux (or no display-popup) -> state print, unchanged
+set -g _tmx_had 0
+set -q TMUX; and set _tmx_had 1; and set -g _tmx_save $TMUX
+set -e TMUX
+t "theme no-arg outside tmux prints state" yes (string match -q 'theme: *' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
+t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: invalid scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: invalid scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)

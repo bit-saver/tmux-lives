@@ -815,6 +815,16 @@ end
 
 function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--range <L0,L1>]: the v3 gradient-map bar theme'
     if test (count $argv) -eq 0
+        # inside tmux with display-popup: open the picker (the discovery surface);
+        # otherwise print the current state.
+        if set -q TMUX; and tmux list-commands 2>/dev/null | grep -q display-popup
+            set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
+            if test -f $cat
+                set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
+                tmux display-popup -B -E -w 52 -h 20 -- fish --no-config $cat theme-picker "$client"
+                return 0
+            end
+        end
         set -l cur (__tmux_lives_key tmux_lives_theme mono)
         test "$cur" = off; and echo "theme: off (legacy bar colors)"; or echo "theme: $cur"
         set -l tphase (__tmux_lives_key tmux_lives_theme_phase 0)
