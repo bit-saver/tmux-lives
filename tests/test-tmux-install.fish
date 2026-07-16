@@ -80,25 +80,11 @@ t "fragment seeds @tmux_lives_claude_color (quoted hex)" yes (string match -q "*
 t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux_lives_heal_interval 120*' -- "$BAR"; and echo yes; or echo no)
 t "fragment current-format keeps bold + tints claude" yes (string match -q '*window-status-current-format*#[bold]*#{?#{==:#{window_name},claude}*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
-# cap bg must be QUOTED so a #rrggbb hex is not swallowed as a tmux comment (empty value).
-# cap bg is the OKLCH palette's mono accent for the bar (default formula, default vividness/wheel).
-t "fragment cap bg is the palette mono accent (quoted)" yes (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); string match -q "*@tmux_lives_cap_bg '"$p[4]"'*" -- "$BAR"; and echo yes; or echo no)
+# cap bg is now a flat legacy neutral (theme off / no usable seed) — the v2 palette-accent
+# cap wiring (argv[12..16] cap/vividness/wheel/role) is gone; only bar_bg/status-style remain.
+t "fragment cap bg is the legacy neutral (quoted)" yes (string match -q "*@tmux_lives_cap_bg 'colour238'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_bar_bg (= bar bg, for the slant transition)" yes (string match -q "*@tmux_lives_bar_bg '#5793f0'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-style (shellfish color)" yes (string match -q '*set -g status-style*' -- "$BAR"; and echo yes; or echo no)
-# cap-color formula wiring (argv[12] = cap token): cap_bg + cap_fg are derived via the
-# OKLCH palette's accent role (argv[13]=vividness, argv[14]=wheel), not the old v1
-# naive-HSL hue-rotation shade.
-# formula-driven cap: bar #1f6feb -> bar_bg #5793f0; complementary accent via the palette
-set -g FC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary | string collect)
-t "fragment cap_bg from formula" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC"; and echo yes; or echo no)
-t "fragment cap_fg auto-derived (not fixed colour231)" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $p[4])"'*" -- "$FC"; and echo yes; or echo no)
-# argv[13]/[14] explicit (vividness=vivid, wheel=ryb) -> same palette accent as the defaults above
-set -g FC2 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block complementary vivid ryb | string collect)
-t "fragment cap_bg = palette accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_bg '"$p[4]"'*" -- "$FC2"; and echo yes; or echo no)
-t "fragment cap_fg = contrast of accent" yes (set -l p (__tmux_lives_palette "#5793f0" complementary ryb vivid); string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $p[4])"'*" -- "$FC2"; and echo yes; or echo no)
-# default mono keeps the OKLCH mono accent (not the old v1 naive-HSL shade)
-set -g FM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono | string collect)
-t "fragment mono cap_bg == palette mono accent" yes (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); string match -q "*@tmux_lives_cap_bg '"$p[4]"'*" -- "$FM"; and echo yes; or echo no)
 # cursor-style (arg 11): a steady style fixes the ShellFish cursor flicker; '' leaves tmux alone
 set -g FRAGCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block | string collect)
 t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-style block*' -- "$FRAGCUR"; and echo yes; or echo no)
@@ -119,9 +105,8 @@ set -g brsock tli-barr-$fish_pid
 command tmux -L $brsock new-session -d 2>/dev/null
 printf '%s\n' $BARR > /tmp/tli-barrfrag-$fish_pid.conf
 t "real bar fragment parses (source-file rc0)" 0 (command tmux -L $brsock source-file /tmp/tli-barrfrag-$fish_pid.conf 2>/dev/null; echo $status)
-# the #rrggbb cap bg must SURVIVE the source (an unquoted # would be eaten as a comment ->
-# empty value even though source-file still returns rc0). Assert the live option is the hex.
-t "real: cap bg option stored non-empty hex" (set -l p (__tmux_lives_palette "#5793f0" mono ryb vivid); echo $p[4]) (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# the legacy neutral cap bg must SURVIVE the source (quoted, so it isn't eaten as a comment).
+t "real: cap bg option stored (legacy neutral)" colour238 (command tmux -L $brsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "real: status-format[0] stored non-empty" 1 (test -n (command tmux -L $brsock show -gv status-format[0] 2>/dev/null); and echo 1; or echo 0)
 command tmux -L $brsock kill-server 2>/dev/null; rm -f /tmp/tli-barrfrag-$fish_pid.conf
 # baseline no longer owns the layout (fragment's status-format[0] does)
@@ -151,26 +136,6 @@ t "contrast_fg near-white -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0"
 
 t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#755789")
 t "contrast_fg light cap -> dark" "#111111" (__tmux_lives_contrast_fg "#e0e0e0")
-
-# OKLCH palette engine (task 2): RYB/perceptual hue targeting + role-structured palette
-# triadic- is the palette the user chose (warm accent). Roles order: bg dim muted accent text
-set -g PAL (__tmux_lives_palette "#36442d" "triadic-" ryb vivid)
-t "palette bg is base"      "#36442d" $PAL[1]
-t "palette dim"             "#4b6244" $PAL[2]
-t "palette muted (triadic- secondary = +120)" "#8769b0" $PAL[3]
-t "palette accent (triadic- primary = -120)"  "#f66336" $PAL[4]
-t "palette text"            "#d8e1d5" $PAL[5]
-# flip swaps primary/secondary: triadic+ accent is the violet
-t "triadic+ accent (primary = +120)" "#b075f7" (set -l p (__tmux_lives_palette "#36442d" "triadic+" ryb vivid); echo $p[4])
-# mono accent = base hue at the accent target
-t "mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" mono ryb vivid); echo $p[4])
-# literal hex passthrough -> accent verbatim
-t "palette #hex accent passthrough" "#123456" (set -l p (__tmux_lives_palette "#36442d" "#123456" ryb vivid); echo $p[4])
-# unknown scheme -> mono
-t "palette unknown == mono accent" "#52b22d" (set -l p (__tmux_lives_palette "#36442d" wat ryb vivid); echo $p[4])
-# square: primary +90, secondary +270 (locked hex; see plan Task 2)
-t "palette square accent (#36442d,ryb,vivid)" "#6892ff" (set -l p (__tmux_lives_palette "#36442d" square ryb vivid); echo $p[4])
-t "cap_valid accepts square" 0 (__tmux_lives_cap_valid square; echo $status)
 
 # write_fragment must refuse to render a fragment pointing at a nonexistent categorizer
 # (a bad $__fish_config_dir, e.g. a test's temp dir) so a stray call can't corrupt the live file
@@ -205,8 +170,6 @@ set -e tmux_lives_status_pos_key; set -e tmux_lives_status_vis_key
 t "help documents --status-pos-key" yes (string match -q '*--status-pos-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "help documents --status-vis-key" yes (string match -q '*--status-vis-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_lives_setup_help_lines); set -l w (string length --visible -- $l); test $w -gt $mx; and set mx $w; end; test (math "$mx + 4") -le 80; and echo yes; or echo no)
-# the cap row must enumerate the new --role tunable alongside vividness/wheel
-t "help cap row documents role" yes (string match -q '*scheme/vividness/wheel/role*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 # dedicated M-k cap-picker keybind (argv[15] = cap_key)
 set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k | string collect)
@@ -216,21 +179,8 @@ t "empty cap-key omits the bind" 1 (string match -q '*cap-picker*' -- "$CK0"; an
 
 # Task 7 — cap-picker popup grown to the taller v2 layout (-w 44 -h 22).
 # Leaves the modal launcher (-w 34 -h 15) alone.
-t "cap_picker popup is taller" 1 (functions __tmux_lives_cap_picker | string match -q '*-w 44 -h 22*'; and echo 1; or echo 0)
 set -g MK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
 t "M-k bind is taller" 1 (string match -q '*display-popup -B -E -w 44 -h 22*cap-picker*' -- "$MK"; and echo 1; or echo 0)
-
-# cap_role (argv[16] = cap_role): pick which palette column the powerline cap renders
-# from (dim/muted/accent). Empty defaults to accent (unchanged prior behavior).
-set -g RP (__tmux_lives_palette "#5793f0" mono ryb vivid)
-set -g FR_ACC (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
-t "cap_role accent -> pal[4]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[4]"'*" -- "$FR_ACC"; and echo yes; or echo no)
-set -g FR_DIM (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k dim | string collect)
-t "cap_role dim -> pal[2]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[2]"'*" -- "$FR_DIM"; and echo yes; or echo no)
-set -g FR_MUT (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k muted | string collect)
-t "cap_role muted -> pal[3]" yes (string match -q "*@tmux_lives_cap_bg '"$RP[3]"'*" -- "$FR_MUT"; and echo yes; or echo no)
-set -g FR_DEF (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k '' | string collect)
-t "empty cap_role defaults accent" yes (string match -q "*@tmux_lives_cap_bg '"$RP[4]"'*" -- "$FR_DEF"; and echo yes; or echo no)
 
 set -e tmux_lives_cap_key
 functions -c __tmux_lives_write_fragment __wf5_bak
@@ -401,197 +351,12 @@ set -g __fish_config_dir $__old_fcd2; set -e __old_fcd2
 set -e tmux_lives_tmux_socket
 command tmux -L $apsock kill-server 2>/dev/null
 
-# ---------------------------------------------------------------------
-# setup cap: choose the powerline cap-color formula (<token> | list | no-arg picker).
-# tmux_lives_cap is a UNIVERSAL var -> save/restore exactly like the bar-color block
-# above so the suite never leaks a value into the user's real fish_variables. The
-# live @tmux_lives_cap_bg/_fg writes are pinned to a throwaway -L socket.
-# ---------------------------------------------------------------------
-set -g capsock tli-cap-$fish_pid
-command tmux -L $capsock new-session -d 2>/dev/null
-set -gx tmux_lives_tmux_socket $capsock
-set -l _cap_had 0; set -l _cap_val
-if set -q tmux_lives_cap
-    set _cap_had 1; set _cap_val $tmux_lives_cap
-end
-set -e tmux_lives_cap
-set -l _capbc_had 0; set -l _capbc_val
-if set -q tmux_lives_bar_color
-    set _capbc_had 1; set _capbc_val $tmux_lives_bar_color
-end
-set -l _capsi_had 0; set -l _capsi_val
-if set -q tmux_lives_status_invert
-    set _capsi_had 1; set _capsi_val $tmux_lives_status_invert
-end
-set -l _capv_had 0; set -l _capv_val
-if set -q tmux_lives_cap_vividness
-    set _capv_had 1; set _capv_val $tmux_lives_cap_vividness
-end
-set -e tmux_lives_cap_vividness
-set -l _capw_had 0; set -l _capw_val
-if set -q tmux_lives_cap_wheel
-    set _capw_had 1; set _capw_val $tmux_lives_cap_wheel
-end
-set -e tmux_lives_cap_wheel
-# tmux_lives_cap_role must be saved+cleared HERE, at the top of the cap section, not just
-# around the --role tests below: __tmux_lives_cap_cmd reads it on EVERY apply, so a user
-# who has set it (e.g. to `dim` from the picker) would otherwise make the live-apply
-# assertions below compare pal[4] against their pal[2]. Mirrors _capv/_capw. Restored at
-# the end of the section.
-set -l _capr_had 0; set -l _capr_val
-if set -q tmux_lives_cap_role
-    set _capr_had 1; set _capr_val $tmux_lives_cap_role
-end
-set -e tmux_lives_cap_role
-# tmux_lives_theme is always-on (Task 1): a live scheme on the dev box makes
-# __tmux_lives_cap_apply_live a no-op (guard: theme != off), which would break every
-# live-apply assertion below. Force it to the legacy token for this section; restored
-# with its siblings at the bottom.
-set -l _capth_had 0; set -l _capth_val
-if set -q tmux_lives_theme
-    set _capth_had 1; set _capth_val $tmux_lives_theme
-end
-set -U tmux_lives_theme off
-set -U tmux_lives_bar_color "#1f6feb"
-set -U tmux_lives_status_invert 0
-set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
-
-t "cap: invalid token rc1"   1 (__tmux_lives_cap_cmd wat >/dev/null 2>&1; echo $status)
-t "cap: invalid token: universal left unset" 0 (set -q tmux_lives_cap; and echo 1; or echo 0)
-t "invalid scheme error says scheme" 1 (__tmux_lives_cap_cmd wat 2>&1 | string match -q '*invalid scheme*'; and echo 1; or echo 0)
-
-__tmux_lives_cap_cmd complementary >/dev/null
-t "cap: stores token in universal var"  "complementary" "$tmux_lives_cap"
-t "cap: writes non-empty cap_bg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null); and echo 1; or echo 0)
-t "cap: writes non-empty cap_fg live"   1 (test -n (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null); and echo 1; or echo 0)
-t "cap: live cap_bg matches the formula" (set -l p (__tmux_lives_palette $cap_barbg complementary ryb vivid); echo $p[4]) (command tmux -L $capsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "cap: live cap_fg matches contrast_fg" (__tmux_lives_contrast_fg (set -l p (__tmux_lives_palette $cap_barbg complementary ryb vivid); echo $p[4])) (command tmux -L $capsock show -gv @tmux_lives_cap_fg 2>/dev/null)
-
-__tmux_lives_cap_cmd wat >/dev/null 2>&1
-t "cap: a later invalid token leaves the prior value" "complementary" "$tmux_lives_cap"
-
-# invalid scheme: errors + leaves the universal unset (fresh, no prior value in play)
-set -e tmux_lives_cap
-t "invalid scheme errors, no set" 1 (__tmux_lives_cap_cmd wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap; and echo bad; or echo 1; end)
-__tmux_lives_cap_cmd complementary >/dev/null   # restore for the tests below
-
-set -l cap_list (__tmux_lives_cap_cmd list | string collect)
-for tok in mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
-    t "cap list mentions token $tok" 1 (string match -q "*$tok*" -- "$cap_list"; and echo 1; or echo 0)
-end
-set -l swatch_prefix (printf '\e[48;2;')
-t "cap list has a truecolor swatch" 1 (string match -q "*$swatch_prefix*" -- "$cap_list"; and echo 1; or echo 0)
-t "cap list has a scheme + truecolor swatch (bracket idiom)" 1 (string match -q '*complementary*' -- "$cap_list"; and string match -q '*[48;2;*' -- "$cap_list"; and echo 1; or echo 0)
-t "cap list includes square" 1 (string match -q '*square*' -- (__tmux_lives_cap_list | string collect); and echo 1; or echo 0)
-
-# Engine facts behind the picker's inert-control greying (__tcz_cap_inert, categorizer
-# side). Asserted HERE because the palette engine lives here — if these ever change, the
-# picker's greying silently starts lying and the categorize-side table must follow.
-# dim/text are BASE-HUE roles (offset 0) -> no scheme can move them; only accent's chroma
-# is scaled by vividness (muted is pinned at a fixed C0.11).
-set -l _pb "#36442d"
-set -l _p_mono (__tmux_lives_palette $_pb mono perceptual balanced)
-set -l _p_tri  (__tmux_lives_palette $_pb triadic- perceptual balanced)
-set -l _p_sub  (__tmux_lives_palette $_pb mono perceptual subtle)
-set -l _p_viv  (__tmux_lives_palette $_pb mono perceptual vivid)
-set -l _p_ryb  (__tmux_lives_palette $_pb mono ryb balanced)
-t "engine: dim is scheme-invariant"    1 (test "$_p_mono[2]" = "$_p_tri[2]"; and echo 1; or echo 0)
-t "engine: text is scheme-invariant"   1 (test "$_p_mono[5]" = "$_p_tri[5]"; and echo 1; or echo 0)
-t "engine: muted DOES follow scheme"   1 (test "$_p_mono[3]" != "$_p_tri[3]"; and echo 1; or echo 0)
-t "engine: accent DOES follow scheme"  1 (test "$_p_mono[4]" != "$_p_tri[4]"; and echo 1; or echo 0)
-t "engine: dim ignores vividness"      1 (test "$_p_sub[2]" = "$_p_viv[2]"; and echo 1; or echo 0)
-t "engine: muted ignores vividness"    1 (test "$_p_sub[3]" = "$_p_viv[3]"; and echo 1; or echo 0)
-t "engine: accent DOES follow vividness" 1 (test "$_p_sub[4]" != "$_p_viv[4]"; and echo 1; or echo 0)
-t "engine: dim follows the wheel (UNSATURATED base)" 1 (test "$_p_mono[2]" != "$_p_ryb[2]"; and echo 1; or echo 0)
-# ...but NOT for a fully-saturated base: at min-channel ~0 both wheels agree at offset 0,
-# so dim is wheel-inert there. __tcz_cap_inert deliberately still reports `wheel` live
-# (erring toward not warning rather than greying a working key) — pin the boundary so that
-# trade-off stays a decision rather than an accident.
-set -l _ps_p (__tmux_lives_palette "#ff0000" mono perceptual balanced)
-set -l _ps_r (__tmux_lives_palette "#ff0000" mono ryb balanced)
-t "engine: dim is wheel-INERT at a saturated base" 1 (test "$_ps_p[2]" = "$_ps_r[2]"; and echo 1; or echo 0)
-# the scheme/vividness invariants must hold on the ryb wheel too, not just perceptual
-set -l _pr_mono (__tmux_lives_palette $_pb mono ryb balanced)
-set -l _pr_tri  (__tmux_lives_palette $_pb triadic- ryb balanced)
-set -l _pr_viv  (__tmux_lives_palette $_pb mono ryb vivid)
-t "engine: dim scheme-invariant on ryb too"  1 (test "$_pr_mono[2]" = "$_pr_tri[2]"; and echo 1; or echo 0)
-t "engine: muted vividness-invariant on ryb" 1 (test "$_pr_mono[3]" = "$_pr_viv[3]"; and echo 1; or echo 0)
-
-# --vividness/--wheel flags: validate, set -U, and re-apply live (no scheme arg needed)
-t "cap --vividness subtle sets universal" subtle (__tmux_lives_cap_cmd --vividness subtle >/dev/null; echo $tmux_lives_cap_vividness)
-t "cap --wheel perceptual sets universal" perceptual (__tmux_lives_cap_cmd --wheel perceptual >/dev/null; echo $tmux_lives_cap_wheel)
-t "cap --vividness bogus rc1, universal unchanged" "subtle" (__tmux_lives_cap_cmd --vividness bogus >/dev/null 2>&1; echo $tmux_lives_cap_vividness)
-t "cap --wheel bogus rc1, universal unchanged" "perceptual" (__tmux_lives_cap_cmd --wheel bogus >/dev/null 2>&1; echo $tmux_lives_cap_wheel)
-set -e tmux_lives_cap_vividness; set -e tmux_lives_cap_wheel   # back to defaults for anything below
-
-# --role flag: pick which palette column (dim/muted/accent) the powerline cap renders
-# from. tmux_lives_cap_role is a UNIVERSAL var — saved+cleared at the top of this section
-# (see the note there) and restored just below.
-t "cap --role sets universal" muted (__tmux_lives_cap_cmd --role muted >/dev/null; echo $tmux_lives_cap_role)
-t "cap --role applies pal[3] live" 1 (set -l p (__tmux_lives_palette $cap_barbg (__tmux_lives_key tmux_lives_cap mono) ryb vivid); test (command tmux -L $capsock show -gv @tmux_lives_cap_bg) = $p[3]; and echo 1; or echo 0)
-t "cap --role rejects junk" 1 (set -e tmux_lives_cap_role; __tmux_lives_cap_cmd --role wat 2>/dev/null; and echo bad; or begin; set -q tmux_lives_cap_role; and echo bad; or echo 1; end)
-
-# no-arg -> the interactive picker (Task 4 supplies the categorizer's cap-picker verb).
-# Outside tmux this must fail cleanly (no crash, no live mutation) rather than try to
-# open a popup with no client to target.
-set -l _TMUX_had 0; set -l _TMUX_val
-if set -q TMUX
-    set _TMUX_had 1; set _TMUX_val $TMUX
-end
-set -e TMUX
-t "cap no-arg outside tmux: rc1" 1 (__tmux_lives_cap_cmd >/dev/null 2>&1; echo $status)
-if test $_TMUX_had -eq 1
-    set -gx TMUX $_TMUX_val
-end
-
-set -e tmux_lives_cap
-set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
-if test $_cap_had -eq 1
-    set -U tmux_lives_cap $_cap_val
-else
-    set -e tmux_lives_cap
-end
-if test $_capbc_had -eq 1
-    set -U tmux_lives_bar_color $_capbc_val
-end
-if test $_capsi_had -eq 1
-    set -U tmux_lives_status_invert $_capsi_val
-end
-if test $_capv_had -eq 1
-    set -U tmux_lives_cap_vividness $_capv_val
-end
-if test $_capw_had -eq 1
-    set -U tmux_lives_cap_wheel $_capw_val
-end
-# restore cap_role HERE with its siblings, not right after the --role tests: the
-# tmux_lives_tmux_socket seam stays pinned until just below, so restoring earlier would
-# leave the user's real role live while apply-assertions can still run — reintroducing
-# exactly the leak this guard exists to close.
-set -e tmux_lives_cap_role
-if test $_capr_had -eq 1
-    set -U tmux_lives_cap_role $_capr_val
-end
-set -e tmux_lives_theme
-if test $_capth_had -eq 1
-    set -U tmux_lives_theme $_capth_val
-end
-set -e tmux_lives_tmux_socket
-command tmux -L $capsock kill-server 2>/dev/null
-
-# setup cap wired into the dispatch (list is side-effect-free: no live/universal mutation)
-t "setup dispatch routes cap list" 1 (string match -q '*mono*' -- (__tmux_lives_setup_dispatch cap list | string collect); and echo 1; or echo 0)
-
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "setup help documents color --apply/-a" 1 (string match -q '*-a*reapply*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 t "verify reports status direction" 1 (string match -q '*status bar:*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-
-# help lists cap (Task 4 deferred item)
-t "setup help lists cap" 1 (string match -q '*cap*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-t "help cap row mentions the picker" 1 (string match -q '*cap*picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-t "setup help says <scheme>" 1 (string match -q '*<scheme>*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
 # baseline file: seed-once + conf add
 set -g tmux_lives_baseline_conf /tmp/tli-baseline-$fish_pid.conf
@@ -995,7 +760,7 @@ t "off: sep_fg seeded default"  yes (string match -q '*set -g @tmux_lives_sep_fg
 t "off: text_fg seeded default" yes (string match -q '*set -g @tmux_lives_text_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
-t "off: cap still the v2 accent" yes (string match -q "*set -g @tmux_lives_cap_bg '#*" -- "$TOFF"; and echo yes; or echo no)
+t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
 # theme ON: every role @option carries its gradient sample
 set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm '' '' '' '' '' | string collect)
 set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear)
@@ -1034,11 +799,10 @@ command tmux -L $thfsock kill-server 2>/dev/null; rm -f /tmp/tli-thfrag-$fish_pi
 # --- theme engine v3: CLI + live apply ---------------------------------------
 # Save/clear EVERY universal this section touches at the TOP (the cap_role lesson:
 # the CLI reads them on every apply — a user's live value would skew earlier asserts).
-# NB also includes the v2 cap universals (tmux_lives_cap/_wheel/_vividness/_role): the
-# "off" path below falls back to __tmux_lives_cap_apply_live, which reads them too — the
-# exact same cap_role lesson the comment above names, just one hop further away. Left at
-# their live values, "off hands the cap back to v2" would compare against this machine's
-# real scheme instead of the defaults (mono/ryb/vivid/accent) the assertion assumes.
+# NB also includes the old v2 cap universals (tmux_lives_cap/_wheel/_vividness/_role):
+# the v2 engine itself is gone (task 2), but these names are left in the save/restore
+# list defensively — harmless if untouched, and cheap insurance against a future
+# regression that starts reading them again.
 set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role
 set -g _th_had
 set -g _th_saved
@@ -1103,9 +867,6 @@ t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_
 t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
 t "theme live-applies mark_fg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
 t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
-# v2 cap writes are inert while the theme owns the bar
-__tmux_lives_cap_apply_live
-t "cap apply is a no-op under a theme" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 # setup color --apply re-applies the THEME, not the v2 derive
 command tmux -L $thsock set -g status-style bg=red 2>/dev/null
 __tmux_lives_color_cmd --apply >/dev/null
@@ -1143,5 +904,11 @@ for i in (seq (count $_th_names))
     set -e $_th_names[$i]
     test $_th_had[$i] -eq 1; and set -U $_th_names[$i] $_th_saved[$i]
 end
+
+# v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
+# only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
+t "v2 engine gone from the install file" 0 (grep -cE '__tmux_lives_(palette|target_hue|interp7|rgb_to_ryb_hue|ryb_to_rgb_hue|hsl_hue|hsl_to_rgb|cap_valid|cap_list|cap_picker|cap_apply_live|cap_cmd)\b' $plugindir/conf.d/tmux-lives-install.fish)
+t "setup dispatch no longer routes cap" 1 (__tmux_lives_setup_dispatch cap mono 2>/dev/null >/dev/null; echo $status)
+t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
