@@ -60,6 +60,25 @@ tmux-lives setup conf reset                 # restore defaults (backs up to .bak
 
 `~/.tmux-lives.conf` is the general tmux-lives config — sourced by the managed fragment at load (every client) and re-applied on every non-ShellFish attach. It is seeded once with active status-bar polish: `❯ #{session_name}` on the left, longer name lengths, a 12-hour month-first clock in `@tmux_lives_status_right`, and bold current window. Edit it freely; `tmux-lives setup conf reset` backs up your version to `.bak` and restores the defaults. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
 
+### Theming (v3 gradient map — Phase 1)
+
+`tmux-lives setup theme <scheme>` themes the whole tmux status bar from your seed
+colour (`setup color`): seven UI roles (bar · separators · tabs · active · windows ·
+cap · text), each pinned at a lightness, sample one hue-arc gradient derived from the
+seed — cohesive by construction. The v2 cap engine keeps working until you opt in.
+
+    tmux-lives setup theme list          # preview every scheme as a 7-swatch strip
+    tmux-lives setup theme warm          # theme the bar (needs a seed: setup color '#485b3c')
+    tmux-lives setup theme --phase 30    # rotate which hue lands on which element
+    tmux-lives setup theme off           # back to the v2 cap colors
+
+Schemes: `mono` (calm default) · `warm` · `cool` · `span` · `wide` · `aurora` ·
+`sunset` · `fire` · `complement` · `full`. Knobs: `--vividness soft|balanced|vivid`,
+`--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. Every role is a live
+`@option` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with
+`tmux set -g @tmux_lives_… '#hex'`, no re-render. ShellFish tab colour + the picker
+move to the gradient map in Phases 2-3.
+
 ### In-tmux command surface (launcher + scratch split + resize)
 
 When a full-screen program occupies your pane, a few bindings let you drive tmux-lives without leaving it:
