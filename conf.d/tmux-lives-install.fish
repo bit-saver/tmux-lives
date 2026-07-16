@@ -1044,7 +1044,12 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'theme [<scheme>|list|off]   gradient-map bar theme; --phase/--vividness/…' \
+        'theme [<scheme>|list|off]   gradient-map bar theme; no-arg=picker' \
+        "      --phase <deg>         rotate the hue arc (default: 0)" \
+        "      --vividness <v>       soft|balanced|vivid (default: balanced)" \
+        "      --shape <s>           chroma arc|flat (default: arc)" \
+        "      --ease <e>            hue easing linear|cubic (default: linear)" \
+        "      --range <L0,L1>       lightness range (default: 0.20,0.92)" \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
