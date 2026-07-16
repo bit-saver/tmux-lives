@@ -1178,6 +1178,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         echo "tmux-lives setup theme: invalid phase '$phase' — whole degrees, e.g. --phase -30" >&2
         return 1
     end
+    test $have_phase -eq 1; and set phase (math "$phase % 360")
     if test $have_viv -eq 1
         switch "$viv"
             case soft balanced vivid

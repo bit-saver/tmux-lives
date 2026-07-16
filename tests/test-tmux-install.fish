@@ -1087,6 +1087,9 @@ t "color --apply routes through the theme" "bg=$THP[1],fg=$THP[5]" (command tmux
 __tmux_lives_theme_cmd --phase 90 >/dev/null
 set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid 0.20 0.92 arc linear)
 t "lone knob re-applies live" "$THP90[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
+__tmux_lives_theme_cmd --phase 100000360 >/dev/null
+t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
 # off: v2 values return, role seeds neutralize, cap writes work again
 __tmux_lives_theme_cmd off >/dev/null
 t "off clears the universal" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
