@@ -1006,4 +1006,103 @@ t "themed @text_fg lands" "$TONPAL[7]" (command tmux -L $thfsock show -gv @tmux_
 t "themed status-style lands" "bg=$TONPAL[1],fg=$TONPAL[5]" (command tmux -L $thfsock show -gv status-style 2>/dev/null)
 command tmux -L $thfsock kill-server 2>/dev/null; rm -f /tmp/tli-thfrag-$fish_pid.conf
 
+# --- theme engine v3: CLI + live apply ---------------------------------------
+# Save/clear EVERY universal this section touches at the TOP (the cap_role lesson:
+# the CLI reads them on every apply — a user's live value would skew earlier asserts).
+# NB also includes the v2 cap universals (tmux_lives_cap/_wheel/_vividness/_role): the
+# "off" path below falls back to __tmux_lives_cap_apply_live, which reads them too — the
+# exact same cap_role lesson the comment above names, just one hop further away. Left at
+# their live values, "off hands the cap back to v2" would compare against this machine's
+# real scheme instead of the defaults (mono/ryb/vivid/accent) the assertion assumes.
+set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role
+set -g _th_had
+set -g _th_saved
+for n in $_th_names
+    if set -q $n
+        set -a _th_had 1
+        set -a _th_saved "$$n"
+    else
+        set -a _th_had 0
+        set -a _th_saved ""
+    end
+    set -e $n
+end
+
+# dispatcher routes + help row
+functions -c __tmux_lives_theme_cmd __thc_bak
+# NB the echo is QUOTED ("THEME:$argv"): fish's cartesian-product expansion of an unquoted
+# prefix concatenated with a multi-element list (THEME:$argv with $argv = (warm x)) yields
+# TWO args ("THEME:warm" "THEME:x"), which echo then space-joins into "THEME:warm THEME:x"
+# — not the single "THEME:warm x" this assertion checks for the argv[2..]-forwarding.
+function __tmux_lives_theme_cmd; echo "THEME:$argv"; end
+t "setup dispatch routes theme" "THEME:warm x" (__tmux_lives_setup_dispatch theme warm x)
+functions -e __tmux_lives_theme_cmd; functions -c __thc_bak __tmux_lives_theme_cmd; functions -e __thc_bak
+t "setup help lists theme" yes (string match -q '*theme*gradient-map*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+
+functions -c __tmux_lives_write_fragment __wfth_bak
+function __tmux_lives_write_fragment; end
+
+# no-arg shows state; validation refuses before mutating
+t "theme no-arg reports off" yes (string match -q '*theme: (off*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+set -U tmux_lives_bar_color '#485b3c'
+t "theme: invalid scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
+t "theme: invalid scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd warm --phase x 2>/dev/null; echo $status)
+t "theme: invalid phase mutates nothing" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 2>/dev/null; echo $status)
+t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
+t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
+t "theme: inverted range rejected" 1 (__tmux_lives_theme_cmd --range 0.9,0.2 2>/dev/null; echo $status)
+set -e tmux_lives_bar_color
+t "theme: a scheme without a seed refuses" 1 (__tmux_lives_theme_cmd warm 2>/dev/null; echo $status)
+set -U tmux_lives_bar_color '#485b3c'
+
+# list renders 10 schemes with 7-cell strips
+t "theme list has 10 rows" 10 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 10 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+
+# live apply on the -L seam
+set -g _th_fcd $__fish_config_dir
+set -g __fish_config_dir /tmp/th-noconf-$fish_pid
+set -g thsock tlt-$fish_pid
+command tmux -L $thsock new-session -d 2>/dev/null
+set -gx tmux_lives_tmux_socket $thsock
+__tmux_lives_theme_cmd warm --phase 30 --vividness vivid >/dev/null
+set -g THP (__tmux_lives_theme_palette '#485b3c' warm 30 vivid 0.20 0.92 arc linear)
+t "theme cmd persists scheme" warm "$tmux_lives_theme"
+t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
+t "theme cmd persists vividness" vivid "$tmux_lives_theme_vividness"
+t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
+t "theme live-applies mark_fg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
+# v2 cap writes are inert while the theme owns the bar
+__tmux_lives_cap_apply_live
+t "cap apply is a no-op under a theme" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# setup color --apply re-applies the THEME, not the v2 derive
+command tmux -L $thsock set -g status-style bg=red 2>/dev/null
+__tmux_lives_color_cmd --apply >/dev/null
+t "color --apply routes through the theme" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
+# a lone knob call re-applies too
+__tmux_lives_theme_cmd --phase 90 >/dev/null
+set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid 0.20 0.92 arc linear)
+t "lone knob re-applies live" "$THP90[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# off: v2 values return, role seeds neutralize, cap writes work again
+__tmux_lives_theme_cmd off >/dev/null
+t "off clears the universal" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+t "off restores the v2 status-style" (__tmux_lives_derive_status '#485b3c' 0) (command tmux -L $thsock show -gv status-style 2>/dev/null)
+t "off resets text_fg to default" default (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
+set -g THV2 (__tmux_lives_palette (__tmux_lives_derive_status_bg '#485b3c' 0) mono ryb vivid)
+t "off hands the cap back to v2" "$THV2[4]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+command tmux -L $thsock kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
+set -g __fish_config_dir $_th_fcd
+
+functions -e __tmux_lives_write_fragment; functions -c __wfth_bak __tmux_lives_write_fragment; functions -e __wfth_bak
+# restore the saved universals (bottom of the section — the socket seam is unpinned by now)
+for i in (seq (count $_th_names))
+    set -e $_th_names[$i]
+    test $_th_had[$i] -eq 1; and set -U $_th_names[$i] $_th_saved[$i]
+end
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
