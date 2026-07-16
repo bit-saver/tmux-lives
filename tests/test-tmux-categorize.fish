@@ -634,51 +634,24 @@ t "main dispatches modal-menu" yes (string match -q '*modal-menu*' -- "$MAINSRC"
 t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
-# M-m modal "k" cap-color entry (Task 6): opens cap-picker, mirroring picker/bar color
+# M-m modal "k" theme entry (Task 6): opens the theme picker (the verb itself
+# lands in Task 8), mirroring picker/bar color's deferred-popup pattern
 # ---------------------------------------------------------------------
-t "modal action k -> cap" cap (__tcz_modal_action k)
+t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
-# Tighter than a whole-function substring match: extract ONLY the `case cap`
-# block (up to the next `case `) so this can't pass just because an EARLIER
-# case (`picker`) also mentions run-shell -b / cap-picker further down in the
-# function body. cap-picker does NOT open its own popup (unlike open-switcher)
-# -- __tcz_modal_run must wrap it in display-popup itself, or pressing k opens
-# nothing. Requires BOTH tokens inside the SAME case block.
-set -g MRSRC (functions __tcz_modal_run | string collect)
-set -g CAPBLOCK (string match -r -- '(?s)case cap\n.*?\n *case ' -- "$MRSRC" | string collect)
-t "run cap opens cap-picker in its own display-popup" yes \
-    (string match -q '*display-popup*' -- "$CAPBLOCK"; and string match -q '*cap-picker*' -- "$CAPBLOCK"; and echo yes; or echo no)
-# Task 7 — the modal "k" open uses the taller v2 cap-picker popup (-w 44 -h 22).
-t "modal k open is taller" 1 (functions __tcz_modal_run | string match -q '*-w 44 -h 22*cap-picker*'; and echo 1; or echo 0)
-# the picker's enter-apply routes through the CLI, which echoes one confirmation
-# line per flag (scheme/vividness/wheel/role) — all 4 flash as display-popup -E
-# closes, so the apply must suppress stdout too (not just stderr).
-t "picker apply suppresses stdout confirmations" 1 (functions __tcz_cap_picker | string match -q '*setup cap*>/dev/null 2>&1*'; and echo 1; or echo 0)
-# The top border was scrolling off: the frame is exactly 22 rows and every row (including
-# the LAST) got a trailing \n, pushing the cursor to row 23 of a 22-row popup -> the
-# terminal scrolls one line and row 1 is gone. Emit rows 1..-2 with \n, the final row
-# without, so the frame hugs the popup exactly at -h 22 (no scroll, no dead row).
-t "picker suppresses the final row's newline" 1 (functions __tcz_cap_picker | string match -q '*lines[1..-2]*'; and echo 1; or echo 0)
-# match the CALL, not the bare name: the draw loop's comment also says __tcz_cap_dma, so a
-# bare-name grep would still pass if the call itself were deleted.
-t "picker header comes from the pure cap_dma helper" 1 (functions __tcz_cap_picker | string match -q '*(__tcz_cap_dma $activecol)*'; and echo 1; or echo 0)
-# the footer must actually consult __tcz_cap_inert, else the greying is dead code
-t "picker greys the inert scheme key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert "$role" scheme; and set r_scheme muted*'; and echo 1; or echo 0)
-t "picker greys the inert vividness key" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_inert "$role" vividness; and set r_viv muted*'; and echo 1; or echo 0)
-# ...and each computed colour must reach its OWN key: without pinning the kv call sites,
-# swapping $r_scheme/$r_viv would grey the wrong keys and still pass the two greps above.
-t "scheme colour goes to the ↑↓ row" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_kv ↑↓ scheme ←→ "cap role" $r_scheme key*'; and echo 1; or echo 0)
-t "vividness colour goes to the v row" 1 (functions __tcz_cap_picker | string match -q '*__tcz_cap_kv v vividness w wheel $r_viv key*'; and echo 1; or echo 0)
+t "modal k opens the theme picker (deferred, own popup)" yes \
+    (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
-t "legend contains cap color row" yes (string match -q '*cap color*' -- "$LEGEND"; and echo yes; or echo no)
+t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 set -g MENUARGS (__tcz_modal_menu_args | string collect)
-# display-menu is the no-display-popup fallback -- opening a popup there is
-# impossible, so this row prompts for a formula value and shells out to the
-# CLI instead, mirroring the sibling "bar color" row (no cap-picker verb).
-t "menu_args cap color row prompts via command-prompt + setup cap" yes \
-    (string match -q '*cap color*k*command-prompt*setup cap*' -- "$MENUARGS"; and echo yes; or echo no)
-t "menu_args cap color row bound to k (key line follows label)" yes \
-    (string match -qr 'cap color\nk\n' -- "$MENUARGS"; and echo yes; or echo no)
+# display-menu is the no-display-popup fallback. theme-picker runs INSIDE a
+# popup (like the old cap-picker), so this row opens one directly — no need to
+# defer through run-shell -b here, since (unlike the M-m launcher's own popup)
+# there is no already-open popup that must close first.
+t "menu_args theme row opens the theme picker in its own popup" yes \
+    (string match -q '*theme*k*display-popup -B -E -w 52 -h 20*theme-picker*' -- "$MENUARGS"; and echo yes; or echo no)
+t "menu_args theme row bound to k (key line follows label)" yes \
+    (string match -qr 'theme\nk\n' -- "$MENUARGS"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
 # recolor: emit the ShellFish OSC to attached ShellFish clients
@@ -1021,119 +994,29 @@ t "heal disabled when interval 0" 1 (__tcz_heal_due 999999; echo $status)
 functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 
 # ---------------------------------------------------------------------
-# cap-picker — pure helpers (families/swatch-line). The interactive raw-tty
-# loop, __tcz_cap_picker, is manual-smoke only (like __tcz_popup) — not unit tested.
+# tl theme palette (__tcz_theme). The v2 cap-picker cluster that consumed it —
+# families/swatch-line/dma/inert/restore/sep + __tcz_cap_picker itself — was
+# deleted in Task 6; __tcz_theme stays as the palette accessor for the v3
+# theme picker (Task 8).
 # ---------------------------------------------------------------------
-t "families flat = 10 tokens" 10 (count (__tcz_cap_families))
-t "families order" "mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square" (__tcz_cap_families | string join ' ')
-t "cap_flip removed" 0 (functions -q __tcz_cap_flip; and echo 1; or echo 0)
-
-# swatch line now renders a 3-cell palette strip (dim/muted/accent, precomputed by the
-# caller) instead of one caphex. ANSI idiom note: a single-quoted '*\e[48;2;*' matches a
-# literal backslash-e, never a real ESC byte — match on the bracket-only '[48;2;' instead.
-set -g SWL (__tcz_cap_swatch_line "#402030" "#755789" "#e0a030" complementary 1)
-t "swatch line: selected marker" yes (string match -q '*▐*' -- "$SWL"; and echo yes; or echo no)
-t "swatch line: shows the token" yes (string match -q '*complementary*' -- "$SWL"; and echo yes; or echo no)
-t "swatch line: 3 truecolor swatches (one per strip color)" 3 (count (string match -ar -- '\[48;2;' "$SWL"))
-t "swatch line: dim swatch rgb"    yes (string match -q '*[48;2;64;32;48*'    -- "$SWL"; and echo yes; or echo no)
-t "swatch line: muted swatch rgb"  yes (string match -q '*[48;2;117;87;137*' -- "$SWL"; and echo yes; or echo no)
-t "swatch line: accent swatch rgb" yes (string match -q '*[48;2;224;160;48*' -- "$SWL"; and echo yes; or echo no)
-set -g SWLU (__tcz_cap_swatch_line "#402030" "#755789" "#e0a030" complementary 0)
-t "swatch line: unselected has no marker" no (string match -q '*▐*' -- "$SWLU"; and echo yes; or echo no)
-set -g SWLE (__tcz_cap_swatch_line "" "" "" mono 0)
-t "swatch line: empty strip degrades cleanly (no crash, still names the token)" yes \
-    (string match -q '*mono*' -- "$SWLE"; and echo yes; or echo no)
-t "swatch line: empty strip has no truecolor swatches" 0 (count (string match -ar -- '\[48;2;' "$SWLE"))
-
-# activecol (arg 6) = 1|2|3 = dim/muted/accent. C2 (2026-07-14): it no longer PREPENDS a
-# ▎ to the active cell — that INSERTED a column, shifting the cell and everything right of
-# it, which the static header could not track (the reported misalignment). Instead the
-# active cell is UNDERLINED (SGR 4 + neutral `mark` grey), and ONLY on the selected row:
-# the primary cluster already previews the cursor row's scheme×role, so marking rows 4-10
-# answers a question nobody asks, at the cost of a jarring band.
-# Build patterns from REAL ESC bytes (command substitution) rather than the bracket-only
-# idiom above: adjacency is the whole point here, and '*' between parts would defeat it.
-set -g UL (printf '\e[4m')
-set -g MK (__tcz_theme mark)
-set -g SWLA (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 1 3)
-t "swatch(activecol) has 3 truecolor cells" 3 (count (string match -ar -- '\[48;2;' -- $SWLA))
-t "swatch(activecol) shows scheme name" 1 (string match -q '*triadic-*' -- $SWLA; and echo 1; or echo 0)
-# the rule must land on the ACTIVE cell: assert SGR4+mark IMMEDIATELY precedes that cell's
-# own truecolor bg (accent #f66336 -> 246;99;54), not merely appear somewhere in the row.
-t "swatch: selected underlines the active (accent) cell" yes \
-    (string match -q "*$UL$MK"(printf '\e[48;2;246;99;54m')"*" -- "$SWLA"; and echo yes; or echo no)
-set -g SWLA1 (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 1 1)
-t "swatch: activecol 1 underlines the dim cell instead" yes \
-    (string match -q "*$UL$MK"(printf '\e[48;2;75;98;68m')"*" -- "$SWLA1"; and echo yes; or echo no)
-set -g SWLAU (__tcz_cap_swatch_line "#4b6244" "#8769b0" "#f66336" triadic- 0 3)
-t "swatch: unselected row has NO underline" 0 (count (string match -ar -- '\[4m' -- $SWLAU))
-t "swatch: the inserted ▎ marker is gone" no (string match -q '*▎*' -- "$SWLA"; and echo yes; or echo no)
-# The anti-shift guard. NB comparing activecol 1 vs 3 is NOT enough — the old ▎ prepended
-# to BOTH, so the totals matched while the cells still moved. Assert the FIXED width:
-# 2 lead + 6 strip + 1 + 13 name = 22, for every activecol and both selection states.
-# The ▎ made it 23 and slid the cells out from under the header.
-t "swatch: row is exactly 22 visible cols (activecol 3)" 22 (string length -- (__tcz_strip_sgr "$SWLA"))
-t "swatch: row is exactly 22 visible cols (activecol 1)" 22 (string length -- (__tcz_strip_sgr "$SWLA1"))
-t "swatch: unselected row is the same 22 cols" 22 (string length -- (__tcz_strip_sgr "$SWLAU"))
-
-# `d m a` header, extracted from the picker's draw loop so the alignment that broke is
-# reachable by the suite. Letter pitch 2 (5 visible cols) puts d/m/a at inner cols 3/5/7,
-# directly over the 2-wide cells at 3-4 / 5-6 / 7-8. Was `d  m  a` (pitch 3): only m lined up.
-t "cap_dma is 5 visible cols" 5 (string length -- (__tcz_strip_sgr (__tcz_cap_dma 1)))
-t "cap_dma strips to 'd m a'" 1 (test (__tcz_strip_sgr (__tcz_cap_dma 2)) = 'd m a'; and echo 1; or echo 0)
-t "cap_dma activecol 1 -> d in key" yes (string match -q (__tcz_theme key)'d*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
-t "cap_dma activecol 3 -> a in key" yes (string match -q '*'(__tcz_theme key)'a*' -- (__tcz_cap_dma 3); and echo yes; or echo no)
-t "cap_dma non-active letters are muted" yes (string match -q '*'(__tcz_theme muted)'m*' -- (__tcz_cap_dma 1); and echo yes; or echo no)
-
-# Which picker controls can actually move the cap at a given role. Derived from
-# __tmux_lives_palette (install side, so the engine facts themselves are asserted in
-# test-tmux-install.fish — keep the two in sync): dim/text are BASE-HUE roles computed at
-# offset 0, so no scheme can move them; and only accent's chroma is scaled by vividness
-# (muted is pinned at a fixed C0.11). Without this the picker silently lies — you cursor
-# through 10 schemes at role=dim and your cap never changes.
-t "inert: dim ignores scheme"           1 (__tcz_cap_inert dim scheme; and echo 1; or echo 0)
-t "inert: dim ignores vividness"        1 (__tcz_cap_inert dim vividness; and echo 1; or echo 0)
-t "inert: dim still follows the wheel"  0 (__tcz_cap_inert dim wheel; and echo 1; or echo 0)
-t "inert: muted follows scheme"         0 (__tcz_cap_inert muted scheme; and echo 1; or echo 0)
-t "inert: muted ignores vividness"      1 (__tcz_cap_inert muted vividness; and echo 1; or echo 0)
-t "inert: accent follows scheme"        0 (__tcz_cap_inert accent scheme; and echo 1; or echo 0)
-t "inert: accent follows vividness"     0 (__tcz_cap_inert accent vividness; and echo 1; or echo 0)
-t "inert: accent follows the wheel"     0 (__tcz_cap_inert accent wheel; and echo 1; or echo 0)
-# an unknown control/role must NOT be greyed — never de-emphasise a key we can't reason about
-t "inert: unknown control is live"      0 (__tcz_cap_inert dim bogus; and echo 1; or echo 0)
-t "inert: unknown role behaves as accent" 0 (__tcz_cap_inert wat scheme; and echo 1; or echo 0)
-
-t "cap_sep is ├──…──┤ at width w" 1 (test (__tcz_cap_sep 5 '' '') = '├─────┤'; and echo 1; or echo 0)
-
 t "theme brand is truecolor ff8a1f" 1 (test (__tcz_theme brand) = (printf '\e[38;2;255;138;31m'); and echo 1; or echo 0)
 t "theme key is f5cf8a"    1 (test (__tcz_theme key)    = (printf '\e[38;2;245;207;138m'); and echo 1; or echo 0)
 t "theme value is 6fc7b8"  1 (test (__tcz_theme value)  = (printf '\e[38;2;111;199;184m'); and echo 1; or echo 0)
 t "theme selbg is 34332f bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;52;51;47m'); and echo 1; or echo 0)
 t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or echo 0)
-# `mark` = the neutral-grey rule for the active-column underline. Deliberately NOT `key`
-# (tan — the ▐ selector) and NOT `muted` (a WARM tan-grey): the marker must read as a
-# rule, not as part of the warm palette or of the colour story it sits next to. The
-# key/marker colour collision was a live-smoke complaint, so assert the distinctness.
+# `mark` is a neutral grey, distinct from both `key` (tan) and `muted` (warm
+# tan-grey) — it read as a rule rather than part of the warm colour story when
+# the (now-deleted) v2 swatch-line underlined an active column with it; kept
+# distinct for whatever the v3 theme picker (Task 8) marks with it next.
 t "theme mark is neutral grey 8a8a8a" 1 (test (__tcz_theme mark) = (printf '\e[38;2;138;138;138m'); and echo 1; or echo 0)
 t "theme mark differs from key"   1 (test (__tcz_theme mark) != (__tcz_theme key); and echo 1; or echo 0)
 t "theme mark differs from muted" 1 (test (__tcz_theme mark) != (__tcz_theme muted); and echo 1; or echo 0)
 
-set -g FAM (__tcz_cap_families)   # mono complementary analogous+ analogous- split+ split- triadic+ triadic- tetradic square
-t "restore exact mono"         0 (__tcz_cap_restore mono $FAM)
-t "restore exact complementary" 1 (__tcz_cap_restore complementary $FAM)
-t "restore exact analogous+"   2 (__tcz_cap_restore analogous+ $FAM)
-t "restore exact analogous-"   3 (__tcz_cap_restore analogous- $FAM)
-t "restore exact split+"       4 (__tcz_cap_restore split+ $FAM)
-t "restore exact split-"       5 (__tcz_cap_restore split- $FAM)
-t "restore exact triadic+"     6 (__tcz_cap_restore triadic+ $FAM)
-t "restore exact triadic-"     7 (__tcz_cap_restore triadic- $FAM)
-t "restore exact tetradic"     8 (__tcz_cap_restore tetradic $FAM)
-t "restore exact square"       9 (__tcz_cap_restore square $FAM)
-t "restore #hex -> -1"         -1 (__tcz_cap_restore "#123456" $FAM)
-t "restore unknown -> -1"      -1 (__tcz_cap_restore wat $FAM)
-t "restore empty -> -1"        -1 (__tcz_cap_restore "" $FAM)
-
-t "main dispatches cap-picker" yes (string match -q '*cap-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+# Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
+# it called must both be fully gone from the categorizer file.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+t "v2 cap cluster gone from the categorizer" 0 (grep -c '__tcz_cap_' $catfile)
+t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette' $catfile)
 
 rm -rf $shimdir
 if test $FAIL -eq 0
