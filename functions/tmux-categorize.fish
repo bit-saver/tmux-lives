@@ -1115,13 +1115,18 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     set -l capbg (__tcz_thp_bg "$p[6]")
     set -l barbg (__tcz_thp_bg "$p[1]")
     set -l capfgS (__tcz_thp_fg "$capfg")
-    set -l left "$capbg$capfgS $glyph $host $R$barbg"(__tcz_thp_fg "$p[6]")"$slR$R"
+    set -l capfgc (__tcz_thp_fg "$p[6]")
+    set -l sepfg (__tcz_thp_fg "$p[2]")
+    set -l winfg (__tcz_thp_fg "$p[5]")
+    set -l textfg (__tcz_thp_fg "$p[7]")
+    set -l coral (__tcz_thp_fg '#D97757')
+    set -l left "$capbg$capfgS $glyph $host $R$barbg$capfgc$slR$R"
     set -l leftv " x $host x"   # glyph + slant are 1 col each
-    set -l win "$barbg "(__tcz_thp_fg '#D97757')"claude"(__tcz_thp_fg "$p[2]")" • "(__tcz_thp_fg "$p[5]")"edit$R"
+    set -l win "$barbg $coral""claude$sepfg • $winfg""edit$R"
     set -l winv " claude • edit"
-    set -l mid "$barbg"(__tcz_thp_fg "$p[6]")"✦ "(__tcz_thp_fg "$p[7]")"$name$R"
+    set -l mid "$barbg$capfgc✦ $textfg$name$R"
     set -l midv "✦ $name"
-    set -l right "$barbg"(__tcz_thp_fg "$p[6]")"$slL$R$capbg$capfgS 9:41 AM $R"
+    set -l right "$barbg$capfgc$slL$R$capbg$capfgS 9:41 AM $R"
     set -l rightv "x 9:41 AM "
     set -l used (math (string length --visible -- "$leftv")" + "(string length --visible -- "$winv")" + "(string length --visible -- "$midv")" + "(string length --visible -- "$rightv"))
     set -l gaptotal (math "$w - $used")
@@ -1131,8 +1136,8 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     set -l gap1 "$barbg"(string repeat -n $g1 ' ')"$R"
     set -l gap2 "$barbg"(string repeat -n $g2 ' ')"$R"
     set -l row "$left$win$gap1$mid$gap2$right"
-    # backstop only — the gap math already lands exactly on w (see the width-budget note)
-    __tcz_popup_truncate "$row" (math $w + 1)
+    # backstop clamps to exactly w visible cols; the gap math lands there already
+    __tcz_popup_truncate "$row" $w
 end
 function __tcz_thp_info --argument-names seed phase viv shape ease --description 'pure: the picker info line'
     printf 'seed %s · phase %+d° · %s · %s · %s' "$seed" "$phase" "$viv" "$shape" "$ease"

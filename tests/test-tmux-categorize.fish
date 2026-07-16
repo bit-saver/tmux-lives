@@ -1022,6 +1022,9 @@ t "thp_row selected carries the ▐ marker" yes (string match -q '*▐*' -- (__t
 t "thp_off_row width matches" 33 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_off_row "#76846d" 0)))
 t "thp_preview is exactly 50 cols" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" rocket Monitoring 50)))
 t "thp_preview holds width on long names" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" a-very-long-host An-Extremely-Long-Session-Name 50)))
+# a malformed role hex must degrade to uncolored text, never collapse a segment
+t "thp_preview holds width on a malformed hex" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d wat #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba" "#111111" rocket Monitoring 50)))
+t "thp_preview holds width when cap hex is bad" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e colour238 #ffdeba" "#111111" rocket Monitoring 50)))
 t "thp_info line" "seed #485b3c · phase +30° · vivid · arc · linear" (__tcz_thp_info "#485b3c" 30 vivid arc linear)
 t "thp_restore finds a scheme" 1 (__tcz_thp_restore warm mono warm cool)
 t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool)
