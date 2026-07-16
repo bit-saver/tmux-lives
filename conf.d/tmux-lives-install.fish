@@ -32,6 +32,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     test -n "$caprole"; or set caprole accent
     test -n "$vividness"; or set vividness vivid
     test -n "$wheel"; or set wheel ryb
+    set -l theme $argv[17]        # v3 gradient-map scheme ('' = theme off -> the v2 path below)
+    set -l themephase $argv[18]   # hue phase in degrees ('' = 0)
+    set -l themeviv $argv[19]     # soft|balanced|vivid ('' = balanced)
+    set -l themeshape $argv[20]   # arc|flat ('' = arc)
+    set -l themeease $argv[21]    # linear|cubic ('' = linear)
+    set -l themerange $argv[22]   # "L0,L1" ('' = 0.20,0.92)
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
     set -l popup
@@ -72,38 +78,76 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # continuum prepends its autosave hook when TPM runs. The user's file sets only the
     # @var, never status-right, so a re-source can't wipe the tick/continuum.
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
-    set -l ss (__tmux_lives_derive_status $color $invert)
-    test -n "$ss"; and set -a f "set -g status-style $ss"
+    # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[17] the whole bar
+    # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
+    # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
+    set -l tl (__tmux_lives_theme_lrange "$themerange")
+    set -l tpal
+    if test -n "$theme"
+        set -l seedhex (__tmux_lives_seed_hex $color)
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" $tl[1] $tl[2] "$themeshape" "$themeease")
+    end
+    set -l themed 0
+    test (count $tpal) -eq 7; and set themed 1
+    if test $themed -eq 1
+        # bar (t=0) is the trough bg; windows (t=.60) is the base fg all inactive names inherit
+        set -a f "set -g status-style bg=$tpal[1],fg=$tpal[5]"
+    else
+        set -l ss (__tmux_lives_derive_status $color $invert)
+        test -n "$ss"; and set -a f "set -g status-style $ss"
+    end
     # --- status bar overhaul: names-only window list, @option-driven caps, status-format[0] ---
     # Layout lives in status-format[0] (built by the categorizer's pure `status-format` verb);
     # every knob is a live-tunable @option so `tmux set -g @tmux_lives_*` retints with no re-render.
     # tint the auto-named `claude` window in @tmux_lives_claude_color; reset fg after so the
     # separator / other windows are unaffected. Position unchanged; current stays bold.
+    # The current window name + separator wear the v3 text/sep roles; the v2 path seeds those
+    # @options to 'default' (a no-op style) so the pre-theme look is unchanged.
     set -a f "set -g window-status-format '#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}'"
-    set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}#[nobold]'"
-    set -a f "set -g window-status-separator ' • '"
-    # cap/accent colors. bar bg = the ShellFish-derived status bg; the cap = the OKLCH palette's
-    # ACCENT role. __tmux_lives_palette self-guards a non-hex baseHex (returns empty), so the
-    # colour236 "no bar color configured" fallback flows straight to the colour238 default below.
-    set -l barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
-    test -n "$barbg"; or set barbg colour236
-    # NB "$cap" is quoted: $argv[12] may be a ZERO-element list when render_fragment is called
-    # with <12 args (several test sites do this); unquoted it would shift $wheel/$vividness left.
-    # An empty scheme falls through __tmux_lives_palette's switch to its mono default.
-    set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap
-    set -l ridx 4
-    switch $caprole
-        case dim; set ridx 2
-        case muted; set ridx 3
+    set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]}#[nobold]'"
+    set -a f "set -g window-status-separator ' #[fg=#{@tmux_lives_sep_fg}]•#[fg=default] '"
+    # cap/accent colors. Themed: bar/cap are gradient samples. v2: bar bg = the ShellFish-derived
+    # status bg; the cap = the OKLCH palette's chosen role. __tmux_lives_palette self-guards a
+    # non-hex baseHex (returns empty), so the colour236 fallback flows to the colour238 default.
+    set -l barbg
+    set -l capbg
+    if test $themed -eq 1
+        set barbg $tpal[1]
+        set capbg $tpal[6]
+    else
+        set barbg (__tmux_lives_derive_status_bg $color $invert)   # the bar's own bg (status-style bg)
+        test -n "$barbg"; or set barbg colour236
+        # NB "$cap" is quoted: $argv[12] may be a ZERO-element list when render_fragment is called
+        # with <12 args (several test sites do this); unquoted it would shift $wheel/$vividness left.
+        # An empty scheme falls through __tmux_lives_palette's switch to its mono default.
+        set -l pal (__tmux_lives_palette $barbg "$cap" $wheel $vividness)   # OKLCH role palette; accent = the cap
+        set -l ridx 4
+        switch $caprole
+            case dim; set ridx 2
+            case muted; set ridx 3
+        end
+        set capbg $pal[$ridx]
+        test -n "$capbg"; or set capbg colour238
     end
-    set -l capbg $pal[$ridx]
-    test -n "$capbg"; or set capbg colour238
     set -l capfg (__tmux_lives_contrast_fg $capbg)                # readable fg for whichever cap shade/hue was picked
     # QUOTE the values: an unquoted #rrggbb hex is read as a tmux COMMENT (option set to empty). Single
     # quotes keep the '#5793f0' bg intact (harmless around the colourNNN default too).
     set -a f "set -g @tmux_lives_bar_bg '$barbg'"                 # slant transition target (cap -> bar)
     set -a f "set -g @tmux_lives_cap_bg '$capbg'"
     set -a f "set -g @tmux_lives_cap_fg '$capfg'"
+    if test $themed -eq 1
+        set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep role (t=.32): the • separators
+        set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs role (t=.45): Phase 2 wires the ShellFish OSC
+        set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active role (t=.55): provisional, unconsumed
+        set -a f "set -g @tmux_lives_mark_fg '$tpal[6]'"          # the ✦ identity mark wears the cap sample
+        set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text role (t=1.0): current window + centre identity
+    else
+        set -a f "set -g @tmux_lives_sep_fg default"
+        set -a f "set -g @tmux_lives_tabs_color ''"
+        set -a f "set -g @tmux_lives_active_fg default"
+        set -a f "set -g @tmux_lives_mark_fg default"
+        set -a f "set -g @tmux_lives_text_fg default"
+    end
     set -a f "set -g @tmux_lives_prefix_color colour214"
     set -a f "set -g @tmux_lives_resize_color colour208"
     set -a f "set -g @tmux_lives_claude_color '#D97757'"   # Claude coral; static, independent of the ShellFish bar color
@@ -223,7 +267,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) (__tmux_lives_key tmux_lives_theme '') (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

@@ -967,4 +967,43 @@ t "theme_palette non-hex seed -> empty" 0 (count (__tmux_lives_theme_palette col
 t "theme_palette unknown scheme -> empty" 0 (count (__tmux_lives_theme_palette "#485b3c" wat 0 balanced 0.20 0.92 arc linear))
 t "theme_palette empty knobs = defaults" (string join ' ' $TPAL1) (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono '' '' '' '' '' ''))
 
+# --- theme engine v3: fragment renders the gradient-map roles ----------------
+# theme OFF (argv 17 absent): v2 values + neutral role seeds
+set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
+t "off: v2 status-style survives" yes (string match -q '*set -g status-style bg=#*' -- "$TOFF"; and echo yes; or echo no)
+t "off: sep_fg seeded default"  yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TOFF"; and echo yes; or echo no)
+t "off: text_fg seeded default" yes (string match -q '*set -g @tmux_lives_text_fg default*' -- "$TOFF"; and echo yes; or echo no)
+t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_fg default*' -- "$TOFF"; and echo yes; or echo no)
+t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
+t "off: cap still the v2 accent" yes (string match -q "*set -g @tmux_lives_cap_bg '#*" -- "$TOFF"; and echo yes; or echo no)
+# theme ON: every role @option carries its gradient sample
+set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm '' '' '' '' '' | string collect)
+set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear)
+t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
+t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
+t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
+t "on: tabs_color emitted (Phase-2 consumer)" yes (string match -q "*set -g @tmux_lives_tabs_color '$TONPAL[3]'*" -- "$TON"; and echo yes; or echo no)
+t "on: active_fg emitted (provisional)" yes (string match -q "*set -g @tmux_lives_active_fg '$TONPAL[4]'*" -- "$TON"; and echo yes; or echo no)
+t "on: cap_bg is the cap sample" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
+t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $TONPAL[6])"'*" -- "$TON"; and echo yes; or echo no)
+t "on: mark_fg = cap sample" yes (string match -q "*set -g @tmux_lives_mark_fg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
+t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
+t "on: claude coral stays (semantic mark)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$TON"; and echo yes; or echo no)
+# knobs flow through argv 18-22
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm 90 vivid flat cubic 0.30,0.85 | string collect)
+set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid 0.30 0.85 flat cubic)
+t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
+# a theme with an unusable seed falls back to the whole v2 path
+set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm | string collect)
+t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
+t "on+no seed: role seeds default" yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TBAD"; and echo yes; or echo no)
+# themed fragment parses on a real -L server and the options land
+set -g thfsock tli-th-$fish_pid
+command tmux -L $thfsock new-session -d 2>/dev/null
+printf '%s\n' "$TON" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > /tmp/tli-thfrag-$fish_pid.conf
+t "themed fragment parses (source-file rc0)" 0 (command tmux -L $thfsock source-file /tmp/tli-thfrag-$fish_pid.conf 2>/dev/null; echo $status)
+t "themed @text_fg lands" "$TONPAL[7]" (command tmux -L $thfsock show -gv @tmux_lives_text_fg 2>/dev/null)
+t "themed status-style lands" "bg=$TONPAL[1],fg=$TONPAL[5]" (command tmux -L $thfsock show -gv status-style 2>/dev/null)
+command tmux -L $thfsock kill-server 2>/dev/null; rm -f /tmp/tli-thfrag-$fish_pid.conf
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
