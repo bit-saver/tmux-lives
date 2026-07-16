@@ -928,6 +928,48 @@ end
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
 t "v2 engine gone from the install file" 0 (grep -cE '__tmux_lives_(palette|target_hue|interp7|rgb_to_ryb_hue|ryb_to_rgb_hue|hsl_hue|hsl_to_rgb|cap_valid|cap_list|cap_picker|cap_apply_live|cap_cmd)\b' $plugindir/conf.d/tmux-lives-install.fish)
 t "setup dispatch no longer routes cap" 1 (__tmux_lives_setup_dispatch cap mono 2>/dev/null >/dev/null; echo $status)
+# --- v2 -> v3 migration shim -------------------------------------------------
+set -g _mig_names tmux_lives_cap tmux_lives_cap_vividness tmux_lives_cap_wheel tmux_lives_cap_role tmux_lives_cap_key tmux_lives_theme_vividness tmux_lives_theme_key
+set -g _mig_had
+set -g _mig_saved
+for n in $_mig_names
+    if set -q $n
+        set -a _mig_had 1
+        set -a _mig_saved "$$n"
+    else
+        set -a _mig_had 0
+        set -a _mig_saved ""
+    end
+    set -e $n
+end
+set -U tmux_lives_cap square
+set -U tmux_lives_cap_vividness subtle
+set -U tmux_lives_cap_wheel ryb
+set -U tmux_lives_cap_role dim
+set -U tmux_lives_cap_key M-j
+set -g MIGOUT (__tmux_lives_migrate_v2)
+t "migrate: cap scheme erased" 0 (set -q tmux_lives_cap; and echo 1; or echo 0)
+t "migrate: wheel erased" 0 (set -q tmux_lives_cap_wheel; and echo 1; or echo 0)
+t "migrate: role erased" 0 (set -q tmux_lives_cap_role; and echo 1; or echo 0)
+t "migrate: cap_key erased" 0 (set -q tmux_lives_cap_key; and echo 1; or echo 0)
+t "migrate: vividness subtle -> soft" soft "$tmux_lives_theme_vividness"
+t "migrate: cap_key -> theme_key" M-j "$tmux_lives_theme_key"
+t "migrate: one notice naming the old scheme" yes (string match -q "*cap scheme 'square' has no v3 equivalent*" -- "$MIGOUT"; and echo yes; or echo no)
+# idempotent: a second run is silent and changes nothing
+t "migrate: second run silent" 0 (count (__tmux_lives_migrate_v2))
+t "migrate: theme_vividness survives rerun" soft "$tmux_lives_theme_vividness"
+# never clobbers an existing v3 value
+set -U tmux_lives_cap_vividness vivid
+set -U tmux_lives_theme_vividness balanced
+__tmux_lives_migrate_v2 >/dev/null
+t "migrate: existing theme_vividness wins" balanced "$tmux_lives_theme_vividness"
+# post_update runs the shim before the re-render
+t "post_update calls the shim first" yes (string match -q '*__tmux_lives_migrate_v2*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
+for i in (seq (count $_mig_names))
+    set -e $_mig_names[$i]
+    test $_mig_had[$i] -eq 1; and set -U $_mig_names[$i] $_mig_saved[$i]
+end
+
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

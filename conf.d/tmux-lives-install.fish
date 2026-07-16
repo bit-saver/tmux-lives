@@ -1152,10 +1152,29 @@ function __tmux_lives_fragment_path --description 'path to the generated managed
     set -q tmux_lives_fragment_file; and echo $tmux_lives_fragment_file; or echo "$HOME/.config/tmux/tmux-lives.conf"
 end
 
+function __tmux_lives_migrate_v2 --description 'one-time v2 cap -> v3 theme universal migration (idempotent; runs on fisher update). Reset-to-mono policy: geometric schemes have no arc equivalent.'
+    set -l oldscheme ''
+    set -q tmux_lives_cap; and set oldscheme $tmux_lives_cap
+    if set -q tmux_lives_cap_vividness; and not set -q tmux_lives_theme_vividness
+        set -l v $tmux_lives_cap_vividness
+        test "$v" = subtle; and set v soft
+        contains -- $v soft balanced vivid; and set -U tmux_lives_theme_vividness $v
+    end
+    if set -q tmux_lives_cap_key; and not set -q tmux_lives_theme_key
+        set -U tmux_lives_theme_key $tmux_lives_cap_key
+    end
+    for old in tmux_lives_cap tmux_lives_cap_vividness tmux_lives_cap_wheel tmux_lives_cap_role tmux_lives_cap_key
+        set -q $old; and set -e $old
+    end
+    test -n "$oldscheme"; and echo "tmux-lives: cap scheme '$oldscheme' has no v3 equivalent — theme is mono; tune with 'tmux-lives setup theme'"
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
     # hook) lands without a manual `tmux-lives setup` — then reload tmux.
+    __tmux_lives_migrate_v2
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment
