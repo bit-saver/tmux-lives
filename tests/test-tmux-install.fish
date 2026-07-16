@@ -381,15 +381,22 @@ set -l _abc_had 0; set -l _abc_val
 if set -q tmux_lives_bar_color; set _abc_had 1; set _abc_val $tmux_lives_bar_color; end
 set -l _asi_had 0; set -l _asi_val
 if set -q tmux_lives_status_invert; set _asi_had 1; set _asi_val $tmux_lives_status_invert; end
+# tmux_lives_theme is always-on (Task 1): a live value on the dev box (e.g. a scheme the
+# user actually configured) would route --apply through __tmux_lives_theme_apply_live
+# instead of the plain v2 derive this block tests -> clear/restore like its siblings.
+set -l _ath_had 0; set -l _ath_val
+if set -q tmux_lives_theme; set _ath_had 1; set _ath_val $tmux_lives_theme; end
+set -U tmux_lives_theme off
 set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
 t "color --apply with no color: rc1" 1 (__tmux_lives_color_cmd --apply >/dev/null 2>&1; echo $status)
 set -U tmux_lives_bar_color "#1f6feb"; set -U tmux_lives_status_invert 0
 __tmux_lives_color_cmd --apply >/dev/null
 t "color --apply sets derived status-style live" 1 (string match -q '*bg=#5793f0*' -- (command tmux -L $apsock show -gv status-style); and echo 1; or echo 0)
 t "color -a rejects an extra color arg (rc1)" 1 (__tmux_lives_color_cmd -a "#abc" >/dev/null 2>&1; echo $status)
-set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
+set -e tmux_lives_bar_color; set -e tmux_lives_status_invert; set -e tmux_lives_theme
 if test $_abc_had -eq 1; set -U tmux_lives_bar_color $_abc_val; end
 if test $_asi_had -eq 1; set -U tmux_lives_status_invert $_asi_val; end
+if test $_ath_had -eq 1; set -U tmux_lives_theme $_ath_val; end
 set -g __fish_config_dir $__old_fcd2; set -e __old_fcd2
 set -e tmux_lives_tmux_socket
 command tmux -L $apsock kill-server 2>/dev/null
@@ -436,6 +443,15 @@ if set -q tmux_lives_cap_role
     set _capr_had 1; set _capr_val $tmux_lives_cap_role
 end
 set -e tmux_lives_cap_role
+# tmux_lives_theme is always-on (Task 1): a live scheme on the dev box makes
+# __tmux_lives_cap_apply_live a no-op (guard: theme != off), which would break every
+# live-apply assertion below. Force it to the legacy token for this section; restored
+# with its siblings at the bottom.
+set -l _capth_had 0; set -l _capth_val
+if set -q tmux_lives_theme
+    set _capth_had 1; set _capth_val $tmux_lives_theme
+end
+set -U tmux_lives_theme off
 set -U tmux_lives_bar_color "#1f6feb"
 set -U tmux_lives_status_invert 0
 set -l cap_barbg (__tmux_lives_derive_status_bg "#1f6feb" 0)   # "#5793f0"
@@ -554,6 +570,10 @@ end
 set -e tmux_lives_cap_role
 if test $_capr_had -eq 1
     set -U tmux_lives_cap_role $_capr_val
+end
+set -e tmux_lives_theme
+if test $_capth_had -eq 1
+    set -U tmux_lives_theme $_capth_val
 end
 set -e tmux_lives_tmux_socket
 command tmux -L $capsock kill-server 2>/dev/null
@@ -997,6 +1017,11 @@ t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg
 set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
 t "on+no seed: role seeds default" yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TBAD"; and echo yes; or echo no)
+# 'off' token renders the legacy branch; write_fragment's default is mono
+set -g TOFFTOK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent off | string collect)
+t "off token renders legacy status-style" yes (string match -q '*set -g status-style bg=#*' -- "$TOFFTOK"; and string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TOFFTOK"; and echo yes; or echo no)
+t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
+t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null
@@ -1028,6 +1053,8 @@ for n in $_th_names
     set -e $n
 end
 
+t "theme_schemes lists the 10 arcs" "mono warm cool span wide aurora sunset fire complement full" (__tmux_lives_theme_schemes | string join ' ')
+
 # dispatcher routes + help row
 functions -c __tmux_lives_theme_cmd __thc_bak
 # NB the echo is QUOTED ("THEME:$argv"): fish's cartesian-product expansion of an unquoted
@@ -1043,7 +1070,7 @@ functions -c __tmux_lives_write_fragment __wfth_bak
 function __tmux_lives_write_fragment; end
 
 # no-arg shows state; validation refuses before mutating
-t "theme no-arg reports off" yes (string match -q '*theme: (off*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+t "theme no-arg defaults to mono" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: invalid scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: invalid scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
@@ -1092,11 +1119,20 @@ __tmux_lives_theme_cmd --phase 100000360 >/dev/null
 t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
 # off: v2 values return, role seeds neutralize, cap writes work again
 __tmux_lives_theme_cmd off >/dev/null
-t "off clears the universal" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+t "off stores the off token" off "$tmux_lives_theme"
 t "off restores the v2 status-style" (__tmux_lives_derive_status '#485b3c' 0) (command tmux -L $thsock show -gv status-style 2>/dev/null)
 t "off resets text_fg to default" default (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
-set -g THV2 (__tmux_lives_palette (__tmux_lives_derive_status_bg '#485b3c' 0) mono ryb vivid)
-t "off hands the cap back to v2" "$THV2[4]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "off pushes the neutral legacy cap" colour238 (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "off pushes the legacy cap fg" "#f5f5f5" (command tmux -L $thsock show -gv @tmux_lives_cap_fg 2>/dev/null)
+# unset (not just 'off') applies mono — always-on's actual default. Also reset the knobs
+# this section mutated above (phase->280, vividness->vivid) back to their own defaults so
+# THMONO's assumed 0/balanced actually matches what __tmux_lives_theme_apply_live reads.
+set -e tmux_lives_theme
+set -e tmux_lives_theme_phase
+set -e tmux_lives_theme_vividness
+__tmux_lives_theme_apply_live
+set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced 0.20 0.92 arc linear)
+t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd

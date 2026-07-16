@@ -38,6 +38,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l themeshape $argv[20]   # arc|flat ('' = arc)
     set -l themeease $argv[21]    # linear|cubic ('' = linear)
     set -l themerange $argv[22]   # "L0,L1" ('' = 0.20,0.92)
+    # 'off' (and any unusable seed) renders the legacy branch; the effective default
+    # (mono) is supplied by __tmux_lives_write_fragment, not here.
+    test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
     set -l popup
@@ -267,7 +270,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) (__tmux_lives_key tmux_lives_theme '') (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -838,8 +841,8 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
             echo "tmux-lives: no bar color set — set one with: tmux-lives setup color \"#rrggbb\"" >&2
             return 1
         end
-        set -l _theme (__tmux_lives_key tmux_lives_theme '')
-        if test -n "$_theme"
+        set -l _theme (__tmux_lives_key tmux_lives_theme mono)
+        if test "$_theme" != off
             __tmux_lives_theme_apply_live
         else
             set -l ss (__tmux_lives_derive_status $c (__tmux_lives_key tmux_lives_status_invert 0))
@@ -935,9 +938,9 @@ function __tmux_lives_cap_picker --description 'tmux-lives setup cap (no arg): o
 end
 
 function __tmux_lives_cap_apply_live --description 'internal: push the effective scheme/wheel/vividness/role palette color to @tmux_lives_cap_bg/_fg on the live server (tmux_lives_tmux_socket seam)'
-    # v3 theme owns the whole bar while active — a v2 cap write must not clobber it.
-    set -l _theme (__tmux_lives_key tmux_lives_theme '')
-    test -n "$_theme"; and return 0
+    # the theme owns the bar unless it is explicitly off (always-on since Phase 2)
+    set -l _theme (__tmux_lives_key tmux_lives_theme mono)
+    test "$_theme" != off; and return 0
     set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
     test -n "$barbg"; or set barbg colour236
     set -l scheme (__tmux_lives_key tmux_lives_cap mono)
@@ -1053,12 +1056,12 @@ function __tmux_lives_cap_cmd --description 'tmux-lives setup cap [<scheme>|list
 end
 
 # --- theme engine v3: user surface -------------------------------------------
+function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it)'
+    printf '%s\n' mono warm cool span wide aurora sunset fire complement full
+end
+
 function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v3 gradient-map scheme'
-    switch "$token"
-        case mono warm cool span wide aurora sunset fire complement full
-            return 0
-    end
-    return 1
+    contains -- "$token" (__tmux_lives_theme_schemes)
 end
 
 function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <value> honoring the tmux_lives_tmux_socket test seam'
@@ -1070,10 +1073,10 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
 end
 
 function __tmux_lives_theme_apply_live --description 'internal: push the effective v3 theme (or the v2 values when the theme is off) to the live server'
-    set -l theme (__tmux_lives_key tmux_lives_theme '')
+    set -l theme (__tmux_lives_key tmux_lives_theme mono)
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
-    if test -n "$theme"; and test -n "$seed"
+    if test "$theme" != off; and test -n "$seed"
         set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
         set tpal (__tmux_lives_theme_palette $seed "$theme" (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) $tl[1] $tl[2] (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear))
     end
@@ -1089,18 +1092,19 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
         __tmux_lives_theme_push @tmux_lives_text_fg $tpal[7]
         return 0
     end
-    # theme off (or no usable seed): restore the v2 values + neutral role seeds
+    # legacy (theme off, or no usable seed): derived bar + neutral cap + no-op role seeds
     set -l ss (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
     test -n "$ss"; and __tmux_lives_theme_push status-style $ss
     set -l barbg (__tmux_lives_derive_status_bg (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0))
     test -n "$barbg"; or set barbg colour236
     __tmux_lives_theme_push @tmux_lives_bar_bg $barbg
+    __tmux_lives_theme_push @tmux_lives_cap_bg colour238
+    __tmux_lives_theme_push @tmux_lives_cap_fg (__tmux_lives_contrast_fg colour238)
     __tmux_lives_theme_push @tmux_lives_sep_fg default
     __tmux_lives_theme_push @tmux_lives_tabs_color ''
     __tmux_lives_theme_push @tmux_lives_active_fg default
     __tmux_lives_theme_push @tmux_lives_mark_fg default
     __tmux_lives_theme_push @tmux_lives_text_fg default
-    __tmux_lives_cap_apply_live
 end
 
 function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every scheme + a 7-role gradient strip at the current seed/knobs'
@@ -1111,7 +1115,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
-    for scheme in mono warm cool span wide aurora sunset fire complement full
+    for scheme in (__tmux_lives_theme_schemes)
         set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $tl[1] $tl[2] $shape $ease)
         test (count $pal) -eq 7; or continue
         set -l strip
@@ -1126,8 +1130,8 @@ end
 
 function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--range <L0,L1>]: the v3 gradient-map bar theme'
     if test (count $argv) -eq 0
-        set -l cur (__tmux_lives_key tmux_lives_theme '')
-        test -n "$cur"; and echo "theme: $cur"; or echo "theme: (off — v2 cap colors active)"
+        set -l cur (__tmux_lives_key tmux_lives_theme mono)
+        test "$cur" = off; and echo "theme: off (legacy bar colors)"; or echo "theme: $cur"
         set -l tphase (__tmux_lives_key tmux_lives_theme_phase 0)
         set -l tviv (__tmux_lives_key tmux_lives_theme_vividness balanced)
         set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
@@ -1149,10 +1153,10 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 __tmux_lives_theme_list
                 return
             case off
-                set -e tmux_lives_theme
+                set -U tmux_lives_theme off
                 __tmux_lives_write_fragment
                 __tmux_lives_theme_apply_live
-                echo "tmux-lives: theme off — v2 cap colors are back in charge"
+                echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono')"
                 return 0
             case --phase
                 set i (math $i + 1); set phase $argv[$i]; set have_phase 1
