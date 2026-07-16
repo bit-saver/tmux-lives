@@ -1303,10 +1303,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case down
                 test $sel -lt $n; and set sel (math $sel + 1)
             case left
-                # net-delta coalescing: drain buffered arrows into ONE recompute
+                # net-delta coalescing: drain buffered arrows into ONE recompute.
+                # The readkey ESC/CSI-arrow branch leaves the tty in `min 1 time 0`
+                # (blocking) on return, so each iteration re-asserts non-blocking
+                # BEFORE reading — otherwise the second drain read blocks forever.
                 set -l delta -5
-                stty min 0 time 0 2>/dev/null
                 while true
+                    stty min 0 time 0 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
                         case left;  set delta (math $delta - 5)
@@ -1319,8 +1322,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $sel -lt $n; and __tcz_thp_reload_one $toks[(math $sel + 1)]
             case right
                 set -l delta 5
-                stty min 0 time 0 2>/dev/null
                 while true
+                    stty min 0 time 0 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
                         case left;  set delta (math $delta - 5)

@@ -1036,6 +1036,10 @@ t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives s
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
+# return, so each drain iteration must re-assert non-blocking BEFORE reading —
+# otherwise the second buffered read blocks forever (empirically confirmed hang).
+t "picker drain re-asserts non-blocking each iteration" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
 
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.
