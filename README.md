@@ -76,7 +76,7 @@ Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` 
 
 When a full-screen program occupies your pane, a few bindings let you drive tmux-lives without leaving it:
 
-**Command launcher (`M-m`)** — a `display-popup` that draws a colored, categorized legend, then acts on a **single keypress** and closes: `p` picker · `n` new · `c` clear · `g` categorize · `t` scratch toggle · `r` resize (enters resize mode) · `b` set bar color (typed-input prompt) · `Esc`/`q` close. Each action runs *after* the popup closes, so its result is visible (the picker opens once the launcher is gone — tmux doesn't allow a popup inside a popup). Falls back to a `display-menu` when `display-popup` is unavailable.
+**Command launcher (`M-m`)** — a `display-popup` that draws a colored, categorized legend, then acts on a **single keypress** and closes: `p` picker · `n` new · `c` clear · `g` categorize · `t` scratch toggle · `r` resize (enters resize mode) · `b` set bar color (typed-input prompt) · `k` theme (opens the theme picker) · `Esc`/`q` close. Each action runs *after* the popup closes, so its result is visible (the picker/theme picker open once the launcher is gone — tmux doesn't allow a popup inside a popup). Falls back to a `display-menu` when `display-popup` is unavailable.
 
 **Scratch split toggle (`M-t`)** — splits a throwaway shell pane beside the active pane (marked `@tmux_lives_scratch`). Press again to refocus the original pane and kill the scratch.
 
@@ -94,10 +94,11 @@ tmux-lives setup keys --scratch-key M-t  # default (scratch toggle)
 tmux-lives setup keys --resize-key M-r   # default (scratch resize mode)
 tmux-lives setup keys --status-pos-key C-M-a  # default (status bar top/bottom)
 tmux-lives setup keys --status-vis-key C-M-s  # default (status bar hide/show)
+tmux-lives setup keys --theme-key M-k    # default (theme picker)
 tmux-lives setup keys --modal-key ''     # disable a bind
 ```
 
-These binds become live on your next `fisher update` / `tmux-lives update`. If any of `M-m`, `M-t`, `M-r`, `C-M-a`, or `C-M-s` collide with an existing terminal or tmux bind, rebind or disable them before updating.
+These binds become live on your next `fisher update` / `tmux-lives update`. If any of `M-m`, `M-t`, `M-r`, `M-k`, `C-M-a`, or `C-M-s` collide with an existing terminal or tmux bind, rebind or disable them before updating.
 
 ## Uninstall
 

@@ -685,7 +685,7 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
         end
         set -l c (__tmux_lives_key tmux_lives_bar_color '')
         if test -z "$c"
-            echo "tmux-lives: no bar color set — set one with: tmux-lives setup color \"#rrggbb\"" >&2
+            echo "tmux-lives: no seed set — set one with: tmux-lives setup color \"#rrggbb\"" >&2
             return 1
         end
         set -l _theme (__tmux_lives_key tmux_lives_theme mono)
