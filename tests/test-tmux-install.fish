@@ -933,4 +933,38 @@ set -g TEC (__tmux_lives_theme_sample 0.6 $THSEED[3] 0 90 0 0.20 0.92 0.105 arc 
 t "cubic ease trails linear mid-ramp" 1 (test (__tmux_lives_norm360 (math (_th $TEC)" - $THSEED[3]")) -lt (__tmux_lives_norm360 (math (_th $TEL)" - $THSEED[3]")); and echo 1; or echo 0)
 functions -e _tl _tc _th
 
+# Task 2: seed parsing (css -> #rrggbb; named colors have no derivable hue -> empty)
+t "seed_hex passthrough" "#485b3c" (__tmux_lives_seed_hex "#485b3c")
+t "seed_hex lowercases"  "#485b3c" (__tmux_lives_seed_hex "#485B3C")
+t "seed_hex short hex"   "#4488cc" (__tmux_lives_seed_hex "#48c")
+t "seed_hex rgb()"       "#1f6feb" (__tmux_lives_seed_hex "rgb(31, 111, 235)")
+t "seed_hex named -> empty" 0 (count (__tmux_lives_seed_hex red))
+t "seed_hex empty -> empty" 0 (count (__tmux_lives_seed_hex ""))
+t "derive_status still parses rgb() after the refactor" 1 (string match -q 'bg=#*' -- (__tmux_lives_derive_status "rgb(31,111,235)" 0); and echo 1; or echo 0)
+t "derive_status unchanged on hex" "bg=#76846d,fg=#d3d8d0" (__tmux_lives_derive_status "#485b3c" 0)
+# lightness-range parsing
+t "lrange default" "0.20 0.92" (__tmux_lives_theme_lrange "" | string join ' ')
+t "lrange parses"  "0.30 0.85" (__tmux_lives_theme_lrange "0.30,0.85" | string join ' ')
+t "lrange garbage -> default" "0.20 0.92" (__tmux_lives_theme_lrange "wat" | string join ' ')
+
+# palette: 7 roles on the ramp
+set -g TPAL1 (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear)
+t "theme_palette emits 7 roles" 7 (count $TPAL1)
+t "theme_palette all hexes" 7 (count (string match -r '^#[0-9a-f]{6}$' $TPAL1))
+function _tl2; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[1]; end
+set -g _mono_ok 1
+for i in (seq 2 7)
+    set -l prev (math $i - 1)
+    test (_tl2 $TPAL1[$prev]) -lt (_tl2 $TPAL1[$i]); or set _mono_ok 0
+end
+t "theme_palette L strictly ascending (dark seed)" 1 $_mono_ok
+# light seed (OKLCH L >= 0.60): ramp inverts — bar light, text dark (the required text fix)
+set -g TPALL (__tmux_lives_theme_palette "#e8e0d0" mono 0 balanced 0.20 0.92 arc linear)
+t "light seed inverts the ramp" 1 (test (_tl2 $TPALL[1]) -gt (_tl2 $TPALL[7]); and echo 1; or echo 0)
+functions -e _tl2
+# guards
+t "theme_palette non-hex seed -> empty" 0 (count (__tmux_lives_theme_palette colour236 mono 0 balanced 0.20 0.92 arc linear))
+t "theme_palette unknown scheme -> empty" 0 (count (__tmux_lives_theme_palette "#485b3c" wat 0 balanced 0.20 0.92 arc linear))
+t "theme_palette empty knobs = defaults" (string join ' ' $TPAL1) (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono '' '' '' '' '' ''))
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

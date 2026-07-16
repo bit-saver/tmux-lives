@@ -416,32 +416,36 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
     test $changed -eq 1; and __tmux_lives_write_fragment
 end
 
-function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "bg=#rrggbb,fg=#rrggbb" for status-style; empty if unparseable'
-    set -l color (string lower -- $argv[1])
-    set -l invert $argv[2]
+function __tmux_lives_seed_hex --argument-names css --description 'css color (#rrggbb / #rgb / rgb()) -> #rrggbb, lowercased; anything else (named colors, color(p3 ...)) -> nothing'
+    set -l color (string lower -- "$css")
     test -n "$color"; or return
-    set -l r; set -l g; set -l b
     set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- $color)
     if test (count $m) -eq 3
-        set r (math "0x$m[1]"); set g (math "0x$m[2]"); set b (math "0x$m[3]")
-    else
-        set m (string match -rg '^#([0-9a-f])([0-9a-f])([0-9a-f])$' -- $color)
-        if test (count $m) -eq 3
-            set r (math "0x$m[1]$m[1]"); set g (math "0x$m[2]$m[2]"); set b (math "0x$m[3]$m[3]")
-        else
-            set m (string match -rg '^rgba?\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)' -- $color)
-            if test (count $m) -eq 3
-                set r $m[1]; set g $m[2]; set b $m[3]
-            else
-                return
-            end
+        echo $color
+        return
+    end
+    set m (string match -rg '^#([0-9a-f])([0-9a-f])([0-9a-f])$' -- $color)
+    if test (count $m) -eq 3
+        echo "#$m[1]$m[1]$m[2]$m[2]$m[3]$m[3]"
+        return
+    end
+    set m (string match -rg '^rgba?\(\s*([0-9]+)\s*,\s*([0-9]+)\s*,\s*([0-9]+)' -- $color)
+    if test (count $m) -eq 3
+        set -l r $m[1]; set -l g $m[2]; set -l b $m[3]
+        for v in r g b
+            set -l x $$v
+            test "$x" -gt 255; and set $v 255
         end
+        printf '#%02x%02x%02x\n' $r $g $b
     end
-    # clamp 0-255
-    for v in r g b
-        set -l x $$v
-        test "$x" -gt 255; and set $v 255
-    end
+end
+
+function __tmux_lives_derive_status --description 'css color + invert(0/1) -> "bg=#rrggbb,fg=#rrggbb" for status-style; empty if unparseable'
+    set -l invert $argv[2]
+    set -l hexin (__tmux_lives_seed_hex $argv[1])
+    test -n "$hexin"; or return
+    set -l m (string match -rg '^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$' -- $hexin)
+    set -l r (math "0x$m[1]"); set -l g (math "0x$m[2]"); set -l b (math "0x$m[3]")
     if test "$invert" = 1
         set r (math "round($r * 0.75)"); set g (math "round($g * 0.75)"); set b (math "round($b * 0.75)")
     else
@@ -722,6 +726,47 @@ function __tmux_lives_theme_sample --argument-names t seedH a0 a1 phase l0 l1 cm
         end
     end
     __tmux_lives_oklch_hex $L $C $H
+end
+
+function __tmux_lives_theme_lrange --argument-names range --description '"L0,L1" -> two lines L0 L1; empty/garbage -> the 0.20 0.92 defaults'
+    set -l rr (string split , -- "$range")
+    if test (count $rr) -eq 2
+        and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[1]
+        and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[2]
+        printf '%s\n' $rr[1] $rr[2]
+        return
+    end
+    printf '%s\n' 0.20 0.92
+end
+
+function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness l0 l1 shape ease --description 'seed + scheme/phase/knobs -> 7 role hexes one per line (bar sep tabs active windows cap text); non-hex seed or unknown scheme -> nothing (callers fall back to v2)'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
+    set -l arc (__tmux_lives_theme_arc "$scheme")
+    test (count $arc) -eq 2; or return
+    test -n "$phase"; or set phase 0
+    test -n "$l0"; or set l0 0.20
+    test -n "$l1"; or set l1 0.92
+    test -n "$shape"; or set shape arc
+    test -n "$ease"; or set ease linear
+    set -l cmax 0.105
+    switch "$vividness"
+        case soft;  set cmax 0.075
+        case vivid; set cmax 0.130
+    end
+    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    # light seed -> inverted ramp (dark text end): the spec's required text-legibility fix.
+    if test $ok[1] -ge 0.60
+        set -l swap $l0
+        set l0 $l1
+        set l1 $swap
+    end
+    for rt in (__tmux_lives_theme_roles)
+        set -l parts (string split ' ' $rt)
+        set -l hx (__tmux_lives_theme_sample $parts[2] $ok[3] $arc[1] $arc[2] $phase $l0 $l1 $cmax $shape $ease)
+        test -n "$hx"; or return
+        printf '%s\n' $hx
+    end
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
