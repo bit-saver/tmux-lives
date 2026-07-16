@@ -893,4 +893,44 @@ tmux kill-server 2>/dev/null
 set -gx PATH $rl_path_save
 rm -rf $rlshim $rlconf
 
+# --- theme engine v3 (gradient map): arc presets + role ladder + sampler -----
+t "theme_arc mono"       "0 45"    (__tmux_lives_theme_arc mono | string join ' ')
+t "theme_arc warm"       "8 -64"   (__tmux_lives_theme_arc warm | string join ' ')
+t "theme_arc cool"       "60 -8"   (__tmux_lives_theme_arc cool | string join ' ')
+t "theme_arc span"       "60 -60"  (__tmux_lives_theme_arc span | string join ' ')
+t "theme_arc wide"       "95 -75"  (__tmux_lives_theme_arc wide | string join ' ')
+t "theme_arc aurora"     "120 30"  (__tmux_lives_theme_arc aurora | string join ' ')
+t "theme_arc sunset"     "150 -90" (__tmux_lives_theme_arc sunset | string join ' ')
+t "theme_arc fire"       "130 -44" (__tmux_lives_theme_arc fire | string join ' ')
+t "theme_arc complement" "180 -30" (__tmux_lives_theme_arc complement | string join ' ')
+t "theme_arc full"       "0 360"   (__tmux_lives_theme_arc full | string join ' ')
+t "theme_arc unknown -> empty" 0 (count (__tmux_lives_theme_arc nope))
+t "theme_roles count" 7 (count (__tmux_lives_theme_roles))
+t "theme_roles ladder" "bar 0.00|sep 0.32|tabs 0.45|active 0.55|windows 0.60|cap 0.70|text 1.00" (__tmux_lives_theme_roles | string join '|')
+
+# sampler properties, verified through the OKLCH core itself (seed hue = the user's green)
+set -g THSEED (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "#485b3c"))
+function _tl; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[1]; end
+function _tc; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[2]; end
+function _th; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[3]; end
+set -g TS0 (__tmux_lives_theme_sample 0    $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
+set -g TS5 (__tmux_lives_theme_sample 0.5  $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
+set -g TS1 (__tmux_lives_theme_sample 1.00 $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
+t "sample emits a hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- "$TS0"; and echo 1; or echo 0)
+t "sample t=0 lands at L0 (±0.02)" 1 (test (math "abs("(_tl $TS0)" - 0.20)") -lt 0.02; and echo 1; or echo 0)
+t "sample t=1 lands at L1 (±0.02)" 1 (test (math "abs("(_tl $TS1)" - 0.92)") -lt 0.02; and echo 1; or echo 0)
+t "sample L is monotonic" 1 (test (_tl $TS0) -lt (_tl $TS5); and test (_tl $TS5) -lt (_tl $TS1); and echo 1; or echo 0)
+t "chroma floor: dark end tinted, never grey" 1 (test (_tc $TS0) -gt 0.015; and echo 1; or echo 0)
+t "chroma arcs to a mid-ramp peak" 1 (test (_tc $TS5) -gt (_tc $TS0); and test (_tc $TS5) -gt (_tc $TS1); and echo 1; or echo 0)
+set -g TSF (__tmux_lives_theme_sample 0 $THSEED[3] 0 45 0 0.20 0.92 0.105 flat linear)
+t "flat shape lifts the dark end" 1 (test (_tc $TSF) -gt (_tc $TS0); and echo 1; or echo 0)
+set -g TP0 (__tmux_lives_theme_sample 0.7 $THSEED[3] 0 45 0   0.20 0.92 0.105 arc linear)
+set -g TP1 (__tmux_lives_theme_sample 0.7 $THSEED[3] 0 45 120 0.20 0.92 0.105 arc linear)
+t "phase leaves L alone (±0.02)" 1 (test (math "abs("(_tl $TP1)" - "(_tl $TP0)")") -lt 0.02; and echo 1; or echo 0)
+t "phase rotates H by ~120 (±8)" 1 (test (math "abs("(__tmux_lives_norm360 (math (_th $TP1)" - "(_th $TP0)))" - 120)") -lt 8; and echo 1; or echo 0)
+set -g TEL (__tmux_lives_theme_sample 0.6 $THSEED[3] 0 90 0 0.20 0.92 0.105 arc linear)
+set -g TEC (__tmux_lives_theme_sample 0.6 $THSEED[3] 0 90 0 0.20 0.92 0.105 arc cubic)
+t "cubic ease trails linear mid-ramp" 1 (test (__tmux_lives_norm360 (math (_th $TEC)" - $THSEED[3]")) -lt (__tmux_lives_norm360 (math (_th $TEL)" - $THSEED[3]")); and echo 1; or echo 0)
+functions -e _tl _tc _th
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

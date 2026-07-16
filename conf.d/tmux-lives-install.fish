@@ -685,6 +685,45 @@ function __tmux_lives_palette --argument baseHex scheme wheel vividness --descri
     printf "%s\n" $baseHex $dim $muted $accent $text
 end
 
+# --- theme engine v3 (gradient map): roles sample ONE hue-arc by lightness ---
+# spec: docs/superpowers/specs/2026-07-16-theme-gradient-map-engine-design.md
+# A theme = seed + scheme (arc) + phase (rotate) + knobs (cmax/range/shape/ease).
+function __tmux_lives_theme_arc --argument-names scheme --description 'v3 scheme -> hue-arc offsets off the seed hue, two lines: start end (deg); unknown -> nothing'
+    switch "$scheme"
+        case mono;       printf '%s\n' 0 45
+        case warm;       printf '%s\n' 8 -64
+        case cool;       printf '%s\n' 60 -8
+        case span;       printf '%s\n' 60 -60
+        case wide;       printf '%s\n' 95 -75
+        case aurora;     printf '%s\n' 120 30
+        case sunset;     printf '%s\n' 150 -90
+        case fire;       printf '%s\n' 130 -44
+        case complement; printf '%s\n' 180 -30
+        case full;       printf '%s\n' 0 360
+    end
+end
+
+function __tmux_lives_theme_roles --description 'v3 role ladder, "<role> <t>" per line — THE one place role->lightness lives (spec decision #5: keep adjustable)'
+    printf '%s\n' 'bar 0.00' 'sep 0.32' 'tabs 0.45' 'active 0.55' 'windows 0.60' 'cap 0.70' 'text 1.00'
+end
+
+function __tmux_lives_theme_sample --argument-names t seedH a0 a1 phase l0 l1 cmax shape ease --description 'sample the gradient at t: L ramp l0->l1; hue arc a0->a1 (+phase) off seedH, eased; chroma arc C0 .030 -> cmax @0.5 -> C1 .075 (flat: cmax) -> #rrggbb'
+    set -l L (math "$l0 + ($l1 - $l0) * $t")
+    set -l et $t
+    test "$ease" = cubic; and set et (math "$t ^ 3")
+    set -l H (__tmux_lives_norm360 (math "$seedH + $a0 + ($a1 - $a0) * $et + $phase"))
+    # chroma: an arc with FLOORS (ends tinted, never pure grey); no math comparisons — float test.
+    set -l C $cmax
+    if test "$shape" != flat
+        if test $t -le 0.5
+            set C (math "0.030 + ($cmax - 0.030) * ($t / 0.5)")
+        else
+            set C (math "$cmax - ($cmax - 0.075) * (($t - 0.5) / 0.5)")
+        end
+    end
+    __tmux_lives_oklch_hex $L $C $H
+end
+
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
