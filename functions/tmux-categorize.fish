@@ -768,6 +768,9 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|r
         case 6c; echo right; return                 # l
         case 76; echo v; return                      # v (cap-picker: cycle vividness)
         case 77; echo w; return                      # w (cap-picker: toggle wheel)
+        case 73; echo s; return                      # s (theme-picker: chroma shape)
+        case 65; echo e; return                      # e (theme-picker: hue ease)
+        case 62; echo b; return                      # b (theme-picker: set seed)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1057,6 +1060,98 @@ function __tcz_open_switcher --argument-names client --description 'open the two
     else
         __tcz_menu
     end
+end
+
+# --- theme picker (v3): pure builders. The interactive loop is __tcz_theme_picker. ---
+function __tcz_thp_fg --argument-names hex --description 'hex -> truecolor foreground SGR; empty output for non-hex'
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
+    test (count $m) -eq 3; and printf '\e[38;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
+end
+function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor background SGR; empty output for non-hex'
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
+    test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
+end
+function __tcz_thp_row --argument-names hexes name selected --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + name; <hexes> space-joined; non-hex cells degrade to blank gaps'
+    set -l cells ''
+    for hex in (string split ' ' -- "$hexes")
+        set -l bg (__tcz_thp_bg "$hex")
+        if test -n "$bg"
+            set cells "$cells$bg  "(printf '\e[0m')
+        else
+            set cells "$cells  "
+        end
+    end
+    set -l marker ' '
+    set -l namecol (__tcz_theme muted)
+    if test "$selected" = 1
+        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        set namecol (__tcz_theme sel-fg)(printf '\e[1m')
+    end
+    printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
+end
+function __tcz_thp_off_row --argument-names barhex selected --description 'pure: the "off — legacy look" row; one 14-col derived-bg band where the strip sits'
+    set -l bg (__tcz_thp_bg "$barhex")
+    set -l band '              '
+    test -n "$bg"; and set band "$bg              "(printf '\e[0m')
+    set -l marker ' '
+    set -l namecol (__tcz_theme muted)
+    if test "$selected" = 1
+        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        set namecol (__tcz_theme sel-fg)(printf '\e[1m')
+    end
+    printf '%s%s %s%s%s' "$marker" "$band" "$namecol" 'off — legacy look' (__tcz_theme reset)
+end
+function __tcz_thp_preview --argument-names hexes capfg host name w --description 'pure: the fake status-bar row from 7 role hexes (bar sep tabs active windows cap text) + cap fg — host cap, windows, ✦ identity, clock cap; EXACTLY <w> visible cols (host/name truncated, gaps computed)'
+    set -l p (string split ' ' -- "$hexes")
+    set -l slR (printf '\U0000e0b0')
+    set -l slL (printf '\U0000e0b2')
+    set -l glyph (printf '\U0000ea7a')
+    set -l R (printf '\e[0m')
+    # width budget: fixed segments max out at 47 visible cols (host<=6, name<=10),
+    # so the two computed gaps always land the row at EXACTLY w=50; the final
+    # truncate call is a pure backstop.
+    set host (string sub -l 6 -- "$host")
+    set name (string sub -l 10 -- "$name")
+    set -l capbg (__tcz_thp_bg "$p[6]")
+    set -l barbg (__tcz_thp_bg "$p[1]")
+    set -l capfgS (__tcz_thp_fg "$capfg")
+    set -l left "$capbg$capfgS $glyph $host $R$barbg"(__tcz_thp_fg "$p[6]")"$slR$R"
+    set -l leftv " x $host x"   # glyph + slant are 1 col each
+    set -l win "$barbg "(__tcz_thp_fg '#D97757')"claude"(__tcz_thp_fg "$p[2]")" • "(__tcz_thp_fg "$p[5]")"edit$R"
+    set -l winv " claude • edit"
+    set -l mid "$barbg"(__tcz_thp_fg "$p[6]")"✦ "(__tcz_thp_fg "$p[7]")"$name$R"
+    set -l midv "✦ $name"
+    set -l right "$barbg"(__tcz_thp_fg "$p[6]")"$slL$R$capbg$capfgS 9:41 AM $R"
+    set -l rightv "x 9:41 AM "
+    set -l used (math (string length --visible -- "$leftv")" + "(string length --visible -- "$winv")" + "(string length --visible -- "$midv")" + "(string length --visible -- "$rightv"))
+    set -l gaptotal (math "$w - $used")
+    test $gaptotal -lt 2; and set gaptotal 2
+    set -l g1 (math "floor($gaptotal / 2)")
+    set -l g2 (math "$gaptotal - $g1")
+    set -l gap1 "$barbg"(string repeat -n $g1 ' ')"$R"
+    set -l gap2 "$barbg"(string repeat -n $g2 ' ')"$R"
+    set -l row "$left$win$gap1$mid$gap2$right"
+    # backstop only — the gap math already lands exactly on w (see the width-budget note)
+    __tcz_popup_truncate "$row" (math $w + 1)
+end
+function __tcz_thp_info --argument-names seed phase viv shape ease --description 'pure: the picker info line'
+    printf 'seed %s · phase %+d° · %s · %s · %s' "$seed" "$phase" "$viv" "$shape" "$ease"
+end
+function __tcz_thp_ln --argument-names content w od t --description 'pad ALREADY-COLORED content to visible width w and wrap it in the themed frame (│…│)'
+    set -l vis (__tcz_strip_sgr "$content")
+    set -l pad (math "$w - "(string length --visible -- "$vis"))
+    test $pad -lt 0; and set pad 0
+    set -l padstr (string repeat -n $pad ' ')
+    printf '%s│%s%s│%s\n' $od "$content$t$padstr" $od $t
+end
+function __tcz_thp_sep --argument-names w od t --description 'the frame mid separator (├──┤)'
+    printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
+end
+function __tcz_thp_restore --argument-names scheme --description '<scheme> <tokens…> -> 0-based cursor index; "off" -> the row AFTER the tokens; unknown -> 0 (mono)'
+    set -l toks $argv[2..]
+    test "$scheme" = off; and begin; echo (count $toks); return; end
+    set -l i (contains -i -- "$scheme" $toks)
+    test -n "$i"; and echo (math $i - 1); or echo 0
 end
 
 function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/sel-bg/sel-fg/reset)'

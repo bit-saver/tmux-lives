@@ -1012,6 +1012,22 @@ t "theme mark is neutral grey 8a8a8a" 1 (test (__tcz_theme mark) = (printf '\e[3
 t "theme mark differs from key"   1 (test (__tcz_theme mark) != (__tcz_theme key); and echo 1; or echo 0)
 t "theme mark differs from muted" 1 (test (__tcz_theme mark) != (__tcz_theme muted); and echo 1; or echo 0)
 
+# --- theme-picker pure builders ----------------------------------------------
+set -g THX "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba"
+t "thp_fg hex -> SGR" yes (string match -q '*38;2;14;25;13*' -- (__tcz_thp_fg "#0e190d"); and echo yes; or echo no)
+t "thp_fg non-hex -> empty" 0 (count (__tcz_thp_fg colour238))
+t "thp_row lead is 16 visible cols + name" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
+t "thp_row selected keeps the width" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
+t "thp_row selected carries the ▐ marker" yes (string match -q '*▐*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
+t "thp_off_row width matches" 33 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_off_row "#76846d" 0)))
+t "thp_preview is exactly 50 cols" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" rocket Monitoring 50)))
+t "thp_preview holds width on long names" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" a-very-long-host An-Extremely-Long-Session-Name 50)))
+t "thp_info line" "seed #485b3c · phase +30° · vivid · arc · linear" (__tcz_thp_info "#485b3c" 30 vivid arc linear)
+t "thp_restore finds a scheme" 1 (__tcz_thp_restore warm mono warm cool)
+t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool)
+t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
+t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
+
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.
 set -l catfile $plugindir/functions/tmux-categorize.fish
