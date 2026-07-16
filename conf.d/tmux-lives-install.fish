@@ -31,6 +31,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l themeshape $argv[16]   # arc|flat ('' = arc)
     set -l themeease $argv[17]    # linear|cubic ('' = linear)
     set -l themerange $argv[18]   # "L0,L1" ('' = 0.20,0.92)
+    set -l themepolarity $argv[19]   # dark|light ('' = dark)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -79,7 +80,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l tpal
     if test -n "$theme"
         set -l seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" $tl[1] $tl[2] "$themeshape" "$themeease")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" $tl[1] $tl[2] "$themeshape" "$themeease" "$themepolarity")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -251,7 +252,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) (__tmux_lives_key tmux_lives_theme_polarity dark) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -633,7 +634,7 @@ function __tmux_lives_theme_lrange --argument-names range --description '"L0,L1"
     printf '%s\n' 0.20 0.92
 end
 
-function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness l0 l1 shape ease --description 'seed + scheme/phase/knobs -> 7 role hexes one per line (bar sep tabs active windows cap text); non-hex seed or unknown scheme -> nothing (callers fall back to v2)'
+function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness l0 l1 shape ease polarity --description 'seed + scheme/phase/knobs + polarity(dark|light, default dark) -> 7 role hexes one per line (bar sep tabs active windows cap text); non-hex seed or unknown scheme -> nothing (callers fall back to v2)'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l arc (__tmux_lives_theme_arc "$scheme")
     test (count $arc) -eq 2; or return
@@ -642,6 +643,7 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     test -n "$l1"; or set l1 0.92
     test -n "$shape"; or set shape arc
     test -n "$ease"; or set ease linear
+    test -n "$polarity"; or set polarity dark
     set -l cmax 0.105
     switch "$vividness"
         case soft;  set cmax 0.075
@@ -649,8 +651,10 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     end
     set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
     set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    # light seed -> inverted ramp (dark text end): the spec's required text-legibility fix.
-    if test $ok[1] -ge 0.60
+    # polarity is EXPLICIT (dark|light; default dark) — the old seed-brightness
+    # auto-inversion is gone: the seed contributes HUE only (2026-07-16 live smoke:
+    # a bright seed flipped the whole bar light, surprising the user).
+    if test "$polarity" = light
         set -l swap $l0
         set l0 $l1
         set l1 $swap
@@ -763,7 +767,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
         set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
-        set tpal (__tmux_lives_theme_palette $seed "$theme" (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) $tl[1] $tl[2] (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear))
+        set tpal (__tmux_lives_theme_palette $seed "$theme" (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) $tl[1] $tl[2] (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_polarity dark))
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -800,8 +804,9 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
+    set -l pol (__tmux_lives_key tmux_lives_theme_polarity dark)
     for scheme in (__tmux_lives_theme_schemes)
-        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $tl[1] $tl[2] $shape $ease)
+        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $tl[1] $tl[2] $shape $ease $pol)
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -832,7 +837,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
         set -l tease (__tmux_lives_key tmux_lives_theme_ease linear)
         set -l trange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92)
-        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   range: $trange"
+        set -l tpol (__tmux_lives_key tmux_lives_theme_polarity dark)
+        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   range: $trange   polarity: $tpol"
         return 0
     end
     set -l scheme; set -l have_scheme 0
@@ -841,6 +847,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     set -l shape; set -l have_shape 0
     set -l ease; set -l have_ease 0
     set -l range; set -l have_range 0
+    set -l pol; set -l have_pol 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -863,6 +870,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 set i (math $i + 1); set ease $argv[$i]; set have_ease 1
             case --range
                 set i (math $i + 1); set range $argv[$i]; set have_range 1
+            case --polarity
+                set i (math $i + 1); set pol $argv[$i]; set have_pol 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1
         end
@@ -916,6 +925,14 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
             return 1
         end
     end
+    if test $have_pol -eq 1
+        switch "$pol"
+            case dark light
+            case '*'
+                echo "tmux-lives setup theme: invalid polarity '$pol' — valid: dark, light" >&2
+                return 1
+        end
+    end
     if test $have_scheme -eq 1
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
         if test -z "$seed"
@@ -928,6 +945,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and set -U tmux_lives_theme_shape $shape
     test $have_ease -eq 1; and set -U tmux_lives_theme_ease $ease
     test $have_range -eq 1; and set -U tmux_lives_theme_range $range
+    test $have_pol -eq 1; and set -U tmux_lives_theme_polarity $pol
     test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
@@ -939,6 +957,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and echo "tmux-lives: theme shape set to $shape"
     test $have_ease -eq 1; and echo "tmux-lives: theme ease set to $ease"
     test $have_range -eq 1; and echo "tmux-lives: theme range set to $range"
+    test $have_pol -eq 1; and echo "tmux-lives: theme polarity set to $pol"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
@@ -1050,6 +1069,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --shape <s>           chroma arc|flat (default: arc)" \
         "      --ease <e>            hue easing linear|cubic (default: linear)" \
         "      --range <L0,L1>       lightness range (default: 0.20,0.92)" \
+        "      --polarity <p>        bar polarity dark|light (default: dark)" \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 

@@ -190,6 +190,7 @@ t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--range <L0,L1>*' -- $h; end; and echo yes; or echo no)
+t "setup help documents --polarity" yes (string match -q '*--polarity*dark|light*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
 
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
@@ -770,9 +771,12 @@ for i in (seq 2 7)
     test (_tl2 $TPAL1[$prev]) -lt (_tl2 $TPAL1[$i]); or set _mono_ok 0
 end
 t "theme_palette L strictly ascending (dark seed)" 1 $_mono_ok
-# light seed (OKLCH L >= 0.60): ramp inverts — bar light, text dark (the required text fix)
+# polarity is explicit: a bright seed still ramps DARK by default; light swaps ends
 set -g TPALL (__tmux_lives_theme_palette "#e8e0d0" mono 0 balanced 0.20 0.92 arc linear)
-t "light seed inverts the ramp" 1 (test (_tl2 $TPALL[1]) -gt (_tl2 $TPALL[7]); and echo 1; or echo 0)
+t "bright seed still ramps dark by default" 1 (test (_tl2 $TPALL[1]) -lt (_tl2 $TPALL[7]); and echo 1; or echo 0)
+set -g TPLIGHT (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear light)
+t "polarity light inverts the ramp" 1 (test (_tl2 $TPLIGHT[1]) -gt (_tl2 $TPLIGHT[7]); and echo 1; or echo 0)
+t "polarity dark == default" (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear dark)) (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear))
 functions -e _tl2
 # guards
 t "theme_palette non-hex seed -> empty" 0 (count (__tmux_lives_theme_palette colour236 mono 0 balanced 0.20 0.92 arc linear))
@@ -805,6 +809,10 @@ t "on: claude coral stays (semantic mark)" yes (string match -q "*set -g @tmux_l
 set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic 0.30,0.85 | string collect)
 set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid 0.30 0.85 flat cubic)
 t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
+# polarity flows through argv 19
+set -g TPOL (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' light | string collect)
+set -g TPOLPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear light)
+t "fragment argv19 polarity reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TPOLPAL[6]'*" -- "$TPOL"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
 set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k warm | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
@@ -815,6 +823,7 @@ t "off token renders legacy status-style" yes (string match -q '*set -g status-s
 t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_polarity" yes (string match -q '*tmux_lives_theme_polarity dark*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null
@@ -831,7 +840,7 @@ command tmux -L $thfsock kill-server 2>/dev/null; rm -f /tmp/tli-thfrag-$fish_pi
 # the v2 engine itself is gone (task 2), but these names are left in the save/restore
 # list defensively — harmless if untouched, and cheap insurance against a future
 # regression that starts reading them again.
-set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role
+set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_theme_polarity tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role
 set -g _th_had
 set -g _th_saved
 for n in $_th_names
@@ -868,6 +877,7 @@ set -q TMUX; and set _tmx_had 1; and set -g _tmx_save $TMUX
 set -e TMUX
 set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+t "theme no-arg prints polarity" yes (string match -q '*polarity: dark*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
@@ -879,6 +889,7 @@ t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 
 t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
 t "theme: inverted range rejected" 1 (__tmux_lives_theme_cmd --range 0.9,0.2 2>/dev/null; echo $status)
+t "theme: invalid polarity rejected" 1 (__tmux_lives_theme_cmd --polarity dim 2>/dev/null; echo $status)
 set -e tmux_lives_bar_color
 t "theme: a scheme without a seed refuses" 1 (__tmux_lives_theme_cmd warm 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
@@ -910,6 +921,13 @@ t "color --apply routes through the theme" "bg=$THP[1],fg=$THP[5]" (command tmux
 __tmux_lives_theme_cmd --phase 90 >/dev/null
 set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid 0.20 0.92 arc linear)
 t "lone knob re-applies live" "$THP90[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+__tmux_lives_theme_cmd --polarity light >/dev/null
+t "theme cmd persists polarity" light "$tmux_lives_theme_polarity"
+set -g THPL (__tmux_lives_theme_palette '#485b3c' warm 90 vivid 0.20 0.92 arc linear light)
+t "polarity reaches apply-live" "$THPL[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# reset to the default so the later default-dark assertions (off/mono) hold
+set -e tmux_lives_theme_polarity
+__tmux_lives_theme_apply_live
 # a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
 __tmux_lives_theme_cmd --phase 100000360 >/dev/null
 t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
