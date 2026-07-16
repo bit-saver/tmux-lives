@@ -74,10 +74,7 @@ seed — cohesive by construction. The v2 cap engine keeps working until you opt
 
 Schemes: `mono` (calm default) · `warm` · `cool` · `span` · `wide` · `aurora` ·
 `sunset` · `fire` · `complement` · `full`. Knobs: `--vividness soft|balanced|vivid`,
-`--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. Every role is a live
-`@option` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with
-`tmux set -g @tmux_lives_… '#hex'`, no re-render. ShellFish tab colour + the picker
-move to the gradient map in Phases 2-3.
+`--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. Roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`, no re-render; the `windows` colour rides `status-style fg`. ShellFish tab colour + the picker move to the gradient map in Phases 2-3.
 
 ### In-tmux command surface (launcher + scratch split + resize)
 
