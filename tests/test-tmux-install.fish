@@ -862,7 +862,8 @@ function __tmux_lives_write_fragment; end
 set -g _tmx_had 0
 set -q TMUX; and set _tmx_had 1; and set -g _tmx_save $TMUX
 set -e TMUX
-t "theme no-arg outside tmux prints state" yes (string match -q 'theme: *' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+set -e tmux_lives_theme
+t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
