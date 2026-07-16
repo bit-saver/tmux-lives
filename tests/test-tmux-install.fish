@@ -354,8 +354,30 @@ command tmux -L $apsock kill-server 2>/dev/null
 # help + verify mention color
 t "setup help lists color" 1 (string match -q '*color*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 t "setup help documents color --apply/-a" 1 (string match -q '*-a*reapply*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+# verify's color lines read the LIVE universals — pin them so the asserts are
+# machine-independent (found 2026-07-16: an aborted earlier run had leaked a cleared
+# bar_color, and these two tests were the only ones that noticed).
+set -g _vfy_names tmux_lives_bar_color tmux_lives_status_invert
+set -g _vfy_had
+set -g _vfy_saved
+for n in $_vfy_names
+    if set -q $n
+        set -a _vfy_had 1
+        set -a _vfy_saved "$$n"
+    else
+        set -a _vfy_had 0
+        set -a _vfy_saved ""
+    end
+    set -e $n
+end
+set -U tmux_lives_bar_color '#5793f0'
+set -U tmux_lives_status_invert 0
 t "verify reports bar color" 1 (string match -q '*bar color*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
 t "verify reports status direction" 1 (string match -q '*status bar:*' -- (__tmux_lives_status_lines | string collect); and echo 1; or echo 0)
+for i in (seq (count $_vfy_names))
+    set -e $_vfy_names[$i]
+    test $_vfy_had[$i] -eq 1; and set -U $_vfy_names[$i] $_vfy_saved[$i]
+end
 t "help color row mentions -i" 1 (string match -q '*color*-i*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
 
 # baseline file: seed-once + conf add
