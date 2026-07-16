@@ -1432,10 +1432,16 @@ function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claud
     or tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
 end
 
+function __tcz_tab_color --argument-names fallback --description 'effective ShellFish tab colour: the live tabs-role @option (@tmux_lives_tabs_color, set by the themed fragment) when non-empty, else <fallback> (the baked seed / legacy)'
+    set -l eff (tmux show -gv @tmux_lives_tabs_color 2>/dev/null)
+    test -n "$eff"; and echo $eff; or echo $fallback
+end
+
 function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish -> set bar color; else re-apply the non-ShellFish baseline'
     if __tcz_client_is_shellfish $pid
-        __tcz_emit_barcolor $tty $color
-        __tcz_emit_set $tty color $color
+        set -l eff (__tcz_tab_color "$color")
+        __tcz_emit_barcolor $tty $eff
+        __tcz_emit_set $tty color $eff
         __tcz_retitle
     else
         # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
@@ -1446,6 +1452,7 @@ function __tcz_on_attach --argument-names pid tty color --description 'on-attach
 end
 
 function __tcz_recolor --argument-names color mode --description 'emit the ShellFish bar-color OSC to attached ShellFish clients. mode=dedup emits only when the color changed for that tty; else force. Updates the per-tty cache on emit.'
+    set color (__tcz_tab_color "$color")
     test -n "$color"; or return 0
     set -l TAB (printf '\t')
     for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}" 2>/dev/null)

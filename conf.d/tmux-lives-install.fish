@@ -703,13 +703,13 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
         end
         set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
         test -f $cat; and fish --no-config $cat recolor $c 2>/dev/null
-        echo "tmux-lives: reapplied bar color $c"
+        echo "tmux-lives: reapplied seed $c"
         return 0
     end
     if test (count $argv) -eq 0
         set -l c (__tmux_lives_key tmux_lives_bar_color '')
         set -l dir lighter; test (__tmux_lives_key tmux_lives_status_invert 0) = 1; and set dir darker
-        test -n "$c"; and echo "bar color: $c (status bar: $dir)"; or echo "bar color: (none)"
+        test -n "$c"; and echo "seed: $c (status bar: $dir)"; or echo "seed: (none)"
         return 0
     end
     if test $have_color -eq 0
@@ -734,9 +734,9 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
     test -f $cat; and fish --no-config $cat recolor $color 2>/dev/null
     if test -n "$color"
         set -l dir lighter; test $invert -eq 1; and set dir darker
-        echo "tmux-lives: bar color set to $color (ShellFish tab; status bar $dir)"
+        echo "tmux-lives: seed set to $color (drives the theme + ShellFish tabs; status bar $dir)"
     else
-        echo "tmux-lives: bar color cleared"
+        echo "tmux-lives: seed cleared"
     end
 end
 

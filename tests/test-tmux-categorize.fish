@@ -151,6 +151,24 @@ set -e tmux_lives_baseline_conf
 rm -f $oaf $oabase
 
 # ---------------------------------------------------------------------
+# tabs-role resolution (v3 Phase 2): __tcz_tab_color resolves the live
+# @tmux_lives_tabs_color option (seeded by the themed fragment, tabs-role
+# sample when themed / '' under the legacy look) over the baked-in
+# fallback; __tcz_recolor/__tcz_on_attach route through it.
+# ---------------------------------------------------------------------
+fresh_server
+command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
+t "tab_color falls back when option unset" "#999999" (__tcz_tab_color "#999999")
+command tmux set -g @tmux_lives_tabs_color '#6e6e22' 2>/dev/null
+t "tab_color prefers the live tabs role" "#6e6e22" (__tcz_tab_color "#999999")
+command tmux set -g @tmux_lives_tabs_color '' 2>/dev/null
+t "tab_color: empty option falls back" "#999999" (__tcz_tab_color "#999999")
+command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
+command tmux -L $sock kill-server 2>/dev/null
+t "recolor resolves via tab_color" yes (string match -q '*__tcz_tab_color*' -- (functions __tcz_recolor | string collect); and echo yes; or echo no)
+t "on-attach resolves via tab_color" yes (string match -q '*__tcz_tab_color*' -- (functions __tcz_on_attach | string collect); and echo yes; or echo no)
+
+# ---------------------------------------------------------------------
 # Pure: name helpers
 # ---------------------------------------------------------------------
 t "slug: spaces -> dashes"        "TMUX-Setup-2"      (__tcz_slugify "TMUX Setup 2")
@@ -847,7 +865,16 @@ set -g DEDUP_color ''
 function tmux
     switch "$argv[1]"
         case list-clients; printf '111\t/dev/pts/9\n'
-        case show; echo $DEDUP_color            # show -gv @..._color
+        case show
+            # __tcz_recolor now resolves @tmux_lives_tabs_color (v3 Phase 2) via
+            # __tcz_tab_color BEFORE the per-tty emit-cache read below -- keep the
+            # two `show -gv` reads distinct or the tabs-role lookup would alias
+            # onto $DEDUP_color (the per-tty cache) and skew this dedup test.
+            if test "$argv[-1]" = @tmux_lives_tabs_color
+                echo ''
+            else
+                echo $DEDUP_color            # show -gv @..._color (per-tty cache)
+            end
         case set; set -g DEDUP_color "$argv[-1]"  # set -g @..._color <val>
         case '*'
     end

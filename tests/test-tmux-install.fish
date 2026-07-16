@@ -267,11 +267,14 @@ if set -q tmux_lives_status_invert
 end
 set -e tmux_lives_status_invert
 t "color: empty when unset" 1 (string match -q '*none*' -- (__tmux_lives_color_cmd); and echo 1; or echo 0)
-__tmux_lives_color_cmd "#ff8800" >/dev/null
+t "color show: seed wording when unset" "seed: (none)" (__tmux_lives_color_cmd)
+set -l _setmsg (__tmux_lives_color_cmd "#ff8800")
 t "color: stored in universal var" "#ff8800" "$tmux_lives_bar_color"
 t "color: baked into fragment" 1 (string match -q '*#ff8800*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
-__tmux_lives_color_cmd "" >/dev/null
+t "color: set message says seed" "tmux-lives: seed set to #ff8800 (drives the theme + ShellFish tabs; status bar lighter)" "$_setmsg"
+set -l _clearmsg (__tmux_lives_color_cmd "")
 t "color: cleared to empty" "" "$tmux_lives_bar_color"
+t "color: cleared message says seed" "tmux-lives: seed cleared" "$_clearmsg"
 __tmux_lives_color_cmd "#1f6feb" -i >/dev/null
 t "color -i: invert var = 1"     "1" "$tmux_lives_status_invert"
 t "color -i: fragment darker"    1 (string match -q '*status-style bg=#1753b0*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
@@ -279,6 +282,7 @@ __tmux_lives_color_cmd "#1f6feb" >/dev/null
 t "color no -i: invert var = 0"  "0" "$tmux_lives_status_invert"
 t "color: fragment lighter"      1 (string match -q '*status-style bg=#5793f0*' -- (cat $cfrag | string collect); and echo 1; or echo 0)
 t "color show: reports lighter"  1 (string match -q '*status bar: lighter*' -- (__tmux_lives_color_cmd | string collect); and echo 1; or echo 0)
+t "color show: seed label with value" "seed: #1f6feb (status bar: lighter)" (__tmux_lives_color_cmd)
 t "color -i no color: rc1"       1 (__tmux_lives_color_cmd -i >/dev/null 2>&1; echo $status)
 __tmux_lives_color_cmd "" >/dev/null
 t "color: rejects unsafe value (rc1)" 1 (__tmux_lives_color_cmd "bad';x" >/dev/null 2>&1; echo $status)
@@ -336,8 +340,9 @@ set -U tmux_lives_theme off
 set -e tmux_lives_bar_color; set -e tmux_lives_status_invert
 t "color --apply with no color: rc1" 1 (__tmux_lives_color_cmd --apply >/dev/null 2>&1; echo $status)
 set -U tmux_lives_bar_color "#1f6feb"; set -U tmux_lives_status_invert 0
-__tmux_lives_color_cmd --apply >/dev/null
+set -l _applymsg (__tmux_lives_color_cmd --apply)
 t "color --apply sets derived status-style live" 1 (string match -q '*bg=#5793f0*' -- (command tmux -L $apsock show -gv status-style); and echo 1; or echo 0)
+t "color --apply message says reapplied seed" "tmux-lives: reapplied seed #1f6feb" "$_applymsg"
 t "color -a rejects an extra color arg (rc1)" 1 (__tmux_lives_color_cmd -a "#abc" >/dev/null 2>&1; echo $status)
 set -e tmux_lives_bar_color; set -e tmux_lives_status_invert; set -e tmux_lives_theme
 if test $_abc_had -eq 1; set -U tmux_lives_bar_color $_abc_val; end
