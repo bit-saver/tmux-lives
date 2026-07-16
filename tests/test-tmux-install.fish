@@ -171,26 +171,22 @@ t "help documents --status-pos-key" yes (string match -q '*--status-pos-key*' --
 t "help documents --status-vis-key" yes (string match -q '*--status-vis-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_lives_setup_help_lines); set -l w (string length --visible -- $l); test $w -gt $mx; and set mx $w; end; test (math "$mx + 4") -le 80; and echo yes; or echo no)
 
-# dedicated M-k cap-picker keybind (argv[15] = cap_key)
-set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k | string collect)
-t "fragment bakes the cap-key bind" 1 (string match -q "*bind-key -n M-k display-popup*cap-picker*" -- "$CK"; and echo 1; or echo 0)
-set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb '' | string collect)
-t "empty cap-key omits the bind" 1 (string match -q '*cap-picker*' -- "$CK0"; and echo 0; or echo 1)
+# dedicated M-k theme-picker keybind (argv[12] = theme_key)
+set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
+t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 20 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
+set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block '' | string collect)
+t "empty theme-key omits the bind" 1 (string match -q '*theme-picker*' -- "$CK0"; and echo 0; or echo 1)
 
-# Task 7 — cap-picker popup grown to the taller v2 layout (-w 44 -h 22).
-# Leaves the modal launcher (-w 34 -h 15) alone.
-set -g MK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
-t "M-k bind is taller" 1 (string match -q '*display-popup -B -E -w 44 -h 22*cap-picker*' -- "$MK"; and echo 1; or echo 0)
-
-set -e tmux_lives_cap_key
-functions -c __tmux_lives_write_fragment __wf5_bak
+set -e tmux_lives_theme_key
+functions -c __tmux_lives_write_fragment __wftk_bak
 function __tmux_lives_write_fragment; end
-__tmux_lives_keys_cmd --cap-key M-k
-t "keys --cap-key persists" M-k "$tmux_lives_cap_key"
-functions -e __tmux_lives_write_fragment; functions -c __wf5_bak __tmux_lives_write_fragment; functions -e __wf5_bak
-set -e tmux_lives_cap_key
+__tmux_lives_keys_cmd --theme-key M-j
+t "keys --theme-key persists" M-j "$tmux_lives_theme_key"
+t "keys rejects the retired --cap-key" 1 (__tmux_lives_keys_cmd --cap-key M-k 2>/dev/null; echo $status)
+functions -e __tmux_lives_write_fragment; functions -c __wftk_bak __tmux_lives_write_fragment; functions -e __wftk_bak
+set -e tmux_lives_theme_key
 
-t "setup help documents --cap-key" yes (string match -q '*--cap-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
 t "fragment has client-attached hook" 1 (string match -q '*client-attached*' -- "$fragbc"; and echo 1; or echo 0)
@@ -776,7 +772,7 @@ t "theme_palette empty knobs = defaults" (string join ' ' $TPAL1) (string join '
 
 # --- theme engine v3: fragment renders the gradient-map roles ----------------
 # theme OFF (argv 17 absent): v2 values + neutral role seeds
-set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent | string collect)
+set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
 t "off: v2 status-style survives" yes (string match -q '*set -g status-style bg=#*' -- "$TOFF"; and echo yes; or echo no)
 t "off: sep_fg seeded default"  yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: text_fg seeded default" yes (string match -q '*set -g @tmux_lives_text_fg default*' -- "$TOFF"; and echo yes; or echo no)
@@ -784,7 +780,7 @@ t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_f
 t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
 # theme ON: every role @option carries its gradient sample
-set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm '' '' '' '' '' | string collect)
+set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' | string collect)
 set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear)
 t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
@@ -796,19 +792,20 @@ t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '
 t "on: mark_fg = cap sample" yes (string match -q "*set -g @tmux_lives_mark_fg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
 t "on: claude coral stays (semantic mark)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$TON"; and echo yes; or echo no)
-# knobs flow through argv 18-22
-set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm 90 vivid flat cubic 0.30,0.85 | string collect)
+# knobs flow through argv 14-18
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic 0.30,0.85 | string collect)
 set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid 0.30 0.85 flat cubic)
 t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
-set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent warm | string collect)
+set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k warm | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
 t "on+no seed: role seeds default" yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TBAD"; and echo yes; or echo no)
 # 'off' token renders the legacy branch; write_fragment's default is mono
-set -g TOFFTOK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block mono vivid ryb M-k accent off | string collect)
+set -g TOFFTOK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k off | string collect)
 t "off token renders legacy status-style" yes (string match -q '*set -g status-style bg=#*' -- "$TOFFTOK"; and string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TOFFTOK"; and echo yes; or echo no)
 t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null

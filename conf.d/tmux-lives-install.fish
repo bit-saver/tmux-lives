@@ -24,22 +24,13 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusposkey $argv[9]   # root-table status-position toggle ('' = no bind)
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
-    set -l cap $argv[12]   # cap-color scheme token (mono|complementary|analogous+/-|split+/-|triadic+/-|#rrggbb); '' = mono
-    set -l vividness $argv[13]   # OKLCH palette accent-chroma tier (subtle|balanced|vivid); '' = vivid
-    set -l wheel $argv[14]   # OKLCH palette hue wheel (ryb|rgb); '' = ryb
-    set -l capkey $argv[15]   # root-table cap-picker key ('' = no bind)
-    set -l caprole $argv[16]  # palette role the powerline cap renders (dim|muted|accent); '' = accent
-    test -n "$caprole"; or set caprole accent
-    test -n "$vividness"; or set vividness vivid
-    test -n "$wheel"; or set wheel ryb
-    set -l theme $argv[17]        # v3 gradient-map scheme ('' = theme off -> the v2 path below)
-    set -l themephase $argv[18]   # hue phase in degrees ('' = 0)
-    set -l themeviv $argv[19]     # soft|balanced|vivid ('' = balanced)
-    set -l themeshape $argv[20]   # arc|flat ('' = arc)
-    set -l themeease $argv[21]    # linear|cubic ('' = linear)
-    set -l themerange $argv[22]   # "L0,L1" ('' = 0.20,0.92)
-    # 'off' (and any unusable seed) renders the legacy branch; the effective default
-    # (mono) is supplied by __tmux_lives_write_fragment, not here.
+    set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
+    set -l theme $argv[13]        # v3 scheme ('' or 'off' = legacy; write_fragment passes the effective default mono)
+    set -l themephase $argv[14]   # hue phase in degrees ('' = 0)
+    set -l themeviv $argv[15]     # soft|balanced|vivid ('' = balanced)
+    set -l themeshape $argv[16]   # arc|flat ('' = arc)
+    set -l themeease $argv[17]    # linear|cubic ('' = linear)
+    set -l themerange $argv[18]   # "L0,L1" ('' = 0.20,0.92)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -81,7 +72,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # continuum prepends its autosave hook when TPM runs. The user's file sets only the
     # @var, never status-right, so a re-source can't wipe the tick/continuum.
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
-    # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[17] the whole bar
+    # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[13] the whole bar
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
     # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
     set -l tl (__tmux_lives_theme_lrange "$themerange")
@@ -167,7 +158,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "}"
     end
     test -n "$scratchkey"; and set -a f "bind-key -n $scratchkey run-shell 'fish --no-config $cat scratch'"
-    test -n "$capkey"; and set -a f "bind-key -n $capkey display-popup -B -E -w 44 -h 22 -- fish --no-config $cat cap-picker '#{client_name}'"
+    test -n "$themekey"; and set -a f "bind-key -n $themekey display-popup -B -E -w 52 -h 20 -- fish --no-config $cat theme-picker '#{client_name}'"
     if test -n "$resizekey"
         set -a f "bind-key -n $resizekey run-shell \"fish --no-config $cat resize-enter '#{client_name}'\""
         set -a f "bind-key -T tmuxlives-resize Left  { run-shell \"fish --no-config $cat scratch-resize L\" ; switch-client -T tmuxlives-resize }"
@@ -260,7 +251,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_cap mono) (__tmux_lives_key tmux_lives_cap_vividness vivid) (__tmux_lives_key tmux_lives_cap_wheel ryb) (__tmux_lives_key tmux_lives_cap_key M-k) (__tmux_lives_key tmux_lives_cap_role accent) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -441,8 +432,8 @@ function __tmux_lives_keys_cmd --description 'tmux-lives setup keys [-p K] [-s K
                 set -U tmux_lives_status_pos_key $argv[2]; set changed 1; set -e argv[1..2]
             case --status-vis-key
                 set -U tmux_lives_status_vis_key $argv[2]; set changed 1; set -e argv[1..2]
-            case --cap-key
-                set -U tmux_lives_cap_key $argv[2]; set changed 1; set -e argv[1..2]
+            case --theme-key
+                set -U tmux_lives_theme_key $argv[2]; set changed 1; set -e argv[1..2]
             case '*'
                 echo "tmux-lives setup keys: unknown option '$argv[1]'" >&2; return 1
         end
@@ -1040,7 +1031,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --resize-key <key>    scratch resize mode (default: M-r; '' off)" \
         "      --status-pos-key <key> status bar top/bottom (default: C-M-a; '' off)" \
         "      --status-vis-key <key> status bar hide/show  (default: C-M-s; '' off)" \
-        "      --cap-key <key>       cap-color picker (default: M-k; '' off)" \
+        "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
         'theme [<scheme>|list|off]   gradient-map bar theme; --phase/--vividness/…' \
