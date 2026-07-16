@@ -1,7 +1,7 @@
 # Theme engine v3 — gradient-map design
 
 **Date:** 2026-07-16
-**Status:** approved (design); pending spec review
+**Status:** approved — decisions resolved 2026-07-16; ready for implementation planning
 **Supersedes:** the cap-color OKLCH v2 engine (geometric hue-harmony schemes + `cap_role`)
 **Research:** [[palette-design-findings]] (100-agent verified study + local OKLCH measurement + colorhunt.co/gradient analysis, n=120)
 
@@ -43,7 +43,7 @@ Given a seed and a scheme, the gradient is three coordinated functions of `t`:
 
 - **Lightness** `L(t) = L0 + (L1−L0)·t` — monotonic ramp. Default `L0=0.20`, `L1=0.92`. This is the cohesion guarantee and is **never** violated (no role may take a colour of the wrong lightness — see §Rotation limit).
 - **Hue** `H(t) = Hstart + (Hend−Hstart)·ease(t) + phase` — sweeps the arc across the ramp. `ease` is identity by default; an eased variant (e.g. `t³`) concentrates the hue shift toward the light end (matches the measured colorhunt reference `H: 141→130→130→83`).
-- **Chroma** `C(t)` — an **arc with floors**: rises from `C0` at the dark end to `Cmax` at the peak, falls to `C1` at the light end. Default `C0=0.030`, `Cmax=0.120`, `C1=0.075`, peak at `t≈0.62` (near `cap`, making the cap the most-saturated point = the accent). Floors keep the ends tinted, never pure grey.
+- **Chroma** `C(t)` — an **arc with floors**: rises from `C0` at the dark end to `Cmax` at the peak, falls to `C1` at the light end. Default `C0=0.030`, `Cmax=0.120`, `C1=0.075`, peak at `t≈0.5` (mid-ramp, matching the measured colorhunt shape). Floors keep the ends tinted, never pure grey. **The `cap` is a plain sample** — no special chroma bump (user decision #2); the cap is the accent *element*, but it reads from its hue and position, not from extra saturation.
 
 Each role samples `(L(t), C(t), H(t))` at its own `t`, then OKLCH→sRGB with the existing gamut clamp. Seven roles → seven colours.
 
@@ -125,13 +125,13 @@ Large enough to build in stages (each shippable, subagent-driven, TDD):
 - **Phase 3 — picker redesign.** The gradient-map picker (scheme/phase/knobs, strip + markers).
 - **Phase 4 (optional) — harmonize mode indicators**, per-hue lightness nudge, additional presets.
 
-## Open decisions (for spec review)
+## Resolved decisions (spec review, 2026-07-16)
 
-1. **Role set + `t` anchors** — is the 7-role set right, and the `t` order/values? Notably: should `cap` be the lightest/most-saturated point rather than `t=0.70`?
-2. **Cap chroma bump** — keep the chroma peak at the cap (accent pops) or let the cap be a plain sample?
-3. **Default scheme** on first install — `mono` (calm) vs something with visible colour (`span`)?
-4. **Mode indicators** — keep static, or harmonize toward the seed by default?
-5. The user is **withholding one further thought** until seeing Phase 1 live — expect one more tweak after the first real render.
+1. **Role set + `t` anchors** — the 7-role set + lightness order is **approved as-is**. `active` may still fold into `windows`/`text` during the build if it proves redundant; that's an implementation call, not a design change.
+2. **Cap chroma** — **plain sample**, no chroma bump. The cap is not the most-saturated point; the chroma arc peaks mid-ramp (`t≈0.5`) independent of the cap.
+3. **Default scheme** on first install — **`mono`**.
+4. **Mode indicators** — **keep static** (fixed amber/orange). Harmonize-toward-seed is deferred to Phase 4 as an optional knob, off by default. Rationale: a mode alarm must break the theme; a subtle scheme could otherwise make "prefix armed" easy to miss.
+5. **User's withheld thought — DO NOT pre-solve.** It is about **colour placement and colour ordering** (which hue lands on which element, and the sequence). The user wants to see Phase 1 live before addressing it. Expect a follow-up tweak here after the first real render; leave the role→`t` mapping and the hue-direction easily adjustable so it can be tuned then. This likely interacts with role `t` anchors (#1) and phase/direction.
 
 ## Out of scope
 
