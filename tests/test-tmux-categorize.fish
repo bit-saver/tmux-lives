@@ -1139,6 +1139,13 @@ t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_theme_picker | string collect); and string match -q '*2026l*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
+# perf fix: the picker must never spawn a fish subprocess per keypress —
+# the engine is sourced in-process at open. Extract the function body
+# (top-level `end` closes it; nested helpers' `end`s are indented).
+set -l pbody (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "guard: no fish -c inside the picker" 0 (string match -q '*fish -c*' -- "$pbody"; and echo 1; or echo 0)
+t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
+
 # --- Task 6: picker layout A — 26-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)

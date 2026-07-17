@@ -1322,9 +1322,14 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
 end
 
 function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), b seed (RGB sliders; t drops to typed hex), a apply preview (no save), ⏎ save (via the CLI, silenced), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows.'
-    # This script runs under fish --no-config: all engine math happens in config-loaded
-    # fish -c subprocesses (the cap-picker pattern). One init read + one batch per knob
-    # change; ←→ recomputes only the cursor scheme (net-delta coalesced).
+    # This script runs under fish --no-config: the install-side engine is sourced
+    # ONCE below, and every palette/state/apply call runs in-process from there on
+    # (no per-keypress subprocess spawn + full config reload — the 2026-07-17
+    # live lag, brutal on macOS). ←→ recomputes only the cursor scheme
+    # (net-delta coalesced). This file's only top-level statement is a guarded
+    # pi global, so sourcing it here is side-effect-free.
+    set -l __tcz_engine "$__fish_config_dir/conf.d/tmux-lives-install.fish"
+    test -r $__tcz_engine; and source $__tcz_engine
     set -l seed ''
     set -l theme mono
     set -l phase 0
@@ -1337,28 +1342,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l seedfg '#f5f5f5'
     set -l previewed 0
     function __tcz_thp_init --no-scope-shadowing
-        set -l init (fish -c '
-            echo (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
-            echo (__tmux_lives_key tmux_lives_theme mono)
-            echo (__tmux_lives_key tmux_lives_theme_phase 0)
-            echo (__tmux_lives_key tmux_lives_theme_vividness balanced)
-            echo (__tmux_lives_key tmux_lives_theme_shape arc)
-            echo (__tmux_lives_key tmux_lives_theme_ease linear)
-            echo (__tmux_lives_key tmux_lives_theme_contrast auto)
-            echo (__tmux_lives_key tmux_lives_theme_rotate 0)
-            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-            echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))' 2>/dev/null)
-        test (count $init) -ge 1; and set seed $init[1]
-        test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
-        test (count $init) -ge 3; and test -n "$init[3]"; and set phase $init[3]
-        test (count $init) -ge 4; and test -n "$init[4]"; and set viv $init[4]
-        test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
-        test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
-        test (count $init) -ge 7; and test -n "$init[7]"; and set contrast $init[7]
-        test (count $init) -ge 8; and test -n "$init[8]"; and set rotate $init[8]
+        set seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
+        set theme (__tmux_lives_key tmux_lives_theme mono)
+        set phase (__tmux_lives_key tmux_lives_theme_phase 0)
+        set viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
+        set shape (__tmux_lives_key tmux_lives_theme_shape arc)
+        set ease (__tmux_lives_key tmux_lives_theme_ease linear)
+        set contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
+        set rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
         set legacy ''
-        test (count $init) -ge 9; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[9]")
-        test (count $init) -ge 10; and test -n "$init[10]"; and set seedfg $init[10]
+        set -l ds (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
+        test -n "$ds"; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$ds")
+        set seedfg '#f5f5f5'
+        set -l sfg (__tmux_lives_contrast_fg "$seed")
+        test -n "$sfg"; and set seedfg $sfg
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1366,20 +1363,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l pals
     set -l fgs
     set -l tabsfgs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 10 palettes + cap fgs + tabs fgs in ONE config-loaded fish -c'
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 10 palettes + cap fgs + tabs fgs, in-process'
         set toks; set pals; set fgs; set tabsfgs
-        for line in (fish -c '
-            for tok in (__tmux_lives_theme_schemes)
-                set -l p (__tmux_lives_theme_palette $argv[1] $tok $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7])
-                test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
-                printf "%s|%s|%s|%s\n" $tok (string join " " $p) (__tmux_lives_contrast_fg "$p[6]") (__tmux_lives_contrast_fg "$p[3]")
-            end' $seed $phase $viv $shape $ease $contrast $rotate 2>/dev/null)
-            set -l f (string split '|' -- $line)
-            test -n "$f[1]"; or continue
-            set -a toks $f[1]
-            set -a pals "$f[2]"
-            set -a fgs "$f[3]"
-            set -a tabsfgs "$f[4]"
+        for tok in (__tmux_lives_theme_schemes)
+            set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast $rotate)
+            test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
+            set -a toks $tok
+            # capture-and-quote: __tmux_lives_contrast_fg can return EMPTY, and
+            # `set -a fgs (…)` with empty output appends NOTHING — that would
+            # desync toks/pals/fgs/tabsfgs (all four must stay index-aligned).
+            set -l pj (string join " " $p)
+            set -a pals "$pj"
+            set -l cf (__tmux_lives_contrast_fg "$p[6]")
+            set -l tf (__tmux_lives_contrast_fg "$p[3]")
+            set -a fgs "$cf"
+            set -a tabsfgs "$tf"
         end
     end
     function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
@@ -1399,7 +1397,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
                     if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
                         set cand "#"(string lower -- $b6)
-                        set -l ro (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f %.2f %.3f" $ok[3] $ok[1] $ok[2]' $cand 2>/dev/null)
+                        set -l rgb (__tmux_lives_hex_to_rgb01 $cand)
+                        set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+                        set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
                         set -l rop (string split ' ' -- "$ro")
                         set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
                     end
@@ -1415,7 +1415,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                             test -n "$buf"; and set buf (string sub -e -1 -- $buf)
                         case enter
                             if test -n "$cand"
-                                fish -c 'tmux-lives setup color $argv[1]' "$cand" >/dev/null 2>&1
+                                tmux-lives setup color "$cand" >/dev/null 2>&1
                                 __tcz_thp_init
                                 __tcz_thp_reload
                                 set note "seed applied: $seed"
@@ -1452,7 +1452,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         while test $sliding -eq 1
             set -l hex (printf '#%02x%02x%02x' $r $g $b)
             if test $stale -eq 1
-                set -l ro (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f %.2f %.3f" $ok[3] $ok[1] $ok[2]' $hex 2>/dev/null)
+                set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
+                set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+                set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
                 set -l rop (string split ' ' -- "$ro")
                 set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
                 set stale 0
@@ -1504,7 +1506,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     __tcz_thp_hexentry
                     set sliding 0
                 case enter
-                    fish -c 'tmux-lives setup color $argv[1]' (printf '#%02x%02x%02x' $r $g $b) >/dev/null 2>&1
+                    tmux-lives setup color (printf '#%02x%02x%02x' $r $g $b) >/dev/null 2>&1
                     __tcz_thp_init
                     __tcz_thp_reload
                     set note "seed applied: $seed"
@@ -1694,7 +1696,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case a
                 set -l ptok off
                 test $sel -lt $n; and begin; set -l pi (math $sel + 1); set ptok $toks[$pi]; end
-                fish -c '__tmux_lives_theme_apply_live $argv' $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
+                __tmux_lives_theme_apply_live $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
                 set previewed 1
                 set note "● previewing $ptok — ⏎ save · esc revert"
             case enter
@@ -1706,7 +1708,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 break
             case cancel
                 if test $previewed -eq 1
-                    fish -c __tmux_lives_theme_apply_live >/dev/null 2>&1
+                    __tmux_lives_theme_apply_live >/dev/null 2>&1
                 end
                 break
         end
@@ -1720,9 +1722,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     stty $saved
     printf '\e[?25h\e[2J\e[H'
     if test "$apply" = off
-        fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
+        tmux-lives setup theme off >/dev/null 2>&1
     else if test -n "$apply"
-        fish -c 'tmux-lives setup theme $argv[1] --phase $argv[2] --vividness $argv[3] --shape $argv[4] --ease $argv[5] --contrast $argv[6] --rotate $argv[7]' "$apply" "$phase" "$viv" "$shape" "$ease" "$contrast" "$rotate" >/dev/null 2>&1
+        tmux-lives setup theme "$apply" --phase "$phase" --vividness "$viv" --shape "$shape" --ease "$ease" --contrast "$contrast" --rotate "$rotate" >/dev/null 2>&1
     end
     return 0
 end

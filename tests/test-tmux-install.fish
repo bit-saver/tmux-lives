@@ -974,6 +974,17 @@ set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd
 
 functions -e __tmux_lives_write_fragment; functions -c __wfth_bak __tmux_lives_write_fragment; functions -e __wfth_bak
+
+# coarse perf guard (environment-tolerant, like the truncate guard): one
+# in-process 10-scheme batch must complete well under a second.
+set -l _pt0 (date +%s%N)
+for _tok in (__tmux_lives_theme_schemes)
+    __tmux_lives_theme_palette '#485b3c' $_tok 0 balanced arc linear auto 0 >/dev/null
+end
+set -l _pt1 (date +%s%N)
+set -l _ptms (math "($_pt1 - $_pt0) / 1000000")
+t "perf: in-process 10-palette batch < 1000ms" 1 (test $_ptms -lt 1000; and echo 1; or echo 0)
+
 # restore the saved universals (bottom of the section — the socket seam is unpinned by now)
 for i in (seq (count $_th_names))
     set -e $_th_names[$i]
