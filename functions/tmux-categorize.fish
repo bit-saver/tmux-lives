@@ -1163,7 +1163,7 @@ function __tcz_thp_restore --argument-names scheme --description '<scheme> <toke
     test -n "$i"; and echo (math $i - 1); or echo 0
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, b set seed (cooked read, applies immediately via setup color), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d polarity (dark/light), b set seed (cooked read, applies immediately via setup color), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
     # This script runs under fish --no-config: all engine math happens in config-loaded
     # fish -c subprocesses (the cap-picker pattern). One init read + one batch per knob
     # change; ←→ recomputes only the cursor scheme (net-delta coalesced).
