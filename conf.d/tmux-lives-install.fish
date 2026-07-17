@@ -762,13 +762,24 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v3 theme (or the v2 values when the theme is off) to the live server'
-    set -l theme (__tmux_lives_key tmux_lives_theme mono)
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v3 theme (or legacy when off/seedless) to the live server. With exactly 7 args (scheme phase viv shape ease contrast rotate) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast; set -l rotate
+    if test (count $argv) -eq 7
+        set theme $argv[1]; set phase $argv[2]; set viv $argv[3]; set shape $argv[4]
+        set ease $argv[5]; set contrast $argv[6]; set rotate $argv[7]
+    else
+        set theme (__tmux_lives_key tmux_lives_theme mono)
+        set phase (__tmux_lives_key tmux_lives_theme_phase 0)
+        set viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
+        set shape (__tmux_lives_key tmux_lives_theme_shape arc)
+        set ease (__tmux_lives_key tmux_lives_theme_ease linear)
+        set contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
+        set rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
+    end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
-        set tpal (__tmux_lives_theme_palette $seed "$theme" (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) $tl[1] $tl[2] (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_polarity dark))
+        set tpal (__tmux_lives_theme_palette $seed "$theme" $phase $viv $shape $ease $contrast $rotate)
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -800,14 +811,14 @@ end
 function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every scheme + a 7-role gradient strip at the current seed/knobs'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
-    set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
     set -l viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
-    set -l pol (__tmux_lives_key tmux_lives_theme_polarity dark)
+    set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
+    set -l rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
     for scheme in (__tmux_lives_theme_schemes)
-        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $tl[1] $tl[2] $shape $ease $pol)
+        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $shape $ease $contrast $rotate)
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -819,7 +830,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--range <L0,L1>]: the v3 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--rotate <0-4>]: the v3 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -837,9 +848,9 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         set -l tviv (__tmux_lives_key tmux_lives_theme_vividness balanced)
         set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
         set -l tease (__tmux_lives_key tmux_lives_theme_ease linear)
-        set -l trange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92)
-        set -l tpol (__tmux_lives_key tmux_lives_theme_polarity dark)
-        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   range: $trange   polarity: $tpol"
+        set -l tcon (__tmux_lives_key tmux_lives_theme_contrast auto)
+        set -l trot (__tmux_lives_key tmux_lives_theme_rotate 0)
+        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   rotate: $trot"
         return 0
     end
     set -l scheme; set -l have_scheme 0
@@ -847,8 +858,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     set -l viv; set -l have_viv 0
     set -l shape; set -l have_shape 0
     set -l ease; set -l have_ease 0
-    set -l range; set -l have_range 0
-    set -l pol; set -l have_pol 0
+    set -l con; set -l have_con 0
+    set -l rot; set -l have_rot 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -869,10 +880,10 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 set i (math $i + 1); set shape $argv[$i]; set have_shape 1
             case --ease
                 set i (math $i + 1); set ease $argv[$i]; set have_ease 1
-            case --range
-                set i (math $i + 1); set range $argv[$i]; set have_range 1
-            case --polarity
-                set i (math $i + 1); set pol $argv[$i]; set have_pol 1
+            case --contrast
+                set i (math $i + 1); set con $argv[$i]; set have_con 1
+            case --rotate
+                set i (math $i + 1); set rot $argv[$i]; set have_rot 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1
         end
@@ -912,27 +923,17 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 return 1
         end
     end
-    if test $have_range -eq 1
-        set -l rr (string split , -- "$range")
-        set -l rok 0
-        if test (count $rr) -eq 2
-            and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[1]
-            and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[2]
-            and test $rr[1] -lt $rr[2]
-            set rok 1
-        end
-        if test $rok -eq 0
-            echo "tmux-lives setup theme: invalid range '$range' — L0,L1 in [0,1] with L0 < L1, e.g. --range 0.20,0.92" >&2
-            return 1
-        end
-    end
-    if test $have_pol -eq 1
-        switch "$pol"
-            case dark light
+    if test $have_con -eq 1
+        switch "$con"
+            case auto lighter darker
             case '*'
-                echo "tmux-lives setup theme: invalid polarity '$pol' — valid: dark, light" >&2
+                echo "tmux-lives setup theme: invalid contrast '$con' — valid: auto, lighter, darker" >&2
                 return 1
         end
+    end
+    if test $have_rot -eq 1; and not string match -qr '^[0-4]$' -- "$rot"
+        echo "tmux-lives setup theme: invalid rotate '$rot' — 0-4" >&2
+        return 1
     end
     if test $have_scheme -eq 1
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
@@ -945,8 +946,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_viv -eq 1; and set -U tmux_lives_theme_vividness $viv
     test $have_shape -eq 1; and set -U tmux_lives_theme_shape $shape
     test $have_ease -eq 1; and set -U tmux_lives_theme_ease $ease
-    test $have_range -eq 1; and set -U tmux_lives_theme_range $range
-    test $have_pol -eq 1; and set -U tmux_lives_theme_polarity $pol
+    test $have_con -eq 1; and set -U tmux_lives_theme_contrast $con
+    test $have_rot -eq 1; and set -U tmux_lives_theme_rotate $rot
     test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
@@ -957,8 +958,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_viv -eq 1; and echo "tmux-lives: theme vividness set to $viv"
     test $have_shape -eq 1; and echo "tmux-lives: theme shape set to $shape"
     test $have_ease -eq 1; and echo "tmux-lives: theme ease set to $ease"
-    test $have_range -eq 1; and echo "tmux-lives: theme range set to $range"
-    test $have_pol -eq 1; and echo "tmux-lives: theme polarity set to $pol"
+    test $have_con -eq 1; and echo "tmux-lives: theme contrast set to $con"
+    test $have_rot -eq 1; and echo "tmux-lives: theme rotate set to $rot"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
@@ -1069,8 +1070,8 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --vividness <v>       soft|balanced|vivid (default: balanced)" \
         "      --shape <s>           chroma arc|flat (default: arc)" \
         "      --ease <e>            hue easing linear|cubic (default: linear)" \
-        "      --range <L0,L1>       lightness range (default: 0.20,0.92)" \
-        "      --polarity <p>        bar polarity dark|light (default: dark)" \
+        "      --contrast <c>        companions auto|lighter|darker (default: auto)" \
+        "      --rotate <n>          rotate companion placement 0-4 (default: 0)" \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
