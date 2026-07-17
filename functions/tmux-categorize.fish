@@ -774,6 +774,7 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|r
         case 73; echo s; return                      # s (theme-picker: chroma shape)
         case 65; echo e; return                      # e (theme-picker: hue ease)
         case 62; echo b; return                      # b (theme-picker: set seed)
+        case 64; echo d; return                      # d (theme-picker: toggle polarity)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1142,8 +1143,8 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     # backstop clamps to exactly w visible cols; the gap math lands there already
     __tcz_popup_truncate "$row" $w
 end
-function __tcz_thp_info --argument-names seed phase viv shape ease --description 'pure: the picker info line'
-    printf 'seed %s · phase %+d° · %s · %s · %s' "$seed" "$phase" "$viv" "$shape" "$ease"
+function __tcz_thp_info --argument-names seed phase viv shape ease polarity --description 'pure: the picker info line (no label; worst case exactly 50 cols)'
+    printf '%s · %+d° · %s · %s · %s · %s' "$seed" "$phase" "$viv" "$shape" "$ease" "$polarity"
 end
 function __tcz_thp_ln --argument-names content w od t --description 'pad ALREADY-COLORED content to visible width w and wrap it in the themed frame (│…│)'
     set -l vis (__tcz_strip_sgr "$content")
@@ -1175,6 +1176,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l tl1 0.20
     set -l tl2 0.92
     set -l legacy ''
+    set -l polarity dark
     function __tcz_thp_init --no-scope-shadowing
         set -l init (fish -c '
             echo (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
@@ -1186,7 +1188,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l tl (__tmux_lives_theme_lrange (__tmux_lives_key tmux_lives_theme_range 0.20,0.92))
             echo $tl[1]
             echo $tl[2]
-            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))' 2>/dev/null)
+            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
+            echo (__tmux_lives_key tmux_lives_theme_polarity dark)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
         test (count $init) -ge 3; and test -n "$init[3]"; and set phase $init[3]
@@ -1197,6 +1200,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $init) -ge 8; and test -n "$init[8]"; and set tl2 $init[8]
         set legacy ''
         test (count $init) -ge 9; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[9]")
+        test (count $init) -ge 10; and test -n "$init[10]"; and set polarity $init[10]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1207,10 +1211,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set toks; set pals; set fgs
         for line in (fish -c '
             for tok in (__tmux_lives_theme_schemes)
-                set -l p (__tmux_lives_theme_palette $argv[1] $tok $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7])
+                set -l p (__tmux_lives_theme_palette $argv[1] $tok $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7] $argv[8])
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 printf "%s|%s|%s\n" $tok (string join " " $p) (__tmux_lives_contrast_fg "$p[6]")
-            end' $seed $phase $viv $tl1 $tl2 $shape $ease 2>/dev/null)
+            end' $seed $phase $viv $tl1 $tl2 $shape $ease $polarity 2>/dev/null)
             set -l f (string split '|' -- $line)
             test -n "$f[1]"; or continue
             set -a toks $f[1]
@@ -1222,9 +1226,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l i (contains -i -- $tok $toks)
         test -n "$i"; or return
         set -l line (fish -c '
-            set -l p (__tmux_lives_theme_palette $argv[1] $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7] $argv[8])
+            set -l p (__tmux_lives_theme_palette $argv[1] $argv[2] $argv[3] $argv[4] $argv[5] $argv[6] $argv[7] $argv[8] $argv[9])
             test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
-            printf "%s|%s\n" (string join " " $p) (__tmux_lives_contrast_fg "$p[6]")' $seed $tok $phase $viv $tl1 $tl2 $shape $ease 2>/dev/null)
+            printf "%s|%s\n" (string join " " $p) (__tmux_lives_contrast_fg "$p[6]")' $seed $tok $phase $viv $tl1 $tl2 $shape $ease $polarity 2>/dev/null)
         set -l f (string split '|' -- "$line")
         set pals[$i] "$f[1]"
         set fgs[$i] "$f[2]"
@@ -1273,7 +1277,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l lines
         set -a lines $BORDER"╭─ "$BRAND"theme"$BORDER" ─ preview "(string repeat -n (math "$IW - 18") ─)"╮"$RST
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln " "(__tcz_theme muted)(__tcz_thp_info "$seed" "$phase" "$viv" "$shape" "$ease")$RST $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_theme muted)(__tcz_thp_info "$seed" "$phase" "$viv" "$shape" "$ease" "$polarity")$RST $IW $BORDER $RST)
         set -a lines (__tcz_thp_sep $IW $BORDER $RST)
         for i in (seq $n)
             set -l selflag 0
@@ -1294,7 +1298,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_sep $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln " $KEY↑↓$RST$MUTED scheme · $KEY←→$RST$MUTED phase · $KEY"v"$RST$MUTED vivid · $KEY"s"$RST$MUTED shape · $KEY"e"$RST$MUTED ease$RST" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $KEY↑↓$RST$MUTED scm · $KEY←→$RST$MUTED hue · $KEY"v"$RST$MUTED viv · $KEY"s"$RST$MUTED shp · $KEY"e"$RST$MUTED ease · $KEY"d"$RST$MUTED d/l$RST" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $KEY"b"$RST$MUTED seed · $KEY⏎$RST$MUTED apply · $KEY"esc"$RST$MUTED close$RST" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
@@ -1355,6 +1359,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case e
                 test "$ease" = linear; and set ease cubic; or set ease linear
                 __tcz_thp_reload
+            case d
+                test "$polarity" = dark; and set polarity light; or set polarity dark
+                __tcz_thp_reload
             case b
                 stty "$saved" 2>/dev/null
                 printf '\e[2J\e[H seed (hex, empty=keep): '
@@ -1389,7 +1396,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     if test "$apply" = off
         fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
     else if test -n "$apply"
-        fish -c 'tmux-lives setup theme $argv[1] --phase $argv[2] --vividness $argv[3] --shape $argv[4] --ease $argv[5]' "$apply" "$phase" "$viv" "$shape" "$ease" >/dev/null 2>&1
+        fish -c 'tmux-lives setup theme $argv[1] --phase $argv[2] --vividness $argv[3] --shape $argv[4] --ease $argv[5] --polarity $argv[6]' "$apply" "$phase" "$viv" "$shape" "$ease" "$polarity" >/dev/null 2>&1
     end
     return 0
 end

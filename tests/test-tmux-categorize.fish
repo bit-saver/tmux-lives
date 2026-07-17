@@ -1023,11 +1023,13 @@ t "thp_preview holds width on long names" 50 (string length --visible -- (__tcz_
 # a malformed role hex must degrade to uncolored text, never collapse a segment
 t "thp_preview holds width on a malformed hex" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d wat #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba" "#111111" rocket Monitoring 50)))
 t "thp_preview holds width when cap hex is bad" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e colour238 #ffdeba" "#111111" rocket Monitoring 50)))
-t "thp_info line" "seed #485b3c · phase +30° · vivid · arc · linear" (__tcz_thp_info "#485b3c" 30 vivid arc linear)
+t "thp_info line" "#485b3c · +30° · vivid · arc · linear · dark" (__tcz_thp_info "#485b3c" 30 vivid arc linear dark)
+t "thp_info worst case fits IW" 50 (string length --visible -- (__tcz_thp_info "#ccff44" 300 balanced flat linear light))
 t "thp_restore finds a scheme" 1 (__tcz_thp_restore warm mono warm cool)
 t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool)
 t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
 t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
+t "readkey knows d" yes (string match -q '*case 64*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
@@ -1035,6 +1037,8 @@ t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_live
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker has a polarity toggle" yes (string match -q '*case d*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker apply passes polarity" yes (string match -q '*--polarity*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
