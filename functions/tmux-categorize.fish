@@ -1275,6 +1275,19 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
+function __tcz_thp_rotpal --argument-names rotate pal --description 'pure: apply the rotate permutation display-side — support fields 2..6 of a rotate-0 pal string cyclically shifted (same index math as the engine); bar (1) and text (7) fixed. Non-7-field input returned unchanged.'
+    set -l p (string split ' ' -- $pal)
+    test (count $p) -eq 7; or begin; printf '%s' "$pal"; return; end
+    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
+    set -l out $p[1]
+    for i in 1 2 3 4 5
+        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
+        set -l k (math "$j + 1")
+        set -a out $p[$k]
+    end
+    set -a out $p[7]
+    printf '%s' (string join ' ' $out)
+end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
@@ -1363,21 +1376,47 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l pals
     set -l fgs
     set -l tabsfgs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 10 palettes + cap fgs + tabs fgs, in-process'
+    set -l cachekeys
+    set -l cacheblobs
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 10 palettes + fgs, in-process; rotate-0 results cached by knob-state key, rotation applied as a display-side permutation (o never recomputes)'
         set toks; set pals; set fgs; set tabsfgs
-        for tok in (__tmux_lives_theme_schemes)
-            set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast $rotate)
-            test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
-            set -a toks $tok
-            # capture-and-quote: __tmux_lives_contrast_fg can return EMPTY, and
-            # `set -a fgs (…)` with empty output appends NOTHING — that would
-            # desync toks/pals/fgs/tabsfgs (all four must stay index-aligned).
-            set -l pj (string join " " $p)
-            set -a pals "$pj"
-            set -l cf (__tmux_lives_contrast_fg "$p[6]")
-            set -l tf (__tmux_lives_contrast_fg "$p[3]")
-            set -a fgs "$cf"
-            set -a tabsfgs "$tf"
+        set -l key "$seed|$phase|$viv|$shape|$ease|$contrast"
+        set -l blob ''
+        set -l ci (contains -i -- "$key" $cachekeys)
+        if test -n "$ci"
+            set blob $cacheblobs[$ci]
+        else
+            set -l lines
+            for tok in (__tmux_lives_theme_schemes)
+                set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast 0)
+                test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
+                # per-support contrast fgs (any support can rotate onto cap/tabs)
+                set -l sfgs
+                for si in 2 3 4 5 6
+                    set -l sf (__tmux_lives_contrast_fg "$p[$si]")
+                    set -a sfgs "$sf"
+                end
+                set -l pj (string join ' ' $p)
+                set -l fj (string join ' ' $sfgs)
+                set -a lines "$tok|$pj|$fj"
+            end
+            set -l bj (string join \x1e $lines)
+            set blob "$bj"
+            set -a cachekeys "$key"
+            set -a cacheblobs "$blob"
+        end
+        for line in (string split \x1e -- $blob)
+            set -l f (string split '|' -- $line)
+            test -n "$f[1]"; or continue
+            set -a toks $f[1]
+            set -l rp (__tcz_thp_rotpal $rotate "$f[2]")
+            set -a pals "$rp"
+            # displayed cap = support position 5, tabs = position 2 (post-perm)
+            set -l sfgs (string split ' ' -- $f[3])
+            set -l jc (math "((5 - 1 - $rotate) % 5 + 5) % 5 + 1")
+            set -l jt (math "((2 - 1 - $rotate) % 5 + 5) % 5 + 1")
+            set -a fgs "$sfgs[$jc]"
+            set -a tabsfgs "$sfgs[$jt]"
         end
     end
     function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'

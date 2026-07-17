@@ -9,6 +9,7 @@ set -g FAIL 0
 set -g sock test-tcz-$fish_pid
 set -g shimdir /tmp/tcz-shim-$fish_pid
 set -g plugindir (path resolve (status dirname)/..)
+source $plugindir/conf.d/tmux-lives-install.fish
 
 mkdir -p $shimdir
 printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $sock > $shimdir/tmux
@@ -1164,6 +1165,34 @@ t "swatch non-hex still 4 lines" 4 (count $swe)
 # the dead hue-only contract line is gone from the categorizer
 set -l catsrc2 (cat $catfile | string collect)
 t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the theme*' -- "$catsrc2"; and echo 1; or echo 0)
+
+# --- Task 2: batch cache + rotate as a display-side permutation ---
+# rotate is a display-side permutation: parity with the engine for r=0..4
+set -l base (__tmux_lives_theme_palette '#485b3c' wide 25 vivid arc cubic lighter 0)
+set -l basestr (string join ' ' $base)
+for r in 0 1 2 3 4
+    set -l eng (__tmux_lives_theme_palette '#485b3c' wide 25 vivid arc cubic lighter $r)
+    set -l engstr (string join ' ' $eng)
+    t "rotpal parity r=$r" "$engstr" (__tcz_thp_rotpal $r "$basestr")
+end
+
+# post-rotation fg pick contract: the displayed cap/tabs fgs equal
+# contrast_fg of the ROTATED pal's fields 6 and 3
+set -l rot 2
+set -l rp (__tcz_thp_rotpal $rot "$basestr")
+set -l rpf (string split ' ' -- $rp)
+set -l wantcap (__tmux_lives_contrast_fg "$rpf[6]")
+set -l wanttabs (__tmux_lives_contrast_fg "$rpf[3]")
+set -l basepf (string split ' ' -- $basestr)
+set -l sfgs
+for si in 2 3 4 5 6
+    set -l sf (__tmux_lives_contrast_fg $basepf[$si])
+    set -a sfgs "$sf"
+end
+set -l jc (math "((5 - 1 - $rot) % 5 + 5) % 5 + 1")
+set -l jt (math "((2 - 1 - $rot) % 5 + 5) % 5 + 1")
+t "fg pick: cap fg matches rotated pal" "$wantcap" "$sfgs[$jc]"
+t "fg pick: tabs fg matches rotated pal" "$wanttabs" "$sfgs[$jt]"
 
 rm -rf $shimdir
 if test $FAIL -eq 0
