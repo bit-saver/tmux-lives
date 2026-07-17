@@ -1168,9 +1168,29 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     test -z "$b"; and begin; echo esc; return; end
     switch "$b"
         case 0d 0a; echo enter; return
-        case 1b; echo esc; return
         case 7f 08; echo back; return
         case 23; echo hash; return
+    end
+    if test "$b" = 1b                                # ESC
+        # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read,
+        # mirroring __tcz_popup_readkey's pattern above. Without this, a bare
+        # `1b` returned `esc` immediately and leaked the following `[`+letter
+        # bytes, which the outer picker's loop then read as an ↑↓ keystroke
+        # and moved the scheme selection out from under seed entry. Arrows
+        # are simply IGNORED in entry mode (return `other`); a genuine bare
+        # ESC still aborts entry.
+        stty min 0 time 1 2>/dev/null
+        set -l b2 ''
+        dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
+        set -l b3 ''
+        if test "$b2" = 5b; or test "$b2" = 4f       # [ or O
+            dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
+        end
+        stty min 1 time 0 2>/dev/null
+        if test "$b2" = 5b; or test "$b2" = 4f
+            echo other; return                       # arrow: ignored, not cancel
+        end
+        echo esc; return                              # bare ESC
     end
     set -l ch (printf '%b' "\\x$b" 2>/dev/null)
     if string match -qr -- '^[0-9a-fA-F]$' "$ch"
@@ -1402,8 +1422,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     test -n "$swbg"; and set sw "$swbg  "(printf '\e[0m')
                     set -l huetxt '—'
                     test -n "$hue"; and set huetxt "$hue°"
-                    printf '\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
-                    printf '\e[J'
+                    # Synchronized update (DECSET 2026), same atomic-paint pattern as the
+                    # main frame below — commits the 3-line entry paint in one go.
+                    printf '\e[?2026h\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
+                    printf '\e[J\e[?2026l'
                     set -l tok (__tcz_thp_readchar)
                     switch $tok
                         case back

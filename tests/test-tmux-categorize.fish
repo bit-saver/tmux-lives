@@ -1050,6 +1050,16 @@ t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F
 t "picker b-case is raw (no cooked read)" no (string match -q '*read -l val*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker b-case teaches hue-only" yes (string match -q '*hue*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker b-case uses readchar" yes (string match -q '*__tcz_thp_readchar*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# Task 3 review fix: a bare `1b` used to return `esc` immediately, leaking the
+# following `[`+letter bytes of an arrow keypress into the outer picker's ↑↓
+# handling (the escape sequence's letter moved the scheme selection). readchar
+# must now mirror __tcz_popup_readkey's non-blocking CSI/SS3 follow-read.
+t "readchar disambiguates bare ESC from CSI" yes (string match -q '*5b*' -- (functions __tcz_thp_readchar | string collect); and string match -q '*min 0 time 1*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
+# the entry-paint printf (3-line seed prompt) must open its own DECSET 2026
+# atomically, same as the main frame — pinned to the SPECIFIC printf that
+# begins "2026h...H seed" (a bare '*2026h*' would also match the main frame's
+# own synchronized-update wrapper and prove nothing).
+t "seed entry paints atomically" yes (string match -qr -- '\\\\e\[\?2026h\\\\e\[H seed' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.
