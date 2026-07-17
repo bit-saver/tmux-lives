@@ -1164,9 +1164,6 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     # backstop clamps to exactly w visible cols; the gap math lands there already
     __tcz_popup_truncate "$row" $w
 end
-function __tcz_thp_info --argument-names seed phase viv shape ease polarity --description 'pure: the picker info line (no label; worst case exactly 50 cols)'
-    printf '%s · %+d° · %s · %s · %s · %s' "$seed" "$phase" "$viv" "$shape" "$ease" "$polarity"
-end
 function __tcz_thp_ln --argument-names content w od t --description 'pad ALREADY-COLORED content to visible width w and wrap it in the themed frame (│…│)'
     set -l vis (__tcz_strip_sgr "$content")
     set -l pad (math "$w - "(string length --visible -- "$vis"))
@@ -1548,7 +1545,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
-        set -l curtabsfg '#111111'
+        set -l curtabsfg '#f5f5f5'
         if test $sel -lt $n
             set -l tfidx (math $sel + 1)
             set curtabsfg "$tabsfgs[$tfidx]"
@@ -1560,7 +1557,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # the bold SGRs must be printf-captured vars, never "\e[1m" literals.
         set -l lines
         set -a lines $BORDER"╭─ $B1"$BRAND"theme$B0"$BORDER" ─ preview "(string repeat -n (math "$IW - 18") ─)"╮"$RST
-        set -a lines (__tcz_thp_ln (__tcz_thp_chip "$curtabs" "$curtabsfg" "$chiptitle") $IW $BORDER $RST)
+        # capture-then-quote: __tcz_thp_chip prints NOTHING when non-ShellFish (the
+        # common case) — a zero-output command substitution used as a bare argument
+        # VANISHES from the arg list, so __tcz_thp_ln would silently get 3 args
+        # instead of 4 (content=$IW, w=$BORDER, ...) and spray math/test errors into
+        # the popup on every redraw. Capture into a var first, then quote it.
+        set -l chip (__tcz_thp_chip "$curtabs" "$curtabsfg" "$chiptitle")
+        set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all schemes' $BORDER $RST)
         set -l kv1 (__tcz_thp_kv $IW seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
@@ -1673,7 +1676,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $sel -lt $n; and begin; set -l pi (math $sel + 1); set ptok $toks[$pi]; end
                 fish -c '__tmux_lives_theme_apply_live $argv' $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
                 set previewed 1
-                set note "● previewing $ptok — not saved · ⏎ save · esc revert"
+                set note "● previewing $ptok — ⏎ save · esc revert"
             case enter
                 if test $sel -lt $n
                     set apply $toks[(math $sel + 1)]
