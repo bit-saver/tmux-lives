@@ -1162,6 +1162,23 @@ function __tcz_thp_restore --argument-names scheme --description '<scheme> <toke
     set -l i (contains -i -- "$scheme" $toks)
     test -n "$i"; and echo (math $i - 1); or echo 0
 end
+function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|other (dd HEAD-of-pipeline; tty already raw)'
+    set -l b ''
+    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
+    test -z "$b"; and begin; echo esc; return; end
+    switch "$b"
+        case 0d 0a; echo enter; return
+        case 1b; echo esc; return
+        case 7f 08; echo back; return
+        case 23; echo hash; return
+    end
+    set -l ch (printf '%b' "\\x$b" 2>/dev/null)
+    if string match -qr -- '^[0-9a-fA-F]$' "$ch"
+        echo $ch
+        return
+    end
+    echo other
+end
 
 function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d polarity (dark/light), b set seed (cooked read, applies immediately via setup color), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
     # This script runs under fish --no-config: all engine math happens in config-loaded
@@ -1363,16 +1380,50 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test "$polarity" = dark; and set polarity light; or set polarity dark
                 __tcz_thp_reload
             case b
-                stty "$saved" 2>/dev/null
-                printf '\e[2J\e[H seed (hex, empty=keep): '
-                set -l val ''
-                read -l val
-                stty -icanon -echo min 1 time 0
-                if test -n "$val"
-                    fish -c 'tmux-lives setup color $argv[1]' "$val" >/dev/null 2>&1
-                    __tcz_thp_init
-                    __tcz_thp_reload
-                    set note "seed applied: $seed"
+                # raw-mode hex entry (replaces the cooked read + its leaked `read>`
+                # prompt). Live swatch + extracted-hue readout at parse-complete —
+                # the seed contributes its HUE only, so SAY so on the line.
+                set -l buf (string replace -r '^#' '' -- $seed)
+                set -l cand ''
+                set -l hue ''
+                set -l entering 1
+                printf '\e[2J'
+                while test $entering -eq 1
+                    set cand ''
+                    set hue ''
+                    set -l b6 $buf
+                    string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
+                    if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
+                        set cand "#"(string lower -- $b6)
+                        set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $cand 2>/dev/null)
+                    end
+                    set -l sw '  '
+                    set -l swbg (__tcz_thp_bg "$cand")
+                    test -n "$swbg"; and set sw "$swbg  "(printf '\e[0m')
+                    set -l huetxt '—'
+                    test -n "$hue"; and set huetxt "$hue°"
+                    printf '\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
+                    printf '\e[J'
+                    set -l tok (__tcz_thp_readchar)
+                    switch $tok
+                        case back
+                            test -n "$buf"; and set buf (string sub -e -1 -- $buf)
+                        case enter
+                            if test -n "$cand"
+                                fish -c 'tmux-lives setup color $argv[1]' "$cand" >/dev/null 2>&1
+                                __tcz_thp_init
+                                __tcz_thp_reload
+                                set note "seed applied: $seed"
+                            end
+                            set entering 0
+                        case esc
+                            set entering 0
+                        case hash other
+                            # ignored ('#' is implied)
+                        case '*'
+                            # $tok IS the typed hex character
+                            test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
+                    end
                 end
                 printf '\e[2J'
             case enter

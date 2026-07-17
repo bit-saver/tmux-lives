@@ -1045,6 +1045,12 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
 t "picker drain re-asserts non-blocking each iteration" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
 
+# --- raw-mode seed entry (live swatch + hue readout) ---
+t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
+t "picker b-case is raw (no cooked read)" no (string match -q '*read -l val*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker b-case teaches hue-only" yes (string match -q '*hue*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker b-case uses readchar" yes (string match -q '*__tcz_thp_readchar*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.
 set -l catfile $plugindir/functions/tmux-categorize.fish
