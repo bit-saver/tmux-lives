@@ -903,7 +903,7 @@ set -g thsock tlt-$fish_pid
 command tmux -L $thsock new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
 __tmux_lives_theme_cmd warm --phase 30 --vividness vivid >/dev/null
-set -g THP (__tmux_lives_theme_palette '#485b3c' warm 30 vivid 0.20 0.92 arc linear)
+set -g THP (__tmux_lives_theme_palette '#485b3c' warm 30 vivid arc linear auto 0)
 t "theme cmd persists scheme" warm "$tmux_lives_theme"
 t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
 t "theme cmd persists vividness" vivid "$tmux_lives_theme_vividness"
@@ -917,7 +917,7 @@ __tmux_lives_color_cmd --apply >/dev/null
 t "color --apply routes through the theme" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
 # a lone knob call re-applies too
 __tmux_lives_theme_cmd --phase 90 >/dev/null
-set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid 0.20 0.92 arc linear)
+set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid arc linear auto 0)
 t "lone knob re-applies live" "$THP90[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 # --contrast / --rotate: persist, validate, reflect in the no-arg state print + setup help
 # (--range/--polarity are GONE — they now fall into the scheme arm -> "invalid scheme").
@@ -957,7 +957,7 @@ set -e tmux_lives_theme
 set -e tmux_lives_theme_phase
 set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
-set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced 0.20 0.92 arc linear)
+set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced arc linear auto 0)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 # Task 6 controller scope: the 7-arg apply-live path (the picker's `a`-preview and
 # esc-revert path) writes no state — direct-call it twice with only contrast flipped

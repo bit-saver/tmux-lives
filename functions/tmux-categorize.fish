@@ -1645,7 +1645,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     end
                 end
                 stty min 1 time 0 2>/dev/null
-                set phase (math "($phase + $delta) % 360")
+                set phase (math "((($phase + $delta) % 360) + 360) % 360")
                 __tcz_thp_reload
             case right
                 set -l delta 5
@@ -1659,7 +1659,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     end
                 end
                 stty min 1 time 0 2>/dev/null
-                set phase (math "($phase + $delta) % 360")
+                set phase (math "((($phase + $delta) % 360) + 360) % 360")
                 __tcz_thp_reload
             case v
                 switch "$viv"
