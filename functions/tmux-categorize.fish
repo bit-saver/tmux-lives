@@ -627,7 +627,7 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
     set -l DIMON (printf '\e[2m'); set -l DIMOFF (printf '\e[22m')
     set -l YEL (printf '\e[38;5;179m')
     set -l ORG (printf '\e[38;5;208m')
-    set -l SELBG (printf '\e[48;5;236m')
+    set -l SELBG (__tcz_theme sel-bg)
     test -n "$listwidth"; and test "$listwidth" -gt 0 2>/dev/null; or set listwidth 30
     test -n "$selidx"; or set selidx 0
     set -l group ''

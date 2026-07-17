@@ -62,7 +62,7 @@ tmux-lives setup conf reset                 # restore defaults (backs up to .bak
 
 ### Theming (gradient map)
 
-The status bar is themed by a gradient map: seven UI roles (bar · separators · tabs · active · windows · cap · text), each pinned at a lightness, sample one hue-arc gradient derived from your seed (`setup color`). A **scheme is a set of companion colors for the seed** — the seed itself is always the status-bar background, in every scheme; the companions cluster around it (gentle lightness offsets, hue/chroma do the differentiating) and only the text color jumps for contrast. Default scheme: `mono`.
+The status bar is themed by a gradient map: your seed (`setup color`) IS the status-bar background, verbatim; the other six UI roles (separators · tabs · active · windows · cap · text), each pinned at a lightness, sample one hue-arc gradient that clusters around it. A **scheme is a set of companion colors for the seed** — the seed itself is always the status-bar background, in every scheme; the companions cluster around it (gentle lightness offsets, hue/chroma do the differentiating) and only the text color jumps for contrast. Default scheme: `mono`.
 
     tmux-lives setup theme               # the picker (M-k / M-m k do the same):
                                          # scheme catalog + a live preview of YOUR bar
