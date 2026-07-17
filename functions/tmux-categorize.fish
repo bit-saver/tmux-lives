@@ -766,7 +766,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|right|v|w|enter|cancel|kill|other'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|V|s|S|e|E|d|D|o|O|a|r|b|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -780,7 +780,10 @@ function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|r
     # any other token its cases don't list).
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
-    test -z "$b"; and begin; echo cancel; return; end          # EOF
+    if test -z "$b"
+        test "$mode" = timeout; and echo timeout; or echo cancel
+        return
+    end
     switch "$b"
         case 6a; echo down; return                  # j
         case 6b; echo up; return                    # k
@@ -1186,12 +1189,12 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
-function __tcz_thp_kv --argument-names w --description 'pure: labeled adjustments pair — TWO lines (uppercase muted labels / values), columns aligned; argv[2..] = <label> <value> pairs, values may carry SGR (widths measured visible).'
+function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments pair — TWO lines (uppercase muted labels / values), columns aligned; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (case-insensitive label match, empty = none) renders that one pair in the flash role instead of muted/its own SGR.'
     set -l MUT (__tcz_theme muted)
     set -l RST (__tcz_theme reset)
     set -l lr ' '
     set -l vr ' '
-    set -l rest $argv[2..]
+    set -l rest $argv[3..]
     while test (count $rest) -ge 2
         set -l lab (string upper -- $rest[1])
         set -l vplain (__tcz_strip_sgr "$rest[2]")
@@ -1200,8 +1203,15 @@ function __tcz_thp_kv --argument-names w --description 'pure: labeled adjustment
         set -l cw (math "max($lw, $vw) + 3")
         set -l lpad (string repeat -n (math "$cw - $lw") ' ')
         set -l vpad (string repeat -n (math "$cw - $vw") ' ')
-        set lr "$lr$MUT$lab$RST$lpad"
-        set vr "$vr$rest[2]$RST$vpad"
+        set -l FL ''
+        test -n "$flashfield"; and string match -qi -- "$flashfield" $rest[1]; and set FL (__tcz_theme flash)
+        if test -n "$FL"
+            set lr "$lr$FL$lab$RST$lpad"
+            set vr "$vr$FL$vplain$RST$vpad"
+        else
+            set lr "$lr$MUT$lab$RST$lpad"
+            set vr "$vr$rest[2]$RST$vpad"
+        end
         set -e rest[1..2]
     end
     printf '%s\n%s\n' "$lr" "$vr"
@@ -1458,6 +1468,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                                 __tcz_thp_init
                                 __tcz_thp_reload
                                 set note "seed applied: $seed"
+                                set flashfield seed
                             end
                             set entering 0
                         case esc
@@ -1549,6 +1560,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     __tcz_thp_init
                     __tcz_thp_reload
                     set note "seed applied: $seed"
+                    set flashfield seed
                     set sliding 0
                 case esc
                     set sliding 0
@@ -1582,6 +1594,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test -n "$cursess"; and set chiptitle (__tcz_session_title $cursess)
     end
     set -l note ''
+    set -l flashfield ''
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l apply ''
@@ -1627,10 +1640,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all schemes' $BORDER $RST)
-        set -l kv1 (__tcz_thp_kv $IW seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
+        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
         set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
-        set -l kv2 (__tcz_thp_kv $IW contrast "$contrast" rotate "$rotate" ease "$ease")
+        set -l kv2 (__tcz_thp_kv $IW "$flashfield" contrast "$contrast" rotate "$rotate" ease "$ease")
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'scheme · companion sets for the seed' $BORDER $RST)
@@ -1665,7 +1678,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $lines) -gt 1; and printf '%s\e[K\n' $lines[1..-2]
         printf '%s\e[K' $lines[-1]
         printf '\e[J\e[?2026l'
-        switch (__tcz_popup_readkey)
+        set -l tok
+        if test -n "$flashfield"
+            # flash active: wait up to ~0.5s; on timeout clear the flash and
+            # repaint. A real key is handled exactly like the blocking read.
+            stty min 0 time 5 2>/dev/null
+            set tok (__tcz_popup_readkey timeout)
+            stty min 1 time 0 2>/dev/null
+            if test "$tok" = timeout
+                set flashfield ''
+                continue
+            end
+        else
+            set tok (__tcz_popup_readkey)
+        end
+        switch $tok
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
             case down
@@ -1687,6 +1714,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 stty min 1 time 0 2>/dev/null
                 set phase (math "((($phase + $delta) % 360) + 360) % 360")
+                set flashfield phase
                 __tcz_thp_reload
             case right
                 set -l delta 5
@@ -1701,6 +1729,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 stty min 1 time 0 2>/dev/null
                 set phase (math "((($phase + $delta) % 360) + 360) % 360")
+                set flashfield phase
                 __tcz_thp_reload
             case v
                 switch "$viv"
@@ -1708,12 +1737,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case balanced; set viv vivid
                     case '*';      set viv soft
                 end
+                set flashfield vividness
                 __tcz_thp_reload
             case s
                 test "$shape" = arc; and set shape flat; or set shape arc
+                set flashfield shape
                 __tcz_thp_reload
             case e
                 test "$ease" = linear; and set ease cubic; or set ease linear
+                set flashfield ease
                 __tcz_thp_reload
             case d
                 switch "$contrast"
@@ -1721,14 +1753,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case lighter; set contrast darker
                     case '*';     set contrast auto
                 end
+                set flashfield contrast
                 __tcz_thp_reload
             case o
                 set rotate (math "($rotate + 1) % 5")
+                set flashfield rotate
                 __tcz_thp_reload
             case r
                 set phase 0; set viv balanced; set shape arc; set ease linear
                 set contrast auto; set rotate 0
                 set note 'knobs reset (not saved — ⏎ to save)'
+                set flashfield ''
                 __tcz_thp_reload
             case b
                 __tcz_thp_sliders
@@ -1768,7 +1803,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     return 0
 end
 
-function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/sel-bg/sel-fg/reset)'
+function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/flash/sel-bg/sel-fg/reset)'
     switch $role
         case brand;  printf '\e[38;2;255;138;31m'
         case border; printf '\e[38;2;168;106;44m'
@@ -1781,6 +1816,8 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
         # colour story rather than join it; neutral grey also stays legible both ways —
         # darker than a light swatch, lighter than a dark one.
         case mark;   printf '\e[38;2;138;138;138m'
+        # change-flash blue (picker adjustments zone; 2026-07-17 UX request)
+        case flash;  printf '\e[38;2;95;168;232m'
         case sel-bg; printf '\e[48;2;25;25;19m'     # near-black band: must read as CHROME, never as one of the scheme colors beside it (2026-07-17 picker feedback)
         case sel-fg; printf '\e[38;2;242;239;233m'
         case reset;  printf '\e[0m'

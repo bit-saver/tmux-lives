@@ -1050,7 +1050,7 @@ set -l boldon (printf '\e[1m')
 t "zsep label is bold" 1 (string match -q "*$boldon*" -- "$zs"; and echo 1; or echo 0)
 set -l zse (__tcz_thp_zsep 50 '' "" "")
 t "zsep empty label = plain sep" (__tcz_thp_sep 50 "" "") "$zse"
-set -l kv (__tcz_thp_kv 50 seed '#485b3c' phase '+15°' vividness balanced shape arc)
+set -l kv (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°' vividness balanced shape arc)
 t "kv emits two lines" 2 (count $kv)
 set -l l1 (__tcz_strip_sgr "$kv[1]")
 set -l l2 (__tcz_strip_sgr "$kv[2]")
@@ -1058,6 +1058,21 @@ t "kv labels uppercased" 1 (string match -q '*SEED*PHASE*VIVIDNESS*SHAPE*' -- "$
 t "kv values line carries values" 1 (string match -q '*#485b3c*+15°*balanced*arc*' -- "$l2"; and echo 1; or echo 0)
 # columns align: each label starts at the same visible offset as its value
 t "kv label/value columns align" (string match -rg '^( *)SEED' -- "$l1" | string length) (string match -rg '^( *)#485b3c' -- "$l2" | string length)
+
+# --- change-flash (Task 3): flash role + timeout readkey + kv flash arg ---
+t "theme flash role" (printf '\e[38;2;95;168;232m') (__tcz_theme flash)
+t "readkey timeout mode" timeout (printf '' | __tcz_popup_readkey timeout)
+t "readkey EOF still cancels by default" cancel (printf '' | __tcz_popup_readkey)
+set -l FLASH (__tcz_theme flash)
+set -l kvf (__tcz_thp_kv 50 vividness seed '#485b3c' phase '+15°' vividness balanced shape arc)
+t "kv flash colors the flagged label" 1 (string match -q "*$FLASH*VIVIDNESS*" -- "$kvf[1]"; and echo 1; or echo 0)
+t "kv flash colors the flagged value" 1 (string match -q "*$FLASH*balanced*" -- "$kvf[2]"; and echo 1; or echo 0)
+t "kv flash leaves others muted" 0 (string match -q "*$FLASH*SEED*" -- "$kvf[1]"; and echo 1; or echo 0)
+set -l kvn (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°' vividness balanced shape arc)
+t "kv no-flash has no flash SGR" 0 (string match -q "*$FLASH*" -- "$kvn[1]$kvn[2]"; and echo 1; or echo 0)
+# widths identical with and without flash
+t "kv flash width-neutral" (string length --visible -- (__tcz_strip_sgr "$kvn[2]")) (string length --visible -- (__tcz_strip_sgr "$kvf[2]"))
+
 set -l ch (__tcz_thp_chip '#626f55' '#111111' 'rocket: tmux-lives (C)')
 t "chip renders title on tabs bg" 1 (string match -q '*rocket: tmux-lives (C)*' -- (__tcz_strip_sgr "$ch"); and echo 1; or echo 0)
 t "chip empty without tabs color" '' (__tcz_thp_chip '' '#111111' 'x' | string collect)
