@@ -1261,6 +1261,20 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l RS2 (__tcz_theme reset)
     printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
 end
+function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-line big seed swatch — 12-col color band + readouts (hex bold / hue·L·chroma / the seed-IS-the-bar copy). Non-hex hex -> blank band, empty text.'
+    set -l MUT (__tcz_theme muted)
+    set -l RST (__tcz_theme reset)
+    set -l band '            '
+    set -l bg (__tcz_thp_bg "$hex")
+    test -n "$bg"; and set band "$bg            $RST"
+    set -l t1 ''
+    set -l t2 ''
+    if test -n "$bg"
+        set t1 (printf '\e[1m%s\e[22m' "$hex")
+        set t2 "$MUT""hue $hue° · L $L · chroma $C$RST"
+    end
+    printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
+end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
@@ -1368,29 +1382,32 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a tabsfgs "$f[4]"
         end
     end
-    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue at parse-complete)'
+    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
                 set -l buf (string replace -r '^#' '' -- $seed)
                 set -l cand ''
                 set -l hue ''
+                set -l okl ''
+                set -l okc ''
                 set -l entering 1
                 printf '\e[2J'
                 while test $entering -eq 1
                     set cand ''
                     set hue ''
+                    set okl ''
+                    set okc ''
                     set -l b6 $buf
                     string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
                     if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
                         set cand "#"(string lower -- $b6)
-                        set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $cand 2>/dev/null)
+                        set -l ro (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f %.2f %.3f" $ok[3] $ok[1] $ok[2]' $cand 2>/dev/null)
+                        set -l rop (string split ' ' -- "$ro")
+                        set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
                     end
-                    set -l sw '  '
-                    set -l swbg (__tcz_thp_bg "$cand")
-                    test -n "$swbg"; and set sw "$swbg  "(printf '\e[0m')
-                    set -l huetxt '—'
-                    test -n "$hue"; and set huetxt "$hue°"
+                    set -l sw4 (__tcz_thp_swatch "$cand" "$hue" "$okl" "$okc")
+                    set -l leg (__tcz_legend_row 14 '⏎' apply esc cancel)
                     # Synchronized update (DECSET 2026), same atomic-paint pattern as the
-                    # main frame below — commits the 3-line entry paint in one go.
-                    printf '\e[?2026h\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
+                    # main frame below — commits the entry paint in one go.
+                    printf '\e[?2026h\e[H \e[1mseed — this IS the bar color\e[22m\e[K\n #%s_\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n%s\e[K' "$buf" $sw4[1] $sw4[2] $sw4[3] $sw4[4] "$leg"
                     printf '\e[J\e[?2026l'
                     set -l tok (__tcz_thp_readchar)
                     switch $tok
@@ -1427,19 +1444,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l chan 1
         set -l hue ''
+        set -l okl ''
+        set -l okc ''
         set -l stale 1
         set -l sliding 1
         printf '\e[2J'
         while test $sliding -eq 1
             set -l hex (printf '#%02x%02x%02x' $r $g $b)
             if test $stale -eq 1
-                set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $hex 2>/dev/null)
+                set -l ro (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f %.2f %.3f" $ok[3] $ok[1] $ok[2]' $hex 2>/dev/null)
+                set -l rop (string split ' ' -- "$ro")
+                set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
                 set stale 0
             end
-            set -l swbg (__tcz_thp_bg "$hex")
-            set -l sw "$swbg  "(printf '\e[0m')
-            set -l huetxt '—'
-            test -n "$hue"; and set huetxt "$hue°"
             set -l s1 0
             set -l s2 0
             set -l s3 0
@@ -1451,7 +1468,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l row1 (__tcz_thp_slider R $r $s1)
             set -l row2 (__tcz_thp_slider G $g $s2)
             set -l row3 (__tcz_thp_slider B $b $s3)
-            printf '\e[?2026h\e[H seed sliders (only its HUE drives the theme)\e[K\n %s %s · hue %s\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n ↑↓ channel · ←→ adjust · t type hex · ⏎ apply · esc cancel\e[K' "$sw" "$hex" "$huetxt" "$row1" "$row2" "$row3"
+            set -l sw4 (__tcz_thp_swatch $hex "$hue" "$okl" "$okc")
+            set -l leg1 (__tcz_legend_row 14 '↑↓' channel '←→' adjust t 'type hex')
+            set -l leg2 (__tcz_legend_row 14 '⏎' apply esc cancel)
+            printf '\e[?2026h\e[H \e[1mseed — this IS the bar color\e[22m\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n%s\e[K\n%s\e[K' "$row1" "$row2" "$row3" $sw4[1] $sw4[2] $sw4[3] $sw4[4] "$leg1" "$leg2"
             printf '\e[J\e[?2026l'
             set -l tok (__tcz_thp_readchar)
             switch $tok

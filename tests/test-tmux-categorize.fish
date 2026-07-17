@@ -1094,18 +1094,20 @@ t "picker drain re-asserts non-blocking each iteration" 3 (string match -a -r 'w
 # --- raw-mode seed entry (live swatch + hue readout) ---
 t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
 t "picker b-case is raw (no cooked read)" no (string match -q '*read -l val*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker b-case teaches hue-only" yes (string match -q '*hue*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker b-case shows a hue readout" yes (string match -q '*hue*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker b-case uses readchar" yes (string match -q '*__tcz_thp_readchar*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # Task 3 review fix: a bare `1b` used to return `esc` immediately, leaking the
 # following `[`+letter bytes of an arrow keypress into the outer picker's ↑↓
 # handling (the escape sequence's letter moved the scheme selection). readchar
 # must now mirror __tcz_popup_readkey's non-blocking CSI/SS3 follow-read.
 t "readchar disambiguates bare ESC from CSI" yes (string match -q '*5b*' -- (functions __tcz_thp_readchar | string collect); and string match -q '*min 0 time 1*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
-# the entry-paint printf (3-line seed prompt) must open its own DECSET 2026
+# the entry-paint printf (seed prompt) must open its own DECSET 2026
 # atomically, same as the main frame — pinned to the SPECIFIC printf that
-# begins "2026h...H seed" (a bare '*2026h*' would also match the main frame's
-# own synchronized-update wrapper and prove nothing).
-t "seed entry paints atomically" yes (string match -qr -- '\\\\e\[\?2026h\\\\e\[H seed' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# begins "2026h...H <bold>seed" (a bare '*2026h*' would also match the main
+# frame's own synchronized-update wrapper and prove nothing). Task 7 grew the
+# title to "seed — this IS the bar color" (bold-wrapped); both the hexentry
+# and sliders screens share this exact opening.
+t "seed entry paints atomically" yes (string match -qr -- '\\\\e\[\?2026h\\\\e\[H \\\\e\[1mseed' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
 # --- RGB slider seed picker (Task 1): readchar tokens + slider row builder ---
 t "thp_slider width fixed at 39" 39 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_slider R 128 0)))
@@ -1143,6 +1145,18 @@ t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_them
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
+
+# --- Task 7: seed screens — big swatch + shared legend ---
+set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
+t "swatch emits 4 lines" 4 (count $sw)
+t "swatch line1 carries bold hex" 1 (string match -q '*#485b3c*' -- (__tcz_strip_sgr "$sw[1]"); and echo 1; or echo 0)
+t "swatch line2 readouts" 1 (string match -q '*hue 134° · L 0.45 · chroma 0.054*' -- (__tcz_strip_sgr "$sw[2]"); and echo 1; or echo 0)
+t "swatch line3 copy" 1 (string match -q '*rendered as-is on the bar*' -- (__tcz_strip_sgr "$sw[3]"); and echo 1; or echo 0)
+set -l swe (__tcz_thp_swatch '' '' '' '')
+t "swatch non-hex still 4 lines" 4 (count $swe)
+# the dead hue-only contract line is gone from the categorizer
+set -l catsrc2 (cat $catfile | string collect)
+t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the theme*' -- "$catsrc2"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0
