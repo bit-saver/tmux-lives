@@ -30,8 +30,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l themeviv $argv[15]     # soft|balanced|vivid ('' = balanced)
     set -l themeshape $argv[16]   # arc|flat ('' = arc)
     set -l themeease $argv[17]    # linear|cubic ('' = linear)
-    set -l themerange $argv[18]   # "L0,L1" ('' = 0.20,0.92)
-    set -l themepolarity $argv[19]   # dark|light ('' = dark)
+    set -l themecontrast $argv[18]   #   18 themecontrast  companion side auto|lighter|darker ('' = auto)
+    set -l themerotate $argv[19]   #   19 themerotate    companion placement rotation 0-4 ('' = 0)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -76,11 +76,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[13] the whole bar
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
     # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
-    set -l tl (__tmux_lives_theme_lrange "$themerange")
     set -l tpal
     if test -n "$theme"
         set -l seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" $tl[1] $tl[2] "$themeshape" "$themeease" "$themepolarity")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast" "$themerotate")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -252,7 +251,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_range 0.20,0.92) (__tmux_lives_key tmux_lives_theme_polarity dark) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) (__tmux_lives_key tmux_lives_theme_rotate 0) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -1207,11 +1206,21 @@ function __tmux_lives_migrate_v2 --description 'one-time v2 cap -> v3 theme univ
     return 0
 end
 
+function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migration: polarity/range have no v3.1 meaning (the bar IS the seed; contrast defaults auto) — erase them (idempotent)'
+    set -l had 0
+    for old in tmux_lives_theme_polarity tmux_lives_theme_range
+        set -q $old; and begin; set -e $old; set had 1; end
+    end
+    test $had -eq 1; and echo "tmux-lives: theme is now seed-anchored — polarity/range retired; contrast defaults to auto ('tmux-lives setup theme')"
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
     # hook) lands without a manual `tmux-lives setup` — then reload tmux.
     __tmux_lives_migrate_v2
+    __tmux_lives_migrate_v31
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment

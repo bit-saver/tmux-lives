@@ -794,7 +794,7 @@ t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_acti
 t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
 # theme ON: every role @option carries its gradient sample
 set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' | string collect)
-set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear)
+set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced arc linear auto 0)
 t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
 t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
@@ -805,14 +805,14 @@ t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '
 t "on: mark_fg = cap sample" yes (string match -q "*set -g @tmux_lives_mark_fg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
 t "on: claude coral stays (semantic mark)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$TON"; and echo yes; or echo no)
-# knobs flow through argv 14-18
-set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic 0.30,0.85 | string collect)
-set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid 0.30 0.85 flat cubic)
+# knobs flow through argv 14-19 (phase/vividness/shape/ease/contrast/rotate)
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic darker 2 | string collect)
+set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid flat cubic darker 2)
 t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
-# polarity flows through argv 19
-set -g TPOL (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' light | string collect)
-set -g TPOLPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced 0.20 0.92 arc linear light)
-t "fragment argv19 polarity reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TPOLPAL[6]'*" -- "$TPOL"; and echo yes; or echo no)
+# rotate (argv19) alone permutes the computed support colors reaching the cap role
+set -g TROT (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' 3 | string collect)
+set -g TROTPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced arc linear auto 3)
+t "fragment argv19 rotate reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TROTPAL[6]'*" -- "$TROT"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
 set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k warm | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
@@ -823,7 +823,8 @@ t "off token renders legacy status-style" yes (string match -q '*set -g status-s
 t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-t "write_fragment passes theme_polarity" yes (string match -q '*tmux_lives_theme_polarity dark*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_contrast" yes (string match -q '*tmux_lives_theme_contrast auto*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_rotate" yes (string match -q '*tmux_lives_theme_rotate 0*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null
@@ -1014,6 +1015,38 @@ for i in (seq (count $_mig_names))
     set -e $_mig_names[$i]
     test $_mig_had[$i] -eq 1; and set -U $_mig_names[$i] $_mig_saved[$i]
 end
+
+# --- v3 -> v3.1 migration: contrast/rotate replace polarity/range -----------
+# argv18/19 = contrast/rotate
+set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear auto 0 | string collect)
+set -l fr1 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear auto 1 | string collect)
+set -l sep0 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr0")
+set -l sep1 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr1")
+t "fragment rotate changes the sep role" 0 (test "$sep0" = "$sep1"; and echo 1; or echo 0)
+set -l frd (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear darker 0 | string collect)
+set -l tx0 (string match -r "@tmux_lives_text_fg '[^']*'" -- "$fr0")
+set -l txd (string match -r "@tmux_lives_text_fg '[^']*'" -- "$frd")
+t "fragment contrast flips the text role" 0 (test "$tx0" = "$txd"; and echo 1; or echo 0)
+t "fragment bar bg IS the seed" 1 (string match -q "*status-style bg=#485b3c*" -- "$fr0"; and echo 1; or echo 0)
+# post_update runs the v3.1 shim right after the v2 shim
+t "post_update calls the v31 shim" yes (string match -q '*__tmux_lives_migrate_v31*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
+# v3.1 migration erases the dead universals (guarded: save/restore around)
+set -l _sv_pol; set -q tmux_lives_theme_polarity; and set _sv_pol $tmux_lives_theme_polarity
+set -l _sv_rng; set -q tmux_lives_theme_range; and set _sv_rng $tmux_lives_theme_range
+set -U tmux_lives_theme_polarity light
+set -U tmux_lives_theme_range 0.10,0.90
+__tmux_lives_migrate_v31 >/dev/null
+t "migrate v31 erases polarity" 0 (set -q tmux_lives_theme_polarity; and echo 1; or echo 0)
+t "migrate v31 erases range" 0 (set -q tmux_lives_theme_range; and echo 1; or echo 0)
+t "migrate v31 idempotent + quiet" '' (__tmux_lives_migrate_v31 | string collect)
+set -q _sv_pol[1]; and set -U tmux_lives_theme_polarity $_sv_pol
+set -q _sv_rng[1]; and set -U tmux_lives_theme_range $_sv_rng
+# grep-guards: the dead knobs leave zero traces in the install source
+set -l src (cat $plugindir/conf.d/tmux-lives-install.fish | string collect)
+t "guard: no themepolarity in source" 0 (string match -q '*themepolarity*' -- "$src"; and echo 1; or echo 0)
+t "guard: no themerange in source" 0 (string match -q '*themerange*' -- "$src"; and echo 1; or echo 0)
+t "guard: no theme_lrange in source" 0 (string match -q '*theme_lrange*' -- "$src"; and echo 1; or echo 0)
+t "guard: no --polarity flag in source" 0 (string match -q '*--polarity*' -- "$src"; and echo 1; or echo 0)
 
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
