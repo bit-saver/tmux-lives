@@ -640,7 +640,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1038,6 +1038,9 @@ t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool
 t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
 t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 t "readkey knows d" yes (string match -q '*case 64*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
+t "readkey a" a (echo -n a | __tcz_popup_readkey)
+t "readkey o" o (echo -n o | __tcz_popup_readkey)
+t "readkey r" r (echo -n r | __tcz_popup_readkey)
 
 # --- v3.1 picker builders (Task 5) ---
 set -l zs (__tcz_thp_zsep 50 'adjustments · apply to all schemes' "" "")
@@ -1082,8 +1085,8 @@ t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_live
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker has a polarity toggle" yes (string match -q '*case d*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker apply passes polarity" yes (string match -q '*--polarity*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker has a contrast toggle" yes (string match -q '*case d*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker apply passes contrast+rotate" yes (string match -q '*--contrast*' -- (functions __tcz_theme_picker | string collect); and string match -q '*--rotate*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
@@ -1135,6 +1138,13 @@ t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette'
 t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z]*\[(math' $catfile)
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_theme_picker | string collect); and string match -q '*2026l*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+
+# --- Task 6: picker layout A — 26-row frame, a/o/r keys, dead-knob guards ---
+set -l catsrc (cat $catfile | string collect)
+t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
+t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

@@ -173,7 +173,7 @@ t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_live
 
 # dedicated M-k theme-picker keybind (argv[12] = theme_key)
 set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
-t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 20 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
+t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 26 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
 set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block '' | string collect)
 t "empty theme-key omits the bind" 1 (string match -q '*theme-picker*' -- "$CK0"; and echo 0; or echo 1)
 
@@ -879,7 +879,7 @@ set -e TMUX
 set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
-t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 20*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: invalid scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: invalid scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
@@ -959,6 +959,16 @@ set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
 set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced 0.20 0.92 arc linear)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+# Task 6 controller scope: the 7-arg apply-live path (the picker's `a`-preview and
+# esc-revert path) writes no state — direct-call it twice with only contrast flipped
+# and confirm the derived text fg actually moves (same seed/scheme/phase/etc).
+__tmux_lives_theme_apply_live wide 0 balanced arc linear lighter 0
+set -g THEME_TXT_LIGHTER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_text_fg 2>/dev/null)
+__tmux_lives_theme_apply_live wide 0 balanced arc linear darker 0
+set -g THEME_TXT_DARKER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_text_fg 2>/dev/null)
+t "apply-live 7-arg lighter text_fg non-empty" 1 (test -n "$THEME_TXT_LIGHTER"; and echo 1; or echo 0)
+t "apply-live 7-arg darker text_fg non-empty" 1 (test -n "$THEME_TXT_DARKER"; and echo 1; or echo 0)
+t "apply-live 7-arg lighter vs darker differ" 1 (test "$THEME_TXT_LIGHTER" != "$THEME_TXT_DARKER"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd
@@ -1047,6 +1057,10 @@ t "guard: no themepolarity in source" 0 (string match -q '*themepolarity*' -- "$
 t "guard: no themerange in source" 0 (string match -q '*themerange*' -- "$src"; and echo 1; or echo 0)
 t "guard: no theme_lrange in source" 0 (string match -q '*theme_lrange*' -- "$src"; and echo 1; or echo 0)
 t "guard: no --polarity flag in source" 0 (string match -q '*--polarity*' -- "$src"; and echo 1; or echo 0)
+
+# --- Task 6: picker layout A — 52x26 popup geometry at every open site ---
+t "fragment theme-picker bind is 52x26" 1 (string match -q '*-h 26*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
+t "install: no stale 52x20 theme popup" 0 (string match -q '*-w 52 -h 20*' -- "$src"; and echo 1; or echo 0)
 
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
