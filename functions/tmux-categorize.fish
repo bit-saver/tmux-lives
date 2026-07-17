@@ -766,7 +766,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|V|s|S|e|E|d|D|o|O|a|r|b|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|a|r|b|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -801,6 +801,11 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
+        case 56; echo V; return                      # V (theme-picker: vividness backward)
+        case 53; echo S; return                      # S (theme-picker: shape toggle)
+        case 45; echo E; return                      # E (theme-picker: ease toggle)
+        case 44; echo D; return                      # D (theme-picker: contrast backward)
+        case 4f; echo O; return                      # O (theme-picker: rotate backward)
     end
     if test "$b" = 1b                                # ESC
         # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
@@ -1739,11 +1744,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 set flashfield vividness
                 __tcz_thp_reload
-            case s
+            case V
+                switch "$viv"
+                    case vivid;    set viv balanced
+                    case balanced; set viv soft
+                    case '*';      set viv vivid
+                end
+                set flashfield vividness
+                __tcz_thp_reload
+            case s S
                 test "$shape" = arc; and set shape flat; or set shape arc
                 set flashfield shape
                 __tcz_thp_reload
-            case e
+            case e E
                 test "$ease" = linear; and set ease cubic; or set ease linear
                 set flashfield ease
                 __tcz_thp_reload
@@ -1755,8 +1768,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 set flashfield contrast
                 __tcz_thp_reload
+            case D
+                switch "$contrast"
+                    case auto;    set contrast darker
+                    case darker;  set contrast lighter
+                    case '*';     set contrast auto
+                end
+                set flashfield contrast
+                __tcz_thp_reload
             case o
                 set rotate (math "($rotate + 1) % 5")
+                set flashfield rotate
+                __tcz_thp_reload
+            case O
+                set rotate (math "($rotate + 4) % 5")
                 set flashfield rotate
                 __tcz_thp_reload
             case r

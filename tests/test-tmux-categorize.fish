@@ -1041,6 +1041,13 @@ t "readkey a" a (echo -n a | __tcz_popup_readkey)
 t "readkey o" o (echo -n o | __tcz_popup_readkey)
 t "readkey r" r (echo -n r | __tcz_popup_readkey)
 
+# --- shift-reverse readkey tokens (Task 4) ---
+t "readkey V" V (echo -n V | __tcz_popup_readkey)
+t "readkey S" S (echo -n S | __tcz_popup_readkey)
+t "readkey E" E (echo -n E | __tcz_popup_readkey)
+t "readkey D" D (echo -n D | __tcz_popup_readkey)
+t "readkey O" O (echo -n O | __tcz_popup_readkey)
+
 # --- v3.1 picker builders (Task 5) ---
 set -l zs (__tcz_thp_zsep 50 'adjustments · apply to all schemes' "" "")
 set -l zsp (__tcz_strip_sgr "$zs")
