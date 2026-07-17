@@ -62,7 +62,7 @@ tmux-lives setup conf reset                 # restore defaults (backs up to .bak
 
 ### Theming (gradient map)
 
-The status bar is themed by a gradient map: seven UI roles (bar · separators · tabs · active · windows · cap · text), each pinned at a lightness, sample one hue-arc gradient derived from your seed (`setup color`). Default scheme: `mono`.
+The status bar is themed by a gradient map: seven UI roles (bar · separators · tabs · active · windows · cap · text), each pinned at a lightness, sample one hue-arc gradient derived from your seed (`setup color`). A **scheme is a set of companion colors for the seed** — the seed itself is always the status-bar background, in every scheme; the companions cluster around it (gentle lightness offsets, hue/chroma do the differentiating) and only the text color jumps for contrast. Default scheme: `mono`.
 
     tmux-lives setup theme               # the picker (M-k / M-m k do the same):
                                          # scheme catalog + a live preview of YOUR bar
@@ -70,7 +70,9 @@ The status bar is themed by a gradient map: seven UI roles (bar · separators ·
     tmux-lives setup theme warm --phase 30
     tmux-lives setup theme off           # the legacy look (derived bar, neutral cap)
 
-Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` · `fire` · `complement` · `full`. Knobs: `--phase <deg>`, `--vividness soft|balanced|vivid`, `--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. ShellFish tabs wear the `tabs` role; roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`; the `windows` colour rides `status-style fg`. Upgrading from the old cap-color engine: your `cap` settings migrate automatically (scheme resets to `mono` — the models differ; `M-k` now opens the theme picker) — `b` opens RGB sliders for the seed (`t` inside for typed hex).
+Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` · `fire` · `complement` · `full`. Knobs: `--phase <deg>`, `--vividness soft|balanced|vivid`, `--shape arc|flat`, `--ease linear|cubic`, `--contrast auto|lighter|darker` (which side the companions/text sit on; `auto` picks by seed lightness), `--rotate 0-4` (cycles which companion role gets which computed color). ShellFish tabs wear the `tabs` role; roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`; the `windows` colour rides `status-style fg`. Upgrading from the old cap-color engine: your `cap` settings migrate automatically (scheme resets to `mono` — the models differ; `M-k` now opens the theme picker). Upgrading from the v3 polarity model: `--polarity`/`--range` are gone (replaced by `--contrast`/`--rotate` above) — `fisher update` erases the old settings automatically, with a one-line notice.
+
+The picker (`setup theme`, `M-k`, or `M-m k`) shows a ShellFish tab chip when a ShellFish client is attached, a live bar preview, and labeled adjustment/scheme zones with a key legend: `↑↓` scheme · `←→` phase · `v` vividness · `s` shape · `e` ease · `d` contrast · `o` rotate · `b` seed (opens RGB sliders — `t` inside for typed hex) · `a` apply preview (live, unsaved) · `⏎` save · `r` reset knobs · `Esc`/`q` revert and close.
 
 ### In-tmux command surface (launcher + scratch split + resize)
 
@@ -84,7 +86,7 @@ When a full-screen program occupies your pane, a few bindings let you drive tmux
 
 **Status-bar toggles (`C-M-a` / `C-M-s`)** — `Ctrl+Opt+A` flips the status bar between top and bottom; `Ctrl+Opt+S` hides/shows it. The chosen value is stored in `~/.config/tmux/tmux-lives-state.conf` (machine-owned) and reapplied on every load, so it survives new sessions and reboots. Configure or disable the keys with `setup keys --status-pos-key <k>` / `--status-vis-key <k>` (`''` disables).
 
-**Colored picker preview** — the picker's right-pane preview shows the target session's real colors (`capture-pane -e` with ANSI-aware truncation), matching tmux's native `choose-tree`.
+**Colored picker preview** — the picker's right-pane preview shows the target session's real colors (`capture-pane -e` with ANSI-aware truncation), matching tmux's native `choose-tree`. A key-legend footer row spells out the controls: `↑↓` move · `⏎` switch · `x` kill · `Esc` close.
 
 Configure or disable the binds via `setup keys`:
 
