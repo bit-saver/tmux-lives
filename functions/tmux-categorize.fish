@@ -1174,6 +1174,53 @@ end
 function __tcz_thp_sep --argument-names w od t --description 'the frame mid separator (├──┤)'
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
+function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone separator ├─ <label> ─…┤ (BOLD muted label; empty label -> plain __tcz_thp_sep). od = border SGR, t = reset.'
+    if test -z "$label"
+        __tcz_thp_sep $w $od $t
+        return
+    end
+    set -l MUT (__tcz_theme muted)
+    set -l len (string length --visible -- "$label")
+    set -l fill (math "$w - 3 - $len")
+    test $fill -lt 0; and set fill 0
+    set -l fillstr (string repeat -n $fill ─)
+    printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
+end
+function __tcz_thp_kv --argument-names w --description 'pure: labeled adjustments pair — TWO lines (uppercase muted labels / values), columns aligned; argv[2..] = <label> <value> pairs, values may carry SGR (widths measured visible).'
+    set -l MUT (__tcz_theme muted)
+    set -l RST (__tcz_theme reset)
+    set -l lr ' '
+    set -l vr ' '
+    set -l rest $argv[2..]
+    while test (count $rest) -ge 2
+        set -l lab (string upper -- $rest[1])
+        set -l vplain (__tcz_strip_sgr "$rest[2]")
+        set -l lw (string length --visible -- "$lab")
+        set -l vw (string length --visible -- "$vplain")
+        set -l cw (math "max($lw, $vw) + 3")
+        set -l lpad (string repeat -n (math "$cw - $lw") ' ')
+        set -l vpad (string repeat -n (math "$cw - $vw") ' ')
+        set lr "$lr$MUT$lab$RST$lpad"
+        set vr "$vr$rest[2]$RST$vpad"
+        set -e rest[1..2]
+    end
+    printf '%s\n%s\n' "$lr" "$vr"
+end
+function __tcz_thp_chip --argument-names tabshex tabsfg title --description 'pure: ShellFish tab chip " <title> " on the tabs-role color with the given fg; title truncated to 40 cols; EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
+    set -l bg (__tcz_thp_bg "$tabshex")
+    test -n "$bg"; or return
+    test -n "$title"; or return
+    set title (string sub -l 40 -- "$title")
+    set -l fgS (__tcz_thp_fg "$tabsfg")
+    set -l RST (printf '\e[0m')
+    printf '%s%s %s %s' "$bg" "$fgS" "$title" "$RST"
+end
+function __tcz_thp_shellfish --description 'true iff any attached client is ShellFish — the production detection (__tcz_client_is_shellfish; tmux_lives_fake_environ seam applies), checked ONCE at picker open.'
+    for pid in (tmux list-clients -F '#{client_pid}' 2>/dev/null)
+        __tcz_client_is_shellfish $pid; and return 0
+    end
+    return 1
+end
 function __tcz_thp_restore --argument-names scheme --description '<scheme> <tokens…> -> 0-based cursor index; "off" -> the row AFTER the tokens; unknown -> 0 (mono)'
     set -l toks $argv[2..]
     test "$scheme" = off; and begin; echo (count $toks); return; end

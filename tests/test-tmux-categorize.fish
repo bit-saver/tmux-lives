@@ -1039,6 +1039,43 @@ t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
 t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 t "readkey knows d" yes (string match -q '*case 64*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 
+# --- v3.1 picker builders (Task 5) ---
+set -l zs (__tcz_thp_zsep 50 'adjustments · apply to all schemes' "" "")
+set -l zsp (__tcz_strip_sgr "$zs")
+t "zsep total width w+2" 52 (string length --visible -- (string trim -- "$zsp"))
+t "zsep carries the label" 1 (string match -q '*adjustments · apply to all schemes*' -- "$zsp"; and echo 1; or echo 0)
+set -l boldon (printf '\e[1m')
+t "zsep label is bold" 1 (string match -q "*$boldon*" -- "$zs"; and echo 1; or echo 0)
+set -l zse (__tcz_thp_zsep 50 '' "" "")
+t "zsep empty label = plain sep" (__tcz_thp_sep 50 "" "") "$zse"
+set -l kv (__tcz_thp_kv 50 seed '#485b3c' phase '+15°' vividness balanced shape arc)
+t "kv emits two lines" 2 (count $kv)
+set -l l1 (__tcz_strip_sgr "$kv[1]")
+set -l l2 (__tcz_strip_sgr "$kv[2]")
+t "kv labels uppercased" 1 (string match -q '*SEED*PHASE*VIVIDNESS*SHAPE*' -- "$l1"; and echo 1; or echo 0)
+t "kv values line carries values" 1 (string match -q '*#485b3c*+15°*balanced*arc*' -- "$l2"; and echo 1; or echo 0)
+# columns align: each label starts at the same visible offset as its value
+t "kv label/value columns align" (string match -rg '^( *)SEED' -- "$l1" | string length) (string match -rg '^( *)#485b3c' -- "$l2" | string length)
+set -l ch (__tcz_thp_chip '#626f55' '#111111' 'rocket: tmux-lives (C)')
+t "chip renders title on tabs bg" 1 (string match -q '*rocket: tmux-lives (C)*' -- (__tcz_strip_sgr "$ch"); and echo 1; or echo 0)
+t "chip empty without tabs color" '' (__tcz_thp_chip '' '#111111' 'x' | string collect)
+t "chip empty without title" '' (__tcz_thp_chip '#626f55' '#111111' '' | string collect)
+# shellfish probe honors the fake-environ seam (following __tcz_client_is_shellfish pattern)
+# Stub tmux to return a fake client PID for list-clients
+function tmux
+    if contains -- list-clients $argv
+        echo 9999
+        return 0
+    end
+    command tmux $argv
+end
+set -g tmux_lives_fake_environ 'LC_TERMINAL=ShellFish'
+t "shellfish probe true via seam" 0 (__tcz_thp_shellfish; echo $status)
+set -g tmux_lives_fake_environ 'LC_TERMINAL=xterm'
+t "shellfish probe false via seam" 1 (__tcz_thp_shellfish; echo $status)
+set -e tmux_lives_fake_environ
+functions -e tmux
+
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_lives_theme_schemes*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
