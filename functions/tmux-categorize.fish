@@ -1298,8 +1298,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_sep $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln " $KEY↑↓$RST$MUTED scm · $KEY←→$RST$MUTED hue · $KEY"v"$RST$MUTED viv · $KEY"s"$RST$MUTED shp · $KEY"e"$RST$MUTED ease · $KEY"d"$RST$MUTED d/l$RST" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln " $KEY"b"$RST$MUTED seed · $KEY⏎$RST$MUTED apply · $KEY"esc"$RST$MUTED close$RST" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $KEY↑↓$RST$MUTED scheme · $KEY←→$RST$MUTED phase · $KEY"v"$RST$MUTED viv · $KEY"s"$RST$MUTED shape · $KEY"e"$RST$MUTED ease$RST" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln " $KEY"b"$RST$MUTED seed · $KEY"d"$RST$MUTED dark/light · $KEY⏎$RST$MUTED apply · $KEY"esc"$RST$MUTED close$RST" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         # Synchronized update (DECSET 2026): commit the whole frame atomically so a
