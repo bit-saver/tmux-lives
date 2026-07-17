@@ -1000,7 +1000,7 @@ functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 t "theme brand is truecolor ff8a1f" 1 (test (__tcz_theme brand) = (printf '\e[38;2;255;138;31m'); and echo 1; or echo 0)
 t "theme key is f5cf8a"    1 (test (__tcz_theme key)    = (printf '\e[38;2;245;207;138m'); and echo 1; or echo 0)
 t "theme value is 6fc7b8"  1 (test (__tcz_theme value)  = (printf '\e[38;2;111;199;184m'); and echo 1; or echo 0)
-t "theme selbg is 34332f bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;52;51;47m'); and echo 1; or echo 0)
+t "theme selbg is 191913 bg" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;25;25;19m'); and echo 1; or echo 0)
 t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or echo 0)
 # `mark` is a neutral grey, distinct from both `key` (tan) and `muted` (warm
 # tan-grey) — it read as a rule rather than part of the warm colour story when
@@ -1009,6 +1009,14 @@ t "theme reset" 1 (test (__tcz_theme reset) = (printf '\e[0m'); and echo 1; or e
 t "theme mark is neutral grey 8a8a8a" 1 (test (__tcz_theme mark) = (printf '\e[38;2;138;138;138m'); and echo 1; or echo 0)
 t "theme mark differs from key"   1 (test (__tcz_theme mark) != (__tcz_theme key); and echo 1; or echo 0)
 t "theme mark differs from muted" 1 (test (__tcz_theme mark) != (__tcz_theme muted); and echo 1; or echo 0)
+
+# --- shared key-legend builder + darker sel-bg ---
+set -l lg (__tcz_legend_row 12 '↑↓' move '⏎' switch x kill esc close)
+set -l lgp (__tcz_strip_sgr "$lg")
+t "legend row visible width = 1 + 4*pitch" 49 (string length --visible -- "$lgp")
+t "legend row carries all labels" 1 (string match -q '*move*switch*kill*close*' -- "$lgp"; and echo 1; or echo 0)
+t "legend key colored" 1 (string match -q '*38;2;245;207;138*' -- "$lg"; and echo 1; or echo 0)
+t "sel-bg darkened" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;25;25;19m'); and echo 1; or echo 0)
 
 # --- theme-picker pure builders ----------------------------------------------
 set -g THX "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba"

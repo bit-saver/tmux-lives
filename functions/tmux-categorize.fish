@@ -749,6 +749,23 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
 end
 
+function __tcz_legend_row --argument-names pitch --description 'pure: one aligned key-legend row — argv[2..] = <key> <label> pairs; each cell = key (key color) + space + label (muted) padded to <pitch> visible cols; leading space. The shared footer convention for every tmux-lives popup.'
+    set -l KEY (__tcz_theme key)
+    set -l MUT (__tcz_theme muted)
+    set -l RST (__tcz_theme reset)
+    set -l out ' '
+    set -l rest $argv[2..]
+    while test (count $rest) -ge 2
+        set -l cell "$rest[1] $rest[2]"
+        set -l pad (math "$pitch - "(string length --visible -- "$cell"))
+        test $pad -lt 0; and set pad 0
+        set -l padstr (string repeat -n $pad ' ')
+        set out "$out$KEY$rest[1]$RST $MUT$rest[2]$RST$padstr"
+        set -e rest[1..2]
+    end
+    printf '%s' "$out"
+end
+
 function __tcz_popup_readkey --description 'read one keystroke -> up|down|left|right|v|w|enter|cancel|kill|other'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
@@ -1018,7 +1035,8 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     printf '\e[?25l\e[2J'
     set -l result ''
     while true
-        __tcz_popup_draw $sel $listw $prevw $rows "$current" -- $model
+        __tcz_popup_draw $sel $listw $prevw (math $rows - 1) "$current" -- $model
+        printf '\e[%s;1H\e[K%s' $rows (__tcz_legend_row 12 '↑↓' move '⏎' switch x kill esc close)
         switch (__tcz_popup_readkey)
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
@@ -1611,7 +1629,7 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
         # colour story rather than join it; neutral grey also stays legible both ways —
         # darker than a light swatch, lighter than a dark one.
         case mark;   printf '\e[38;2;138;138;138m'
-        case sel-bg; printf '\e[48;2;52;51;47m'
+        case sel-bg; printf '\e[48;2;25;25;19m'     # near-black band: must read as CHROME, never as one of the scheme colors beside it (2026-07-17 picker feedback)
         case sel-fg; printf '\e[38;2;242;239;233m'
         case reset;  printf '\e[0m'
     end
