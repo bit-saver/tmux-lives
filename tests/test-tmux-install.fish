@@ -718,33 +718,11 @@ t "theme_arc fire"       "130 -44" (__tmux_lives_theme_arc fire | string join ' 
 t "theme_arc complement" "180 -30" (__tmux_lives_theme_arc complement | string join ' ')
 t "theme_arc full"       "0 360"   (__tmux_lives_theme_arc full | string join ' ')
 t "theme_arc unknown -> empty" 0 (count (__tmux_lives_theme_arc nope))
-t "theme_roles count" 7 (count (__tmux_lives_theme_roles))
-t "theme_roles ladder" "bar 0.00|sep 0.32|tabs 0.45|active 0.55|windows 0.60|cap 0.70|text 1.00" (__tmux_lives_theme_roles | string join '|')
-
-# sampler properties, verified through the OKLCH core itself (seed hue = the user's green)
-set -g THSEED (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "#485b3c"))
-function _tl; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[1]; end
-function _tc; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[2]; end
-function _th; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[3]; end
-set -g TS0 (__tmux_lives_theme_sample 0    $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
-set -g TS5 (__tmux_lives_theme_sample 0.5  $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
-set -g TS1 (__tmux_lives_theme_sample 1.00 $THSEED[3] 0 45 0 0.20 0.92 0.105 arc linear)
-t "sample emits a hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- "$TS0"; and echo 1; or echo 0)
-t "sample t=0 lands at L0 (±0.02)" 1 (test (math "abs("(_tl $TS0)" - 0.20)") -lt 0.02; and echo 1; or echo 0)
-t "sample t=1 lands at L1 (±0.02)" 1 (test (math "abs("(_tl $TS1)" - 0.92)") -lt 0.02; and echo 1; or echo 0)
-t "sample L is monotonic" 1 (test (_tl $TS0) -lt (_tl $TS5); and test (_tl $TS5) -lt (_tl $TS1); and echo 1; or echo 0)
-t "chroma floor: dark end tinted, never grey" 1 (test (_tc $TS0) -gt 0.015; and echo 1; or echo 0)
-t "chroma arcs to a mid-ramp peak" 1 (test (_tc $TS5) -gt (_tc $TS0); and test (_tc $TS5) -gt (_tc $TS1); and echo 1; or echo 0)
-set -g TSF (__tmux_lives_theme_sample 0 $THSEED[3] 0 45 0 0.20 0.92 0.105 flat linear)
-t "flat shape lifts the dark end" 1 (test (_tc $TSF) -gt (_tc $TS0); and echo 1; or echo 0)
-set -g TP0 (__tmux_lives_theme_sample 0.7 $THSEED[3] 0 45 0   0.20 0.92 0.105 arc linear)
-set -g TP1 (__tmux_lives_theme_sample 0.7 $THSEED[3] 0 45 120 0.20 0.92 0.105 arc linear)
-t "phase leaves L alone (±0.02)" 1 (test (math "abs("(_tl $TP1)" - "(_tl $TP0)")") -lt 0.02; and echo 1; or echo 0)
-t "phase rotates H by ~120 (±8)" 1 (test (math "abs("(__tmux_lives_norm360 (math (_th $TP1)" - "(_th $TP0)))" - 120)") -lt 8; and echo 1; or echo 0)
-set -g TEL (__tmux_lives_theme_sample 0.6 $THSEED[3] 0 90 0 0.20 0.92 0.105 arc linear)
-set -g TEC (__tmux_lives_theme_sample 0.6 $THSEED[3] 0 90 0 0.20 0.92 0.105 arc cubic)
-t "cubic ease trails linear mid-ramp" 1 (test (__tmux_lives_norm360 (math (_th $TEC)" - $THSEED[3]")) -lt (__tmux_lives_norm360 (math (_th $TEL)" - $THSEED[3]")); and echo 1; or echo 0)
-functions -e _tl _tc _th
+# theme_roles/theme_sample lost their standalone direct tests here — both functions'
+# contracts changed under v3.1 (roles: 7-line absolute-L ladder -> 5-line support-only
+# "<role> <t> <dL>"; sample: relative L-ramp -> an ABSOLUTE-L argument). They pinned the
+# dead v3 model exactly like theme_palette/theme_lrange below, just without the brief
+# calling their names out explicitly; the v31 palette tests exercise both indirectly.
 
 # Task 2: seed parsing (css -> #rrggbb; named colors have no derivable hue -> empty)
 t "seed_hex passthrough" "#485b3c" (__tmux_lives_seed_hex "#485b3c")
@@ -755,33 +733,56 @@ t "seed_hex named -> empty" 0 (count (__tmux_lives_seed_hex red))
 t "seed_hex empty -> empty" 0 (count (__tmux_lives_seed_hex ""))
 t "derive_status still parses rgb() after the refactor" 1 (string match -q 'bg=#*' -- (__tmux_lives_derive_status "rgb(31,111,235)" 0); and echo 1; or echo 0)
 t "derive_status unchanged on hex" "bg=#76846d,fg=#d3d8d0" (__tmux_lives_derive_status "#485b3c" 0)
-# lightness-range parsing
-t "lrange default" "0.20 0.92" (__tmux_lives_theme_lrange "" | string join ' ')
-t "lrange parses"  "0.30 0.85" (__tmux_lives_theme_lrange "0.30,0.85" | string join ' ')
-t "lrange garbage -> default" "0.20 0.92" (__tmux_lives_theme_lrange "wat" | string join ' ')
-
-# palette: 7 roles on the ramp
-set -g TPAL1 (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear)
-t "theme_palette emits 7 roles" 7 (count $TPAL1)
-t "theme_palette all hexes" 7 (count (string match -r '^#[0-9a-f]{6}$' $TPAL1))
-function _tl2; set -l ok (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1])); echo $ok[1]; end
-set -g _mono_ok 1
-for i in (seq 2 7)
-    set -l prev (math $i - 1)
-    test (_tl2 $TPAL1[$prev]) -lt (_tl2 $TPAL1[$i]); or set _mono_ok 0
+# --- v3.1 seed-anchored palette ---
+function __tlt_L --description 'test helper: hex -> OKLCH L'
+    set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1])
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    echo $ok[1]
 end
-t "theme_palette L strictly ascending (dark seed)" 1 $_mono_ok
-# polarity is explicit: a bright seed still ramps DARK by default; light swaps ends
-set -g TPALL (__tmux_lives_theme_palette "#e8e0d0" mono 0 balanced 0.20 0.92 arc linear)
-t "bright seed still ramps dark by default" 1 (test (_tl2 $TPALL[1]) -lt (_tl2 $TPALL[7]); and echo 1; or echo 0)
-set -g TPLIGHT (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear light)
-t "polarity light inverts the ramp" 1 (test (_tl2 $TPLIGHT[1]) -gt (_tl2 $TPLIGHT[7]); and echo 1; or echo 0)
-t "polarity dark == default" (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear dark)) (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono 0 balanced 0.20 0.92 arc linear))
-functions -e _tl2
-# guards
-t "theme_palette non-hex seed -> empty" 0 (count (__tmux_lives_theme_palette colour236 mono 0 balanced 0.20 0.92 arc linear))
-t "theme_palette unknown scheme -> empty" 0 (count (__tmux_lives_theme_palette "#485b3c" wat 0 balanced 0.20 0.92 arc linear))
-t "theme_palette empty knobs = defaults" (string join ' ' $TPAL1) (string join ' ' (__tmux_lives_theme_palette "#485b3c" mono '' '' '' '' '' ''))
+set -l pal (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
+t "v31 palette emits 7 roles" 7 (count $pal)
+t "v31 bar IS the seed verbatim (lowercased)" '#485b3c' $pal[1]
+set -l palm (__tmux_lives_theme_palette '#485B3C' mono 0 balanced arc linear auto 0)
+t "v31 bar identical across schemes" "$pal[1]" "$palm[1]"
+set -l palp (__tmux_lives_theme_palette '#485B3C' wide 90 balanced arc linear auto 0)
+t "v31 phase never moves the bar" "$pal[1]" "$palp[1]"
+t "v31 phase moves companions" 0 (test "$pal[2]" = "$palp[2]"; and echo 1; or echo 0)
+# auto direction: dark seed ramps lighter (text L > bar L); light seed ramps darker
+set -l pdark (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear auto 0)
+set -l Lb (__tlt_L $pdark[1]); set -l Lt (__tlt_L $pdark[7])
+t "v31 auto dark seed -> light text" 1 (test $Lt -gt $Lb; and echo 1; or echo 0)
+set -l plight (__tmux_lives_theme_palette '#d8d8c8' mono 0 balanced arc linear auto 0)
+set -l Lb2 (__tlt_L $plight[1]); set -l Lt2 (__tlt_L $plight[7])
+t "v31 auto light seed -> dark text" 1 (test $Lt2 -lt $Lb2; and echo 1; or echo 0)
+set -l dLt (math "abs($Lt - $Lb)")
+t "v31 auto text dL floor >= 0.40" 1 (test $dLt -ge 0.40; and echo 1; or echo 0)
+set -l palv (__tmux_lives_theme_palette '#485B3C' wide 0 vivid arc linear auto 0)
+t "v31 vividness never moves the bar" "$pal[1]" "$palv[1]"
+# forced direction wins
+set -l pforce (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear darker 0)
+set -l Lt3 (__tlt_L $pforce[7])
+t "v31 forced darker honored on a dark seed" 1 (test $Lt3 -lt $Lb; and echo 1; or echo 0)
+# rotation: exact cyclic permutation of the 5 support colors; bar/text pinned
+set -l r0 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
+set -l r1 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 1)
+t "v31 rot1 sep wears rot0 cap" "$r0[6]" "$r1[2]"
+t "v31 rot1 tabs wears rot0 sep" "$r0[2]" "$r1[3]"
+t "v31 rot1 cap wears rot0 windows" "$r0[5]" "$r1[6]"
+t "v31 rotation pins the bar" "$r0[1]" "$r1[1]"
+t "v31 rotation pins the text" "$r0[7]" "$r1[7]"
+# support ladder: companions cluster (every support within 0.30 L of the seed)
+set -l Ls (__tlt_L $r0[1])
+set -l clustered 1
+for i in 2 3 4 5 6
+    set -l Li (__tlt_L $r0[$i])
+    set -l dLi (math "abs($Li - $Ls)")
+    test $dLi -le 0.30; or set clustered 0
+end
+t "v31 supports cluster near the seed" 1 $clustered
+# bad inputs still fall through
+t "v31 non-hex seed -> nothing" 0 (count (__tmux_lives_theme_palette red wide 0 balanced arc linear auto 0))
+t "v31 unknown scheme -> nothing" 0 (count (__tmux_lives_theme_palette '#485B3C' nope 0 balanced arc linear auto 0))
+functions -e __tlt_L
 
 # --- theme engine v3: fragment renders the gradient-map roles ----------------
 # theme OFF (argv 17 absent): v2 values + neutral role seeds

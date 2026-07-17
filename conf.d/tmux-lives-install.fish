@@ -602,48 +602,30 @@ function __tmux_lives_theme_arc --argument-names scheme --description 'v3 scheme
     end
 end
 
-function __tmux_lives_theme_roles --description 'v3 role ladder, "<role> <t>" per line — THE one place role->lightness lives (spec decision #5: keep adjustable)'
-    printf '%s\n' 'bar 0.00' 'sep 0.32' 'tabs 0.45' 'active 0.55' 'windows 0.60' 'cap 0.70' 'text 1.00'
+function __tmux_lives_theme_roles --description 'v3.1 support-role ladder, "<role> <t> <dL>" per line — THE one adjustable place (spec decision: keep tunable). bar (= the seed) and text (contrast side) are built in theme_palette, not here.'
+    printf '%s\n' 'sep 0.15 0.06' 'tabs 0.30 0.10' 'active 0.50 0.15' 'windows 0.60 0.17' 'cap 0.80 0.22'
 end
 
-function __tmux_lives_theme_sample --argument-names t seedH a0 a1 phase l0 l1 cmax shape ease --description 'sample the gradient at t: L ramp l0->l1; hue arc a0->a1 (+phase) off seedH, eased; chroma arc C0 .030 -> cmax @0.5 -> C1 .075 (flat: cmax) -> #rrggbb'
-    set -l L (math "$l0 + ($l1 - $l0) * $t")
+function __tmux_lives_theme_sample --argument-names t L seedH a0 a1 phase cs cmax shape ease --description 'sample the companion gradient at arc position t with ABSOLUTE lightness L: hue arc a0->a1 (+phase) off seedH, eased; chroma anchors at the seed (cs -> cmax sine arc; flat: cmax) -> #rrggbb'
     set -l et $t
     test "$ease" = cubic; and set et (math "$t ^ 3")
     set -l H (__tmux_lives_norm360 (math "$seedH + $a0 + ($a1 - $a0) * $et + $phase"))
-    # chroma: an arc with FLOORS (ends tinted, never pure grey); no math comparisons — float test.
     set -l C $cmax
     if test "$shape" != flat
-        if test $t -le 0.5
-            set C (math "0.030 + ($cmax - 0.030) * ($t / 0.5)")
-        else
-            set C (math "$cmax - ($cmax - 0.075) * (($t - 0.5) / 0.5)")
-        end
+        set C (math "$cs + ($cmax - $cs) * sin(3.141592653589793 * $t)")
     end
     __tmux_lives_oklch_hex $L $C $H
 end
 
-function __tmux_lives_theme_lrange --argument-names range --description '"L0,L1" -> two lines L0 L1; empty/garbage -> the 0.20 0.92 defaults'
-    set -l rr (string split , -- "$range")
-    if test (count $rr) -eq 2
-        and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[1]
-        and string match -qr '^(0(\.[0-9]+)?|1(\.0+)?)$' -- $rr[2]
-        printf '%s\n' $rr[1] $rr[2]
-        return
-    end
-    printf '%s\n' 0.20 0.92
-end
-
-function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness l0 l1 shape ease polarity --description 'seed + scheme/phase/knobs + polarity(dark|light, default dark) -> 7 role hexes one per line (bar sep tabs active windows cap text); non-hex seed or unknown scheme -> nothing (callers fall back to v2)'
+function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'seed + scheme/knobs -> 7 role hexes one per line (bar sep tabs active windows cap text). The bar IS the seed verbatim; companions cluster around it (gentle dL ladder, hue/chroma differentiate); text jumps to the contrast side. contrast auto|lighter|darker ('' = auto); rotate 0-4 permutes the COMPUTED support colors. Non-hex seed or unknown scheme -> nothing (callers fall back to legacy).'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l arc (__tmux_lives_theme_arc "$scheme")
     test (count $arc) -eq 2; or return
     test -n "$phase"; or set phase 0
-    test -n "$l0"; or set l0 0.20
-    test -n "$l1"; or set l1 0.92
     test -n "$shape"; or set shape arc
     test -n "$ease"; or set ease linear
-    test -n "$polarity"; or set polarity dark
+    test -n "$contrast"; or set contrast auto
+    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
     set -l cmax 0.105
     switch "$vividness"
         case soft;  set cmax 0.075
@@ -651,20 +633,39 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     end
     set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
     set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    # polarity is EXPLICIT (dark|light; default dark) — the old seed-brightness
-    # auto-inversion is gone: the seed contributes HUE only (2026-07-16 live smoke:
-    # a bright seed flipped the whole bar light, surprising the user).
-    if test "$polarity" = light
-        set -l swap $l0
-        set l0 $l1
-        set l1 $swap
+    # direction: which side companions + text sit on. auto derives from the
+    # seed's own lightness (dark seed -> lighter companions/text; light -> darker).
+    set -l dir 1
+    switch "$contrast"
+        case darker
+            set dir -1
+        case lighter
+            set dir 1
+        case '*'   # auto
+            test $ok[1] -ge 0.55; and set dir -1
     end
+    # bar = the seed, verbatim (never re-derived through an OKLCH round-trip)
+    printf '%s\n' (string lower -- $seedHex)
+    set -l sup
     for rt in (__tmux_lives_theme_roles)
         set -l parts (string split ' ' $rt)
-        set -l hx (__tmux_lives_theme_sample $parts[2] $ok[3] $arc[1] $arc[2] $phase $l0 $l1 $cmax $shape $ease)
+        set -l L (math "$ok[1] + $dir * $parts[3]")
+        test $L -lt 0.05; and set L 0.05
+        test $L -gt 0.95; and set L 0.95
+        set -l hx (__tmux_lives_theme_sample $parts[2] $L $ok[3] $arc[1] $arc[2] $phase $ok[2] $cmax $shape $ease)
         test -n "$hx"; or return
-        printf '%s\n' $hx
+        set -a sup $hx
     end
+    # rotation: permute the COMPUTED support colors across the roles —
+    # permuting the ladder params instead would be a no-op.
+    for i in 1 2 3 4 5
+        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
+        printf '%s\n' $sup[$j]
+    end
+    set -l Lt (math "$ok[1] + $dir * 0.45")
+    test $Lt -lt 0.05; and set Lt 0.05
+    test $Lt -gt 0.97; and set Lt 0.97
+    __tmux_lives_oklch_hex $Lt 0.03 (__tmux_lives_norm360 (math "$ok[3] + $arc[2] + $phase"))
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
