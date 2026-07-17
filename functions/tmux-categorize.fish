@@ -1242,7 +1242,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d polarity (dark/light), b set seed (raw hex entry with live swatch + hue readout; applies immediately via setup color), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (layout A): fake-bar preview + 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d polarity (dark/light), b set seed (RGB sliders; t = typed hex with live swatch + hue), Enter apply (via the CLI, silenced), Esc/q cancel. Runs INSIDE a display-popup (-w 52 -h 20); the frame is EXACTLY 20 rows.'
     # This script runs under fish --no-config: all engine math happens in config-loaded
     # fish -c subprocesses (the cap-picker pattern). One init read + one batch per knob
     # change; ←→ recomputes only the cursor scheme (net-delta coalesced).
@@ -1311,6 +1311,133 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l f (string split '|' -- "$line")
         set pals[$i] "$f[1]"
         set fgs[$i] "$f[2]"
+    end
+    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue at parse-complete)'
+                set -l buf (string replace -r '^#' '' -- $seed)
+                set -l cand ''
+                set -l hue ''
+                set -l entering 1
+                printf '\e[2J'
+                while test $entering -eq 1
+                    set cand ''
+                    set hue ''
+                    set -l b6 $buf
+                    string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
+                    if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
+                        set cand "#"(string lower -- $b6)
+                        set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $cand 2>/dev/null)
+                    end
+                    set -l sw '  '
+                    set -l swbg (__tcz_thp_bg "$cand")
+                    test -n "$swbg"; and set sw "$swbg  "(printf '\e[0m')
+                    set -l huetxt '—'
+                    test -n "$hue"; and set huetxt "$hue°"
+                    # Synchronized update (DECSET 2026), same atomic-paint pattern as the
+                    # main frame below — commits the 3-line entry paint in one go.
+                    printf '\e[?2026h\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
+                    printf '\e[J\e[?2026l'
+                    set -l tok (__tcz_thp_readchar)
+                    switch $tok
+                        case back
+                            test -n "$buf"; and set buf (string sub -e -1 -- $buf)
+                        case enter
+                            if test -n "$cand"
+                                fish -c 'tmux-lives setup color $argv[1]' "$cand" >/dev/null 2>&1
+                                __tcz_thp_init
+                                __tcz_thp_reload
+                                set note "seed applied: $seed"
+                            end
+                            set entering 0
+                        case esc
+                            set entering 0
+                        case hash other t up down left right
+                            # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
+                        case '*'
+                            # $tok IS the typed hex character
+                            test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
+                    end
+                end
+                printf '\e[2J'
+    end
+    function __tcz_thp_sliders --no-scope-shadowing --description 'RGB slider seed screen: ↑↓ channel, ←→ ±8 (coalesced), t typed hex, ⏎ apply, esc cancel'
+        set -l r 58
+        set -l g 58
+        set -l b 58
+        set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$seed")
+        if test (count $m) -eq 3
+            set r (math "0x$m[1]")
+            set g (math "0x$m[2]")
+            set b (math "0x$m[3]")
+        end
+        set -l chan 1
+        set -l hue ''
+        set -l stale 1
+        set -l sliding 1
+        printf '\e[2J'
+        while test $sliding -eq 1
+            set -l hex (printf '#%02x%02x%02x' $r $g $b)
+            if test $stale -eq 1
+                set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $hex 2>/dev/null)
+                set stale 0
+            end
+            set -l swbg (__tcz_thp_bg "$hex")
+            set -l sw "$swbg  "(printf '\e[0m')
+            set -l huetxt '—'
+            test -n "$hue"; and set huetxt "$hue°"
+            set -l s1 0
+            set -l s2 0
+            set -l s3 0
+            switch $chan
+                case 1; set s1 1
+                case 2; set s2 1
+                case 3; set s3 1
+            end
+            set -l row1 (__tcz_thp_slider R $r $s1)
+            set -l row2 (__tcz_thp_slider G $g $s2)
+            set -l row3 (__tcz_thp_slider B $b $s3)
+            printf '\e[?2026h\e[H seed sliders (only its HUE drives the theme)\e[K\n %s %s · hue %s\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n ↑↓ channel · ←→ adjust · t type hex · ⏎ apply · esc cancel\e[K' "$sw" "$hex" "$huetxt" "$row1" "$row2" "$row3"
+            printf '\e[J\e[?2026l'
+            set -l tok (__tcz_thp_readchar)
+            switch $tok
+                case up
+                    test $chan -gt 1; and set chan (math $chan - 1)
+                case down
+                    test $chan -lt 3; and set chan (math $chan + 1)
+                case left right
+                    set -l delta -8
+                    test "$tok" = right; and set delta 8
+                    while true
+                        stty min 0 time 0 2>/dev/null
+                        set -l k2 (__tcz_thp_readchar)
+                        switch "$k2"
+                            case left; set delta (math $delta - 8)
+                            case right; set delta (math $delta + 8)
+                            case '*'; break
+                        end
+                    end
+                    stty min 1 time 0 2>/dev/null
+                    set -l names r g b
+                    set -l vn $names[$chan]
+                    set -l cur $$vn
+                    set cur (math "$cur + $delta")
+                    test $cur -lt 0; and set cur 0
+                    test $cur -gt 255; and set cur 255
+                    set $vn $cur
+                    set stale 1
+                case t
+                    __tcz_thp_hexentry
+                    set sliding 0
+                case enter
+                    fish -c 'tmux-lives setup color $argv[1]' (printf '#%02x%02x%02x' $r $g $b) >/dev/null 2>&1
+                    __tcz_thp_init
+                    __tcz_thp_reload
+                    set note "seed applied: $seed"
+                    set sliding 0
+                case esc
+                    set sliding 0
+            end
+        end
+        printf '\e[2J'
     end
     __tcz_thp_reload
     set -l n (count $toks)          # 10 scheme rows; index n (0-based) = the off row
@@ -1442,54 +1569,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test "$polarity" = dark; and set polarity light; or set polarity dark
                 __tcz_thp_reload
             case b
-                # raw-mode hex entry (replaces the cooked read + its leaked `read>`
-                # prompt). Live swatch + extracted-hue readout at parse-complete —
-                # the seed contributes its HUE only, so SAY so on the line.
-                set -l buf (string replace -r '^#' '' -- $seed)
-                set -l cand ''
-                set -l hue ''
-                set -l entering 1
-                printf '\e[2J'
-                while test $entering -eq 1
-                    set cand ''
-                    set hue ''
-                    set -l b6 $buf
-                    string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
-                    if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
-                        set cand "#"(string lower -- $b6)
-                        set hue (fish -c 'set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1]); set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]); printf "%.0f" $ok[3]' $cand 2>/dev/null)
-                    end
-                    set -l sw '  '
-                    set -l swbg (__tcz_thp_bg "$cand")
-                    test -n "$swbg"; and set sw "$swbg  "(printf '\e[0m')
-                    set -l huetxt '—'
-                    test -n "$hue"; and set huetxt "$hue°"
-                    # Synchronized update (DECSET 2026), same atomic-paint pattern as the
-                    # main frame below — commits the 3-line entry paint in one go.
-                    printf '\e[?2026h\e[H seed (only its HUE drives the theme)\e[K\n #%s_ %s hue %s\e[K\n enter apply · esc cancel\e[K' "$buf" "$sw" "$huetxt"
-                    printf '\e[J\e[?2026l'
-                    set -l tok (__tcz_thp_readchar)
-                    switch $tok
-                        case back
-                            test -n "$buf"; and set buf (string sub -e -1 -- $buf)
-                        case enter
-                            if test -n "$cand"
-                                fish -c 'tmux-lives setup color $argv[1]' "$cand" >/dev/null 2>&1
-                                __tcz_thp_init
-                                __tcz_thp_reload
-                                set note "seed applied: $seed"
-                            end
-                            set entering 0
-                        case esc
-                            set entering 0
-                        case hash other t up down left right
-                            # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
-                        case '*'
-                            # $tok IS the typed hex character
-                            test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
-                    end
-                end
-                printf '\e[2J'
+                __tcz_thp_sliders
             case enter
                 if test $sel -lt $n
                     set apply $toks[(math $sel + 1)]
@@ -1505,6 +1585,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_init
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_reload_one
+    functions -e __tcz_thp_hexentry
+    functions -e __tcz_thp_sliders
     set -e __tcz_thp_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'

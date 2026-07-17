@@ -70,7 +70,7 @@ The status bar is themed by a gradient map: seven UI roles (bar · separators ·
     tmux-lives setup theme warm --phase 30
     tmux-lives setup theme off           # the legacy look (derived bar, neutral cap)
 
-Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` · `fire` · `complement` · `full`. Knobs: `--phase <deg>`, `--vividness soft|balanced|vivid`, `--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. ShellFish tabs wear the `tabs` role; roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`; the `windows` colour rides `status-style fg`. Upgrading from the old cap-color engine: your `cap` settings migrate automatically (scheme resets to `mono` — the models differ; `M-k` now opens the theme picker).
+Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` · `fire` · `complement` · `full`. Knobs: `--phase <deg>`, `--vividness soft|balanced|vivid`, `--shape arc|flat`, `--ease linear|cubic`, `--range L0,L1`. ShellFish tabs wear the `tabs` role; roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`; the `windows` colour rides `status-style fg`. Upgrading from the old cap-color engine: your `cap` settings migrate automatically (scheme resets to `mono` — the models differ; `M-k` now opens the theme picker) — `b` opens RGB sliders for the seed (`t` inside for typed hex).
 
 ### In-tmux command surface (launcher + scratch split + resize)
 
