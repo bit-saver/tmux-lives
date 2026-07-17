@@ -1162,7 +1162,41 @@ function __tcz_thp_restore --argument-names scheme --description '<scheme> <toke
     set -l i (contains -i -- "$scheme" $toks)
     test -n "$i"; and echo (math $i - 1); or echo 0
 end
-function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|other (dd HEAD-of-pipeline; tty already raw)'
+function __tcz_thp_slider --argument-names label value selected --description 'pure: one RGB slider row = marker(1)+label(1)+space+32-cell bar+space+3-char value; filled cells wear the channel color AT the value (intensity visible), gaps are muted ·; fixed 39 visible cols'
+    set -l fill (math "round($value * 32 / 255)")
+    test $fill -gt 32; and set fill 32
+    test $fill -lt 0; and set fill 0
+    set -l chanhex '#000000'
+    switch $label
+        case R; set chanhex (printf '#%02x0000' $value)
+        case G; set chanhex (printf '#00%02x00' $value)
+        case B; set chanhex (printf '#0000%02x' $value)
+    end
+    set -l bar ''
+    if test $fill -gt 0
+        set -l bg (__tcz_thp_bg "$chanhex")
+        set -l cells (string repeat -n $fill ' ')
+        set bar "$bg$cells"(printf '\e[0m')
+    end
+    set -l rest (math "32 - $fill")
+    if test $rest -gt 0
+        set -l gapc (string repeat -n $rest '·')
+        set -l MUT (__tcz_theme muted)
+        set -l RS (__tcz_theme reset)
+        set bar "$bar$MUT$gapc$RS"
+    end
+    set -l marker ' '
+    set -l labcol (__tcz_theme muted)
+    if test "$selected" = 1
+        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        set labcol (__tcz_theme key)
+    end
+    set -l valtxt (string pad -w 3 -- $value)
+    set -l VC (__tcz_theme value)
+    set -l RS2 (__tcz_theme reset)
+    printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
+end
+function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
     test -z "$b"; and begin; echo esc; return; end
@@ -1170,15 +1204,17 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
         case 0d 0a; echo enter; return
         case 7f 08; echo back; return
         case 23; echo hash; return
+        case 74; echo t; return                       # t (slider screen: type hex)
     end
     if test "$b" = 1b                                # ESC
         # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read,
         # mirroring __tcz_popup_readkey's pattern above. Without this, a bare
         # `1b` returned `esc` immediately and leaked the following `[`+letter
         # bytes, which the outer picker's loop then read as an ↑↓ keystroke
-        # and moved the scheme selection out from under seed entry. Arrows
-        # are simply IGNORED in entry mode (return `other`); a genuine bare
-        # ESC still aborts entry.
+        # and moved the scheme selection out from under seed entry. Arrows are
+        # now CLASSIFIED (up/down/left/right); the hex editor still ignores
+        # them (ignore-case below), while the slider screen consumes them. A
+        # genuine bare ESC still aborts entry.
         stty min 0 time 1 2>/dev/null
         set -l b2 ''
         dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
@@ -1188,7 +1224,13 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
         end
         stty min 1 time 0 2>/dev/null
         if test "$b2" = 5b; or test "$b2" = 4f
-            echo other; return                       # arrow: ignored, not cancel
+            switch "$b3"
+                case 41; echo up; return
+                case 42; echo down; return
+                case 43; echo right; return
+                case 44; echo left; return
+            end
+            echo other; return
         end
         echo esc; return                              # bare ESC
     end
@@ -1440,8 +1482,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                             set entering 0
                         case esc
                             set entering 0
-                        case hash other
-                            # ignored ('#' is implied)
+                        case hash other t up down left right
+                            # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
                         case '*'
                             # $tok IS the typed hex character
                             test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
