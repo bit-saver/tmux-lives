@@ -985,6 +985,19 @@ set -l _pt1 (date +%s%N)
 set -l _ptms (math "($_pt1 - $_pt0) / 1000000")
 t "perf: in-process 10-palette batch < 1000ms" 1 (test $_ptms -lt 1000; and echo 1; or echo 0)
 
+# universal-variable semantics that broke the picker save path (2026-07-17):
+# `fish --no-config` neither reads nor writes universal variables — a set -U
+# there is process-local and invisible to every other fish. The picker fix
+# routes universal-touching actions through a config-loaded `fish -c` child;
+# these tests document BOTH halves of the mechanism.
+set -e __tl_test_uprobe 2>/dev/null
+fish --no-config -c 'set -U __tl_test_uprobe direct' 2>/dev/null
+t "no-config set -U is invisible cross-process" 0 (fish -c 'set -q __tl_test_uprobe; and echo 1; or echo 0')
+fish --no-config -c 'fish -c "set -U __tl_test_uprobe viachild"' 2>/dev/null
+t "config-loaded child set -U persists" viachild (fish -c 'echo $__tl_test_uprobe')
+fish -c 'set -e __tl_test_uprobe' 2>/dev/null
+t "uprobe cleaned up" 0 (fish -c 'set -q __tl_test_uprobe; and echo 1; or echo 0')
+
 # restore the saved universals (bottom of the section — the socket seam is unpinned by now)
 for i in (seq (count $_th_names))
     set -e $_th_names[$i]

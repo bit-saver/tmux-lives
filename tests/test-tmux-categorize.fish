@@ -1162,11 +1162,18 @@ t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_theme_picker | string collect); and string match -q '*2026l*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
-# perf fix: the picker must never spawn a fish subprocess per keypress —
-# the engine is sourced in-process at open. Extract the function body
-# (top-level `end` closes it; nested helpers' `end`s are indented).
+# perf fix + universal-persistence fix: the HOT path (reload/draw/readouts)
+# is in-process, but every universal-TOUCHING action must go through a
+# config-loaded `fish -c` subprocess — `fish --no-config` (the picker's
+# runtime) neither READS nor WRITES universal variables, so an in-process
+# `set -U`/`__tmux_lives_key` is silently wrong (2026-07-17 live bug: seed
+# invisible, saves lost). Extract the function body (top-level `end` closes
+# it; nested helpers' `end`s are indented).
 set -l pbody (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
-t "guard: no fish -c inside the picker" 0 (string match -q '*fish -c*' -- "$pbody"; and echo 1; or echo 0)
+set -l rbody (string match -r '(?s)function __tcz_thp_reload.*?\n    end' -- "$pbody")
+t "guard: hot-path reload has no fish -c" 0 (string match -q '*fish -c*' -- "$rbody"; and echo 1; or echo 0)
+t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*' -- "$rbody"; and echo 1; or echo 0)
+t "guard: exactly 7 action-site subprocesses" 7 (count (string match -ar 'fish -c' -- "$pbody"))
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Task 6: picker layout A — 26-row frame, a/o/r keys, dead-knob guards ---
