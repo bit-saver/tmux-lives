@@ -1080,6 +1080,28 @@ t "kv no-flash has no flash SGR" 0 (string match -q "*$FLASH*" -- "$kvn[1]$kvn[2
 # widths identical with and without flash
 t "kv flash width-neutral" (string length --visible -- (__tcz_strip_sgr "$kvn[2]")) (string length --visible -- (__tcz_strip_sgr "$kvf[2]"))
 
+# --- anchor-wave builders (Task 1) ---
+set -l CURM (printf '\e[38;5;179m')
+set -l rowc (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 0 1)
+t "row current flag adds the chevron" 1 (string match -q '*❯ wide*' -- (__tcz_strip_sgr "$rowc"); and echo 1; or echo 0)
+t "row current chevron wears the switcher yellow" 1 (string match -q "*$CURM*" -- "$rowc"; and echo 1; or echo 0)
+set -l rown (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 0)
+t "row without current has no chevron" 0 (string match -q '*❯*' -- "$rown"; and echo 1; or echo 0)
+t "row current is exactly 2 cols wider" (math (string length --visible -- (__tcz_strip_sgr "$rown"))" + 2") (string length --visible -- (__tcz_strip_sgr "$rowc"))
+set -l offc (__tcz_thp_off_row '#5c6b52' 0 'off · current' 1)
+t "off-row name override + chevron" 1 (string match -q '*❯ off · current*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
+set -l offd (__tcz_thp_off_row '#5c6b52' 0)
+t "off-row default label unchanged" 1 (string match -q '*off — legacy look*' -- (__tcz_strip_sgr "$offd"); and echo 1; or echo 0)
+# kv multi-field flash
+set -l kvm (__tcz_thp_kv 50 'phase rotate' phase '+15°' rotate 2 ease linear)
+t "kv multi-flash lights phase" 1 (string match -q "*$FLASH*PHASE*" -- "$kvm[1]"; and echo 1; or echo 0)
+t "kv multi-flash lights rotate" 1 (string match -q "*$FLASH*ROTATE*" -- "$kvm[1]"; and echo 1; or echo 0)
+# check that EASE does not have FLASH color code immediately before it
+t "kv multi-flash spares ease" 0 (string match -q "*"$FLASH"EASE*" -- "$kvm[1]"; and echo 1; or echo 0)
+set -l kvs (__tcz_thp_kv 50 phase phase '+15°' rotate 2 ease linear)
+t "kv single-token flash still works" 1 (string match -q "*$FLASH*PHASE*" -- "$kvs[1]"; and echo 1; or echo 0)
+t "readkey z" z (echo -n z | __tcz_popup_readkey)
+
 # tab STRIP: a full-width fake ShellFish tab bar (active bold title + faint ⋯
 # tabs behind │ separators) — replaces the old single title chip (user: the
 # preview should show the TAB BAR the tabs role paints, 2026-07-19)

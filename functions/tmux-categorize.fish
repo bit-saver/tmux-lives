@@ -766,7 +766,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|a|r|b|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|a|r|b|z|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -798,6 +798,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 61; echo a; return                      # a (theme-picker: apply preview)
         case 6f; echo o; return                      # o (theme-picker: rotate placement)
         case 72; echo r; return                      # r (theme-picker: reset knobs)
+        case 7a; echo z; return                      # z (theme-picker: shake)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1104,7 +1105,7 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
-function __tcz_thp_row --argument-names hexes name selected --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + name; <hexes> space-joined; non-hex cells degrade to blank gaps'
+function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + [current chevron +] name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 prefixes name with "❯ " in switcher yellow'
     set -l cells ''
     for hex in (string split ' ' -- "$hexes")
         set -l bg (__tcz_thp_bg "$hex")
@@ -1120,19 +1121,32 @@ function __tcz_thp_row --argument-names hexes name selected --description 'pure:
         set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
-    printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
+    set -l curpre ''
+    if test "$current" = 1
+        set -l CUR (printf '\e[38;5;179m')
+        set -l R2 (printf '\e[0m')
+        set curpre "$CUR❯ $R2"
+    end
+    printf '%s%s %s%s%s%s' "$marker" "$cells" "$curpre" "$namecol" "$name" (__tcz_theme reset)
 end
-function __tcz_thp_off_row --argument-names barhex selected --description 'pure: the "off — legacy look" row; one 14-col derived-bg band where the strip sits'
+function __tcz_thp_off_row --argument-names barhex selected name current --description 'pure: the off-row (default "off — legacy look" label); one 14-col derived-bg band where the strip sits; <name> overrides the label; <current> = 1 prefixes with "❯ " in switcher yellow'
     set -l bg (__tcz_thp_bg "$barhex")
     set -l band '              '
     test -n "$bg"; and set band "$bg              "(printf '\e[0m')
+    test -n "$name"; or set name 'off — legacy look'
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
         set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
-    printf '%s%s %s%s%s' "$marker" "$band" "$namecol" 'off — legacy look' (__tcz_theme reset)
+    set -l curpre ''
+    if test "$current" = 1
+        set -l CUR (printf '\e[38;5;179m')
+        set -l R2 (printf '\e[0m')
+        set curpre "$CUR❯ $R2"
+    end
+    printf '%s%s %s%s%s%s' "$marker" "$band" "$curpre" "$namecol" "$name" (__tcz_theme reset)
 end
 function __tcz_thp_preview --argument-names hexes capfg host name w --description 'pure: the fake status-bar row from 7 role hexes (bar sep tabs active windows cap text) + cap fg — host cap, windows, ✦ identity, clock cap; EXACTLY <w> visible cols (host/name truncated, gaps computed)'
     set -l p (string split ' ' -- "$hexes")
@@ -1194,7 +1208,7 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
-function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments pair — TWO lines (uppercase muted labels / values), columns aligned; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (case-insensitive label match, empty = none) renders that one pair in the flash role instead of muted/its own SGR.'
+function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments pair — TWO lines (uppercase muted labels / values), columns aligned; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (space-separated list of case-insensitive label matches, empty = none) renders matching pairs in the flash role instead of muted/its own SGR.'
     set -l MUT (__tcz_theme muted)
     set -l RST (__tcz_theme reset)
     set -l lr ' '
@@ -1209,7 +1223,10 @@ function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled
         set -l lpad (string repeat -n (math "$cw - $lw") ' ')
         set -l vpad (string repeat -n (math "$cw - $vw") ' ')
         set -l FL ''
-        test -n "$flashfield"; and string match -qi -- "$flashfield" $rest[1]; and set FL (__tcz_theme flash)
+        if test -n "$flashfield"
+            set -l lab_lc (string lower -- $rest[1])
+            contains -- $lab_lc (string split ' ' -- (string lower -- $flashfield)); and set FL (__tcz_theme flash)
+        end
         if test -n "$FL"
             set lr "$lr$FL$lab$RST$lpad"
             set vr "$vr$FL$vplain$RST$vpad"
