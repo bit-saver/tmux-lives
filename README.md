@@ -74,6 +74,8 @@ Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` 
 
 The picker (`setup theme`, `M-k`, or `M-m k`) shows a ShellFish tab chip when a ShellFish client is attached, a live bar preview, and labeled adjustment/scheme zones with a key legend: `↑↓` scheme · `←→` phase · `v` vividness · `s` shape · `e` ease · `d` contrast · `o` rotate · `b` seed (opens RGB sliders — `t` inside for typed hex) · `a` apply preview (live, unsaved) · `⏎` save · `r` reset knobs · `Esc`/`q` revert and close. Hold shift on a cycling key (V/S/E/D/O) to step it backward; changed values flash blue for half a second.
 
+The top row of the scheme list is always your current theme (`❯ <scheme> · current`, frozen at its saved knobs) — select it and press `a` to flip back for comparison against whatever else you're auditioning. `z` shakes up a random scheme, phase, and rotate in one press, if you want inspiration. Changed values light up blue immediately, before the strips recompute — you see what moved without waiting for the redraw.
+
 ### In-tmux command surface (launcher + scratch split + resize)
 
 When a full-screen program occupies your pane, a few bindings let you drive tmux-lives without leaving it:

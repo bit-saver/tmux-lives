@@ -1469,6 +1469,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a tabsfgs "$sfgs[$jt]"
         end
     end
+    function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-8) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
+        set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
+        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
+        set -l k2 (__tcz_thp_kv $IW "$flashfield" contrast "$contrast" rotate "$rotate" ease "$ease")
+        set -l l1 (__tcz_thp_ln "$k1[1]" $IW $BORDER $RST)
+        set -l l2 (__tcz_thp_ln "$k1[2]" $IW $BORDER $RST)
+        set -l l3 (__tcz_thp_ln "$k2[1]" $IW $BORDER $RST)
+        set -l l4 (__tcz_thp_ln "$k2[2]" $IW $BORDER $RST)
+        printf '\e[?2026h\e[5;1H%s\e[K\e[6;1H%s\e[K\e[7;1H%s\e[K\e[8;1H%s\e[K\e[?2026l' "$l1" "$l2" "$l3" "$l4"
+    end
     function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
                 set -l buf (string replace -r '^#' '' -- $seed)
                 set -l cand ''
@@ -1800,6 +1810,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 stty min 1 time 0 2>/dev/null
                 set phase (math "((($phase + $delta) % 360) + 360) % 360")
                 set flashfield phase
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case right
                 set -l delta 5
@@ -1816,6 +1827,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 stty min 1 time 0 2>/dev/null
                 set phase (math "((($phase + $delta) % 360) + 360) % 360")
                 set flashfield phase
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case v
                 switch "$viv"
@@ -1824,6 +1836,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case '*';      set viv soft
                 end
                 set flashfield vividness
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case V
                 switch "$viv"
@@ -1832,14 +1845,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case '*';      set viv vivid
                 end
                 set flashfield vividness
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case s S
                 test "$shape" = arc; and set shape flat; or set shape arc
                 set flashfield shape
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case e E
                 test "$ease" = linear; and set ease cubic; or set ease linear
                 set flashfield ease
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case d
                 switch "$contrast"
@@ -1848,6 +1864,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case '*';     set contrast auto
                 end
                 set flashfield contrast
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case D
                 switch "$contrast"
@@ -1856,14 +1873,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     case '*';     set contrast auto
                 end
                 set flashfield contrast
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case o
                 set rotate (math "($rotate + 1) % 5")
                 set flashfield rotate
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case O
                 set rotate (math "($rotate + 4) % 5")
                 set flashfield rotate
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case r
                 set phase 0; set viv balanced; set shape arc; set ease linear
@@ -1880,6 +1900,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set phase (math "(random 0 71) * 5")
                 set rotate (random 0 4)
                 set flashfield 'phase rotate'
+                __tcz_thp_litkv
                 __tcz_thp_reload
             case a
                 if test $sel -eq 0

@@ -1278,6 +1278,12 @@ set -l catsrc3 (cat $catfile | string collect)
 t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc3"; and echo 1; or echo 0)
 t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
 
+# --- Task 4: lit-first kv repaint before recompute ---
+set -l pk3 (functions __tcz_theme_picker | string collect)
+t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
+t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
+t "litkv called from every knob arm" 12 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
