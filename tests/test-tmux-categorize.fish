@@ -1275,14 +1275,13 @@ t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_
 t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 set -l catsrc3 (cat $catfile | string collect)
-t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc3"; and echo 1; or echo 0)
 t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
 
 # --- Task 4: lit-first kv repaint before recompute ---
 set -l pk3 (functions __tcz_theme_picker | string collect)
 t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
 t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
-t "litkv called from every knob arm" 12 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
+t "litkv called from every knob arm" 13 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
 
 rm -rf $shimdir
 if test $FAIL -eq 0

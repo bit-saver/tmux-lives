@@ -1937,6 +1937,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_sliders
+    functions -e __tcz_thp_litkv
     set -e __tcz_thp_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
