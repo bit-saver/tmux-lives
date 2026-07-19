@@ -1221,14 +1221,23 @@ function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled
     end
     printf '%s\n%s\n' "$lr" "$vr"
 end
-function __tcz_thp_chip --argument-names tabshex tabsfg title --description 'pure: ShellFish tab chip " <title> " on the tabs-role color with the given fg; title truncated to 40 cols; EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
+function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
     set -l bg (__tcz_thp_bg "$tabshex")
     test -n "$bg"; or return
     test -n "$title"; or return
-    set title (string sub -l 40 -- "$title")
+    # fixed furniture is 10 visible cols: ' '+title+' '+'│ ⋯ │ ⋯ '
+    set -l maxt (math "$w - 10")
+    set title (string sub -l $maxt -- "$title")
     set -l fgS (__tcz_thp_fg "$tabsfg")
+    set -l B1 (printf '\e[1m')
+    set -l FA (printf '\e[2m')
+    set -l NI (printf '\e[22m')
     set -l RST (printf '\e[0m')
-    printf '%s%s %s %s' "$bg" "$fgS" "$title" "$RST"
+    set -l used (math "10 + "(string length --visible -- "$title"))
+    set -l pad (math "$w - $used")
+    test $pad -lt 0; and set pad 0
+    set -l padstr (string repeat -n $pad ' ')
+    printf '%s%s %s%s%s %s│ ⋯ │ ⋯ %s%s%s' "$bg" "$fgS" "$B1" "$title" "$NI" "$FA" "$NI" "$padstr" "$RST"
 end
 function __tcz_thp_shellfish --description 'true iff any attached client is ShellFish — the production detection (__tcz_client_is_shellfish; tmux_lives_fake_environ seam applies), checked ONCE at picker open.'
     for pid in (tmux list-clients -F '#{client_pid}' 2>/dev/null)
@@ -1651,12 +1660,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # the bold SGRs must be printf-captured vars, never "\e[1m" literals.
         set -l lines
         set -a lines $BORDER"╭─ $B1"$BRAND"theme$B0"$BORDER" ─ preview "(string repeat -n (math "$IW - 18") ─)"╮"$RST
-        # capture-then-quote: __tcz_thp_chip prints NOTHING when non-ShellFish (the
+        # capture-then-quote: __tcz_thp_tabstrip prints NOTHING when non-ShellFish (the
         # common case) — a zero-output command substitution used as a bare argument
         # VANISHES from the arg list, so __tcz_thp_ln would silently get 3 args
         # instead of 4 (content=$IW, w=$BORDER, ...) and spray math/test errors into
         # the popup on every redraw. Capture into a var first, then quote it.
-        set -l chip (__tcz_thp_chip "$curtabs" "$curtabsfg" "$chiptitle")
+        set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all schemes' $BORDER $RST)
@@ -1723,12 +1732,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # (blocking) on return, so each iteration re-asserts non-blocking
                 # BEFORE reading — otherwise the second drain read blocks forever.
                 set -l delta -5
+                # gap escalation (2026-07-19 held-arrow lag): the FIRST pass is
+                # instant (time 0) so a single press settles immediately; once a
+                # burst is detected the drain waits ~100ms (time 1) per pass so a
+                # HELD arrow's autorepeat (~30-60ms gaps) coalesces into ONE
+                # recompute at release instead of stuttering per buffered chunk.
+                set -l gap 0
                 while true
-                    stty min 0 time 0 2>/dev/null
+                    stty min 0 time $gap 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
-                        case left;  set delta (math $delta - 5)
-                        case right; set delta (math $delta + 5)
+                        case left;  set delta (math $delta - 5); set gap 1
+                        case right; set delta (math $delta + 5); set gap 1
                         case '*';   break   # cancel = drained (EOF); anything else ends the burst
                     end
                 end
@@ -1738,12 +1753,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 __tcz_thp_reload
             case right
                 set -l delta 5
+                set -l gap 0
                 while true
-                    stty min 0 time 0 2>/dev/null
+                    stty min 0 time $gap 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
-                        case left;  set delta (math $delta - 5)
-                        case right; set delta (math $delta + 5)
+                        case left;  set delta (math $delta - 5); set gap 1
+                        case right; set delta (math $delta + 5); set gap 1
                         case '*';   break
                     end
                 end

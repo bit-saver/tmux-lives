@@ -1080,10 +1080,17 @@ t "kv no-flash has no flash SGR" 0 (string match -q "*$FLASH*" -- "$kvn[1]$kvn[2
 # widths identical with and without flash
 t "kv flash width-neutral" (string length --visible -- (__tcz_strip_sgr "$kvn[2]")) (string length --visible -- (__tcz_strip_sgr "$kvf[2]"))
 
-set -l ch (__tcz_thp_chip '#626f55' '#111111' 'rocket: tmux-lives (C)')
-t "chip renders title on tabs bg" 1 (string match -q '*rocket: tmux-lives (C)*' -- (__tcz_strip_sgr "$ch"); and echo 1; or echo 0)
-t "chip empty without tabs color" '' (__tcz_thp_chip '' '#111111' 'x' | string collect)
-t "chip empty without title" '' (__tcz_thp_chip '#626f55' '#111111' '' | string collect)
+# tab STRIP: a full-width fake ShellFish tab bar (active bold title + faint ⋯
+# tabs behind │ separators) — replaces the old single title chip (user: the
+# preview should show the TAB BAR the tabs role paints, 2026-07-19)
+set -l ts (__tcz_thp_tabstrip '#626f55' '#111111' 'rocket: tmux-lives (C)' 50)
+t "tabstrip is exactly w cols" 50 (string length --visible -- (__tcz_strip_sgr "$ts"))
+t "tabstrip carries the active title" 1 (string match -q '*rocket: tmux-lives (C)*' -- (__tcz_strip_sgr "$ts"); and echo 1; or echo 0)
+t "tabstrip shows inactive tabs" 1 (string match -q '*│*⋯*│*⋯*' -- (__tcz_strip_sgr "$ts"); and echo 1; or echo 0)
+set -l _tsb (printf '\e[1m')
+t "tabstrip active tab is bold" 1 (string match -q "*$_tsb*" -- "$ts"; and echo 1; or echo 0)
+t "tabstrip empty without tabs color" '' (__tcz_thp_tabstrip '' '#111111' 'x' 50 | string collect)
+t "tabstrip empty without title" '' (__tcz_thp_tabstrip '#626f55' '#111111' '' 50 | string collect)
 # shellfish probe honors the fake-environ seam (following __tcz_client_is_shellfish pattern)
 # Stub tmux to return a fake client PID for list-clients
 function tmux
@@ -1112,7 +1119,12 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
-t "picker drain re-asserts non-blocking each iteration" 3 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+# the two PHASE drains escalate to a ~100ms repeat-gap wait once a burst is
+# detected (gap=1) so a HELD arrow coalesces into ONE recompute at release;
+# a single press still settles instantly (first pass is gap=0)
+t "picker phase drains use the burst gap" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker phase drains escalate the gap on burst" 2 (string match -a -r 'case left;  set delta \(math \$delta - 5\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
 
 # --- raw-mode seed entry (live swatch + hue readout) ---
 t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
