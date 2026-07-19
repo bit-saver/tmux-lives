@@ -1268,11 +1268,11 @@ t "fg pick: tabs fg matches rotated pal" "$wanttabs" "$sfgs[$jt]"
 
 # --- anchor row: static pins ---
 set -l pk (functions __tcz_theme_picker | string collect)
-t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_tok $theme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_tok*' -- "$pk"; and echo 1; or echo 0)
+t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_tok*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_tok $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 set -l catsrc3 (cat $catfile | string collect)
 t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc3"; and echo 1; or echo 0)
