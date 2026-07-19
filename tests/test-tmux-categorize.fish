@@ -1128,7 +1128,7 @@ functions -e tmux
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
-t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_lives_theme_schemes*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker batches palettes via theme_tokens" yes (string match -q '*__tmux_lives_theme_tokens*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1144,6 +1144,16 @@ t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'w
 # a single press still settles instantly (first pass is gap=0)
 t "picker phase drains use the burst gap" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
 t "picker phase drains escalate the gap on burst" 2 (string match -a -r 'case left;  set delta \(math \$delta - 5\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
+
+# --- Task 3: shake key (z) + legend swap ---
+set -l pk2 (functions __tcz_theme_picker | string collect)
+t "picker has a shake arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; or echo 0)
+t "shake rerolls the scheme row" 1 (string match -q '*set sel (random 1 $n)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake rerolls phase in 5° steps" 1 (string match -q '*(random 0 71) \* 5*' -- "$pk2"; and echo 1; or echo 0)
+t "shake rerolls rotate" 1 (string match -q '*set rotate (random 0 4)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake flashes both fields" 1 (string match -q "*set flashfield 'phase rotate'*" -- "$pk2"; and echo 1; or echo 0)
+t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 d contrast o rotate z shake b seed)); and echo 1; or echo 0)
+t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*scheme*' -- "$pk2"; and echo 1; or echo 0)
 
 # --- raw-mode seed entry (live swatch + hue readout) ---
 t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
@@ -1257,11 +1267,11 @@ t "fg pick: tabs fg matches rotated pal" "$wanttabs" "$sfgs[$jt]"
 
 # --- anchor row: static pins ---
 set -l pk (functions __tcz_theme_picker | string collect)
-t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
+t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_tok $theme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_tok*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_tok*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_tok $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 set -l catsrc3 (cat $catfile | string collect)
 t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc3"; and echo 1; or echo 0)

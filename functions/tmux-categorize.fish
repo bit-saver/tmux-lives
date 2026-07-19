@@ -1369,7 +1369,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, an anchor row (❯ <scheme> · current — a frozen snapshot of the persisted theme, taken once at open) + 10 scheme rows + off row. The cursor starts ON the anchor (sel 0); ↑↓/jk move (1..n = the scheme rows, n+1 = off), ❯ in the list marks whichever row matches the anchor scheme. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, an anchor row (❯ <palette> · current — a frozen snapshot of the persisted theme, taken once at open) + 10 palette rows + off row. The cursor starts ON the anchor (sel 0); ↑↓/jk move through the list (1..n = palette rows, n+1 = off); ❯ marks the persisted anchor. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), z shake (random palette+phase+rotate), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1437,7 +1437,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set blob $cacheblobs[$ci]
         else
             set -l lines
-            for tok in (__tmux_lives_theme_schemes)
+            for tok in (__tmux_lives_theme_tokens)
                 set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast 0)
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # per-support contrast fgs (any support can rotate onto cap/tabs)
@@ -1609,9 +1609,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '\e[2J'
     end
     __tcz_thp_reload
-    set -l n (count $toks)          # 10 scheme rows; index n (0-based) = the off row
+    set -l n (count $toks)          # 10 palette rows; index n (0-based) = the off row
     # anchor snapshot: the persisted theme, frozen for this picker session
-    set -l anch_scheme $theme
+    set -l anch_tok $theme
     set -l anch_phase $phase
     set -l anch_viv $viv
     set -l anch_shape $shape
@@ -1621,8 +1621,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
-    if test "$anch_scheme" != off
-        set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate)
+    if test "$anch_tok" != off
+        set -l ap (__tmux_lives_theme_palette $seed $anch_tok $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate)
         if test (count $ap) -eq 7
             set -l apj (string join ' ' $ap)
             set anchpal "$apj"
@@ -1703,21 +1703,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all schemes' $BORDER $RST)
+        set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all palettes' $BORDER $RST)
         set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
         set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
         set -l kv2 (__tcz_thp_kv $IW "$flashfield" contrast "$contrast" rotate "$rotate" ease "$ease")
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'scheme · companion sets for the seed' $BORDER $RST)
+        set -a lines (__tcz_thp_zsep $IW 'palette · companion sets for the seed' $BORDER $RST)
         set -l anchflag 0
         test $sel -eq 0; and set anchflag 1
         set -l anchrow ''
         if test -n "$anchpal"
-            set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
+            set anchrow (__tcz_thp_row "$anchpal" "$anch_tok · current" $anchflag 1)
         else
-            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_scheme · current" 1)
+            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_tok · current" 1)
         end
         if test $anchflag -eq 1
             set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
@@ -1728,7 +1728,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l selflag 0
             test $i -eq $sel; and set selflag 1
             set -l curflag 0
-            test "$toks[$i]" = "$anch_scheme"; and set curflag 1
+            test "$toks[$i]" = "$anch_tok"; and set curflag 1
             set -l row (__tcz_thp_row "$pals[$i]" $toks[$i] $selflag $curflag)
             if test $selflag -eq 1
                 set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
@@ -1745,8 +1745,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '↑↓' scheme '←→' phase v vivid s shape) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 e ease d contrast o rotate b seed) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase v vivid s shape e ease) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 d contrast o rotate z shake b seed) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_legend_row 12 a apply '⏎' save r reset esc close) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
@@ -1873,11 +1873,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 __tcz_thp_reload
             case b
                 __tcz_thp_sliders
+            case z
+                # shake: one press -> a radically different combo. Scheme +
+                # placement reroll; taste knobs (viv/shape/ease/contrast) kept.
+                set sel (random 1 $n)
+                set phase (math "(random 0 71) * 5")
+                set rotate (random 0 4)
+                set flashfield 'phase rotate'
+                __tcz_thp_reload
             case a
                 if test $sel -eq 0
-                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate >/dev/null 2>&1
+                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_tok $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate >/dev/null 2>&1
                     set previewed 1
-                    set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
+                    set note "● previewing $anch_tok (current) — ⏎ save · esc revert"
                 else
                     set -l ptok off
                     test $sel -le $n; and set ptok $toks[$sel]
@@ -1887,7 +1895,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
             case enter
                 if test $sel -eq 0
-                    set apply $anch_scheme
+                    set apply $anch_tok
                     set phase $anch_phase; set viv $anch_viv; set shape $anch_shape
                     set ease $anch_ease; set contrast $anch_contrast; set rotate $anch_rotate
                 else if test $sel -le $n
