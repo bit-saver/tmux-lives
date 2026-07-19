@@ -745,12 +745,12 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_tokens --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it)'
+function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it)'
     printf '%s\n' mono warm cool span wide aurora sunset fire complement full
 end
 
 function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v3 gradient-map scheme'
-    contains -- "$token" (__tmux_lives_theme_tokens)
+    contains -- "$token" (__tmux_lives_theme_schemes)
 end
 
 function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <value> honoring the tmux_lives_tmux_socket test seam'
@@ -816,7 +816,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
     set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
     set -l rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
-    for scheme in (__tmux_lives_theme_tokens)
+    for scheme in (__tmux_lives_theme_schemes)
         set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $shape $ease $contrast $rotate)
         test (count $pal) -eq 7; or continue
         set -l strip

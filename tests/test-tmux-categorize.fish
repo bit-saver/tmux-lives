@@ -1128,7 +1128,7 @@ functions -e tmux
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
-t "picker batches palettes via theme_tokens" yes (string match -q '*__tmux_lives_theme_tokens*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_lives_theme_schemes*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1153,7 +1153,8 @@ t "shake rerolls phase in 5° steps" 1 (string match -q '*(random 0 71) \* 5*' -
 t "shake rerolls rotate" 1 (string match -q '*set rotate (random 0 4)*' -- "$pk2"; and echo 1; or echo 0)
 t "shake flashes both fields" 1 (string match -q "*set flashfield 'phase rotate'*" -- "$pk2"; and echo 1; or echo 0)
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 d contrast o rotate z shake b seed)); and echo 1; or echo 0)
-t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*scheme*' -- "$pk2"; and echo 1; or echo 0)
+set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
+t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*' -- $leglines; and echo 1; or echo 0)
 
 # --- raw-mode seed entry (live swatch + hue readout) ---
 t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)

@@ -1437,7 +1437,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set blob $cacheblobs[$ci]
         else
             set -l lines
-            for tok in (__tmux_lives_theme_tokens)
+            for tok in (__tmux_lives_theme_schemes)
                 set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast 0)
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # per-support contrast fgs (any support can rotate onto cap/tabs)
