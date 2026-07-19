@@ -641,7 +641,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 27*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1032,9 +1032,6 @@ t "thp_preview holds width on long names" 50 (string length --visible -- (__tcz_
 # a malformed role hex must degrade to uncolored text, never collapse a segment
 t "thp_preview holds width on a malformed hex" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d wat #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba" "#111111" rocket Monitoring 50)))
 t "thp_preview holds width when cap hex is bad" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e colour238 #ffdeba" "#111111" rocket Monitoring 50)))
-t "thp_restore finds a scheme" 1 (__tcz_thp_restore warm mono warm cool)
-t "thp_restore off -> after the schemes" 3 (__tcz_thp_restore off mono warm cool)
-t "thp_restore unknown -> 0" 0 (__tcz_thp_restore wat mono warm cool)
 t "readkey knows s/e/b" yes (string match -q '*case 73*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 65*' -- (functions __tcz_popup_readkey | string collect); and string match -q '*case 62*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 t "readkey knows d" yes (string match -q '*case 64*' -- (functions __tcz_popup_readkey | string collect); and echo yes; or echo no)
 t "readkey a" a (echo -n a | __tcz_popup_readkey)
@@ -1207,14 +1204,15 @@ set -l pbody (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string col
 set -l rbody (string match -r '(?s)function __tcz_thp_reload.*?\n    end' -- "$pbody")
 t "guard: hot-path reload has no fish -c" 0 (string match -q '*fish -c*' -- "$rbody"; and echo 1; or echo 0)
 t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*' -- "$rbody"; and echo 1; or echo 0)
-t "guard: exactly 7 action-site subprocesses" 7 (count (string match -ar 'fish -c' -- "$pbody"))
+t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
+# 8 = init + a-anchor + a-list + esc-revert + 2 seed applies + 2 saves (the case-a anchor/else split is 2 textual sites, still one subprocess per press)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
-# --- Task 6: picker layout A — 26-row frame, a/o/r keys, dead-knob guards ---
+# --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
-t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
@@ -1256,6 +1254,18 @@ set -l jc (math "((5 - 1 - $rot) % 5 + 5) % 5 + 1")
 set -l jt (math "((2 - 1 - $rot) % 5 + 5) % 5 + 1")
 t "fg pick: cap fg matches rotated pal" "$wantcap" "$sfgs[$jc]"
 t "fg pick: tabs fg matches rotated pal" "$wanttabs" "$sfgs[$jt]"
+
+# --- anchor row: static pins ---
+set -l pk (functions __tcz_theme_picker | string collect)
+t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
+t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
+t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
+set -l catsrc3 (cat $catfile | string collect)
+t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc3"; and echo 1; or echo 0)
+t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

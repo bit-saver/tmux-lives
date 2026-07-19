@@ -954,7 +954,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open the theme picker in its OWN popup
             # (the theme-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here).
-            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 26 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 27 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear
@@ -1262,12 +1262,6 @@ function __tcz_thp_shellfish --description 'true iff any attached client is Shel
     end
     return 1
 end
-function __tcz_thp_restore --argument-names scheme --description '<scheme> <tokens…> -> 0-based cursor index; "off" -> the row AFTER the tokens; unknown -> 0 (mono)'
-    set -l toks $argv[2..]
-    test "$scheme" = off; and begin; echo (count $toks); return; end
-    set -l i (contains -i -- "$scheme" $toks)
-    test -n "$i"; and echo (math $i - 1); or echo 0
-end
 function __tcz_thp_slider --argument-names label value selected --description 'pure: one RGB slider row = marker(1)+label(1)+space+32-cell bar+space+3-char value; filled cells wear the channel color AT the value (intensity visible), gaps are muted ·; fixed 39 visible cols'
     set -l fill (math "round($value * 32 / 255)")
     test $fill -gt 32; and set fill 32
@@ -1375,7 +1369,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, 10 scheme rows + off row. ↑↓/jk move, ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), b seed (RGB sliders; t drops to typed hex), a apply preview (no save), ⏎ save (via the CLI, silenced), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, an anchor row (❯ <scheme> · current — a frozen snapshot of the persisted theme, taken once at open) + 10 scheme rows + off row. The cursor starts ON the anchor (sel 0); ↑↓/jk move (1..n = the scheme rows, n+1 = off), ❯ in the list marks whichever row matches the anchor scheme. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1616,7 +1610,29 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     __tcz_thp_reload
     set -l n (count $toks)          # 10 scheme rows; index n (0-based) = the off row
-    set -l sel (__tcz_thp_restore "$theme" $toks)
+    # anchor snapshot: the persisted theme, frozen for this picker session
+    set -l anch_scheme $theme
+    set -l anch_phase $phase
+    set -l anch_viv $viv
+    set -l anch_shape $shape
+    set -l anch_ease $ease
+    set -l anch_contrast $contrast
+    set -l anch_rotate $rotate
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    if test "$anch_scheme" != off
+        set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate)
+        if test (count $ap) -eq 7
+            set -l apj (string join ' ' $ap)
+            set anchpal "$apj"
+            set -l af (__tmux_lives_contrast_fg "$ap[6]")
+            test -n "$af"; and set anchfg "$af"
+            set -l atf (__tmux_lives_contrast_fg "$ap[3]")
+            test -n "$atf"; and set anchtabsfg "$atf"
+        end
+    end
+    set -l sel 0
     set -l saved (stty -g)
     set -g __tcz_thp_saved $saved
     function __tcz_thp_cleanup --on-signal INT --on-signal TERM
@@ -1645,17 +1661,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     printf '\e[?25l\e[2J'
     set -l apply ''
     while true
-        # cursor row palette (off row -> legacy colors: derived bar + plain text)
+        # cursor row palette (anchor -> the frozen snapshot; off row -> legacy
+        # colors: derived bar + plain text). An anchor with an EMPTY anchpal
+        # (off/no-seed) falls through to the legacy else — the first branch
+        # requires non-empty anchpal, so sel 0 there doesn't short-circuit it.
         set -l curpal ''
         set -l curfg '#f5f5f5'
-        if test $sel -lt $n
-            # index via a var, UNQUOTED: a double-quoted list index built from a
-            # math substitution is a fish "Invalid index value" error (empty result
-            # + a 3-line stderr trace into the popup EVERY draw — the 2026-07-16
-            # live-smoke bug: frame scrolled out, flicker, colorless preview).
-            set -l pidx (math $sel + 1)
-            set curpal $pals[$pidx]
-            set -l cf $fgs[$pidx]
+        if test $sel -eq 0; and test -n "$anchpal"
+            set curpal $anchpal
+            set curfg $anchfg
+        else if test $sel -ge 1; and test $sel -le $n
+            set curpal $pals[$sel]
+            set -l cf $fgs[$sel]
             test -n "$cf"; and set curfg $cf
         else
             set -l lb "$legacy"
@@ -1666,9 +1683,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
         set -l curtabsfg '#f5f5f5'
-        if test $sel -lt $n
-            set -l tfidx (math $sel + 1)
-            set curtabsfg "$tabsfgs[$tfidx]"
+        if test $sel -eq 0
+            set curtabsfg $anchtabsfg
+        else if test $sel -ge 1; and test $sel -le $n
+            set curtabsfg "$tabsfgs[$sel]"
         end
         set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
         set -l B1 (printf '\e[1m')
@@ -1693,10 +1711,25 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'scheme · companion sets for the seed' $BORDER $RST)
+        set -l anchflag 0
+        test $sel -eq 0; and set anchflag 1
+        set -l anchrow ''
+        if test -n "$anchpal"
+            set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
+        else
+            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_scheme · current" 1)
+        end
+        if test $anchflag -eq 1
+            set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
+            set anchrow "$SELBG$anchrow$RST"
+        end
+        set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         for i in (seq $n)
             set -l selflag 0
-            test $i -eq (math $sel + 1); and set selflag 1
-            set -l row (__tcz_thp_row "$pals[$i]" $toks[$i] $selflag)
+            test $i -eq $sel; and set selflag 1
+            set -l curflag 0
+            test "$toks[$i]" = "$anch_scheme"; and set curflag 1
+            set -l row (__tcz_thp_row "$pals[$i]" $toks[$i] $selflag $curflag)
             if test $selflag -eq 1
                 set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
                 set row "$SELBG$row$RST"
@@ -1704,7 +1737,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
         end
         set -l offflag 0
-        test $sel -eq $n; and set offflag 1
+        test $sel -eq (math $n + 1); and set offflag 1
         set -l offrow (__tcz_thp_off_row "$legacy" $offflag)
         if test $offflag -eq 1
             set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
@@ -1742,7 +1775,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
             case down
-                test $sel -lt $n; and set sel (math $sel + 1)
+                test $sel -lt (math $n + 1); and set sel (math $sel + 1)
             case left
                 # net-delta coalescing: drain buffered arrows into ONE recompute.
                 # The readkey ESC/CSI-arrow branch leaves the tty in `min 1 time 0`
@@ -1841,14 +1874,24 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case b
                 __tcz_thp_sliders
             case a
-                set -l ptok off
-                test $sel -lt $n; and begin; set -l pi (math $sel + 1); set ptok $toks[$pi]; end
-                fish -c '__tmux_lives_theme_apply_live $argv' $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
-                set previewed 1
-                set note "● previewing $ptok — ⏎ save · esc revert"
+                if test $sel -eq 0
+                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate >/dev/null 2>&1
+                    set previewed 1
+                    set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
+                else
+                    set -l ptok off
+                    test $sel -le $n; and set ptok $toks[$sel]
+                    fish -c '__tmux_lives_theme_apply_live $argv' $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
+                    set previewed 1
+                    set note "● previewing $ptok — ⏎ save · esc revert"
+                end
             case enter
-                if test $sel -lt $n
-                    set apply $toks[(math $sel + 1)]
+                if test $sel -eq 0
+                    set apply $anch_scheme
+                    set phase $anch_phase; set viv $anch_viv; set shape $anch_shape
+                    set ease $anch_ease; set contrast $anch_contrast; set rotate $anch_rotate
+                else if test $sel -le $n
+                    set apply $toks[$sel]
                 else
                     set apply off
                 end
