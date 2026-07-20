@@ -601,6 +601,48 @@ function __tmux_lives_theme_arc --argument-names scheme --description 'v3 scheme
     end
 end
 
+function __tmux_lives_theme_barpos --argument-names scheme --description 'v3.2 per-scheme bar recipe (calibrated 2026-07-20): "seed" for mono (bar = the seed verbatim), else three lines t_bar / dL_bar / capC ("" = cap wears the bar chroma). Bar samples the scheme arc at t_bar on the SEED-DEPTH row (seed L + dL_bar). Unknown scheme -> nothing.'
+    switch $scheme
+        case mono;       echo seed
+        case warm;       printf '%s\n' 0.85 -0.03 ''
+        case cool;       printf '%s\n' 0.15 -0.02 ''
+        case span;       printf '%s\n' 0.30 0.02 0.04
+        case wide;       printf '%s\n' 0.70 -0.04 ''
+        case aurora;     printf '%s\n' 0.50 0.03 ''
+        case sunset;     printf '%s\n' 0.90 -0.05 ''
+        case fire;       printf '%s\n' 0.05 -0.03 ''
+        case complement; printf '%s\n' 1.0 -0.02 ''
+        case full;       printf '%s\n' 0.50 0 0.05
+    end
+end
+
+function __tmux_lives_theme_kincap --argument-names barhex capc --description 'v3.2 kin-cap: derive the endcap FROM the bar so the dominant pair is good by construction (calibrated family offsets: olive/green +20, teal +30 blueward, blue +25, purple +18 muted, warm/earth +40, red/pink +15; cap L = bar L +/- 0.10 toward the light side of a dark bar; capc overrides chroma, purple defaults muted 0.05).'
+    set -l rgb (__tmux_lives_hex_to_rgb01 $barhex)
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    set -l H $ok[3]
+    set -l off 15
+    if test $H -ge 40; and test $H -lt 90
+        set off 40
+    else if test $H -ge 90; and test $H -lt 160
+        set off 20
+    else if test $H -ge 160; and test $H -lt 210
+        set off 30
+    else if test $H -ge 210; and test $H -lt 280
+        set off 25
+    else if test $H -ge 280; and test $H -lt 330
+        set off 18
+        test -n "$capc"; or set capc 0.05
+    end
+    set -l C $ok[2]
+    test -n "$capc"; and set C $capc
+    set -l dir 1
+    test $ok[1] -ge 0.55; and set dir -1
+    set -l capL (math "$ok[1] + $dir * 0.10")
+    test $capL -lt 0.05; and set capL 0.05
+    test $capL -gt 0.95; and set capL 0.95
+    __tmux_lives_oklch_hex $capL $C (__tmux_lives_norm360 (math "$H + $off"))
+end
+
 function __tmux_lives_theme_roles --description 'v3.1 support-role ladder, "<role> <t> <dL>" per line — THE one adjustable place (spec decision: keep tunable). bar (= the seed) and text (contrast side) are built in theme_palette, not here.'
     printf '%s\n' 'sep 0.15 0.06' 'tabs 0.30 0.10' 'active 0.50 0.15' 'windows 0.60 0.17' 'cap 0.80 0.22'
 end

@@ -783,6 +783,46 @@ t "v31 non-hex seed -> nothing" 0 (count (__tmux_lives_theme_palette red wide 0 
 t "v31 unknown scheme -> nothing" 0 (count (__tmux_lives_theme_palette '#485B3C' nope 0 balanced arc linear auto 0))
 functions -e __tlt_L
 
+# --- v3.2 pure tables ---
+set -l bp (__tmux_lives_theme_barpos warm)
+t "barpos warm three lines" 3 (count $bp)
+t "barpos warm t" 0.85 $bp[1]
+t "barpos mono is the seed sentinel" seed (__tmux_lives_theme_barpos mono | string collect)
+t "barpos span carries muted capC" 0.04 (__tmux_lives_theme_barpos span)[3]
+t "barpos full carries muted capC" 0.05 (__tmux_lives_theme_barpos full)[3]
+t "barpos fire lands warm-side" 0.05 (__tmux_lives_theme_barpos fire)[1]
+t "barpos unknown -> nothing" 0 (count (__tmux_lives_theme_barpos nope))
+# kincap: family offsets + depth step + muted rules
+function __tlt_okl --argument-names hex
+    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
+    __tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]
+end
+set -l bar '#157058'   # teal family (H~173)
+set -l cap (__tmux_lives_theme_kincap $bar)
+set -l bo (__tlt_okl $bar)
+set -l co (__tlt_okl $cap)
+set -l dh (math "$co[3] - $bo[3]")
+test $dh -gt 180; and set dh (math "$dh - 360")
+test $dh -lt -180; and set dh (math "$dh + 360")
+t "kincap teal offset +30 blueward" 1 (test $dh -ge 25 -a $dh -le 35; and echo 1; or echo 0)
+t "kincap dark bar -> lighter cap" 1 (test (math "$co[1] - $bo[1]") -ge 0.06; and echo 1; or echo 0)
+set -l capw (__tmux_lives_theme_kincap '#80551d')   # warm family
+set -l cwo (__tlt_okl $capw)
+set -l bwo (__tlt_okl '#80551d')
+set -l dhw (math "$cwo[3] - $bwo[3]")
+t "kincap warm offset ~+40" 1 (test $dhw -ge 33 -a $dhw -le 47; and echo 1; or echo 0)
+set -l capp (__tmux_lives_theme_kincap '#6f5086')   # purple family, no capC arg
+set -l cpo (__tlt_okl $capp)
+t "kincap purple defaults muted" 1 (test $cpo[2] -le 0.07; and echo 1; or echo 0)
+set -l capm (__tmux_lives_theme_kincap '#566829' 0.04)
+set -l cmo (__tlt_okl $capm)
+t "kincap honors explicit capC" 1 (test $cmo[2] -le 0.06; and echo 1; or echo 0)
+set -l capl (__tmux_lives_theme_kincap '#c9d3b0')   # LIGHT bar -> darker cap
+set -l clo (__tlt_okl $capl)
+set -l blo (__tlt_okl '#c9d3b0')
+t "kincap light bar -> darker cap" 1 (test (math "$blo[1] - $clo[1]") -ge 0.06; and echo 1; or echo 0)
+functions -e __tlt_okl
+
 # --- theme engine v3: fragment renders the gradient-map roles ----------------
 # theme OFF (argv 17 absent): v2 values + neutral role seeds
 set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
