@@ -1149,7 +1149,18 @@ t "picker phase drains escalate the gap on burst" 2 (string match -a -r 'case le
 set -l pk2 (functions __tcz_theme_picker | string collect)
 t "picker has a shake arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; or echo 0)
 t "shake rerolls the scheme row" 1 (string match -q '*set sel (random 1 $n)*' -- "$pk2"; and echo 1; or echo 0)
-t "shake rerolls phase in 5° steps" 1 (string match -q '*(random 0 71) \* 5*' -- "$pk2"; and echo 1; or echo 0)
+# NB fish performs NO command substitution inside double quotes — `math
+# "(random 0 71) * 5"` passes the LITERAL text to math ("Unknown function"
+# stderr into the popup) and leaves phase an EMPTY LIST that then vanishes
+# from unquoted arg lists, shifting every palette arg (2026-07-20 live bug:
+# z spammed errors + rendered everything black). The reroll must capture
+# random into a var FIRST; the guard bans the substitution-in-math form.
+t "shake rerolls phase in 5° steps" 1 (string match -q '*set phase (math "$zp \* 5")*' -- "$pk2"; and echo 1; or echo 0)
+# execute the fixed reroll pattern: phase must come back a single multiple of 5 in [0,355]
+set -l _zp (random 0 71)
+set -l _zphase (math "$_zp * 5")
+t "shake phase pattern executes" 1 (count $_zphase)
+t "shake phase in range and step" 1 (test $_zphase -ge 0 -a $_zphase -le 355 -a (math "$_zphase % 5") -eq 0; and echo 1; or echo 0)
 t "shake rerolls rotate" 1 (string match -q '*set rotate (random 0 4)*' -- "$pk2"; and echo 1; or echo 0)
 t "shake flashes both fields" 1 (string match -q "*set flashfield 'phase rotate'*" -- "$pk2"; and echo 1; or echo 0)
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 d contrast o rotate z shake b seed)); and echo 1; or echo 0)
@@ -1195,6 +1206,12 @@ t "sliders erased on exit" yes (begin; set -l l (functions __tcz_theme_picker | 
 set -l catfile $plugindir/functions/tmux-categorize.fish
 t "v2 cap cluster gone from the categorizer" 0 (grep -c '__tcz_cap_' $catfile)
 t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette' $catfile)
+# fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
+# hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
+# substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream
+# (2026-07-20 z-shake live bug: error spam + all-black palettes). Capture into a var
+# BEFORE the math; this guard bans substitution-looking calls inside quoted math.
+t "guard: no command substitution inside quoted math" 0 (count (string match -ar 'math "[^"]*\((?:random|date|count|string|math) ' -- (cat $catfile | string collect)))
 # live-smoke regressions (2026-07-16): a QUOTED math-index ("$pals[(math ...)]") is an
 # fish "Invalid index value" ERROR that sprays a 3-line stderr trace into the popup on
 # EVERY draw (frame scrolls out + flicker + empty preview palette); the title edge must

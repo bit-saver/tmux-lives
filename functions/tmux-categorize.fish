@@ -1896,8 +1896,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case z
                 # shake: one press -> a radically different combo. Scheme +
                 # placement reroll; taste knobs (viv/shape/ease/contrast) kept.
+                # Capture random BEFORE the math: fish does NO command substitution
+                # inside double quotes — a substitution written inside a quoted math
+                # expression reaches math as LITERAL text (stderr into the popup) and
+                # the failed assignment leaves phase an empty list that vanishes from
+                # unquoted arg lists (2026-07-20 live bug: error spam + all-black).
                 set sel (random 1 $n)
-                set phase (math "(random 0 71) * 5")
+                set -l zp (random 0 71)
+                set phase (math "$zp * 5")
                 set rotate (random 0 4)
                 set flashfield 'phase rotate'
                 __tcz_thp_litkv
