@@ -740,11 +740,11 @@ function __tlt_L --description 'test helper: hex -> OKLCH L'
 end
 set -l pal (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
 t "v31 palette emits 7 roles" 7 (count $pal)
-t "v31 bar IS the seed verbatim (lowercased)" '#485b3c' $pal[1]
 set -l palm (__tmux_lives_theme_palette '#485B3C' mono 0 balanced arc linear auto 0)
-t "v31 bar identical across schemes" "$pal[1]" "$palm[1]"
+t "v31 bar IS the seed verbatim (lowercased)" '#485b3c' $palm[1]
 set -l palp (__tmux_lives_theme_palette '#485B3C' wide 90 balanced arc linear auto 0)
-t "v31 phase never moves the bar" "$pal[1]" "$palp[1]"
+set -l palm90 (__tmux_lives_theme_palette '#485B3C' mono 90 balanced arc linear auto 0)
+t "v31 phase never moves the bar" "$palm[1]" "$palm90[1]"
 t "v31 phase moves companions" 0 (test "$pal[2]" = "$palp[2]"; and echo 1; or echo 0)
 # auto direction: dark seed ramps lighter (text L > bar L); light seed ramps darker
 set -l pdark (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear auto 0)
@@ -755,18 +755,19 @@ set -l Lb2 (__tlt_L $plight[1]); set -l Lt2 (__tlt_L $plight[7])
 t "v31 auto light seed -> dark text" 1 (test $Lt2 -lt $Lb2; and echo 1; or echo 0)
 set -l dLt (math "abs($Lt - $Lb)")
 t "v31 auto text dL floor >= 0.40" 1 (test $dLt -ge 0.40; and echo 1; or echo 0)
-set -l palv (__tmux_lives_theme_palette '#485B3C' wide 0 vivid arc linear auto 0)
-t "v31 vividness never moves the bar" "$pal[1]" "$palv[1]"
+set -l palvm (__tmux_lives_theme_palette '#485B3C' mono 0 vivid arc linear auto 0)
+t "v31 vividness never moves the bar" "$palm[1]" "$palvm[1]"
 # forced direction wins
 set -l pforce (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear darker 0)
 set -l Lt3 (__tlt_L $pforce[7])
-t "v31 forced darker honored on a dark seed" 1 (test $Lt3 -lt $Lb; and echo 1; or echo 0)
+# v3.2: contrast no longer steers text (text is always bar-auto — see the
+# "text contrasts the BAR" contract above); it steers the ring companions
+# instead, so the forced-direction check now targets a companion role (sep).
+set -l L2 (__tlt_L $pforce[2])
+t "v31 forced darker honored on a dark seed" 1 (test $L2 -lt $Lb; and echo 1; or echo 0)
 # rotation: exact cyclic permutation of the 5 support colors; bar/text pinned
 set -l r0 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
 set -l r1 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 1)
-t "v31 rot1 sep wears rot0 cap" "$r0[6]" "$r1[2]"
-t "v31 rot1 tabs wears rot0 sep" "$r0[2]" "$r1[3]"
-t "v31 rot1 cap wears rot0 windows" "$r0[5]" "$r1[6]"
 t "v31 rotation pins the bar" "$r0[1]" "$r1[1]"
 t "v31 rotation pins the text" "$r0[7]" "$r1[7]"
 # support ladder: companions cluster (every support within 0.30 L of the seed)
@@ -782,6 +783,83 @@ t "v31 supports cluster near the seed" 1 $clustered
 t "v31 non-hex seed -> nothing" 0 (count (__tmux_lives_theme_palette red wide 0 balanced arc linear auto 0))
 t "v31 unknown scheme -> nothing" 0 (count (__tmux_lives_theme_palette '#485B3C' nope 0 balanced arc linear auto 0))
 functions -e __tlt_L
+
+# --- v3.2 derivation contract ---
+function __tlt_okl2 --argument-names hex
+    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
+    __tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]
+end
+set -l seedhex '#576733'
+set -l so (__tlt_okl2 $seedhex)
+# mono: bar == seed verbatim; non-mono: bar on the seed-depth row, NOT the seed
+set -l pm (__tmux_lives_theme_palette $seedhex mono 0 balanced arc linear auto 0)
+t "v32 mono bar is the seed verbatim" $seedhex $pm[1]
+set -l pw (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 0)
+t "v32 wide bar differs from the seed" 0 (test "$pw[1]" = $seedhex; and echo 1; or echo 0)
+set -l bo (__tlt_okl2 $pw[1])
+t "v32 bar sits on the seed-depth row" 1 (test (math "abs($bo[1] - $so[1])") -le 0.06; and echo 1; or echo 0)
+# tabs = seed verbatim (non-mono); mono tabs = ring pos 1
+t "v32 tabs wear the seed" $seedhex $pw[3]
+set -l ring (__tmux_lives_theme_ring $seedhex mono 0 balanced arc linear auto)
+t "v32 ring has five samples" 5 (count $ring)
+t "v32 mono tabs = ring pos 1" $ring[1] $pm[3]
+# phase moves a non-mono bar; never the mono bar
+set -l pw90 (__tmux_lives_theme_palette $seedhex wide 90 balanced arc linear auto 0)
+t "v32 phase moves the wide bar" 0 (test "$pw90[1]" = "$pw[1]"; and echo 1; or echo 0)
+set -l pm90 (__tmux_lives_theme_palette $seedhex mono 90 balanced arc linear auto 0)
+t "v32 phase never moves the mono bar" $seedhex $pm90[1]
+# rotation permutes ONLY sep/active/windows; bar/cap/tabs/text pinned
+set -l r0 (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 0)
+set -l r2 (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 2)
+t "v32 rotation pins bar"  "$r0[1]" "$r2[1]"
+t "v32 rotation pins tabs" "$r0[3]" "$r2[3]"
+t "v32 rotation pins cap"  "$r0[6]" "$r2[6]"
+t "v32 rotation pins text" "$r0[7]" "$r2[7]"
+t "v32 rotation moves sep" 0 (test "$r0[2]" = "$r2[2]"; and echo 1; or echo 0)
+# accents come from the ring via the perm index
+set -l ringw (__tmux_lives_theme_ring $seedhex wide 0 balanced arc linear auto)
+t "v32 rot0 sep = ring1" $ringw[1] $r0[2]
+t "v32 rot0 active = ring2" $ringw[2] $r0[4]
+t "v32 rot0 windows = ring3" $ringw[3] $r0[5]
+t "v32 rot2 sep = ring4" $ringw[4] $r2[2]
+# text contrasts the BAR
+set -l to (__tlt_okl2 $r0[7])
+t "v32 text on the bar's contrast side" 1 (test (math "abs($to[1] - $bo[1])") -ge 0.38; and echo 1; or echo 0)
+# acceptance predicate across schemes x a seed panel (family offsets + dL band)
+# NB the neutral-seed slot is '#7e8280' (near-gray, tiny chroma), not pure '#808080':
+# a perfectly achromatic seed (R=G=B exactly) gives C=0 EXACTLY in OKLab by matrix
+# construction, and hue is then reconstructed from residual floating-point noise in
+# a/b (atan2 of two near-zero values with essentially random relative sign) — for the
+# "complement" scheme specifically (t_bar=1.0, an exact arc endpoint -> sin(pi*1)=0
+# -> bar chroma = the seed's own chroma verbatim, i.e. 0 here too) that noise landed
+# ~180 deg from the cap's noise, spuriously failing the hue-band check on two
+# effectively-colorless swatches. Pre-existing OKLCH-at-C=0 instability (not
+# introduced by this task, not fixable from the ring/palette functions alone —
+# root cause is the shared conversion pipeline + the complement recipe's exact
+# t=1.0 endpoint); swapping in a near-gray with a sliver of real chroma keeps the
+# panel's "muted/neutral seed" coverage without hitting the true singularity.
+# NB named $panelok, NOT $pass: this file's harness owns a GLOBAL `pass` counter
+# (line 4, incremented by `t`) that is read again at EOF for the final summary —
+# a `set -l pass` at this flat top-level scope would shadow it for the rest of
+# the script's execution and corrupt that closing readout (caught in review).
+set -l panelok 1
+for ps in '#576733' '#223344' '#d8cfa8' '#7e8280' '#d02090'
+    for tok in (__tmux_lives_theme_schemes)
+        set -l pp (__tmux_lives_theme_palette $ps $tok 0 balanced arc linear auto 0)
+        test (count $pp) -eq 7; or begin; set panelok 0; break; end
+        set -l pb (__tlt_okl2 $pp[1])
+        set -l pc (__tlt_okl2 $pp[6])
+        set -l pdh (math "$pc[3] - $pb[3]")
+        test $pdh -gt 180; and set pdh (math "$pdh - 360")
+        test $pdh -lt -180; and set pdh (math "$pdh + 360")
+        set -l pdl (math "abs($pc[1] - $pb[1])")
+        test (math "abs($pdh)") -le 50; or set panelok 0
+        test $pdl -ge 0.055; or set panelok 0
+        test $pdl -le 0.125; or set panelok 0
+    end
+end
+t "v32 acceptance predicate holds across the seed panel" 1 $panelok
+functions -e __tlt_okl2
 
 # --- v3.2 pure tables ---
 set -l bp (__tmux_lives_theme_barpos warm)
@@ -1001,13 +1079,14 @@ set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced arc linear a
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 # Task 6 controller scope: the 7-arg apply-live path (the picker's `a`-preview and
 # esc-revert path) writes no state — direct-call it twice with only contrast flipped
-# and confirm the derived text fg actually moves (same seed/scheme/phase/etc).
+# and confirm a derived fg actually moves (same seed/scheme/phase/etc). v3.2: contrast
+# steers the ring companions, not text (text is always bar-auto) — check sep_fg.
 __tmux_lives_theme_apply_live wide 0 balanced arc linear lighter 0
-set -g THEME_TXT_LIGHTER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_text_fg 2>/dev/null)
+set -g THEME_TXT_LIGHTER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_sep_fg 2>/dev/null)
 __tmux_lives_theme_apply_live wide 0 balanced arc linear darker 0
-set -g THEME_TXT_DARKER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_text_fg 2>/dev/null)
-t "apply-live 7-arg lighter text_fg non-empty" 1 (test -n "$THEME_TXT_LIGHTER"; and echo 1; or echo 0)
-t "apply-live 7-arg darker text_fg non-empty" 1 (test -n "$THEME_TXT_DARKER"; and echo 1; or echo 0)
+set -g THEME_TXT_DARKER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_sep_fg 2>/dev/null)
+t "apply-live 7-arg lighter sep_fg non-empty" 1 (test -n "$THEME_TXT_LIGHTER"; and echo 1; or echo 0)
+t "apply-live 7-arg darker sep_fg non-empty" 1 (test -n "$THEME_TXT_DARKER"; and echo 1; or echo 0)
 t "apply-live 7-arg lighter vs darker differ" 1 (test "$THEME_TXT_LIGHTER" != "$THEME_TXT_DARKER"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
@@ -1098,10 +1177,16 @@ set -l sep0 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr0")
 set -l sep1 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr1")
 t "fragment rotate changes the sep role" 0 (test "$sep0" = "$sep1"; and echo 1; or echo 0)
 set -l frd (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear darker 0 | string collect)
-set -l tx0 (string match -r "@tmux_lives_text_fg '[^']*'" -- "$fr0")
-set -l txd (string match -r "@tmux_lives_text_fg '[^']*'" -- "$frd")
-t "fragment contrast flips the text role" 0 (test "$tx0" = "$txd"; and echo 1; or echo 0)
-t "fragment bar bg IS the seed" 1 (string match -q "*status-style bg=#485b3c*" -- "$fr0"; and echo 1; or echo 0)
+# v3.2: contrast no longer steers text (text is always bar-auto — see the
+# "text contrasts the BAR" contract above); it steers the ring companions
+# instead, so this now checks the sep role, which contrast DOES move.
+set -l sepd (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$frd")
+t "fragment contrast flips the sep role" 0 (test "$sep0" = "$sepd"; and echo 1; or echo 0)
+# v3.2: the bar is no longer the seed verbatim for non-mono schemes (it's the
+# scheme's recipe cell on the seed-depth row) — assert the fragment's status-style
+# bg matches whatever the palette actually derives for wide, not the raw seed.
+set -l fr0pal (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
+t "fragment bar bg matches the derived bar" 1 (string match -q "*status-style bg=$fr0pal[1]*" -- "$fr0"; and echo 1; or echo 0)
 # post_update runs the v3.1 shim right after the v2 shim
 t "post_update calls the v31 shim" yes (string match -q '*__tmux_lives_migrate_v31*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 # v3.1 migration erases the dead universals (guarded: save/restore around)

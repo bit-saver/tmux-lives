@@ -658,7 +658,7 @@ function __tmux_lives_theme_sample --argument-names t L seedH a0 a1 phase cs cma
     __tmux_lives_oklch_hex $L $C $H
 end
 
-function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'seed + scheme/knobs -> 7 role hexes one per line (bar sep tabs active windows cap text). The bar IS the seed verbatim; companions cluster around it (gentle dL ladder, hue/chroma differentiate); text jumps to the contrast side. contrast auto|lighter|darker ('' = auto); rotate 0-4 permutes the COMPUTED support colors. Non-hex seed or unknown scheme -> nothing (callers fall back to legacy).'
+function __tmux_lives_theme_ring --argument-names seedHex scheme phase vividness shape ease contrast --description 'v3.2 accent ring: the 5 arc samples at the companion ladder (rotate-independent) -> 5 hexes one per line. Rotation cycles this ring onto sep/active/windows display-side; the ring is also the mono tabs source. Bad seed/scheme -> nothing.'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l arc (__tmux_lives_theme_arc "$scheme")
     test (count $arc) -eq 2; or return
@@ -666,7 +666,6 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     test -n "$shape"; or set shape arc
     test -n "$ease"; or set ease linear
     test -n "$contrast"; or set contrast auto
-    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
     set -l cmax 0.105
     switch "$vividness"
         case soft;  set cmax 0.075
@@ -674,20 +673,15 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     end
     set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
     set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    # direction: which side companions + text sit on. auto derives from the
-    # seed's own lightness (dark seed -> lighter companions/text; light -> darker).
     set -l dir 1
     switch "$contrast"
         case darker
             set dir -1
         case lighter
             set dir 1
-        case '*'   # auto
+        case '*'
             test $ok[1] -ge 0.55; and set dir -1
     end
-    # bar = the seed, verbatim (never re-derived through an OKLCH round-trip)
-    printf '%s\n' (string lower -- $seedHex)
-    set -l sup
     for rt in (__tmux_lives_theme_roles)
         set -l parts (string split ' ' $rt)
         set -l L (math "$ok[1] + $dir * $parts[3]")
@@ -695,18 +689,58 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
         test $L -gt 0.95; and set L 0.95
         set -l hx (__tmux_lives_theme_sample $parts[2] $L $ok[3] $arc[1] $arc[2] $phase $ok[2] $cmax $shape $ease)
         test -n "$hx"; or return
-        set -a sup $hx
+        printf '%s\n' $hx
     end
-    # rotation: permute the COMPUTED support colors across the roles —
-    # permuting the ladder params instead would be a no-op.
-    for i in 1 2 3 4 5
+end
+
+function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'v3.2: seed + scheme/knobs -> 7 role hexes (bar sep tabs active windows cap text). Bar = the scheme recipe cell on the SEED-DEPTH row (mono = the seed verbatim); cap = kin-cap from the bar; tabs = the seed verbatim (mono: ring pos 1); sep/active/windows = the rotated accent ring; text contrasts the BAR. Rotation touches accents only. Non-hex seed or unknown scheme -> nothing.'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
+    set -l bp (__tmux_lives_theme_barpos "$scheme")
+    test (count $bp) -ge 1; or return
+    set -l ring (__tmux_lives_theme_ring $seedHex "$scheme" "$phase" "$vividness" "$shape" "$ease" "$contrast")
+    test (count $ring) -eq 5; or return
+    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
+    test -n "$phase"; or set phase 0
+    set -l cmax 0.105
+    switch "$vividness"
+        case soft;  set cmax 0.075
+        case vivid; set cmax 0.130
+    end
+    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    set -l arc (__tmux_lives_theme_arc "$scheme")
+    # bar: the recipe cell on the seed-depth row (mono: the seed verbatim)
+    set -l bar (string lower -- $seedHex)
+    set -l capc ''
+    if test "$bp[1]" != seed
+        set -l Lb (math "$ok[1] + $bp[2]")
+        test $Lb -lt 0.05; and set Lb 0.05
+        test $Lb -gt 0.95; and set Lb 0.95
+        set bar (__tmux_lives_theme_sample $bp[1] $Lb $ok[3] $arc[1] $arc[2] $phase $ok[2] $cmax "$shape" "$ease")
+        test -n "$bar"; or return
+        set capc $bp[3]
+    end
+    set -l cap (__tmux_lives_theme_kincap $bar "$capc")
+    test -n "$cap"; or return
+    # tabs: home base — the seed verbatim; mono would duplicate the bar, so ring 1
+    set -l tabs (string lower -- $seedHex)
+    test "$bp[1]" = seed; and set tabs $ring[1]
+    # accents: rotated ring positions 1..3 -> sep active windows
+    set -l acc
+    for i in 1 2 3
         set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
-        printf '%s\n' $sup[$j]
+        set -a acc $ring[$j]
     end
-    set -l Lt (math "$ok[1] + $dir * 0.45")
+    # text: the BAR's contrast side
+    set -l barrgb (__tmux_lives_hex_to_rgb01 $bar)
+    set -l bo2 (__tmux_lives_rgb_to_oklch $barrgb[1] $barrgb[2] $barrgb[3])
+    set -l tdir 1
+    test $bo2[1] -ge 0.55; and set tdir -1
+    set -l Lt (math "$bo2[1] + $tdir * 0.45")
     test $Lt -lt 0.05; and set Lt 0.05
     test $Lt -gt 0.97; and set Lt 0.97
-    __tmux_lives_oklch_hex $Lt 0.03 (__tmux_lives_norm360 (math "$ok[3] + $arc[2] + $phase"))
+    set -l text (__tmux_lives_oklch_hex $Lt 0.03 (__tmux_lives_norm360 (math "$bo2[3] + $arc[2] + $phase")))
+    printf '%s\n' $bar $acc[1] $tabs $acc[2] $acc[3] $cap $text
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
