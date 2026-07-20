@@ -1255,33 +1255,24 @@ t "swatch non-hex still 4 lines" 4 (count $swe)
 set -l catsrc2 (cat $catfile | string collect)
 t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the theme*' -- "$catsrc2"; and echo 1; or echo 0)
 
-# --- Task 2: batch cache + rotate as a display-side permutation ---
-# rotate is a display-side permutation: parity with the engine for r=0..4
-set -l base (__tmux_lives_theme_palette '#485b3c' wide 25 vivid arc cubic lighter 0)
-set -l basestr (string join ' ' $base)
+# --- v3.2 rotpal: accents only, ring-fed ---
+set -l vseed '#576733'
+set -l vpal0 (__tmux_lives_theme_palette $vseed wide 0 balanced arc linear auto 0)
+set -l vring (__tmux_lives_theme_ring $vseed wide 0 balanced arc linear auto)
+set -l vp0 (string join ' ' $vpal0)
+set -l vr (string join ' ' $vring)
 for r in 0 1 2 3 4
-    set -l eng (__tmux_lives_theme_palette '#485b3c' wide 25 vivid arc cubic lighter $r)
-    set -l engstr (string join ' ' $eng)
-    t "rotpal parity r=$r" "$engstr" (__tcz_thp_rotpal $r "$basestr")
+    set -l eng (__tmux_lives_theme_palette $vseed wide 0 balanced arc linear auto $r)
+    set -l engs (string join ' ' $eng)
+    t "v32 rotpal parity r=$r" "$engs" (__tcz_thp_rotpal $r "$vp0" "$vr")
 end
+t "v32 rotpal degrades without a ring" "$vp0" (__tcz_thp_rotpal 2 "$vp0" '')
 
-# post-rotation fg pick contract: the displayed cap/tabs fgs equal
-# contrast_fg of the ROTATED pal's fields 6 and 3
-set -l rot 2
-set -l rp (__tcz_thp_rotpal $rot "$basestr")
-set -l rpf (string split ' ' -- $rp)
-set -l wantcap (__tmux_lives_contrast_fg "$rpf[6]")
-set -l wanttabs (__tmux_lives_contrast_fg "$rpf[3]")
-set -l basepf (string split ' ' -- $basestr)
-set -l sfgs
-for si in 2 3 4 5 6
-    set -l sf (__tmux_lives_contrast_fg $basepf[$si])
-    set -a sfgs "$sf"
-end
-set -l jc (math "((5 - 1 - $rot) % 5 + 5) % 5 + 1")
-set -l jt (math "((2 - 1 - $rot) % 5 + 5) % 5 + 1")
-t "fg pick: cap fg matches rotated pal" "$wantcap" "$sfgs[$jc]"
-t "fg pick: tabs fg matches rotated pal" "$wanttabs" "$sfgs[$jt]"
+# cap/tabs fgs are rotation-independent now (pinned fields 6/3 of pal0)
+set -l vrot3 (__tcz_thp_rotpal 3 "$vp0" "$vr")
+set -l vrot3f (string split ' ' -- $vrot3)
+t "v32 rotpal pins the cap field" $vpal0[6] $vrot3f[6]
+t "v32 rotpal pins the tabs field" $vpal0[3] $vrot3f[3]
 
 # --- anchor row: static pins ---
 set -l pk (functions __tcz_theme_picker | string collect)

@@ -1310,18 +1310,20 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
-function __tcz_thp_rotpal --argument-names rotate pal --description 'pure: apply the rotate permutation display-side — support fields 2..6 of a rotate-0 pal string cyclically shifted (same index math as the engine); bar (1) and text (7) fixed. Non-7-field input returned unchanged.'
+function __tcz_thp_rotpal --argument-names rotate pal ring --description 'v3.2 display-side rotation: replace pal fields 2/4/5 (sep active windows) from the rotated 5-sample accent ring (same perm index as the engine); bar/tabs/cap/text pinned. Malformed pal/ring -> pal unchanged.'
     set -l p (string split ' ' -- $pal)
-    test (count $p) -eq 7; or begin; printf '%s' "$pal"; return; end
-    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
-    set -l out $p[1]
-    for i in 1 2 3 4 5
-        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
-        set -l k (math "$j + 1")
-        set -a out $p[$k]
+    set -l g (string split ' ' -- $ring)
+    if test (count $p) -ne 7; or test (count $g) -ne 5
+        printf '%s' "$pal"
+        return
     end
-    set -a out $p[7]
-    printf '%s' (string join ' ' $out)
+    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
+    set -l slots 2 4 5
+    for i in 1 2 3
+        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
+        set p[$slots[$i]] $g[$j]
+    end
+    printf '%s' (string join ' ' $p)
 end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
@@ -1440,15 +1442,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             for tok in (__tmux_lives_theme_schemes)
                 set -l p (__tmux_lives_theme_palette $seed $tok $phase $viv $shape $ease $contrast 0)
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
-                # per-support contrast fgs (any support can rotate onto cap/tabs)
-                set -l sfgs
-                for si in 2 3 4 5 6
-                    set -l sf (__tmux_lives_contrast_fg "$p[$si]")
-                    set -a sfgs "$sf"
-                end
+                set -l g (__tmux_lives_theme_ring $seed $tok $phase $viv $shape $ease $contrast)
+                test (count $g) -eq 5; or set g "" "" "" "" ""
+                # cap/tabs are pinned (fields 6/3 of pal0) -> compute their fgs once
+                set -l capfg (__tmux_lives_contrast_fg "$p[6]")
+                set -l tabsfg (__tmux_lives_contrast_fg "$p[3]")
                 set -l pj (string join ' ' $p)
-                set -l fj (string join ' ' $sfgs)
-                set -a lines "$tok|$pj|$fj"
+                set -l gj (string join ' ' $g)
+                set -a lines "$tok|$pj|$gj|$capfg|$tabsfg"
             end
             set -l bj (string join \x1e $lines)
             set blob "$bj"
@@ -1459,14 +1460,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l f (string split '|' -- $line)
             test -n "$f[1]"; or continue
             set -a toks $f[1]
-            set -l rp (__tcz_thp_rotpal $rotate "$f[2]")
+            set -l rp (__tcz_thp_rotpal $rotate "$f[2]" "$f[3]")
             set -a pals "$rp"
-            # displayed cap = support position 5, tabs = position 2 (post-perm)
-            set -l sfgs (string split ' ' -- $f[3])
-            set -l jc (math "((5 - 1 - $rotate) % 5 + 5) % 5 + 1")
-            set -l jt (math "((2 - 1 - $rotate) % 5 + 5) % 5 + 1")
-            set -a fgs "$sfgs[$jc]"
-            set -a tabsfgs "$sfgs[$jt]"
+            set -a fgs "$f[4]"
+            set -a tabsfgs "$f[5]"
         end
     end
     function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-8) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
