@@ -84,7 +84,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
     if test $themed -eq 1
-        # bar (t=0) is the trough bg; windows (t=.60) is the base fg all inactive names inherit
+        # bar = per-scheme recipe cell on seed's depth row (mono: seed); windows = accent-ring sample
         set -a f "set -g status-style bg=$tpal[1],fg=$tpal[5]"
     else
         set -l ss (__tmux_lives_derive_status $color $invert)
@@ -120,11 +120,11 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @tmux_lives_cap_bg '$capbg'"
     set -a f "set -g @tmux_lives_cap_fg '$capfg'"
     if test $themed -eq 1
-        set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep role (t=.32): the • separators
-        set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs role (t=.45): Phase 2 wires the ShellFish OSC
-        set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active role (t=.55): provisional, unconsumed
-        set -a f "set -g @tmux_lives_mark_fg '$tpal[6]'"          # the ✦ identity mark wears the cap sample
-        set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text role (t=1.0): current window + centre identity
+        set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep = accent-ring sample; the • separators
+        set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = the seed verbatim (mono: ring pos 1); Phase 2 wires ShellFish OSC
+        set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; provisional use
+        set -a f "set -g @tmux_lives_mark_fg '$tpal[6]'"          # the ✦ mark = the cap (kin-cap derived from bar)
+        set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; current window + centre identity
     else
         set -a f "set -g @tmux_lives_sep_fg default"
         set -a f "set -g @tmux_lives_tabs_color ''"
