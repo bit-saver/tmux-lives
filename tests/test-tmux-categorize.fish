@@ -1282,6 +1282,18 @@ t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$
 t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
+# anchor row sits at the BOTTOM, below the off row (2026-07-21 user request):
+# draw order = schemes, off, anchor; arrows walk the VISUAL order via the pure
+# vismap (sel semantics unchanged: 0=anchor, 1..n=schemes, n+1=off)
+t "picker draws the anchor AFTER the off row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk"; and echo 1; or echo 0)
+t "picker up/down go through vismap" 2 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
+t "vismap: down from last scheme -> off" 11 (__tcz_thp_vismap 10 10 down)
+t "vismap: down from off -> anchor" 0 (__tcz_thp_vismap 11 10 down)
+t "vismap: down from anchor stays" 0 (__tcz_thp_vismap 0 10 down)
+t "vismap: up from anchor -> off" 11 (__tcz_thp_vismap 0 10 up)
+t "vismap: up from off -> last scheme" 10 (__tcz_thp_vismap 11 10 up)
+t "vismap: up from scheme 1 stays" 1 (__tcz_thp_vismap 1 10 up)
+t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
 set -l catsrc3 (cat $catfile | string collect)
 t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
 

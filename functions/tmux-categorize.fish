@@ -1296,6 +1296,18 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l RS2 (__tcz_theme reset)
     printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
 end
+function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one VISUAL step and return the new sel. Visual order = schemes 1..n, off n+1, anchor (sel 0) at the BOTTOM; sel semantics unchanged. Edges clamp.'
+    set -l vp $sel
+    test $sel -eq 0; and set vp (math $n + 2)
+    if test "$dirn" = up
+        test $vp -gt 1; and set vp (math $vp - 1)
+    else
+        test $vp -lt (math $n + 2); and set vp (math $vp + 1)
+    end
+    test $vp -eq (math $n + 2); and set vp 0
+    echo $vp
+end
+
 function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-line big seed swatch — 12-col color band + readouts (hex bold / hue·L·chroma / the seed-IS-the-bar copy). Non-hex hex -> blank band, empty text.'
     set -l MUT (__tcz_theme muted)
     set -l RST (__tcz_theme reset)
@@ -1371,7 +1383,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, an anchor row (❯ <scheme> · current — a frozen snapshot of the persisted theme, taken once at open) + 10 scheme rows + off row. The cursor starts ON the anchor (sel 0); ↑↓/jk move (1..n = the scheme rows, n+1 = off), ❯ in the list marks whichever row matches the anchor scheme. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), z shake (random scheme+phase+rotate), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, 10 scheme rows + off row + an anchor row LAST at the bottom (❯ <scheme> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (schemes, off, anchor), ❯ in the list marks whichever row matches the anchor scheme. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), z shake (random scheme+phase+rotate), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1718,19 +1730,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'scheme · companion sets for the seed' $BORDER $RST)
-        set -l anchflag 0
-        test $sel -eq 0; and set anchflag 1
-        set -l anchrow ''
-        if test -n "$anchpal"
-            set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
-        else
-            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_scheme · current" 1)
-        end
-        if test $anchflag -eq 1
-            set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
-            set anchrow "$SELBG$anchrow$RST"
-        end
-        set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         for i in (seq $n)
             set -l selflag 0
             test $i -eq $sel; and set selflag 1
@@ -1751,6 +1750,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set offrow "$SELBG$offrow$RST"
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
+        # anchor row LAST — the persisted theme sits at the bottom, below off
+        # (2026-07-21 user request); sel semantics unchanged (0 = anchor)
+        set -l anchflag 0
+        test $sel -eq 0; and set anchflag 1
+        set -l anchrow ''
+        if test -n "$anchpal"
+            set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
+        else
+            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_scheme · current" 1)
+        end
+        if test $anchflag -eq 1
+            set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
+            set anchrow "$SELBG$anchrow$RST"
+        end
+        set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase v vivid s shape e ease) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_legend_row 12 d contrast o rotate z shake b seed) $IW $BORDER $RST)
@@ -1780,9 +1794,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         switch $tok
             case up
-                test $sel -gt 0; and set sel (math $sel - 1)
+                set sel (__tcz_thp_vismap $sel $n up)
             case down
-                test $sel -lt (math $n + 1); and set sel (math $sel + 1)
+                set sel (__tcz_thp_vismap $sel $n down)
             case left
                 # net-delta coalescing: drain buffered arrows into ONE recompute.
                 # The readkey ESC/CSI-arrow branch leaves the tty in `min 1 time 0`
