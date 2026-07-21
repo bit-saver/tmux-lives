@@ -82,6 +82,19 @@ any pin that captured the blue value).
   iterm2 like `other` for the baseline step (unchanged behavior) but ALSO
   emits tab color + title. Only the emission is new.
 
+## 5. Remove the claude window coloring (user addition, same session)
+
+The coral `claude` window-name tint "mostly detracts from the theme":
+
+- Fragment render: the `window-status-format` / `window-status-current-format`
+  conditionals lose the `@tmux_lives_claude_color` branch — `claude` windows
+  render like any other window (windows role; current bold + text role). The
+  `@tmux_lives_claude_color` seed line is removed from the fragment.
+- The picker's fake-bar preview (`__tcz_thp_preview`) and tab-strip mock
+  drop their hardcoded `#D97757` coral accordingly.
+- NOT touched: the ✦ claude-presence indicator (`@tmux_lives_claude`, the
+  `(C)` title suffix, categorize detection) — presence stays, color goes.
+
 ## Testing
 
 Pure: kintabs (hue-halfway circular incl. wraparound, L step + dir + clamp,
