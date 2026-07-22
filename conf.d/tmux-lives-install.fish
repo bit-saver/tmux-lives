@@ -601,7 +601,7 @@ function __tmux_lives_theme_arc --argument-names scheme --description 'v3 scheme
     end
 end
 
-function __tmux_lives_theme_barpos --argument-names scheme --description 'v3.2 per-scheme bar recipe (calibrated 2026-07-20): "seed" for mono (bar = the seed verbatim), else three lines t_bar / dL_bar / capC ("" = cap wears the bar chroma). Bar samples the scheme arc at t_bar on the SEED-DEPTH row (seed L + dL_bar). Unknown scheme -> nothing.'
+function __tmux_lives_theme_barpos --argument-names scheme --description 'v3.3 per-scheme bar recipe (calibrated 2026-07-20): "seed" for mono (bar = the seed verbatim), else three lines t_bar / dL_bar / capC ("" = cap wears the bar chroma). Bar samples the scheme arc at t_bar on the SEED-DEPTH row (seed L + dL_bar); fire recipe targets the WARM end of its arc. Unknown scheme -> nothing.'
     switch $scheme
         case mono;       echo seed
         case warm;       printf '%s\n' 0.85 -0.03 ''

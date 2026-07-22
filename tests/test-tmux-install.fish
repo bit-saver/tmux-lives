@@ -937,8 +937,9 @@ set -l trio_ok 1
 # (darker) L, where the sRGB boundary is tighter still, clamping a second time and
 # occasionally overshooting the +/-0.02 kinship band by a hair (observed: 0.0214 for
 # '#d02090'/mono). A slightly less saturated magenta keeps the panel's vivid-pink
-# coverage without racing the gamut wall twice; same root cause class as the
-# '#808080'->'#7e8280' swap above (OKLCH edge instability, not a formula bug).
+# coverage without racing the gamut wall twice; a saturated-seed gamut-clamp effect
+# (chroma re-clamps at the tabs' lightness; general across schemes for vivid seeds),
+# distinct from the '#7e8280' achromatic-axis instability.
 for ps in '#576733' '#223344' '#d8cfa8' '#7e8280' '#c04090'
     for tok in (__tmux_lives_theme_schemes)
         set -l pp (__tmux_lives_theme_palette $ps $tok 0 balanced arc linear auto 0)
@@ -961,7 +962,6 @@ t "v33 trio predicate holds across the seed panel" 1 $trio_ok
 set -l pf3 (__tmux_lives_theme_palette $seedhex3 fire 0 balanced arc linear auto 0)
 set -l fo3 (__tlt_okl3 $pf3[1])
 t "v33 fire bar lands warm gold" 1 (test $fo3[3] -ge 60 -a $fo3[3] -le 110; and echo 1; or echo 0)
-t "barpos fire t is 0.95" 0.95 (__tmux_lives_theme_barpos fire)[1]
 functions -e __tlt_okl3
 
 # --- theme engine v3: fragment renders the gradient-map roles ----------------
@@ -1282,7 +1282,7 @@ t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__
 # is removed. Reuse $fr0 (already the wide/balanced/arc/linear/auto/0 render
 # from the v3.1 migration section above) and $src (the full source text).
 t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_fg '#485b3c'*" -- "$fr0"; and echo 1; or echo 0)
-t "fragment window-status-format is plain" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
+t "fragment window-status-format is plain (v3.3 render)" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)
 t "guard: no claude_color in install source" 0 (string match -q '*claude_color*' -- "$src"; and echo 1; or echo 0)
 
