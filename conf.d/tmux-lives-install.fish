@@ -121,7 +121,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @tmux_lives_cap_fg '$capfg'"
     if test $themed -eq 1
         set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep = accent-ring sample; the • separators
-        set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = the seed verbatim (mono: ring pos 1); Phase 2 wires ShellFish OSC
+        set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = kin of bar+cap (v3.3); Phase 2 wires ShellFish OSC
         set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; provisional use
         set -a f "set -g @tmux_lives_mark_fg '$tpal[6]'"          # the ✦ mark = the cap (kin-cap derived from bar)
         set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; current window + centre identity
@@ -610,7 +610,7 @@ function __tmux_lives_theme_barpos --argument-names scheme --description 'v3.2 p
         case wide;       printf '%s\n' 0.70 -0.04 ''
         case aurora;     printf '%s\n' 0.50 0.03 ''
         case sunset;     printf '%s\n' 0.90 -0.05 ''
-        case fire;       printf '%s\n' 0.05 -0.03 ''
+        case fire;       printf '%s\n' 0.95 -0.03 ''
         case complement; printf '%s\n' 1.0 -0.02 ''
         case full;       printf '%s\n' 0.50 0 0.05
     end
@@ -641,6 +641,24 @@ function __tmux_lives_theme_kincap --argument-names barhex capc --description 'v
     test $capL -lt 0.05; and set capL 0.05
     test $capL -gt 0.95; and set capL 0.95
     __tmux_lives_oklch_hex $capL $C (__tmux_lives_norm360 (math "$H + $off"))
+end
+
+function __tmux_lives_theme_kintabs --argument-names barhex caphex --description 'v3.3 trio: the tab-bar color as kin of the bar+cap pair — hue halfway from bar to cap (circular), L one step (0.16) toward the light side of a dark bar, chroma from the cap (muted caps -> muted tabs). The ShellFish/iTerm tab strip stacks directly on the status bar, so the pair must satisfy the calibrated kinship rule by construction.'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$barhex"; or return
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$caphex"; or return
+    set -l brgb (__tmux_lives_hex_to_rgb01 $barhex)
+    set -l bo (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
+    set -l crgb (__tmux_lives_hex_to_rgb01 $caphex)
+    set -l co (__tmux_lives_rgb_to_oklch $crgb[1] $crgb[2] $crgb[3])
+    set -l dh (math "$co[3] - $bo[3]")
+    test $dh -gt 180; and set dh (math "$dh - 360")
+    test $dh -lt -180; and set dh (math "$dh + 360")
+    set -l dir 1
+    test $bo[1] -ge 0.55; and set dir -1
+    set -l L (math "$bo[1] + $dir * 0.16")
+    test $L -lt 0.05; and set L 0.05
+    test $L -gt 0.95; and set L 0.95
+    __tmux_lives_oklch_hex $L $co[2] (__tmux_lives_norm360 (math "$bo[3] + $dh / 2"))
 end
 
 function __tmux_lives_theme_roles --description 'v3.1 support-role ladder, "<role> <t> <dL>" per line — THE one adjustable place (spec decision: keep tunable). bar (= the seed) and text (contrast side) are built in theme_palette, not here.'
@@ -693,7 +711,7 @@ function __tmux_lives_theme_ring --argument-names seedHex scheme phase vividness
     end
 end
 
-function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'v3.2: seed + scheme/knobs -> 7 role hexes (bar sep tabs active windows cap text). Bar = the scheme recipe cell on the SEED-DEPTH row (mono = the seed verbatim); cap = kin-cap from the bar; tabs = the seed verbatim (mono: ring pos 1); sep/active/windows = the rotated accent ring; text contrasts the BAR. Rotation touches accents only. Non-hex seed or unknown scheme -> nothing.'
+function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'v3.3: seed + scheme/knobs -> 7 role hexes (bar sep tabs active windows cap text). Bar = the scheme recipe cell on the SEED-DEPTH row (mono = the seed verbatim); cap = kin-cap from the bar; tabs = kin-tabs from the bar+cap pair (every scheme, incl. mono); sep/active/windows = the rotated accent ring; text contrasts the BAR. Rotation touches accents only. Non-hex seed or unknown scheme -> nothing.'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l bp (__tmux_lives_theme_barpos "$scheme")
     test (count $bp) -ge 1; or return
@@ -722,9 +740,9 @@ function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividn
     end
     set -l cap (__tmux_lives_theme_kincap $bar "$capc")
     test -n "$cap"; or return
-    # tabs: home base — the seed verbatim; mono would duplicate the bar, so ring 1
-    set -l tabs (string lower -- $seedHex)
-    test "$bp[1]" = seed; and set tabs $ring[1]
+    # tabs: kin of the bar+cap pair (v3.3 trio — the tab strip stacks on the bar)
+    set -l tabs (__tmux_lives_theme_kintabs $bar $cap)
+    test -n "$tabs"; or return
     # accents: rotated ring positions 1..3 -> sep active windows
     set -l acc
     for i in 1 2 3
