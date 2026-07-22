@@ -1166,10 +1166,9 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     set -l sepfg (__tcz_thp_fg "$p[2]")
     set -l winfg (__tcz_thp_fg "$p[5]")
     set -l textfg (__tcz_thp_fg "$p[7]")
-    set -l coral (__tcz_thp_fg '#D97757')
     set -l left "$capbg$capfgS $glyph $host $R$barbg$capfgc$slR$R"
     set -l leftv " x $host x"   # glyph + slant are 1 col each
-    set -l win "$barbg $coral""claude$sepfg • $winfg""edit$R"
+    set -l win "$barbg $winfg""claude$sepfg • $winfg""edit$R"
     set -l winv " claude • edit"
     set -l mid "$barbg$capfgc✦ $textfg$name$R"
     set -l midv "✦ $name"

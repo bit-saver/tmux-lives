@@ -74,11 +74,12 @@ command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid
 set -g BAR (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
 t "fragment sets status-format[0]" yes (string match -q '*set -g status-format[0]*' -- "$BAR"; and echo yes; or echo no)
 t "fragment still sets status-right with the tick" yes (string match -q '*set -g status-right*tick*' -- "$BAR"; and echo yes; or echo no)
-t "fragment window-status-format tints the claude window" yes (string match -q "*set -g window-status-format '#{?#{==:#{window_name},claude}*" -- "$BAR"; and string match -q '*#{@tmux_lives_claude_color}*' -- "$BAR"; and echo yes; or echo no)
+# v3.3: claude windows render like any other window (coloring removed 2026-07-21)
+t "fragment window-status-format is plain" yes (string match -q "*set -g window-status-format '#W'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment sets window-status-separator bullet" yes (string match -q '*window-status-separator*•*' -- "$BAR"; and echo yes; or echo no)
-t "fragment seeds @tmux_lives_claude_color (quoted hex)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment drops @tmux_lives_claude_color" no (string match -q '*claude_color*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux_lives_heal_interval 120*' -- "$BAR"; and echo yes; or echo no)
-t "fragment current-format keeps bold + tints claude" yes (string match -q '*window-status-current-format*#[bold]*#{?#{==:#{window_name},claude}*' -- "$BAR"; and echo yes; or echo no)
+t "fragment current-format keeps bold + text role, no claude tint" yes (string match -q "*set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]#[nobold]'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
 # cap bg is now a flat legacy neutral (theme off / no usable seed) — the v2 palette-accent
 # cap wiring (argv[12..16] cap/vividness/wheel/role) is gone; only bar_bg/status-style remain.
@@ -982,9 +983,10 @@ t "on: tabs_color emitted (Phase-2 consumer)" yes (string match -q "*set -g @tmu
 t "on: active_fg emitted (provisional)" yes (string match -q "*set -g @tmux_lives_active_fg '$TONPAL[4]'*" -- "$TON"; and echo yes; or echo no)
 t "on: cap_bg is the cap sample" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
 t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $TONPAL[6])"'*" -- "$TON"; and echo yes; or echo no)
-t "on: mark_fg = cap sample" yes (string match -q "*set -g @tmux_lives_mark_fg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
+# v3.3: the ✦ mark is the seed's home base, not the cap sample
+t "on: mark_fg is the seed verbatim" yes (string match -q "*set -g @tmux_lives_mark_fg '#485b3c'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
-t "on: claude coral stays (semantic mark)" yes (string match -q "*set -g @tmux_lives_claude_color '#D97757'*" -- "$TON"; and echo yes; or echo no)
+t "on: no claude_color anywhere" no (string match -q '*claude_color*' -- "$TON"; and echo yes; or echo no)
 # knobs flow through argv 14-19 (phase/vividness/shape/ease/contrast/rotate)
 set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic darker 2 | string collect)
 set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid flat cubic darker 2)
@@ -1089,7 +1091,8 @@ t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
 t "theme cmd persists vividness" vivid "$tmux_lives_theme_vividness"
 t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
-t "theme live-applies mark_fg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
+# v3.3: apply-live pushes the seed verbatim as the mark color, not the cap sample
+t "theme live-applies mark_fg = seed" '#485b3c' (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
 t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
 # setup color --apply re-applies the THEME, not the v2 derive
 command tmux -L $thsock set -g status-style bg=red 2>/dev/null
@@ -1274,5 +1277,13 @@ t "fragment theme-picker bind is 52x27" 1 (string match -q '*-h 27*theme-picker*
 t "install: no stale theme popup height" 0 (string match -q '*-w 52 -h 26*' -- "$src"; and echo 1; or echo 0)
 
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+
+# --- v3.3 Task 2: the ✦ mark is the seed's home base; claude window coloring
+# is removed. Reuse $fr0 (already the wide/balanced/arc/linear/auto/0 render
+# from the v3.1 migration section above) and $src (the full source text).
+t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_fg '#485b3c'*" -- "$fr0"; and echo 1; or echo 0)
+t "fragment window-status-format is plain" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
+t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)
+t "guard: no claude_color in install source" 0 (string match -q '*claude_color*' -- "$src"; and echo 1; or echo 0)
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"

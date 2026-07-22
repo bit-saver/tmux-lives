@@ -77,8 +77,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
     # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
     set -l tpal
+    # declared OUTSIDE the if: fish's `set -l` scopes to the enclosing BLOCK (if/for/while),
+    # not just the function — a `set -l` inside the `if` below would go out of scope at its
+    # `end`, well before the themed branch (~L123) that needs it for @tmux_lives_mark_fg.
+    set -l seedhex
     if test -n "$theme"
-        set -l seedhex (__tmux_lives_seed_hex $color)
+        set seedhex (__tmux_lives_seed_hex $color)
         test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast" "$themerotate")
     end
     set -l themed 0
@@ -93,12 +97,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # --- status bar overhaul: names-only window list, @option-driven caps, status-format[0] ---
     # Layout lives in status-format[0] (built by the categorizer's pure `status-format` verb);
     # every knob is a live-tunable @option so `tmux set -g @tmux_lives_*` retints with no re-render.
-    # tint the auto-named `claude` window in @tmux_lives_claude_color; reset fg after so the
-    # separator / other windows are unaffected. Position unchanged; current stays bold.
-    # The current window name + separator wear the v3 text/sep roles; the v2 path seeds those
-    # @options to 'default' (a no-op style) so the pre-theme look is unchanged.
-    set -a f "set -g window-status-format '#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#W}'"
-    set -a f "set -g window-status-current-format '#[bold]#{?#{==:#{window_name},claude},#[fg=#{@tmux_lives_claude_color}]#W#[fg=default],#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]}#[nobold]'"
+    # claude windows render like any other (coloring removed 2026-07-21; the ✦ presence mark remains)
+    set -a f "set -g window-status-format '#W'"
+    set -a f "set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]#[nobold]'"
     set -a f "set -g window-status-separator ' #[fg=#{@tmux_lives_sep_fg}]•#[fg=default] '"
     # cap/accent colors. Themed: bar/cap are gradient samples. Legacy (theme off / no usable
     # seed): bar bg = the ShellFish-derived status bg; the cap is a flat neutral (the v2
@@ -123,7 +124,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep = accent-ring sample; the • separators
         set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = kin of bar+cap (v3.3); Phase 2 wires ShellFish OSC
         set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; provisional use
-        set -a f "set -g @tmux_lives_mark_fg '$tpal[6]'"          # the ✦ mark = the cap (kin-cap derived from bar)
+        set -a f "set -g @tmux_lives_mark_fg '$seedhex'"          # the ✦ mark = the seed's home base
         set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; current window + centre identity
     else
         set -a f "set -g @tmux_lives_sep_fg default"
@@ -134,7 +135,6 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     end
     set -a f "set -g @tmux_lives_prefix_color colour214"
     set -a f "set -g @tmux_lives_resize_color colour208"
-    set -a f "set -g @tmux_lives_claude_color '#D97757'"   # Claude coral; static, independent of the ShellFish bar color
     set -a f "set -g @tmux_lives_heal_interval 120"        # color-only self-heal backstop seconds (0 = off)
     set -a f "set -g @tmux_lives_glyph_remote '"(printf '\U0000eb3a')"'"   # cod-remote
     set -a f "set -g @tmux_lives_glyph_local '"(printf '\U0000ea7a')"'"    # cod-vm
@@ -882,7 +882,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
         __tmux_lives_theme_push @tmux_lives_active_fg $tpal[4]
         __tmux_lives_theme_push @tmux_lives_cap_bg $tpal[6]
         __tmux_lives_theme_push @tmux_lives_cap_fg (__tmux_lives_contrast_fg $tpal[6])
-        __tmux_lives_theme_push @tmux_lives_mark_fg $tpal[6]
+        __tmux_lives_theme_push @tmux_lives_mark_fg $seed
         __tmux_lives_theme_push @tmux_lives_text_fg $tpal[7]
         return 0
     end

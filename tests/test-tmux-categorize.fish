@@ -1303,6 +1303,13 @@ t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk
 t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
 t "litkv called from every knob arm" 13 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
 
+# --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
+# not the old static coral. ---
+t "guard: preview coral gone" 0 (string match -q '*D97757*' -- (cat $catfile | string collect); and echo 1; or echo 0)
+set -l pvbody (functions __tcz_thp_preview | string collect)
+t "guard: preview no longer defines a coral var" 0 (string match -q '*coral*' -- "$pvbody"; and echo 1; or echo 0)
+t "preview claude segment uses the windows-role fg" 1 (string match -q '*"$barbg $winfg""claude*' -- "$pvbody"; and echo 1; or echo 0)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
