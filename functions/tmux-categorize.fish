@@ -91,14 +91,37 @@ function __tcz_pid_environ --description 'pid -> environment KEY=VALUE lines (po
     end
 end
 
-function __tcz_client_is_shellfish --argument-names pid --description 'true if the client process environment contains LC_TERMINAL=ShellFish'
+function __tcz_client_terminal --argument-names pid --description 'client pid -> shellfish|iterm2|other, from LC_TERMINAL in the client process environ (__tcz_pid_environ; tmux_lives_fake_environ seam). The terminals that take per-tab color/title escapes.'
     # Substring match: works for Linux per-line environ AND macOS single-line `ps eww`.
-    string match -q '*LC_TERMINAL=ShellFish*' -- (__tcz_pid_environ $pid)
+    set -l env (__tcz_pid_environ $pid)
+    if string match -q '*LC_TERMINAL=ShellFish*' -- $env
+        echo shellfish
+    else if string match -q '*LC_TERMINAL=iTerm2*' -- $env
+        echo iterm2
+    else
+        echo other
+    end
+end
+
+function __tcz_client_is_shellfish --argument-names pid --description 'true if the client process environment contains LC_TERMINAL=ShellFish (wrapper: __tcz_client_terminal = shellfish)'
+    test (__tcz_client_terminal $pid) = shellfish
 end
 
 function __tcz_emit_barcolor --argument-names tty color --description 'write the ShellFish setbarcolor OSC for <color> to <tty> (non-passthrough; client-tty level)'
     test -n "$color"; or return 0
     printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64 | string join '') > $tty
+end
+
+function __tcz_emit_itermtab --argument-names tty hex --description 'write iTerm2 tab-color escapes (OSC 6 triplet) to a client tty; non-hex -> the reset escape. The iTerm side of the ShellFish bar-color mirror.'
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
+    if test (count $m) -eq 3
+        set -l r (math "0x$m[1]")
+        set -l g (math "0x$m[2]")
+        set -l b (math "0x$m[3]")
+        printf '\e]6;1;bg;red;brightness;%d\a\e]6;1;bg;green;brightness;%d\a\e]6;1;bg;blue;brightness;%d\a' $r $g $b > $tty 2>/dev/null
+    else
+        printf '\e]6;1;bg;*;default\a' > $tty 2>/dev/null
+    end
 end
 
 function __tcz_emit_key --argument-names tty --description 'sanitize a client tty into an @option-safe key (/dev/pts/9 -> devpts9)'
@@ -2011,21 +2034,27 @@ function __tcz_tab_color --argument-names fallback --description 'effective Shel
     test -n "$eff"; and echo $eff; or echo $fallback
 end
 
-function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish -> set bar color; else re-apply the non-ShellFish baseline'
-    if __tcz_client_is_shellfish $pid
-        set -l eff (__tcz_tab_color "$color")
-        __tcz_emit_barcolor $tty $eff
-        __tcz_emit_set $tty color $eff
-        __tcz_retitle
-    else
-        # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
-        set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
-        test -e $baseline; and tmux source-file $baseline 2>/dev/null
+function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish/iTerm2 -> set bar/tab color + retitle; else re-apply the non-ShellFish baseline (iTerm2 gets the emissions but, like ShellFish, must NOT trigger the baseline re-source).'
+    switch (__tcz_client_terminal $pid)
+        case shellfish
+            set -l eff (__tcz_tab_color "$color")
+            __tcz_emit_barcolor $tty $eff
+            __tcz_emit_set $tty color $eff
+            __tcz_retitle
+        case iterm2
+            set -l eff (__tcz_tab_color "$color")
+            __tcz_emit_itermtab $tty $eff
+            __tcz_emit_set $tty color $eff
+            __tcz_retitle
+        case '*'
+            # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
+            set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
+            test -e $baseline; and tmux source-file $baseline 2>/dev/null
     end
     return 0
 end
 
-function __tcz_recolor --argument-names color mode --description 'emit the ShellFish bar-color OSC to attached ShellFish clients. mode=dedup emits only when the color changed for that tty; else force. Updates the per-tty cache on emit.'
+function __tcz_recolor --argument-names color mode --description 'emit the ShellFish bar-color / iTerm2 tab-color OSC to attached clients of either kind. mode=dedup emits only when the color changed for that tty; else force. Updates the per-tty cache on emit (the cache stores the resolved color, terminal-agnostic — shared by both kinds).'
     set color (__tcz_tab_color "$color")
     test -n "$color"; or return 0
     set -l TAB (printf '\t')
@@ -2034,11 +2063,20 @@ function __tcz_recolor --argument-names color mode --description 'emit the Shell
         set -l pid $parts[1]
         set -l tty $parts[2]
         test -n "$tty"; or continue
-        __tcz_client_is_shellfish $pid; or continue
-        set -l cached (__tcz_emit_get $tty color)
-        test "$mode" = dedup; and test "$color" = "$cached"; and continue
-        __tcz_emit_barcolor $tty $color
-        __tcz_emit_set $tty color $color
+        switch (__tcz_client_terminal $pid)
+            case shellfish
+                set -l cached (__tcz_emit_get $tty color)
+                test "$mode" = dedup; and test "$color" = "$cached"; and continue
+                __tcz_emit_barcolor $tty $color
+                __tcz_emit_set $tty color $color
+            case iterm2
+                set -l cached (__tcz_emit_get $tty color)
+                test "$mode" = dedup; and test "$color" = "$cached"; and continue
+                __tcz_emit_itermtab $tty $color
+                __tcz_emit_set $tty color $color
+            case '*'
+                continue
+        end
     end
 end
 
@@ -2101,7 +2139,7 @@ function __tcz_session_title --argument-names session --description 'session -> 
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
 
-function __tcz_retitle --argument-names mode --description 'emit each attached ShellFish client its own OSC 2 title. mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit.'
+function __tcz_retitle --argument-names mode --description 'emit each attached ShellFish/iTerm2 client its own OSC 2 title (title emission is identical for both terminal kinds — only the color-emit call differs, in __tcz_recolor/__tcz_on_attach). mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit.'
     set -l TAB (printf '\t')
     for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}$TAB#{client_session}" 2>/dev/null)
         set -l parts (string split $TAB -- $line)
@@ -2109,13 +2147,17 @@ function __tcz_retitle --argument-names mode --description 'emit each attached S
         set -l tty $parts[2]
         set -l session $parts[3]
         test -n "$tty"; or continue
-        __tcz_client_is_shellfish $pid; or continue
-        set -l title (__tcz_session_title $session)
-        test -n "$title"; or continue
-        set -l cached (__tcz_emit_get $tty title)
-        test "$mode" = dedup; and test "$title" = "$cached"; and continue
-        __tcz_emit_title $tty $title
-        __tcz_emit_set $tty title $title
+        switch (__tcz_client_terminal $pid)
+            case shellfish iterm2
+                set -l title (__tcz_session_title $session)
+                test -n "$title"; or continue
+                set -l cached (__tcz_emit_get $tty title)
+                test "$mode" = dedup; and test "$title" = "$cached"; and continue
+                __tcz_emit_title $tty $title
+                __tcz_emit_set $tty title $title
+            case '*'
+                continue
+        end
     end
 end
 

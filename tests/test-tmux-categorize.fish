@@ -139,6 +139,17 @@ command tmux -L $sock new-session -d -s oa 2>/dev/null
 __tcz_on_attach 999 /dev/null ''
 t "on-attach: non-ShellFish sources baseline" "sourced" (command tmux -L $sock show -gv @tl_oa 2>/dev/null)
 command tmux -L $sock kill-server 2>/dev/null
+# iTerm2 client -> color written to the tty too (mirrors the ShellFish flow)
+rm -f $oaf
+set -g tmux_lives_fake_environ "LC_TERMINAL=iTerm2"
+__tcz_on_attach 999 $oaf "#abcdef"
+t "on-attach: iTerm2 writes color" "0" (test -s $oaf; echo $status)
+# iTerm2 client -> baseline is NOT re-sourced (only true non-mirrored 'other' clients get it)
+command tmux -L $sock new-session -d -s oa2 2>/dev/null
+command tmux -L $sock set -g @tl_oa presourced 2>/dev/null
+__tcz_on_attach 999 /dev/null ''
+t "on-attach: iTerm2 does not source baseline" "presourced" (command tmux -L $sock show -gv @tl_oa 2>/dev/null)
+command tmux -L $sock kill-server 2>/dev/null
 # dispatch path: real `fish --no-config <cat> on-attach …` (seam must be EXPORTED to reach the child)
 set -l oadf /tmp/tcz-oa-dispatch-$fish_pid
 rm -f $oadf
@@ -831,8 +842,8 @@ rm -f $rt1 $rt2
 set -g EMITTED
 functions -q __tcz_emit_barcolor; and functions -c __tcz_emit_barcolor __tcz_ebc_bak
 function __tcz_emit_barcolor; set -g EMITTED $EMITTED "c:$argv[2]"; end
-functions -q __tcz_client_is_shellfish; and functions -c __tcz_client_is_shellfish __tcz_cis_bak
-function __tcz_client_is_shellfish; return 0; end   # every client is ShellFish
+functions -q __tcz_client_terminal; and functions -c __tcz_client_terminal __tcz_ct_bak
+function __tcz_client_terminal; echo shellfish; end   # every client is ShellFish
 set -g DEDUP_color ''
 function tmux
     switch "$argv[1]"
@@ -865,9 +876,9 @@ t "recolor dedup skips unchanged" '' "$EMITTED"
 __tcz_recolor '#222222' dedup
 t "recolor dedup emits on change" 'c:#222222' "$EMITTED[-1]"
 t "recolor dedup recaches" '#222222' "$DEDUP_color"
-functions -e tmux __tcz_emit_barcolor __tcz_client_is_shellfish
+functions -e tmux __tcz_emit_barcolor __tcz_client_terminal
 functions -q __tcz_ebc_bak; and functions -c __tcz_ebc_bak __tcz_emit_barcolor; and functions -e __tcz_ebc_bak
-functions -q __tcz_cis_bak; and functions -c __tcz_cis_bak __tcz_client_is_shellfish; and functions -e __tcz_cis_bak
+functions -q __tcz_ct_bak; and functions -c __tcz_ct_bak __tcz_client_terminal; and functions -e __tcz_ct_bak
 set -e EMITTED; set -e DEDUP_color
 
 # --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
@@ -1309,6 +1320,38 @@ t "guard: preview coral gone" 0 (string match -q '*D97757*' -- (cat $catfile | s
 set -l pvbody (functions __tcz_thp_preview | string collect)
 t "guard: preview no longer defines a coral var" 0 (string match -q '*coral*' -- "$pvbody"; and echo 1; or echo 0)
 t "preview claude segment uses the windows-role fg" 1 (string match -q '*"$barbg $winfg""claude*' -- "$pvbody"; and echo 1; or echo 0)
+
+# --- v3.3 Task 3: iTerm2 mirroring — detection + emission + wiring ---
+set -g tmux_lives_fake_environ 'LC_TERMINAL=iTerm2'
+t "client_terminal detects iTerm2" iterm2 (__tcz_client_terminal 4242)
+t "is_shellfish false for iTerm2" 1 (__tcz_client_is_shellfish 4242; echo $status)
+set -g tmux_lives_fake_environ 'LC_TERMINAL=ShellFish'
+t "client_terminal detects ShellFish" shellfish (__tcz_client_terminal 4242)
+t "is_shellfish wrapper still true" 0 (__tcz_client_is_shellfish 4242; echo $status)
+set -g tmux_lives_fake_environ 'TERM=xterm-256color'
+t "client_terminal other" other (__tcz_client_terminal 4242)
+set -e tmux_lives_fake_environ
+# emit_itermtab escape bytes (write to a temp file standing in for the tty)
+set -l tf (mktemp)
+__tcz_emit_itermtab $tf '#576733'
+set -l want (printf '\e]6;1;bg;red;brightness;87\a\e]6;1;bg;green;brightness;103\a\e]6;1;bg;blue;brightness;51\a' | string escape)
+t "itermtab triplet exact" "$want" (cat $tf | string escape)
+__tcz_emit_itermtab $tf notahex
+set -l wantr (printf '\e]6;1;bg;*;default\a' | string escape)
+t "itermtab reset on non-hex" "$wantr" (cat $tf | string escape)
+rm -f $tf
+# wiring pins: each emission path has an iterm2 branch. The brief's sketched
+# `(?s)function X.*iterm2.*^end` form does NOT match here — `(?s)` (DOTALL) lets
+# `.` cross newlines but does NOT imply `(?m)` (MULTILINE), so `^end` still only
+# anchors to the start of the WHOLE string, never to a mid-file line start; it
+# never matches. Body-scoped via the suite's established `awk '/^function X/,/^end$/'`
+# style instead (already used above for __tcz_theme_picker/__tcz_thp_reload).
+set -l recolor_body (awk '/^function __tcz_recolor/,/^end$/' $catfile | string collect)
+set -l onattach_body (awk '/^function __tcz_on_attach/,/^end$/' $catfile | string collect)
+set -l retitle_body (awk '/^function __tcz_retitle/,/^end$/' $catfile | string collect)
+t "recolor handles iterm2" 1 (string match -q '*iterm2*' -- "$recolor_body"; and echo 1; or echo 0)
+t "on-attach handles iterm2" 1 (string match -q '*iterm2*' -- "$onattach_body"; and echo 1; or echo 0)
+t "retitle handles iterm2" 1 (string match -q '*iterm2*' -- "$retitle_body"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0
