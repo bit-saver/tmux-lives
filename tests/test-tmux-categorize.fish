@@ -592,6 +592,24 @@ set -gx PATH $ps_path_save
 rm -rf $psshim
 
 # ---------------------------------------------------------------------
+# pid -> direct children. `pgrep -P` rescans all of /proc per call (~140 ms on
+# a busy Docker host with 400+ processes); /proc/<pid>/task/*/children is a
+# single read (~2 ms). The tick called pgrep 10x, which was 77% of its 1.9 s
+# runtime and kept ~2 cores busy. The ps branch stays for non-Linux.
+# ---------------------------------------------------------------------
+sleep 30 &
+set -g kidpid $last_pid
+t "pid_children /proc finds the child" 1 (contains -- $kidpid (__tcz_pid_children $fish_pid); and echo 1; or echo 0)
+set -g tcz_force_ps 1
+t "pid_children fallback finds the child" 1 (contains -- $kidpid (__tcz_pid_children $fish_pid); and echo 1; or echo 0)
+set -e tcz_force_ps
+t "pid_children /proc and fallback agree" (__tcz_pid_children $fish_pid | sort | string join ',') (begin; set -g tcz_force_ps 1; __tcz_pid_children $fish_pid | sort | string join ','; set -e tcz_force_ps; end)
+t "pid_children empty pid -> empty"    ""  (__tcz_pid_children "")
+t "pid_children childless pid -> empty" "" (__tcz_pid_children $kidpid)
+kill $kidpid 2>/dev/null
+set -e kidpid
+
+# ---------------------------------------------------------------------
 # Regression: fisher SOURCES this file during install/update. A top-level
 # `return` in the sourced file propagates out of fisher's OWN function and
 # aborts the install (no post-install message, no fisher summary, files copied
@@ -1217,6 +1235,12 @@ t "sliders erased on exit" yes (begin; set -l l (functions __tcz_theme_picker | 
 set -l catfile $plugindir/functions/tmux-categorize.fish
 t "v2 cap cluster gone from the categorizer" 0 (grep -c '__tcz_cap_' $catfile)
 t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette' $catfile)
+# `pgrep -P` rescans all of /proc per call. It survives ONLY as the non-Linux
+# fallback inside __tcz_pid_children; no call site may reintroduce it. Scoped by
+# stripping that one function body, so the guard can't be satisfied by deleting
+# the fallback and can't fire on the helper's own comment.
+t "no pgrep -P outside __tcz_pid_children" 0 (awk '/^function __tcz_pid_children/,/^end$/ {next} {print}' $catfile | grep -c 'pgrep -P')
+t "__tcz_pid_children keeps its fallback"  1 (awk '/^function __tcz_pid_children/,/^end$/' $catfile | grep -c '^ *pgrep -P')
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
 # substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream

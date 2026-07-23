@@ -91,6 +91,25 @@ function __tcz_pid_environ --description 'pid -> environment KEY=VALUE lines (po
     end
 end
 
+function __tcz_pid_children --description 'pid -> direct child pids (portable: /proc on Linux, pgrep elsewhere)'
+    set -l pid $argv[1]
+    test -n "$pid"; or return
+    # `pgrep -P` walks every entry in /proc on each call, so it costs whatever the
+    # host's process count costs — measured at ~140 ms on a 400-process Docker host
+    # versus ~2 ms for this read. The tick called it 10x, which was 77% of a 1.9 s
+    # tick and kept ~2 cores busy. Union across task/*: a multi-threaded process
+    # forks from whichever thread ran, and `children` is per-thread. An unmatched
+    # glob yields no iterations silently, which matters because this function's
+    # stderr would land in the status bar.
+    if test -d /proc/$pid/task; and not set -q tcz_force_ps
+        for f in /proc/$pid/task/*/children
+            string split -n ' ' <$f 2>/dev/null
+        end
+    else
+        pgrep -P $pid 2>/dev/null
+    end
+end
+
 function __tcz_client_terminal --argument-names pid --description 'client pid -> shellfish|iterm2|other, from LC_TERMINAL in the client process environ (__tcz_pid_environ; tmux_lives_fake_environ seam). The terminals that take per-tab color/title escapes.'
     # Substring match: works for Linux per-line environ AND macOS single-line `ps eww`.
     set -l env (__tcz_pid_environ $pid)
@@ -189,8 +208,8 @@ end
 
 function __tcz_cmdline_name --description 'pane_pid -> claude --name value (checks pid + direct children)'
     test -n "$argv[1]"; or return
-    # A pid could be recycled between pgrep and the comm read; worst case is a harmless miss.
-    for pid in $argv[1] (pgrep -P $argv[1] 2>/dev/null)
+    # A pid could be recycled between the children read and the comm read; worst case is a harmless miss.
+    for pid in $argv[1] (__tcz_pid_children $argv[1])
         test "$(__tcz_pid_comm $pid)" = claude; or continue
         set -l cmd (__tcz_pid_cmdline $pid)
         set -l m (string match -r -- '--name\s+(.+)$' "$cmd")
@@ -218,7 +237,7 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     # claude. Covers the sh -c wrapper and macOS, where tmux reports the native
     # installer's version-named binary (~/.local/share/claude/versions/X.Y.Z) as
     # pane_current_command while the real claude process is a child of the pane shell.
-    for pid in $argv[2] (pgrep -P $argv[2] 2>/dev/null)
+    for pid in $argv[2] (__tcz_pid_children $argv[2])
         test "$(__tcz_pid_comm $pid)" = claude; and return 0
     end
     return 1
