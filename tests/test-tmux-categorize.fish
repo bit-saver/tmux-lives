@@ -1432,7 +1432,7 @@ t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo
 # before this task exactly one legend_row call names "rotate").
 t "legend drops rotate" 0 (string match -qr 'rotate' -- (awk '/__tcz_legend_row/' $catfile | string collect); and echo 1; or echo 0)
 
-# --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
+# --- picker v4 — 22-row frame, key-map + dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)

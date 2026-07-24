@@ -1657,7 +1657,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '\e[2J'
     end
     __tcz_thp_reload
-    set -l n (count $toks)          # 10 scheme rows; index n (0-based) = the off row
+    set -l n (count $toks)          # 6 relationship rows; off row renders at index n+1, anchor at sel 0
     # anchor snapshot: the persisted theme, frozen for this picker session
     set -l anch_scheme $theme
     set -l anch_phase $phase
