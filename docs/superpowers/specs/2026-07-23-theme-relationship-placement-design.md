@@ -32,23 +32,50 @@ A theme is a curve. Four things select it: **relationship**, **placement**, **mo
 
 ### The curve
 
-Three surface roles sit at fixed positions. These values are round 2's, and they encode round 1's finding — muted field, quiet tabs, saturated accent.
+Three surface roles sit at fixed positions. These values are round 2's, and they encode round 1's finding — muted field, quiet tabs, saturated accent. The endcap L/C shown here are the **vivid baseline** for a near relationship; the Endcap taper below pulls them down as the relationship travels further.
 
 | role | position `t` | lightness target | chroma target |
 |---|---|---|---|
 | bar | 0.00 | 0.40 | 0.045 |
-| tabs | 0.42 | 0.51 | 0.062 |
-| endcap | 1.00 | 0.66 | 0.115 |
+| tabs | 0.42 | 0.51 | 0.062 (tapers with the endcap) |
+| endcap | 1.00 | 0.66 (vivid baseline) | 0.115 (vivid baseline) |
 
 Hue is `H(t) = anchorHue + drift · t`. Text and accent colors remain computed for contrast against the actual resulting bar, as in v3.2.
 
 ### Relationship
 
-`drift` — total hue travel from bar to endcap. This is the new top-level axis and the thing round 2 tested directly.
+A relationship is a **named, signed hue travel** — a `drift` in degrees with a direction baked in. This is the top-level axis, cycled with one key and used as the CLI positional.
 
-Proposed set, **subject to calibration**: flat 0°, drift 35°, lean 55°, span 75°, reach 110°. Round 2 provides evidence for 0–85°; the 110° value is extrapolation and is the first thing calibration should confirm or move.
+Calibration (five rounds, 2026-07-23; see the Calibration section) resolved this from the drafting model. The original draft had two axes — an unsigned magnitude plus a homeless "direction" — but the data showed direction is **asymmetric**, not free: warm-ward travel stays cohesive to ~100° while cool-ward clashes by ~72°. Two axes with a direction-dependent ceiling is worse than one axis of curated signed relationships, so **direction is folded into the relationship identity** and the separate direction knob is dropped. This also lands close to the original v3 named schemes (warm/cool/…), now grounded in stacked-widget calibration rather than isolated tiles.
 
-Travel direction (warm-ward vs cool-ward) is a separate degree of freedom from magnitude — round 2 accepted both, at `+40`/`+55` and at `−55`/`−70`/`−85`. Where it lives is unresolved; see Open items.
+The calibrated reference set, for the user's olive seed (`#5f772b`, OKLCH H≈125):
+
+| relationship | signed travel | endcap becomes |
+|---|---|---|
+| mono | 0° | seed hue (green) |
+| amber | warm 40° | gold |
+| ember | warm 72° | orange |
+| coral | warm 100° | dusty rose |
+| sage | cool 40° | sea-green |
+| teal | cool 72° | dusty teal |
+
+Warm-heavy on purpose: warm reaches further before clashing, so it earns more steps. Names are working placeholders and user-renameable. The set is six for the olive seed; a different seed hue rotates the whole set (the drifts are relative to the seed), and the taper below keeps the far ones cohesive.
+
+### Endcap taper (the chroma/lightness rescue)
+
+The endcap does **not** hold constant chroma and lightness across relationships. Calibration round 4 established that a far-hue endcap at full saturation clashes with the muted dark bar — the two "vibrate" — while the same hue muted and slightly deepened sits comfortably. So as a relationship travels further, its endcap is pulled *down toward the bar's character* in both chroma and lightness, leaving hue as the one clean difference:
+
+```
+knee(direction)  = 72° warm, 40° cool          # where the taper starts
+excess           = max(0, |drift| − knee)
+capC = clamp(0.115 − 0.0025 · excess, 0.055, 0.115)
+capL = clamp(0.66  − 0.001  · excess, 0.62,  0.66)
+tabsC = capC · 0.62                              # the tab strip mutes in step
+```
+
+The knee is direction-dependent because cool clashes ~30° sooner than warm. On the reference set this leaves mono/amber/ember/sage vivid (`C 0.115, L 0.66`) and drives coral and teal to the muted floor (`C 0.055, L 0.62`) — the exact "dusty" treatment the user selected. Constants are calibration-fit and may be refined in implementation; the shape (taper past a direction-dependent knee, chroma and lightness together, floor-clamped) is the settled finding.
+
+The taper shapes the *derived* endcap. When the seed is placed literally at the endcap (see Placement/Mode), that role renders the seed's exact hex and is not tapered.
 
 ### Placement
 
@@ -84,7 +111,7 @@ Each relationship owns **8 rows**:
 
 **Coverage guarantee:** every placeable role has at least one scheme in which the seed renders literally at that role — structurally, in every relationship. Schemes containing no literal seed are first-class, not a fallback: a basis color that is only the stepping-off point produces good palettes and generates colors the current engine cannot reach.
 
-Five relationships × 8 rows = 40 palettes, browsed 8 at a time, versus 10 undifferentiated schemes today.
+Six relationships × 8 rows = 48 palettes, browsed 8 at a time, versus 10 undifferentiated schemes today.
 
 ## Picker
 
@@ -112,9 +139,9 @@ Approach A: relationship is a knob, placements and modes are the list.
 Relationship is the positional, since it is the top axis; placement and mode are flags.
 
 ```fish
-tmux-lives setup theme span --place cap --mode literal
+tmux-lives setup theme ember --place cap --mode literal
 tmux-lives setup theme list              # the relationships
-tmux-lives setup theme list span         # that relationship's 8 rows
+tmux-lives setup theme list ember        # that relationship's 8 rows
 ```
 
 `--place` takes `bar|tabs|cap|low|high`; `low` and `high` imply `--mode derived`. `--rotate` is removed and errors with a pointer to `--place` rather than being silently accepted. `--phase`, `--vividness`, `--shape`, `--ease` and `--contrast` are unchanged.
@@ -127,7 +154,7 @@ Previously selected schemes are discarded outright; no mapping from the old ten 
 - `tmux_lives_theme` and `tmux_lives_theme_rotate` are erased.
 - `phase`, `vividness`, `shape`, `ease`, `contrast` carry over.
 - New universals for relationship, placement and mode.
-- On `fisher update` the theme is set to the **first generated scheme for the existing seed** — catalog order puts relationship #1 (`flat`) with `--place bar --mode literal` first, which is closest to the current look. One-line notice, idempotent, in the same shape as the v2→v3 and v3.1 shims.
+- On `fisher update` the theme is set to the **first generated scheme for the existing seed** — catalog order puts relationship #1 (`mono`) with `--place bar --mode literal` first, which is closest to the current look. One-line notice, idempotent, in the same shape as the v2→v3 and v3.1 shims.
 
 ## Testing
 
@@ -139,9 +166,19 @@ Beyond pure-builder coverage of the sampler, relationship table, placement fitti
 - **Grep guard** — no `rotate` references outside the migration shim.
 - Picker geometry pins, in the existing style.
 
+## Calibration record (2026-07-23)
+
+Five blind, multi-select rounds against the user's live seed `#5f772b`, holding the curve fixed and varying one thing at a time. Method: blind stacked-widget tiles (tab strip on status bar, endcap at true size), user clicks, small batches.
+
+1. **Magnitude ladder** (warm-ward, drift 0–145°). Accepted 0–90°, rejected 115°/145°. The usable hue-travel ceiling is far wider than the old isolated-tile study (~25° for olive) — because the endcap sits at the end of a lightness ramp with the tab strip mediating. Validates the "one curve" premise.
+2. **Direction** (both ways, blind-shuffled). Accepted warm to 100° and cool to 72°; rejected cool 100° and both at 130°. Direction is usable both ways but **asymmetric** — warm reaches ~30° further. This drove folding direction into signed relationships (above).
+3. **Catalog validation** (the 6-relationship set, labeled, "flag anything redundant/wrong-in-set"). Rejected coral (warm 100°) and teal (cool 72°) as clashing with the dark green bar — the same colors accepted in round 2 under a looser lens, so the *considered* harmony ceiling is lower than the gut ceiling. Confirmed the value of a critical validation pass.
+4. **Chroma/lightness taper** (coral and teal at full / muted / dusty). The user selected the **dusty** treatment for both — muting alone (chroma down, lightness held) was not enough; it took chroma *and* lightness down together. This produced the taper rule above.
+5. **Final set** (all six corrected, "flag anything that bothers you"). Clean — set approved.
+
 ## Sequencing
 
-1. **Calibration round** — fit the relationship magnitudes and row constants using the method that already worked here: blind numbered tiles, batches of ≤12, decoys in validation rounds. Only 0–85° of travel has evidence; the rest are estimates and should be fitted rather than asserted.
+1. ~~Calibration~~ — **done** (above); magnitudes, direction, taper, and the reference set are fitted.
 2. **Engine** — pure builders, testable without any UI, inspectable via `setup theme list`.
 3. **CLI** — flags, help, migration.
 4. **Picker** — the 8-row list, relationship knob, ✦ markers.
@@ -150,8 +187,8 @@ Engine before picker, so real output can be reviewed before the UI is committed 
 
 ## Open items
 
-- Relationship magnitudes and row constants are unfitted estimates pending calibration.
-- **Travel direction** has no home yet. Options: a sixth/seventh row per relationship (doubling the list to 16 — likely too long), a separate cycling knob alongside relationship, or folding it into the sign of `--phase`. Worth settling during calibration, when we can see whether direction changes the character enough to deserve a control.
-- The `reach` 110° value is extrapolation beyond any tested travel.
-- Whether the migration should land on `flat/bar/literal` (closest to current) or on something more colorful that showcases the new range.
-- Placement at extreme seeds is the most likely source of a dud palette and needs explicit calibration attention.
+- **Relationship names** (`mono/amber/ember/coral/sage/teal`) are working placeholders; the user may rename before or after build.
+- **Family generality.** The relationship set, taper knees, and curve constants are fitted for the user's olive seed. A very different seed hue rotates the set and re-runs the same taper, which *should* generalise, but the direction-dependent knees (72°/40°) and the vivid-zone ceiling were not re-tested on a blue or red seed. Since the user's seed is olive this is low-risk in practice; the clamps keep any seed's output valid, if not always optimal.
+- **Damping factor** (`0.5`) for how much seed lightness reaches derived rows is unfitted — a reasonable default, tune from live use.
+- Whether the migration should land on `mono/bar/literal` (closest to current) or on something more colorful that showcases the new range.
+- Placement at extreme seeds is the most likely source of a dud palette — the taper mitigates the endcap case, but seed-at-cap plus a bright seed should be watched in the build.
