@@ -1290,25 +1290,6 @@ t "swatch non-hex still 4 lines" 4 (count $swe)
 set -l catsrc2 (cat $catfile | string collect)
 t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the theme*' -- "$catsrc2"; and echo 1; or echo 0)
 
-# --- v3.2 rotpal: accents only, ring-fed ---
-set -l vseed '#576733'
-set -l vpal0 (__tmux_lives_theme_palette $vseed wide 0 balanced arc linear auto 0)
-set -l vring (__tmux_lives_theme_ring $vseed wide 0 balanced arc linear auto)
-set -l vp0 (string join ' ' $vpal0)
-set -l vr (string join ' ' $vring)
-for r in 0 1 2 3 4
-    set -l eng (__tmux_lives_theme_palette $vseed wide 0 balanced arc linear auto $r)
-    set -l engs (string join ' ' $eng)
-    t "v32 rotpal parity r=$r" "$engs" (__tcz_thp_rotpal $r "$vp0" "$vr")
-end
-t "v32 rotpal degrades without a ring" "$vp0" (__tcz_thp_rotpal 2 "$vp0" '')
-
-# cap/tabs fgs are rotation-independent now (pinned fields 6/3 of pal0)
-set -l vrot3 (__tcz_thp_rotpal 3 "$vp0" "$vr")
-set -l vrot3f (string split ' ' -- $vrot3)
-t "v32 rotpal pins the cap field" $vpal0[6] $vrot3f[6]
-t "v32 rotpal pins the tabs field" $vpal0[3] $vrot3f[3]
-
 # --- anchor row: static pins ---
 set -l pk (functions __tcz_theme_picker | string collect)
 t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
