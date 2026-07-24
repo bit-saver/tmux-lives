@@ -805,13 +805,7 @@ t "setup dispatch routes theme" "THEME:warm x" (__tmux_lives_setup_dispatch them
 functions -e __tmux_lives_theme_cmd; functions -c __thc_bak __tmux_lives_theme_cmd; functions -e __thc_bak
 t "setup help lists theme" yes (string match -q '*theme*gradient-map*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
-# v4-PARK(Task 5): this whole block tests the v3 theme-cmd/apply/list surface
-# (v3 scheme names, the 8-arg palette signature, --rotate, the 10-scheme list,
-# the legacy `off` restore). Task 1 rewrote __tmux_lives_theme_valid to the v4
-# relationship list, which turns these v3-name calls red. Task 5 rewrites the
-# CLI + these tests together for v4; until then this block is parked so the
-# suite baseline stays green. UN-PARK and rewrite for v4 in Task 5.
-if false
+# v4: theme-cmd/apply/list surface — relationships, --place/--mode, --rotate retired.
 functions -c __tmux_lives_write_fragment __wfth_bak
 function __tmux_lives_write_fragment; end
 
@@ -825,20 +819,26 @@ t "theme no-arg outside tmux prints the mono default" yes (string match -q 'them
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 27*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
-t "theme: invalid scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
-t "theme: invalid scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
-t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd warm --phase x 2>/dev/null; echo $status)
+t "theme: invalid relationship rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
+t "theme: invalid relationship leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+t "theme: invalid place rejected" 1 (__tmux_lives_theme_cmd ember --place middle 2>/dev/null; echo $status)
+t "theme: invalid place mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "theme: invalid mode rejected" 1 (__tmux_lives_theme_cmd ember --mode dyed 2>/dev/null; echo $status)
+t "theme: invalid mode mutates nothing" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd ember --phase x 2>/dev/null; echo $status)
 t "theme: invalid phase mutates nothing" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
 t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 2>/dev/null; echo $status)
 t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
+t "theme: --rotate is gone" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>/dev/null; echo $status)
+t "theme: --rotate error mentions --place" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
 set -e tmux_lives_bar_color
-t "theme: a scheme without a seed refuses" 1 (__tmux_lives_theme_cmd warm 2>/dev/null; echo $status)
+t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
 
-# list renders 10 schemes with 7-cell strips
-t "theme list has 10 rows" 10 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 10 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+# list renders one row per relationship (6), each with a 7-cell truecolor strip
+t "theme list has 6 rows" 6 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 6 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir
@@ -846,45 +846,22 @@ set -g __fish_config_dir /tmp/th-noconf-$fish_pid
 set -g thsock tlt-$fish_pid
 command tmux -L $thsock new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
-__tmux_lives_theme_cmd warm --phase 30 --vividness vivid >/dev/null
-set -g THP (__tmux_lives_theme_palette '#485b3c' warm 30 vivid arc linear auto 0)
-t "theme cmd persists scheme" warm "$tmux_lives_theme"
+__tmux_lives_theme_cmd ember --place cap --mode literal --phase 30 --vividness vivid >/dev/null
+t "theme cmd persists relationship" ember "$tmux_lives_theme"
+t "theme cmd persists place" cap "$tmux_lives_theme_place"
+t "theme cmd persists mode" literal "$tmux_lives_theme_mode"
 t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
 t "theme cmd persists vividness" vivid "$tmux_lives_theme_vividness"
+set -g THP (__tmux_lives_theme_palette '#485b3c' ember cap literal 30 vivid arc linear auto)
+t "theme live-applies bar_bg" "$THP[1]" (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
+t "theme live-applies sep_fg" "$THP[2]" (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
+t "theme live-applies tabs_color" "$THP[3]" (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
+t "theme live-applies active_fg" "$THP[4]" (command tmux -L $thsock show -gv @tmux_lives_active_fg 2>/dev/null)
 t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
-# v3.3: apply-live pushes the seed verbatim as the mark color, not the cap sample
+# apply-live pushes the seed verbatim as the mark color, not the cap sample
 t "theme live-applies mark_fg = seed" '#485b3c' (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
 t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
-# setup color --apply re-applies the THEME, not the v2 derive
-command tmux -L $thsock set -g status-style bg=red 2>/dev/null
-__tmux_lives_color_cmd --apply >/dev/null
-t "color --apply routes through the theme" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
-# a lone knob call re-applies too
-__tmux_lives_theme_cmd --phase 90 >/dev/null
-set -g THP90 (__tmux_lives_theme_palette '#485b3c' warm 90 vivid arc linear auto 0)
-t "lone knob re-applies live" "$THP90[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-# --contrast / --rotate: persist, validate, reflect in the no-arg state print + setup help
-# (--range/--polarity are GONE — they now fall into the scheme arm -> "invalid scheme").
-# NOTE: --contrast/--rotate persist through the same write_fragment-stub + tmux_lives_tmux_socket
-# pin already active in this section (the persist path calls both).
-__tmux_lives_theme_cmd --contrast lighter >/dev/null
-t "cli --contrast persists" lighter "$tmux_lives_theme_contrast"
-__tmux_lives_theme_cmd --rotate 3 >/dev/null
-t "cli --rotate persists" 3 "$tmux_lives_theme_rotate"
-t "cli --contrast rejects junk" 1 (__tmux_lives_theme_cmd --contrast sideways >/dev/null 2>&1; echo $status)
-t "cli --rotate rejects 5" 1 (__tmux_lives_theme_cmd --rotate 5 >/dev/null 2>&1; echo $status)
-t "cli --polarity is gone" 1 (__tmux_lives_theme_cmd --polarity dark >/dev/null 2>&1; echo $status)
-set -e tmux_lives_theme_contrast; set -e tmux_lives_theme_rotate
-set -l st (__tmux_lives_theme_cmd | string collect)
-t "state print shows contrast" 1 (string match -q '*contrast: auto*' -- "$st"; and echo 1; or echo 0)
-t "state print shows rotate" 1 (string match -q '*rotate: 0*' -- "$st"; and echo 1; or echo 0)
-t "state print drops polarity" 0 (string match -q '*polarity*' -- "$st"; and echo 1; or echo 0)
-t "state print drops range" 0 (string match -q '*range*' -- "$st"; and echo 1; or echo 0)
-set -l hl (__tmux_lives_setup_help_lines | string collect)
-t "setup help documents --contrast" 1 (string match -q '*--contrast*' -- "$hl"; and echo 1; or echo 0)
-t "setup help documents --rotate" 1 (string match -q '*--rotate*' -- "$hl"; and echo 1; or echo 0)
-t "setup help drops --polarity" 0 (string match -q '*--polarity*' -- "$hl"; and echo 1; or echo 0)
 # a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
 __tmux_lives_theme_cmd --phase 100000360 >/dev/null
 t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
@@ -896,37 +873,41 @@ t "off resets text_fg to default" default (command tmux -L $thsock show -gv @tmu
 t "off pushes the neutral legacy cap" colour238 (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
 t "off pushes the legacy cap fg" "#f5f5f5" (command tmux -L $thsock show -gv @tmux_lives_cap_fg 2>/dev/null)
 # unset (not just 'off') applies mono — always-on's actual default. Also reset the knobs
-# this section mutated above (phase->280, vividness->vivid) back to their own defaults so
-# THMONO's assumed 0/balanced actually matches what __tmux_lives_theme_apply_live reads.
+# this section mutated above (place->cap, mode->literal, phase->280, vividness->vivid) back
+# to their own defaults so THMONO's assumed bar/derived/0/balanced actually matches what
+# __tmux_lives_theme_apply_live reads.
 set -e tmux_lives_theme
+set -e tmux_lives_theme_place
+set -e tmux_lives_theme_mode
 set -e tmux_lives_theme_phase
 set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
-set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono 0 balanced arc linear auto 0)
+set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono bar derived 0 balanced arc linear auto)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-# Task 6 controller scope: the 7-arg apply-live path (the picker's `a`-preview and
-# esc-revert path) writes no state — direct-call it twice with only contrast flipped
-# and confirm a derived fg actually moves (same seed/scheme/phase/etc). v3.2: contrast
-# steers the ring companions, not text (text is always bar-auto) — check sep_fg.
-__tmux_lives_theme_apply_live wide 0 balanced arc linear lighter 0
-set -g THEME_TXT_LIGHTER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_sep_fg 2>/dev/null)
-__tmux_lives_theme_apply_live wide 0 balanced arc linear darker 0
-set -g THEME_TXT_DARKER (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_sep_fg 2>/dev/null)
-t "apply-live 7-arg lighter sep_fg non-empty" 1 (test -n "$THEME_TXT_LIGHTER"; and echo 1; or echo 0)
-t "apply-live 7-arg darker sep_fg non-empty" 1 (test -n "$THEME_TXT_DARKER"; and echo 1; or echo 0)
-t "apply-live 7-arg lighter vs darker differ" 1 (test "$THEME_TXT_LIGHTER" != "$THEME_TXT_DARKER"; and echo 1; or echo 0)
+# Task 6 controller scope: the 8-arg apply-live path (the picker's `a`-preview and
+# esc-revert path) writes no state — direct-call it twice with only phase flipped
+# and confirm a derived color actually moves (same seed/relationship/place/mode/etc).
+# v4 Phase 1 only threads phase through the curve — vividness/shape/ease/contrast are
+# accepted for signature stability but not yet consumed (see __tmux_lives_theme_palette's
+# own description), so phase is the one knob guaranteed to move a role color here.
+__tmux_lives_theme_apply_live sage bar derived 0 balanced arc linear auto
+set -g THEME_CAP_A (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
+__tmux_lives_theme_apply_live sage bar derived 180 balanced arc linear auto
+set -g THEME_CAP_B (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "apply-live 8-arg phase-0 cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
+t "apply-live 8-arg phase-180 cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 8-arg phase 0 vs 180 differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd
 
 functions -e __tmux_lives_write_fragment; functions -c __wfth_bak __tmux_lives_write_fragment; functions -e __wfth_bak
-end # v4-PARK(Task 5): end of the parked v3 theme-cmd block
 
 # coarse perf guard (environment-tolerant, like the truncate guard): one
 # in-process 10-scheme batch must complete well under a second.
 set -l _pt0 (date +%s%N)
-for _tok in (__tmux_lives_theme_schemes)
-    __tmux_lives_theme_palette '#485b3c' $_tok 0 balanced arc linear auto 0 >/dev/null
+for _tok in (__tmux_lives_theme_relationships)
+    __tmux_lives_theme_palette '#485b3c' $_tok bar derived 0 balanced arc linear auto >/dev/null
 end
 set -l _pt1 (date +%s%N)
 set -l _ptms (math "($_pt1 - $_pt0) / 1000000")

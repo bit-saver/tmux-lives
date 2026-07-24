@@ -804,24 +804,25 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v3 theme (or legacy when off/seedless) to the live server. With exactly 7 args (scheme phase viv shape ease contrast rotate) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
-    set -l theme; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast; set -l rotate
-    if test (count $argv) -eq 7
-        set theme $argv[1]; set phase $argv[2]; set viv $argv[3]; set shape $argv[4]
-        set ease $argv[5]; set contrast $argv[6]; set rotate $argv[7]
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v4 theme (or legacy when off/seedless) to the live server. With exactly 8 args (relationship place mode phase viv shape ease contrast) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l place; set -l mode; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast
+    if test (count $argv) -eq 8
+        set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
+        set viv $argv[5]; set shape $argv[6]; set ease $argv[7]; set contrast $argv[8]
     else
         set theme (__tmux_lives_key tmux_lives_theme mono)
+        set place (__tmux_lives_key tmux_lives_theme_place bar)
+        set mode (__tmux_lives_key tmux_lives_theme_mode derived)
         set phase (__tmux_lives_key tmux_lives_theme_phase 0)
         set viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
         set shape (__tmux_lives_key tmux_lives_theme_shape arc)
         set ease (__tmux_lives_key tmux_lives_theme_ease linear)
         set contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
-        set rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
     end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_palette $seed "$theme" $phase $viv $shape $ease $contrast $rotate)
+        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase $viv $shape $ease $contrast)
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -850,7 +851,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every scheme + a 7-role gradient strip at the current seed/knobs'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every relationship + a 7-role gradient strip at the current seed/place/mode/knobs'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
@@ -858,9 +859,10 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
     set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
-    set -l rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
-    for scheme in (__tmux_lives_theme_schemes)
-        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $shape $ease $contrast $rotate)
+    set -l place (__tmux_lives_key tmux_lives_theme_place bar)
+    set -l mode (__tmux_lives_key tmux_lives_theme_mode derived)
+    for rel in (__tmux_lives_theme_relationships)
+        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase $viv $shape $ease $contrast)
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -868,11 +870,11 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-11s %s\n' (string join '' $strip) $scheme $pal[6]
+        printf '%s %-11s %s\n' (string join '' $strip) $rel $pal[6]
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--rotate <0-4>]: the v3 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap|low|high] [--mode literal|derived]: the v4 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -891,8 +893,9 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
         set -l tease (__tmux_lives_key tmux_lives_theme_ease linear)
         set -l tcon (__tmux_lives_key tmux_lives_theme_contrast auto)
-        set -l trot (__tmux_lives_key tmux_lives_theme_rotate 0)
-        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   rotate: $trot"
+        set -l tplace (__tmux_lives_key tmux_lives_theme_place bar)
+        set -l tmode (__tmux_lives_key tmux_lives_theme_mode derived)
+        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   place: $tplace   mode: $tmode"
         return 0
     end
     set -l scheme; set -l have_scheme 0
@@ -901,7 +904,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     set -l shape; set -l have_shape 0
     set -l ease; set -l have_ease 0
     set -l con; set -l have_con 0
-    set -l rot; set -l have_rot 0
+    set -l place; set -l have_place 0
+    set -l mode; set -l have_mode 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -924,8 +928,13 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 set i (math $i + 1); set ease $argv[$i]; set have_ease 1
             case --contrast
                 set i (math $i + 1); set con $argv[$i]; set have_con 1
+            case --place
+                set i (math $i + 1); set place $argv[$i]; set have_place 1
+            case --mode
+                set i (math $i + 1); set mode $argv[$i]; set have_mode 1
             case --rotate
-                set i (math $i + 1); set rot $argv[$i]; set have_rot 1
+                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap|low|high to move the seed instead" >&2
+                return 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1
         end
@@ -933,7 +942,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     end
     # Validate everything before mutating any state (same contract as setup cap).
     if test $have_scheme -eq 1; and not __tmux_lives_theme_valid "$scheme"
-        echo "tmux-lives setup theme: invalid scheme '$scheme' — valid: mono, warm, cool, span, wide, aurora, sunset, fire, complement, full (or: list, off)" >&2
+        echo "tmux-lives setup theme: invalid relationship '$scheme' — valid: "(__tmux_lives_theme_relationships | string join ', ')" (or: list, off)" >&2
         return 1
     end
     if test $have_phase -eq 1; and not string match -qr -- '^-?[0-9]+$' "$phase"
@@ -973,9 +982,21 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 return 1
         end
     end
-    if test $have_rot -eq 1; and not string match -qr '^[0-4]$' -- "$rot"
-        echo "tmux-lives setup theme: invalid rotate '$rot' — 0-4" >&2
-        return 1
+    if test $have_place -eq 1
+        switch "$place"
+            case bar tabs cap low high
+            case '*'
+                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap, low, high" >&2
+                return 1
+        end
+    end
+    if test $have_mode -eq 1
+        switch "$mode"
+            case literal derived
+            case '*'
+                echo "tmux-lives setup theme: invalid mode '$mode' — valid: literal, derived" >&2
+                return 1
+        end
     end
     if test $have_scheme -eq 1
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
@@ -989,7 +1010,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and set -U tmux_lives_theme_shape $shape
     test $have_ease -eq 1; and set -U tmux_lives_theme_ease $ease
     test $have_con -eq 1; and set -U tmux_lives_theme_contrast $con
-    test $have_rot -eq 1; and set -U tmux_lives_theme_rotate $rot
+    test $have_place -eq 1; and set -U tmux_lives_theme_place $place
+    test $have_mode -eq 1; and set -U tmux_lives_theme_mode $mode
     test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
@@ -1001,7 +1023,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and echo "tmux-lives: theme shape set to $shape"
     test $have_ease -eq 1; and echo "tmux-lives: theme ease set to $ease"
     test $have_con -eq 1; and echo "tmux-lives: theme contrast set to $con"
-    test $have_rot -eq 1; and echo "tmux-lives: theme rotate set to $rot"
+    test $have_place -eq 1; and echo "tmux-lives: theme place set to $place"
+    test $have_mode -eq 1; and echo "tmux-lives: theme mode set to $mode"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
