@@ -706,23 +706,9 @@ tmux kill-server 2>/dev/null
 set -gx PATH $rl_path_save
 rm -rf $rlshim $rlconf
 
-# --- theme engine v3 (gradient map): arc presets + role ladder + sampler -----
-t "theme_arc mono"       "0 45"    (__tmux_lives_theme_arc mono | string join ' ')
-t "theme_arc warm"       "8 -64"   (__tmux_lives_theme_arc warm | string join ' ')
-t "theme_arc cool"       "60 -8"   (__tmux_lives_theme_arc cool | string join ' ')
-t "theme_arc span"       "60 -60"  (__tmux_lives_theme_arc span | string join ' ')
-t "theme_arc wide"       "95 -75"  (__tmux_lives_theme_arc wide | string join ' ')
-t "theme_arc aurora"     "120 30"  (__tmux_lives_theme_arc aurora | string join ' ')
-t "theme_arc sunset"     "150 -90" (__tmux_lives_theme_arc sunset | string join ' ')
-t "theme_arc fire"       "130 -44" (__tmux_lives_theme_arc fire | string join ' ')
-t "theme_arc complement" "180 -30" (__tmux_lives_theme_arc complement | string join ' ')
-t "theme_arc full"       "0 360"   (__tmux_lives_theme_arc full | string join ' ')
-t "theme_arc unknown -> empty" 0 (count (__tmux_lives_theme_arc nope))
-# theme_roles/theme_sample lost their standalone direct tests here — both functions'
-# contracts changed under v3.1 (roles: 7-line absolute-L ladder -> 5-line support-only
-# "<role> <t> <dL>"; sample: relative L-ramp -> an ABSOLUTE-L argument). They pinned the
-# dead v3 model exactly like theme_palette/theme_lrange below, just without the brief
-# calling their names out explicitly; the v31 palette tests exercise both indirectly.
+# theme_arc/barpos/kincap/kintabs/roles/sample/ring + their v3.1/v3.2/v3.3 unit
+# tests (bar/palette-recipe internals) retired with the v3 gradient-map engine —
+# see __tmux_lives_theme_curve/_accents (v4) and their tests below.
 
 # Task 2: seed parsing (css -> #rrggbb; named colors have no derivable hue -> empty)
 t "seed_hex passthrough" "#485b3c" (__tmux_lives_seed_hex "#485b3c")
@@ -733,237 +719,6 @@ t "seed_hex named -> empty" 0 (count (__tmux_lives_seed_hex red))
 t "seed_hex empty -> empty" 0 (count (__tmux_lives_seed_hex ""))
 t "derive_status still parses rgb() after the refactor" 1 (string match -q 'bg=#*' -- (__tmux_lives_derive_status "rgb(31,111,235)" 0); and echo 1; or echo 0)
 t "derive_status unchanged on hex" "bg=#76846d,fg=#d3d8d0" (__tmux_lives_derive_status "#485b3c" 0)
-# --- v3.1 seed-anchored palette ---
-function __tlt_L --description 'test helper: hex -> OKLCH L'
-    set -l rgb (__tmux_lives_hex_to_rgb01 $argv[1])
-    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    echo $ok[1]
-end
-set -l pal (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
-t "v31 palette emits 7 roles" 7 (count $pal)
-set -l palm (__tmux_lives_theme_palette '#485B3C' mono 0 balanced arc linear auto 0)
-t "v31 bar IS the seed verbatim (lowercased)" '#485b3c' $palm[1]
-set -l palp (__tmux_lives_theme_palette '#485B3C' wide 90 balanced arc linear auto 0)
-set -l palm90 (__tmux_lives_theme_palette '#485B3C' mono 90 balanced arc linear auto 0)
-t "v31 phase never moves the bar" "$palm[1]" "$palm90[1]"
-t "v31 phase moves companions" 0 (test "$pal[2]" = "$palp[2]"; and echo 1; or echo 0)
-# auto direction: dark seed ramps lighter (text L > bar L); light seed ramps darker
-set -l pdark (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear auto 0)
-set -l Lb (__tlt_L $pdark[1]); set -l Lt (__tlt_L $pdark[7])
-t "v31 auto dark seed -> light text" 1 (test $Lt -gt $Lb; and echo 1; or echo 0)
-set -l plight (__tmux_lives_theme_palette '#d8d8c8' mono 0 balanced arc linear auto 0)
-set -l Lb2 (__tlt_L $plight[1]); set -l Lt2 (__tlt_L $plight[7])
-t "v31 auto light seed -> dark text" 1 (test $Lt2 -lt $Lb2; and echo 1; or echo 0)
-set -l dLt (math "abs($Lt - $Lb)")
-t "v31 auto text dL floor >= 0.40" 1 (test $dLt -ge 0.40; and echo 1; or echo 0)
-set -l palvm (__tmux_lives_theme_palette '#485B3C' mono 0 vivid arc linear auto 0)
-t "v31 vividness never moves the bar" "$palm[1]" "$palvm[1]"
-# forced direction wins
-set -l pforce (__tmux_lives_theme_palette '#202020' mono 0 balanced arc linear darker 0)
-set -l Lt3 (__tlt_L $pforce[7])
-# v3.2: contrast no longer steers text (text is always bar-auto — see the
-# "text contrasts the BAR" contract above); it steers the ring companions
-# instead, so the forced-direction check now targets a companion role (sep).
-set -l L2 (__tlt_L $pforce[2])
-t "v31 forced darker honored on a dark seed" 1 (test $L2 -lt $Lb; and echo 1; or echo 0)
-# rotation: exact cyclic permutation of the 5 support colors; bar/text pinned
-set -l r0 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
-set -l r1 (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 1)
-t "v31 rotation pins the bar" "$r0[1]" "$r1[1]"
-t "v31 rotation pins the text" "$r0[7]" "$r1[7]"
-# support ladder: companions cluster (every support within 0.30 L of the seed)
-set -l Ls (__tlt_L $r0[1])
-set -l clustered 1
-for i in 2 3 4 5 6
-    set -l Li (__tlt_L $r0[$i])
-    set -l dLi (math "abs($Li - $Ls)")
-    test $dLi -le 0.30; or set clustered 0
-end
-t "v31 supports cluster near the seed" 1 $clustered
-# bad inputs still fall through
-t "v31 non-hex seed -> nothing" 0 (count (__tmux_lives_theme_palette red wide 0 balanced arc linear auto 0))
-t "v31 unknown scheme -> nothing" 0 (count (__tmux_lives_theme_palette '#485B3C' nope 0 balanced arc linear auto 0))
-functions -e __tlt_L
-
-# --- v3.2 derivation contract ---
-function __tlt_okl2 --argument-names hex
-    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
-    __tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]
-end
-set -l seedhex '#576733'
-set -l so (__tlt_okl2 $seedhex)
-# mono: bar == seed verbatim; non-mono: bar on the seed-depth row, NOT the seed
-set -l pm (__tmux_lives_theme_palette $seedhex mono 0 balanced arc linear auto 0)
-t "v32 mono bar is the seed verbatim" $seedhex $pm[1]
-set -l pw (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 0)
-t "v32 wide bar differs from the seed" 0 (test "$pw[1]" = $seedhex; and echo 1; or echo 0)
-set -l bo (__tlt_okl2 $pw[1])
-t "v32 bar sits on the seed-depth row" 1 (test (math "abs($bo[1] - $so[1])") -le 0.06; and echo 1; or echo 0)
-# tabs = kin of bar+cap (v3.3; the seed-verbatim/ring-pos-1 special case is gone)
-t "v32 tabs are kin of bar+cap" (__tmux_lives_theme_kintabs $pw[1] $pw[6]) $pw[3]
-set -l ring (__tmux_lives_theme_ring $seedhex mono 0 balanced arc linear auto)
-t "v32 ring has five samples" 5 (count $ring)
-# phase moves a non-mono bar; never the mono bar
-set -l pw90 (__tmux_lives_theme_palette $seedhex wide 90 balanced arc linear auto 0)
-t "v32 phase moves the wide bar" 0 (test "$pw90[1]" = "$pw[1]"; and echo 1; or echo 0)
-set -l pm90 (__tmux_lives_theme_palette $seedhex mono 90 balanced arc linear auto 0)
-t "v32 phase never moves the mono bar" $seedhex $pm90[1]
-# rotation permutes ONLY sep/active/windows; bar/cap/tabs/text pinned
-set -l r0 (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 0)
-set -l r2 (__tmux_lives_theme_palette $seedhex wide 0 balanced arc linear auto 2)
-t "v32 rotation pins bar"  "$r0[1]" "$r2[1]"
-t "v32 rotation pins tabs" "$r0[3]" "$r2[3]"
-t "v32 rotation pins cap"  "$r0[6]" "$r2[6]"
-t "v32 rotation pins text" "$r0[7]" "$r2[7]"
-t "v32 rotation moves sep" 0 (test "$r0[2]" = "$r2[2]"; and echo 1; or echo 0)
-# accents come from the ring via the perm index
-set -l ringw (__tmux_lives_theme_ring $seedhex wide 0 balanced arc linear auto)
-t "v32 rot0 sep = ring1" $ringw[1] $r0[2]
-t "v32 rot0 active = ring2" $ringw[2] $r0[4]
-t "v32 rot0 windows = ring3" $ringw[3] $r0[5]
-t "v32 rot2 sep = ring4" $ringw[4] $r2[2]
-# text contrasts the BAR
-set -l to (__tlt_okl2 $r0[7])
-t "v32 text on the bar's contrast side" 1 (test (math "abs($to[1] - $bo[1])") -ge 0.38; and echo 1; or echo 0)
-# acceptance predicate across schemes x a seed panel (family offsets + dL band)
-# NB the neutral-seed slot is '#7e8280' (near-gray, tiny chroma), not pure '#808080':
-# a perfectly achromatic seed (R=G=B exactly) gives C=0 EXACTLY in OKLab by matrix
-# construction, and hue is then reconstructed from residual floating-point noise in
-# a/b (atan2 of two near-zero values with essentially random relative sign) — for the
-# "complement" scheme specifically (t_bar=1.0, an exact arc endpoint -> sin(pi*1)=0
-# -> bar chroma = the seed's own chroma verbatim, i.e. 0 here too) that noise landed
-# ~180 deg from the cap's noise, spuriously failing the hue-band check on two
-# effectively-colorless swatches. Pre-existing OKLCH-at-C=0 instability (not
-# introduced by this task, not fixable from the ring/palette functions alone —
-# root cause is the shared conversion pipeline + the complement recipe's exact
-# t=1.0 endpoint); swapping in a near-gray with a sliver of real chroma keeps the
-# panel's "muted/neutral seed" coverage without hitting the true singularity.
-# NB named $panelok, NOT $pass: this file's harness owns a GLOBAL `pass` counter
-# (line 4, incremented by `t`) that is read again at EOF for the final summary —
-# a `set -l pass` at this flat top-level scope would shadow it for the rest of
-# the script's execution and corrupt that closing readout (caught in review).
-set -l panelok 1
-for ps in '#576733' '#223344' '#d8cfa8' '#7e8280' '#d02090'
-    for tok in (__tmux_lives_theme_schemes)
-        set -l pp (__tmux_lives_theme_palette $ps $tok 0 balanced arc linear auto 0)
-        test (count $pp) -eq 7; or begin; set panelok 0; break; end
-        set -l pb (__tlt_okl2 $pp[1])
-        set -l pc (__tlt_okl2 $pp[6])
-        set -l pdh (math "$pc[3] - $pb[3]")
-        test $pdh -gt 180; and set pdh (math "$pdh - 360")
-        test $pdh -lt -180; and set pdh (math "$pdh + 360")
-        set -l pdl (math "abs($pc[1] - $pb[1])")
-        test (math "abs($pdh)") -le 50; or set panelok 0
-        test $pdl -ge 0.055; or set panelok 0
-        test $pdl -le 0.125; or set panelok 0
-    end
-end
-t "v32 acceptance predicate holds across the seed panel" 1 $panelok
-functions -e __tlt_okl2
-
-# --- v3.2 pure tables ---
-set -l bp (__tmux_lives_theme_barpos warm)
-t "barpos warm three lines" 3 (count $bp)
-t "barpos warm t" 0.85 $bp[1]
-t "barpos mono is the seed sentinel" seed (__tmux_lives_theme_barpos mono | string collect)
-t "barpos span carries muted capC" 0.04 (__tmux_lives_theme_barpos span)[3]
-t "barpos full carries muted capC" 0.05 (__tmux_lives_theme_barpos full)[3]
-t "barpos fire lands warm-side" 0.95 (__tmux_lives_theme_barpos fire)[1]
-t "barpos unknown -> nothing" 0 (count (__tmux_lives_theme_barpos nope))
-# kincap: family offsets + depth step + muted rules
-function __tlt_okl --argument-names hex
-    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
-    __tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]
-end
-set -l bar '#157058'   # teal family (H~173)
-set -l cap (__tmux_lives_theme_kincap $bar)
-set -l bo (__tlt_okl $bar)
-set -l co (__tlt_okl $cap)
-set -l dh (math "$co[3] - $bo[3]")
-test $dh -gt 180; and set dh (math "$dh - 360")
-test $dh -lt -180; and set dh (math "$dh + 360")
-t "kincap teal offset +30 blueward" 1 (test $dh -ge 25 -a $dh -le 35; and echo 1; or echo 0)
-t "kincap dark bar -> lighter cap" 1 (test (math "$co[1] - $bo[1]") -ge 0.06; and echo 1; or echo 0)
-set -l capw (__tmux_lives_theme_kincap '#80551d')   # warm family
-set -l cwo (__tlt_okl $capw)
-set -l bwo (__tlt_okl '#80551d')
-set -l dhw (math "$cwo[3] - $bwo[3]")
-t "kincap warm offset ~+40" 1 (test $dhw -ge 33 -a $dhw -le 47; and echo 1; or echo 0)
-set -l capp (__tmux_lives_theme_kincap '#6f5086')   # purple family, no capC arg
-set -l cpo (__tlt_okl $capp)
-t "kincap purple defaults muted" 1 (test $cpo[2] -le 0.07; and echo 1; or echo 0)
-set -l capm (__tmux_lives_theme_kincap '#566829' 0.04)
-set -l cmo (__tlt_okl $capm)
-t "kincap honors explicit capC" 1 (test $cmo[2] -le 0.06; and echo 1; or echo 0)
-set -l capl (__tmux_lives_theme_kincap '#c9d3b0')   # LIGHT bar -> darker cap
-set -l clo (__tlt_okl $capl)
-set -l blo (__tlt_okl '#c9d3b0')
-t "kincap light bar -> darker cap" 1 (test (math "$blo[1] - $clo[1]") -ge 0.06; and echo 1; or echo 0)
-functions -e __tlt_okl
-
-# --- v3.3 kin-ramp trio ---
-function __tlt_okl3 --argument-names hex
-    set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
-    __tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3]
-end
-set -l kt (__tmux_lives_theme_kintabs '#157058' '#1c868e')
-t "kintabs returns a hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- "$kt"; and echo 1; or echo 0)
-set -l bo3 (__tlt_okl3 '#157058')
-set -l co3 (__tlt_okl3 '#1c868e')
-set -l to3 (__tlt_okl3 $kt)
-set -l dhbt (math "$to3[3] - $bo3[3]")
-test $dhbt -gt 180; and set dhbt (math "$dhbt - 360")
-test $dhbt -lt -180; and set dhbt (math "$dhbt + 360")
-set -l dhbc (math "$co3[3] - $bo3[3]")
-test $dhbc -gt 180; and set dhbc (math "$dhbc - 360")
-test $dhbc -lt -180; and set dhbc (math "$dhbc + 360")
-t "kintabs hue is halfway to the cap" 1 (test (math "abs($dhbt - $dhbc / 2)") -le 3; and echo 1; or echo 0)
-t "kintabs one step lighter than a dark bar" 1 (test (math "$to3[1] - $bo3[1]") -ge 0.14 -a (math "$to3[1] - $bo3[1]") -le 0.18; and echo 1; or echo 0)
-t "kintabs wears the cap chroma" 1 (test (math "abs($to3[2] - $co3[2])") -le 0.02; and echo 1; or echo 0)
-t "kintabs empty on junk" 0 (count (__tmux_lives_theme_kintabs red '#1c868e'))
-# palette: tabs are kin for EVERY scheme (mono too); trio predicate on the panel
-set -l seedhex3 '#576733'
-set -l pw3 (__tmux_lives_theme_palette $seedhex3 wide 0 balanced arc linear auto 0)
-t "v33 tabs no longer wear the seed" 0 (test "$pw3[3]" = $seedhex3; and echo 1; or echo 0)
-set -l pm3 (__tmux_lives_theme_palette $seedhex3 mono 0 balanced arc linear auto 0)
-set -l ring3 (__tmux_lives_theme_ring $seedhex3 mono 0 balanced arc linear auto)
-t "v33 mono tabs are kin too (ring1 special case gone)" 0 (test "$pm3[3]" = "$ring3[1]"; and echo 1; or echo 0)
-t "v33 mono tabs = kintabs(bar,cap)" (__tmux_lives_theme_kintabs $pm3[1] $pm3[6]) $pm3[3]
-set -l trio_ok 1
-# NB '#d02090' (the v3.2 panel's vivid-magenta slot) is swapped for '#c04090' here:
-# under mono, bar = the seed VERBATIM (full raw chroma, no cmax cap), so a fully
-# saturated magenta feeds kincap a ~0.226 target chroma that's already gamut-clamped
-# down at the cap's L; kintabs then asks for THAT clamped chroma again at tabs' own
-# (darker) L, where the sRGB boundary is tighter still, clamping a second time and
-# occasionally overshooting the +/-0.02 kinship band by a hair (observed: 0.0214 for
-# '#d02090'/mono). A slightly less saturated magenta keeps the panel's vivid-pink
-# coverage without racing the gamut wall twice; a saturated-seed gamut-clamp effect
-# (chroma re-clamps at the tabs' lightness; general across schemes for vivid seeds),
-# distinct from the '#7e8280' achromatic-axis instability.
-for ps in '#576733' '#223344' '#d8cfa8' '#7e8280' '#c04090'
-    for tok in (__tmux_lives_theme_schemes)
-        set -l pp (__tmux_lives_theme_palette $ps $tok 0 balanced arc linear auto 0)
-        test (count $pp) -eq 7; or begin; set trio_ok 0; break; end
-        set -l pb (__tlt_okl3 $pp[1])
-        set -l pt (__tlt_okl3 $pp[3])
-        set -l pc (__tlt_okl3 $pp[6])
-        set -l d1 (math "$pt[3] - $pb[3]")
-        test $d1 -gt 180; and set d1 (math "$d1 - 360")
-        test $d1 -lt -180; and set d1 (math "$d1 + 360")
-        test (math "abs($d1)") -le 30; or set trio_ok 0
-        set -l dl (math "abs($pt[1] - $pb[1])")
-        test $dl -ge 0.10; or set trio_ok 0
-        test $dl -le 0.22; or set trio_ok 0
-        test (math "abs($pt[2] - $pc[2])") -le 0.02; or set trio_ok 0
-    end
-end
-t "v33 trio predicate holds across the seed panel" 1 $trio_ok
-# fire is warm now
-set -l pf3 (__tmux_lives_theme_palette $seedhex3 fire 0 balanced arc linear auto 0)
-set -l fo3 (__tlt_okl3 $pf3[1])
-t "v33 fire bar lands warm gold" 1 (test $fo3[3] -ge 60 -a $fo3[3] -le 110; and echo 1; or echo 0)
-functions -e __tlt_okl3
-
 # --- theme engine v3: fragment renders the gradient-map roles ----------------
 # theme OFF (argv 17 absent): v2 values + neutral role seeds
 set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
@@ -1253,6 +1008,26 @@ t "curve literal bar = seed" "#5f772b" $trilb[1]
 # bad inputs -> nothing
 t "curve bad seed empty" 0 (count (__tmux_lives_theme_curve 'notahex' ember bar derived 0))
 t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar derived 0))
+
+# ---- v4: accents + palette ----
+set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0 balanced arc linear auto)
+t "palette returns 7" 7 (count $pal)
+for i in 1 2 3 4 5 6 7
+    t "palette role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $pal[$i]; and echo 1; or echo 0)
+end
+# the trio matches the curve for the same inputs (order: bar[1] tabs[3] cap[6])
+set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
+t "palette bar = curve bar"   $tri[1] $pal[1]
+t "palette tabs = curve tabs" $tri[2] $pal[3]
+t "palette cap = curve cap"   $tri[3] $pal[6]
+# windows (status-style fg, on the dark bar) must be light for contrast
+set -l wok (_oklch_of $pal[5])
+t "palette windows is light" 1 (test $wok[1] -gt 0.60; and echo 1; or echo 0)
+t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0 balanced arc linear auto))
+# the retired v3 builders are gone
+t "arc retired"    "" (functions -q __tmux_lives_theme_arc; and echo present)
+t "kincap retired" "" (functions -q __tmux_lives_theme_kincap; and echo present)
+t "ring retired"   "" (functions -q __tmux_lives_theme_ring; and echo present)
 
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
