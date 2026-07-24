@@ -146,7 +146,7 @@ t "taper sage vivid C"    0.115 (__tmux_lives_theme_taper 40   | sed -n 1p)   # 
 t "taper coral floor C"   0.055 (__tmux_lives_theme_taper -100 | sed -n 1p)   # warm excess 28 -> below floor -> clamp
 t "taper coral floor L"   0.62  (__tmux_lives_theme_taper -100 | sed -n 2p)
 t "taper teal floor C"    0.055 (__tmux_lives_theme_taper 72   | sed -n 1p)   # cool excess 32 -> floor
-t "taper tabsC follows"   1     (set -l l (__tmux_lives_theme_taper 72); test (math "abs($l[3] - $l[1]*0.62) < 0.0001") = 1; and echo 1; or echo 0)
+t "taper tabsC follows"   1     (set -l l (__tmux_lives_theme_taper 72); set -l d (math "abs($l[3] - $l[1]*0.62)"); test $d -lt 0.0001; and echo 1; or echo 0)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -165,16 +165,16 @@ function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4
     test $signeddrift -lt 0; and set knee 72
     set -l excess (math "max(0, $ad - $knee)")
     set -l capC (math "0.115 - 0.0025 * $excess")
-    test (math "$capC < 0.055") = 1; and set capC 0.055
-    test (math "$capC > 0.115") = 1; and set capC 0.115
-    set -l capL (math "0.66 - 0.001 * $excess")
-    test (math "$capL < 0.62") = 1; and set capL 0.62
-    test (math "$capL > 0.66") = 1; and set capL 0.66
+    test $capC -lt 0.055; and set capC 0.055
+    test $capC -gt 0.115; and set capC 0.115
+    set -l capL (math "0.66 - 0.0015 * $excess")
+    test $capL -lt 0.62; and set capL 0.62
+    test $capL -gt 0.66; and set capL 0.66
     printf '%s\n' $capC $capL (math "$capC * 0.62")
 end
 ```
 
-Note: `test $signeddrift -lt 0` uses integer `test` (drifts are whole degrees) — correct and avoids the `math` comparison landmine.
+Note: fish `test` compares floats directly with `-lt`/`-gt` (as the shipped `__tmux_lives_theme_kincap`/`_ring` do) — `math` has NO comparison operators. The capL coefficient is `0.0015` (not `0.001`): it must be steep enough to reach the `0.62` floor at coral's excess of 28 (`0.66 - 0.0015*28 = 0.618 → 0.62`).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -235,16 +235,19 @@ t "curve returns 3" 3 (count $tri)
 t "curve bar is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[1]; and echo 1; or echo 0)
 t "curve cap is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[3]; and echo 1; or echo 0)
 # bar: dark olive family — near the seed hue, dark, modest chroma
+# (fish `test` does float -lt/-gt; compute abs into a var first — no `math` comparisons)
 set -l bo (_oklch_of $tri[1])
-t "curve bar dark"          1 (test (math "$bo[1] > 0.37") = 1; and test (math "$bo[1] < 0.46") = 1; and echo 1; or echo 0)
-t "curve bar near seed hue" 1 (test (math "abs($bo[3] - $so[3]) < 6") = 1; and echo 1; or echo 0)
+t "curve bar dark"          1 (test $bo[1] -gt 0.37; and test $bo[1] -lt 0.46; and echo 1; or echo 0)
+set -l dh_bar (math "abs($bo[3] - $so[3])")
+t "curve bar near seed hue" 1 (test $dh_bar -lt 6; and echo 1; or echo 0)
 # ember cap: warm side (~72 deg toward gold), still vivid
 set -l co (_oklch_of $tri[3])
-t "curve ember cap warm"  1 (test (math "abs($co[3] - ($so[3] - 72)) < 8") = 1; and echo 1; or echo 0)
-t "curve ember cap vivid" 1 (test (math "$co[2] > 0.10") = 1; and echo 1; or echo 0)
+set -l dh_cap (math "abs($co[3] - ($so[3] - 72))")
+t "curve ember cap warm"  1 (test $dh_cap -lt 8; and echo 1; or echo 0)
+t "curve ember cap vivid" 1 (test $co[2] -gt 0.10; and echo 1; or echo 0)
 # coral: tapered -> the cap is muted (lower chroma than a vivid cap)
 set -l cco (_oklch_of (__tmux_lives_theme_curve $seed coral bar derived 0)[3])
-t "curve coral cap muted" 1 (test (math "$cco[2] < 0.09") = 1; and echo 1; or echo 0)
+t "curve coral cap muted" 1 (test $cco[2] -lt 0.09; and echo 1; or echo 0)
 # literal cap: the endcap renders the seed's EXACT hex
 set -l tril (__tmux_lives_theme_curve $seed ember cap literal 0)
 t "curve literal cap = seed" "#5f772b" $tril[3]
@@ -273,12 +276,13 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
     set -l sL $ok[1]; set -l sC $ok[2]; set -l sH $ok[3]
     # damped seed influence on the derived ramp
+    # (fish `test` compares floats with -lt/-gt; `math` has NO comparison ops)
     set -l Ldamp (math "0.5 * ($sL - 0.51)")
-    test (math "$Ldamp < -0.10") = 1; and set Ldamp -0.10
-    test (math "$Ldamp > 0.10") = 1; and set Ldamp 0.10
+    test $Ldamp -lt -0.10; and set Ldamp -0.10
+    test $Ldamp -gt 0.10; and set Ldamp 0.10
     set -l Cscale (math "0.5 * ($sC / 0.078 - 1) + 1")
-    test (math "$Cscale < 0.6") = 1; and set Cscale 0.6
-    test (math "$Cscale > 1.4") = 1; and set Cscale 1.4
+    test $Cscale -lt 0.6; and set Cscale 0.6
+    test $Cscale -gt 1.4; and set Cscale 1.4
     set -l tp (__tmux_lives_theme_taper $sd)  # capC capL tabsC
     # placement: re-anchor so the placed position carries the seed hue
     set -l tplace 0
@@ -301,12 +305,12 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     set -l Htabs (__tmux_lives_norm360 (math "$H0 + $sd * 0.42 + $phase"))
     set -l Hcap (__tmux_lives_norm360 (math "$H0 + $sd * 1 + $phase"))
     # clamp the three L values (unrolled — avoids the $$var-indirection gotcha)
-    test (math "$Lbar < 0.05") = 1; and set Lbar 0.05
-    test (math "$Lbar > 0.95") = 1; and set Lbar 0.95
-    test (math "$Ltabs < 0.05") = 1; and set Ltabs 0.05
-    test (math "$Ltabs > 0.95") = 1; and set Ltabs 0.95
-    test (math "$Lcap < 0.05") = 1; and set Lcap 0.05
-    test (math "$Lcap > 0.95") = 1; and set Lcap 0.95
+    test $Lbar -lt 0.05; and set Lbar 0.05
+    test $Lbar -gt 0.95; and set Lbar 0.95
+    test $Ltabs -lt 0.05; and set Ltabs 0.05
+    test $Ltabs -gt 0.95; and set Ltabs 0.95
+    test $Lcap -lt 0.05; and set Lcap 0.05
+    test $Lcap -gt 0.95; and set Lcap 0.95
     set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
     set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
     set -l cap (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
@@ -368,9 +372,8 @@ t "palette bar = curve bar"   $tri[1] $pal[1]
 t "palette tabs = curve tabs" $tri[2] $pal[3]
 t "palette cap = curve cap"   $tri[3] $pal[6]
 # windows (status-style fg, on the dark bar) must be light for contrast
-set -l wrgb (__tmux_lives_hex_to_rgb01 $pal[5])
-set -l wok (__tmux_lives_rgb_to_oklch $wrgb[1] $wrgb[2] $wrgb[3])
-t "palette windows is light" 1 (test (math "$wok[1] > 0.60") = 1; and echo 1; or echo 0)
+set -l wok (_oklch_of $pal[5])
+t "palette windows is light" 1 (test $wok[1] -gt 0.60; and echo 1; or echo 0)
 t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0 balanced arc linear auto))
 # the retired v3 builders are gone
 t "arc retired"    "" (functions -q __tmux_lives_theme_arc; and echo present)
@@ -397,16 +400,16 @@ function __tmux_lives_theme_accents --argument-names barHex capHex --description
     set -l active  (__tmux_lives_oklch_hex 0.88 0.03 $bH)
     set -l windows (__tmux_lives_oklch_hex 0.74 0.04 $bH)
     set -l sep     (__tmux_lives_oklch_hex 0.62 0.03 $bH)
-    if test (math "$bo[1] >= 0.55") = 1
+    if test $bo[1] -ge 0.55
         set active  (__tmux_lives_oklch_hex 0.16 0.03 $bH)
         set windows (__tmux_lives_oklch_hex 0.30 0.04 $bH)
         set sep     (__tmux_lives_oklch_hex 0.42 0.03 $bH)
     end
     set -l tdir 1
-    test (math "$bo[1] >= 0.55") = 1; and set tdir -1
+    test $bo[1] -ge 0.55; and set tdir -1
     set -l Lt (math "$bo[1] + $tdir * 0.45")
-    test (math "$Lt < 0.05") = 1; and set Lt 0.05
-    test (math "$Lt > 0.97") = 1; and set Lt 0.97
+    test $Lt -lt 0.05; and set Lt 0.05
+    test $Lt -gt 0.97; and set Lt 0.97
     set -l text (__tmux_lives_oklch_hex $Lt 0.03 $bH)
     printf '%s\n' $sep $active $windows $text
 end

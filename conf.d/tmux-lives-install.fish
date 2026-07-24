@@ -25,13 +25,14 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
-    set -l theme $argv[13]        # v3 scheme ('' or 'off' = legacy; write_fragment passes the effective default mono)
-    set -l themephase $argv[14]   # hue phase in degrees ('' = 0)
-    set -l themeviv $argv[15]     # soft|balanced|vivid ('' = balanced)
-    set -l themeshape $argv[16]   # arc|flat ('' = arc)
-    set -l themeease $argv[17]    # linear|cubic ('' = linear)
-    set -l themecontrast $argv[18]   #   18 themecontrast  companion side auto|lighter|darker ('' = auto)
-    set -l themerotate $argv[19]   #   19 themerotate    companion placement rotation 0-4 ('' = 0)
+    set -l theme $argv[13]        # v4 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
+    set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap|low|high ('' = bar)
+    set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
+    set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
+    set -l themeviv $argv[17]     #   17 themeviv    soft|balanced|vivid ('' = balanced)
+    set -l themeshape $argv[18]   #   18 themeshape  arc|flat ('' = arc)
+    set -l themeease $argv[19]    #   19 themeease   linear|cubic ('' = linear)
+    set -l themecontrast $argv[20]   #   20 themecontrast  companion side auto|lighter|darker ('' = auto)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -73,9 +74,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # continuum prepends its autosave hook when TPM runs. The user's file sets only the
     # @var, never status-right, so a re-source can't wipe the tick/continuum.
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
-    # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[13] the whole bar
-    # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
-    # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
+    # --- theme engine v4 (relationship curve): with a relationship in argv[13] the whole bar
+    # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
+    # __tmux_lives_theme_palette (seed + relationship/place/mode/knobs); otherwise the v2
+    # path is unchanged.
     set -l tpal
     # declared OUTSIDE the if: fish's `set -l` scopes to the enclosing BLOCK (if/for/while),
     # not just the function — a `set -l` inside the `if` below would go out of scope at its
@@ -83,7 +85,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l seedhex
     if test -n "$theme"
         set seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast" "$themerotate")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$place" "$mode" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -251,7 +253,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) (__tmux_lives_key tmux_lives_theme_rotate 0) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -583,182 +585,40 @@ function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> 
     if test $Lrel -gt 0.179; echo "#111111"; else; echo "#f5f5f5"; end
 end
 
-# --- theme engine v3 (gradient map): roles sample ONE hue-arc by lightness ---
-# spec: docs/superpowers/specs/2026-07-16-theme-gradient-map-engine-design.md
-# A theme = seed + scheme (arc) + phase (rotate) + knobs (cmax/range/shape/ease).
-function __tmux_lives_theme_arc --argument-names scheme --description 'v3 scheme -> hue-arc offsets off the seed hue, two lines: start end (deg); unknown -> nothing'
-    switch "$scheme"
-        case mono;       printf '%s\n' 0 45
-        case warm;       printf '%s\n' 8 -64
-        case cool;       printf '%s\n' 60 -8
-        case span;       printf '%s\n' 60 -60
-        case wide;       printf '%s\n' 95 -75
-        case aurora;     printf '%s\n' 120 30
-        case sunset;     printf '%s\n' 150 -90
-        case fire;       printf '%s\n' 130 -44
-        case complement; printf '%s\n' 180 -30
-        case full;       printf '%s\n' 0 360
-    end
-end
-
-function __tmux_lives_theme_barpos --argument-names scheme --description 'v3.3 per-scheme bar recipe (calibrated 2026-07-20): "seed" for mono (bar = the seed verbatim), else three lines t_bar / dL_bar / capC ("" = cap wears the bar chroma). Bar samples the scheme arc at t_bar on the SEED-DEPTH row (seed L + dL_bar); fire recipe targets the WARM end of its arc. Unknown scheme -> nothing.'
-    switch $scheme
-        case mono;       echo seed
-        case warm;       printf '%s\n' 0.85 -0.03 ''
-        case cool;       printf '%s\n' 0.15 -0.02 ''
-        case span;       printf '%s\n' 0.30 0.02 0.04
-        case wide;       printf '%s\n' 0.70 -0.04 ''
-        case aurora;     printf '%s\n' 0.50 0.03 ''
-        case sunset;     printf '%s\n' 0.90 -0.05 ''
-        case fire;       printf '%s\n' 0.95 -0.03 ''
-        case complement; printf '%s\n' 1.0 -0.02 ''
-        case full;       printf '%s\n' 0.50 0 0.05
-    end
-end
-
-function __tmux_lives_theme_kincap --argument-names barhex capc --description 'v3.2 kin-cap: derive the endcap FROM the bar so the dominant pair is good by construction (calibrated family offsets: olive/green +20, teal +30 blueward, blue +25, purple +18 muted, warm/earth +40, red/pink +15; cap L = bar L +/- 0.10 toward the light side of a dark bar; capc overrides chroma, purple defaults muted 0.05).'
-    set -l rgb (__tmux_lives_hex_to_rgb01 $barhex)
-    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    set -l H $ok[3]
-    set -l off 15
-    if test $H -ge 40; and test $H -lt 90
-        set off 40
-    else if test $H -ge 90; and test $H -lt 160
-        set off 20
-    else if test $H -ge 160; and test $H -lt 210
-        set off 30
-    else if test $H -ge 210; and test $H -lt 280
-        set off 25
-    else if test $H -ge 280; and test $H -lt 330
-        set off 18
-        test -n "$capc"; or set capc 0.05
-    end
-    set -l C $ok[2]
-    test -n "$capc"; and set C $capc
-    set -l dir 1
-    test $ok[1] -ge 0.55; and set dir -1
-    set -l capL (math "$ok[1] + $dir * 0.10")
-    test $capL -lt 0.05; and set capL 0.05
-    test $capL -gt 0.95; and set capL 0.95
-    __tmux_lives_oklch_hex $capL $C (__tmux_lives_norm360 (math "$H + $off"))
-end
-
-function __tmux_lives_theme_kintabs --argument-names barhex caphex --description 'v3.3 trio: the tab-bar color as kin of the bar+cap pair — hue halfway from bar to cap (circular), L one step (0.16) toward the light side of a dark bar, chroma from the cap (muted caps -> muted tabs). The ShellFish/iTerm tab strip stacks directly on the status bar, so the pair must satisfy the calibrated kinship rule by construction.'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$barhex"; or return
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$caphex"; or return
-    set -l brgb (__tmux_lives_hex_to_rgb01 $barhex)
+# --- theme engine v4: relationship-curve palette assembly ---------------------
+# bar/tabs/cap come from __tmux_lives_theme_curve (relationship travel, seed
+# placement, mode, endcap taper); sep/active/windows/text are lightness
+# tints/contrast off the bar, built here.
+function __tmux_lives_theme_accents --argument-names barHex capHex --description 'v4 accents: sep active windows text as lightness tints/contrast off the bar (uncalibrated, live-tunable via @options). -> sep active windows text (4 hexes).'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$barHex"; or return
+    set -l brgb (__tmux_lives_hex_to_rgb01 $barHex)
     set -l bo (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
-    set -l crgb (__tmux_lives_hex_to_rgb01 $caphex)
-    set -l co (__tmux_lives_rgb_to_oklch $crgb[1] $crgb[2] $crgb[3])
-    set -l dh (math "$co[3] - $bo[3]")
-    test $dh -gt 180; and set dh (math "$dh - 360")
-    test $dh -lt -180; and set dh (math "$dh + 360")
-    set -l dir 1
-    test $bo[1] -ge 0.55; and set dir -1
-    set -l L (math "$bo[1] + $dir * 0.16")
-    test $L -lt 0.05; and set L 0.05
-    test $L -gt 0.95; and set L 0.95
-    __tmux_lives_oklch_hex $L $co[2] (__tmux_lives_norm360 (math "$bo[3] + $dh / 2"))
-end
-
-function __tmux_lives_theme_roles --description 'v3.1 support-role ladder, "<role> <t> <dL>" per line — THE one adjustable place (spec decision: keep tunable). bar (= the seed) and text (contrast side) are built in theme_palette, not here.'
-    printf '%s\n' 'sep 0.15 0.06' 'tabs 0.30 0.10' 'active 0.50 0.15' 'windows 0.60 0.17' 'cap 0.80 0.22'
-end
-
-function __tmux_lives_theme_sample --argument-names t L seedH a0 a1 phase cs cmax shape ease --description 'sample the companion gradient at arc position t with ABSOLUTE lightness L: hue arc a0->a1 (+phase) off seedH, eased; chroma anchors at the seed (cs -> cmax sine arc; flat: cmax) -> #rrggbb'
-    set -l et $t
-    test "$ease" = cubic; and set et (math "$t ^ 3")
-    set -l H (__tmux_lives_norm360 (math "$seedH + $a0 + ($a1 - $a0) * $et + $phase"))
-    set -l C $cmax
-    if test "$shape" != flat
-        set C (math "$cs + ($cmax - $cs) * sin(3.141592653589793 * $t)")
+    set -l bH $bo[3]
+    # tints sit on the contrast side of the bar (light on a dark bar)
+    set -l active  (__tmux_lives_oklch_hex 0.88 0.03 $bH)
+    set -l windows (__tmux_lives_oklch_hex 0.74 0.04 $bH)
+    set -l sep     (__tmux_lives_oklch_hex 0.62 0.03 $bH)
+    if test $bo[1] -ge 0.55
+        set active  (__tmux_lives_oklch_hex 0.16 0.03 $bH)
+        set windows (__tmux_lives_oklch_hex 0.30 0.04 $bH)
+        set sep     (__tmux_lives_oklch_hex 0.42 0.03 $bH)
     end
-    __tmux_lives_oklch_hex $L $C $H
-end
-
-function __tmux_lives_theme_ring --argument-names seedHex scheme phase vividness shape ease contrast --description 'v3.2 accent ring: the 5 arc samples at the companion ladder (rotate-independent) -> 5 hexes one per line. Rotation cycles this ring onto sep/active/windows display-side; the ring is also the mono tabs source. Bad seed/scheme -> nothing.'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
-    set -l arc (__tmux_lives_theme_arc "$scheme")
-    test (count $arc) -eq 2; or return
-    test -n "$phase"; or set phase 0
-    test -n "$shape"; or set shape arc
-    test -n "$ease"; or set ease linear
-    test -n "$contrast"; or set contrast auto
-    set -l cmax 0.105
-    switch "$vividness"
-        case soft;  set cmax 0.075
-        case vivid; set cmax 0.130
-    end
-    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
-    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    set -l dir 1
-    switch "$contrast"
-        case darker
-            set dir -1
-        case lighter
-            set dir 1
-        case '*'
-            test $ok[1] -ge 0.55; and set dir -1
-    end
-    for rt in (__tmux_lives_theme_roles)
-        set -l parts (string split ' ' $rt)
-        set -l L (math "$ok[1] + $dir * $parts[3]")
-        test $L -lt 0.05; and set L 0.05
-        test $L -gt 0.95; and set L 0.95
-        set -l hx (__tmux_lives_theme_sample $parts[2] $L $ok[3] $arc[1] $arc[2] $phase $ok[2] $cmax $shape $ease)
-        test -n "$hx"; or return
-        printf '%s\n' $hx
-    end
-end
-
-function __tmux_lives_theme_palette --argument-names seedHex scheme phase vividness shape ease contrast rotate --description 'v3.3: seed + scheme/knobs -> 7 role hexes (bar sep tabs active windows cap text). Bar = the scheme recipe cell on the SEED-DEPTH row (mono = the seed verbatim); cap = kin-cap from the bar; tabs = kin-tabs from the bar+cap pair (every scheme, incl. mono); sep/active/windows = the rotated accent ring; text contrasts the BAR. Rotation touches accents only. Non-hex seed or unknown scheme -> nothing.'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
-    set -l bp (__tmux_lives_theme_barpos "$scheme")
-    test (count $bp) -ge 1; or return
-    set -l ring (__tmux_lives_theme_ring $seedHex "$scheme" "$phase" "$vividness" "$shape" "$ease" "$contrast")
-    test (count $ring) -eq 5; or return
-    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
-    test -n "$phase"; or set phase 0
-    set -l cmax 0.105
-    switch "$vividness"
-        case soft;  set cmax 0.075
-        case vivid; set cmax 0.130
-    end
-    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
-    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    set -l arc (__tmux_lives_theme_arc "$scheme")
-    # bar: the recipe cell on the seed-depth row (mono: the seed verbatim)
-    set -l bar (string lower -- $seedHex)
-    set -l capc ''
-    if test "$bp[1]" != seed
-        set -l Lb (math "$ok[1] + $bp[2]")
-        test $Lb -lt 0.05; and set Lb 0.05
-        test $Lb -gt 0.95; and set Lb 0.95
-        set bar (__tmux_lives_theme_sample $bp[1] $Lb $ok[3] $arc[1] $arc[2] $phase $ok[2] $cmax "$shape" "$ease")
-        test -n "$bar"; or return
-        set capc $bp[3]
-    end
-    set -l cap (__tmux_lives_theme_kincap $bar "$capc")
-    test -n "$cap"; or return
-    # tabs: kin of the bar+cap pair (v3.3 trio — the tab strip stacks on the bar)
-    set -l tabs (__tmux_lives_theme_kintabs $bar $cap)
-    test -n "$tabs"; or return
-    # accents: rotated ring positions 1..3 -> sep active windows
-    set -l acc
-    for i in 1 2 3
-        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
-        set -a acc $ring[$j]
-    end
-    # text: the BAR's contrast side
-    set -l barrgb (__tmux_lives_hex_to_rgb01 $bar)
-    set -l bo2 (__tmux_lives_rgb_to_oklch $barrgb[1] $barrgb[2] $barrgb[3])
     set -l tdir 1
-    test $bo2[1] -ge 0.55; and set tdir -1
-    set -l Lt (math "$bo2[1] + $tdir * 0.45")
+    test $bo[1] -ge 0.55; and set tdir -1
+    set -l Lt (math "$bo[1] + $tdir * 0.45")
     test $Lt -lt 0.05; and set Lt 0.05
     test $Lt -gt 0.97; and set Lt 0.97
-    set -l text (__tmux_lives_oklch_hex $Lt 0.03 (__tmux_lives_norm360 (math "$bo2[3] + $arc[2] + $phase")))
-    printf '%s\n' $bar $acc[1] $tabs $acc[2] $acc[3] $cap $text
+    set -l text (__tmux_lives_oklch_hex $Lt 0.03 $bH)
+    printf '%s\n' $sep $active $windows $text
+end
+
+function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase vividness shape ease contrast --description 'v4: seed + relationship/place/mode/knobs -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, endcap taper); sep/active/windows/text = tints/contrast off the bar. Phase 1: only phase shapes the curve; vividness/shape/ease/contrast are accepted for signature stability. Non-hex seed / unknown relationship -> nothing.'
+    set -l tri (__tmux_lives_theme_curve "$seedHex" "$relationship" "$place" "$mode" "$phase")
+    test (count $tri) -eq 3; or return
+    set -l acc (__tmux_lives_theme_accents $tri[1] $tri[3])
+    test (count $acc) -eq 4; or return
+    # order: bar sep tabs active windows cap text
+    printf '%s\n' $tri[1] $acc[1] $tri[2] $acc[2] $acc[3] $tri[3] $acc[4]
 end
 
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
@@ -839,12 +699,103 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it)'
+function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it) [v3 only — see __tmux_lives_theme_relationships for v4]'
     printf '%s\n' mono warm cool span wide aurora sunset fire complement full
 end
 
-function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v3 gradient-map scheme'
-    contains -- "$token" (__tmux_lives_theme_schemes)
+function __tmux_lives_theme_relationships --description 'v4 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
+    printf '%s\n' mono amber ember coral sage teal
+end
+
+function __tmux_lives_theme_reldef --argument-names name --description 'v4 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
+    switch "$name"
+        case mono;  echo 0
+        case amber; echo -40
+        case ember; echo -72
+        case coral; echo -100
+        case sage;  echo 40
+        case teal;  echo 72
+    end
+end
+
+function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23): past a direction-dependent knee (72 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid.'
+    set -l ad (math "abs($signeddrift)")
+    set -l knee 40
+    test $signeddrift -lt 0; and set knee 72
+    set -l excess (math "max(0, $ad - $knee)")
+    set -l capC (math "0.115 - 0.0025 * $excess")
+    test $capC -lt 0.055; and set capC 0.055
+    test $capC -gt 0.115; and set capC 0.115
+    set -l capL (math "0.66 - 0.0015 * $excess")
+    test $capL -lt 0.62; and set capL 0.62
+    test $capL -gt 0.66; and set capL 0.66
+    printf '%s\n' $capC $capL (math "$capC * 0.62")
+end
+
+function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v4 core: seed + relationship(signed travel) + placement + mode -> bar tabs cap (3 hexes). Derived: seed hue anchors the re-anchored curve, seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. Endcap tapered. Non-hex seed / unknown relationship -> nothing.'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
+    set -l sd (__tmux_lives_theme_reldef "$relationship")
+    test -n "$sd"; or return
+    test -n "$phase"; or set phase 0
+    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    set -l sL $ok[1]; set -l sC $ok[2]; set -l sH $ok[3]
+    # damped seed influence on the derived ramp
+    # (fish `test` compares floats with -lt/-gt; `math` has NO comparison ops)
+    set -l Ldamp (math "0.5 * ($sL - 0.51)")
+    test $Ldamp -lt -0.10; and set Ldamp -0.10
+    test $Ldamp -gt 0.10; and set Ldamp 0.10
+    set -l Cscale (math "0.5 * ($sC / 0.078 - 1) + 1")
+    test $Cscale -lt 0.6; and set Cscale 0.6
+    test $Cscale -gt 1.4; and set Cscale 1.4
+    set -l tp (__tmux_lives_theme_taper $sd)  # capC capL tabsC
+    # placement: re-anchor so the placed position carries the seed hue
+    set -l tplace 0
+    switch "$place"
+        case tabs; set tplace 0.42
+        case cap;  set tplace 1
+        case low;  set tplace 0.25; set mode derived
+        case high; set tplace 0.75; set mode derived
+        case '*';  set tplace 0
+    end
+    set -l H0 (math "$sH - $sd * $tplace")
+    # role L/C/H (derived)
+    set -l Lbar (math "0.40 + $Ldamp")
+    set -l Ltabs (math "0.51 + $Ldamp")
+    set -l Lcap (math "$tp[2] + $Ldamp")
+    set -l Cbar (math "0.045 * $Cscale")
+    set -l Ctabs (math "$tp[3] * $Cscale")
+    set -l Ccap (math "$tp[1] * $Cscale")
+    set -l Hbar (__tmux_lives_norm360 (math "$H0 + $sd * 0 + $phase"))
+    set -l Htabs (__tmux_lives_norm360 (math "$H0 + $sd * 0.42 + $phase"))
+    set -l Hcap (__tmux_lives_norm360 (math "$H0 + $sd * 1 + $phase"))
+    # clamp the three L values (unrolled — avoids the $$var-indirection gotcha)
+    test $Lbar -lt 0.05; and set Lbar 0.05
+    test $Lbar -gt 0.95; and set Lbar 0.95
+    test $Ltabs -lt 0.05; and set Ltabs 0.05
+    test $Ltabs -gt 0.95; and set Ltabs 0.95
+    test $Lcap -lt 0.05; and set Lcap 0.05
+    test $Lcap -gt 0.95; and set Lcap 0.95
+    set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
+    set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
+    set -l cap (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
+    # literal: the placed role renders the seed's EXACT hex (verbatim, not a
+    # recompute — an OKLCH round-trip can drift a channel). The re-anchor above
+    # already lands that role's derived hue on the seed hue, so the ramp stays
+    # coherent; this just pins L and C to the seed too.
+    if test "$mode" = literal
+        set -l s (string lower -- $seedHex)
+        switch "$place"
+            case bar;  set bar $s
+            case tabs; set tabs $s
+            case cap;  set cap $s
+        end
+    end
+    printf '%s\n' $bar $tabs $cap
+end
+
+function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v4 relationship name'
+    contains -- "$token" (__tmux_lives_theme_relationships)
 end
 
 function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <value> honoring the tmux_lives_tmux_socket test seam'
@@ -855,24 +806,25 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v3 theme (or legacy when off/seedless) to the live server. With exactly 7 args (scheme phase viv shape ease contrast rotate) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
-    set -l theme; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast; set -l rotate
-    if test (count $argv) -eq 7
-        set theme $argv[1]; set phase $argv[2]; set viv $argv[3]; set shape $argv[4]
-        set ease $argv[5]; set contrast $argv[6]; set rotate $argv[7]
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v4 theme (or legacy when off/seedless) to the live server. With exactly 8 args (relationship place mode phase viv shape ease contrast) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l place; set -l mode; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast
+    if test (count $argv) -eq 8
+        set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
+        set viv $argv[5]; set shape $argv[6]; set ease $argv[7]; set contrast $argv[8]
     else
         set theme (__tmux_lives_key tmux_lives_theme mono)
+        set place (__tmux_lives_key tmux_lives_theme_place bar)
+        set mode (__tmux_lives_key tmux_lives_theme_mode derived)
         set phase (__tmux_lives_key tmux_lives_theme_phase 0)
         set viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
         set shape (__tmux_lives_key tmux_lives_theme_shape arc)
         set ease (__tmux_lives_key tmux_lives_theme_ease linear)
         set contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
-        set rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
     end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_palette $seed "$theme" $phase $viv $shape $ease $contrast $rotate)
+        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase $viv $shape $ease $contrast)
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -901,7 +853,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every scheme + a 7-role gradient strip at the current seed/knobs'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every relationship + a 7-role gradient strip at the current seed/place/mode/knobs'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
@@ -909,9 +861,10 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
     set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
-    set -l rotate (__tmux_lives_key tmux_lives_theme_rotate 0)
-    for scheme in (__tmux_lives_theme_schemes)
-        set -l pal (__tmux_lives_theme_palette $seed $scheme $phase $viv $shape $ease $contrast $rotate)
+    set -l place (__tmux_lives_key tmux_lives_theme_place bar)
+    set -l mode (__tmux_lives_key tmux_lives_theme_mode derived)
+    for rel in (__tmux_lives_theme_relationships)
+        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase $viv $shape $ease $contrast)
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -919,11 +872,11 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-11s %s\n' (string join '' $strip) $scheme $pal[6]
+        printf '%s %-11s %s\n' (string join '' $strip) $rel $pal[6]
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--rotate <0-4>]: the v3 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap|low|high] [--mode literal|derived]: the v4 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -942,8 +895,9 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
         set -l tease (__tmux_lives_key tmux_lives_theme_ease linear)
         set -l tcon (__tmux_lives_key tmux_lives_theme_contrast auto)
-        set -l trot (__tmux_lives_key tmux_lives_theme_rotate 0)
-        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   rotate: $trot"
+        set -l tplace (__tmux_lives_key tmux_lives_theme_place bar)
+        set -l tmode (__tmux_lives_key tmux_lives_theme_mode derived)
+        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   place: $tplace   mode: $tmode"
         return 0
     end
     set -l scheme; set -l have_scheme 0
@@ -952,7 +906,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     set -l shape; set -l have_shape 0
     set -l ease; set -l have_ease 0
     set -l con; set -l have_con 0
-    set -l rot; set -l have_rot 0
+    set -l place; set -l have_place 0
+    set -l mode; set -l have_mode 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -975,8 +930,13 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 set i (math $i + 1); set ease $argv[$i]; set have_ease 1
             case --contrast
                 set i (math $i + 1); set con $argv[$i]; set have_con 1
+            case --place
+                set i (math $i + 1); set place $argv[$i]; set have_place 1
+            case --mode
+                set i (math $i + 1); set mode $argv[$i]; set have_mode 1
             case --rotate
-                set i (math $i + 1); set rot $argv[$i]; set have_rot 1
+                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap|low|high to move the seed instead" >&2
+                return 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1
         end
@@ -984,7 +944,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     end
     # Validate everything before mutating any state (same contract as setup cap).
     if test $have_scheme -eq 1; and not __tmux_lives_theme_valid "$scheme"
-        echo "tmux-lives setup theme: invalid scheme '$scheme' — valid: mono, warm, cool, span, wide, aurora, sunset, fire, complement, full (or: list, off)" >&2
+        echo "tmux-lives setup theme: invalid relationship '$scheme' — valid: "(__tmux_lives_theme_relationships | string join ', ')" (or: list, off)" >&2
         return 1
     end
     if test $have_phase -eq 1; and not string match -qr -- '^-?[0-9]+$' "$phase"
@@ -1024,9 +984,21 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 return 1
         end
     end
-    if test $have_rot -eq 1; and not string match -qr '^[0-4]$' -- "$rot"
-        echo "tmux-lives setup theme: invalid rotate '$rot' — 0-4" >&2
-        return 1
+    if test $have_place -eq 1
+        switch "$place"
+            case bar tabs cap low high
+            case '*'
+                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap, low, high" >&2
+                return 1
+        end
+    end
+    if test $have_mode -eq 1
+        switch "$mode"
+            case literal derived
+            case '*'
+                echo "tmux-lives setup theme: invalid mode '$mode' — valid: literal, derived" >&2
+                return 1
+        end
     end
     if test $have_scheme -eq 1
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
@@ -1040,7 +1012,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and set -U tmux_lives_theme_shape $shape
     test $have_ease -eq 1; and set -U tmux_lives_theme_ease $ease
     test $have_con -eq 1; and set -U tmux_lives_theme_contrast $con
-    test $have_rot -eq 1; and set -U tmux_lives_theme_rotate $rot
+    test $have_place -eq 1; and set -U tmux_lives_theme_place $place
+    test $have_mode -eq 1; and set -U tmux_lives_theme_mode $mode
     test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
@@ -1052,7 +1025,8 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
     test $have_shape -eq 1; and echo "tmux-lives: theme shape set to $shape"
     test $have_ease -eq 1; and echo "tmux-lives: theme ease set to $ease"
     test $have_con -eq 1; and echo "tmux-lives: theme contrast set to $con"
-    test $have_rot -eq 1; and echo "tmux-lives: theme rotate set to $rot"
+    test $have_place -eq 1; and echo "tmux-lives: theme place set to $place"
+    test $have_mode -eq 1; and echo "tmux-lives: theme mode set to $mode"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
@@ -1158,13 +1132,14 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'theme [<scheme>|list|off]   gradient-map bar theme; no-arg=picker' \
+        'theme [<rel>|list|off]      gradient-map bar theme; no-arg=picker' \
+        "      --place <p>           bar|tabs|cap|low|high (default: bar)" \
+        "      --mode <m>            literal|derived (default: derived)" \
         "      --phase <deg>         rotate the hue arc (default: 0)" \
         "      --vividness <v>       soft|balanced|vivid (default: balanced)" \
         "      --shape <s>           chroma arc|flat (default: arc)" \
         "      --ease <e>            hue easing linear|cubic (default: linear)" \
         "      --contrast <c>        companions auto|lighter|darker (default: auto)" \
-        "      --rotate <n>          rotate companion placement 0-4 (default: 0)" \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
@@ -1309,12 +1284,30 @@ function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migrat
     return 0
 end
 
+function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: preserve the seed, retire tmux_lives_theme_rotate, and map a retired v3 scheme name onto v4 (mono/bar/derived). One notice when it changes anything.'
+    set -l changed 0
+    if set -q tmux_lives_theme_rotate
+        set -e tmux_lives_theme_rotate
+        set changed 1
+    end
+    if set -q tmux_lives_theme
+        if test "$tmux_lives_theme" != off; and not contains -- "$tmux_lives_theme" (__tmux_lives_theme_relationships)
+            set -U tmux_lives_theme mono
+            set -U tmux_lives_theme_place bar
+            set -U tmux_lives_theme_mode derived
+            set changed 1
+        end
+    end
+    test $changed -eq 1; and echo "tmux-lives: theme migrated to v4 (relationships + placement); your seed color is preserved — see 'tmux-lives setup theme list'"
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
     # hook) lands without a manual `tmux-lives setup` — then reload tmux.
     __tmux_lives_migrate_v2
     __tmux_lives_migrate_v31
+    __tmux_lives_migrate_v4
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment
