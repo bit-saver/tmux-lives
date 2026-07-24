@@ -1219,6 +1219,41 @@ t "taper coral floor L"   0.62  (__tmux_lives_theme_taper -100 | sed -n 2p)
 t "taper teal floor C"    0.055 (__tmux_lives_theme_taper 72   | sed -n 1p)   # cool excess 32 -> floor
 t "taper tabsC follows"   1     (set -l l (__tmux_lives_theme_taper 72); set -l diff (math "abs($l[3] - $l[1]*0.62)"); test $diff -lt 0.0001; and echo 1; or echo 0)
 
+# ---- v4: curve (bar/tabs/cap) ----
+function _oklch_of --argument-names hex   # -> "L C H"
+    set -l r (__tmux_lives_hex_to_rgb01 $hex)
+    __tmux_lives_rgb_to_oklch $r[1] $r[2] $r[3]
+end
+set -l seed '#5f772b'
+set -l so (_oklch_of $seed)          # 0.533 0.106 124.7
+set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
+t "curve returns 3" 3 (count $tri)
+t "curve bar is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[1]; and echo 1; or echo 0)
+t "curve cap is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[3]; and echo 1; or echo 0)
+# bar: dark olive family — near the seed hue, dark, modest chroma
+# (fish `test` does float -lt/-gt; compute abs into a var first — no `math` comparisons)
+set -l bo (_oklch_of $tri[1])
+t "curve bar dark"          1 (test $bo[1] -gt 0.37; and test $bo[1] -lt 0.46; and echo 1; or echo 0)
+set -l dh_bar (math "abs($bo[3] - $so[3])")
+t "curve bar near seed hue" 1 (test $dh_bar -lt 6; and echo 1; or echo 0)
+# ember cap: warm side (~72 deg toward gold), still vivid
+set -l co (_oklch_of $tri[3])
+set -l dh_cap (math "abs($co[3] - ($so[3] - 72))")
+t "curve ember cap warm"  1 (test $dh_cap -lt 8; and echo 1; or echo 0)
+t "curve ember cap vivid" 1 (test $co[2] -gt 0.10; and echo 1; or echo 0)
+# coral: tapered -> the cap is muted (lower chroma than a vivid cap)
+set -l cco (_oklch_of (__tmux_lives_theme_curve $seed coral bar derived 0)[3])
+t "curve coral cap muted" 1 (test $cco[2] -lt 0.09; and echo 1; or echo 0)
+# literal cap: the endcap renders the seed's EXACT hex
+set -l tril (__tmux_lives_theme_curve $seed ember cap literal 0)
+t "curve literal cap = seed" "#5f772b" $tril[3]
+# literal bar: the bar renders the seed's EXACT hex
+set -l trilb (__tmux_lives_theme_curve $seed ember bar literal 0)
+t "curve literal bar = seed" "#5f772b" $trilb[1]
+# bad inputs -> nothing
+t "curve bad seed empty" 0 (count (__tmux_lives_theme_curve 'notahex' ember bar derived 0))
+t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar derived 0))
+
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
 t "v2 engine gone from the install file" 0 (grep -cE '__tmux_lives_(palette|target_hue|interp7|rgb_to_ryb_hue|ryb_to_rgb_hue|hsl_hue|hsl_to_rgb|cap_valid|cap_list|cap_picker|cap_apply_live|cap_cmd)\b' $plugindir/conf.d/tmux-lives-install.fish)

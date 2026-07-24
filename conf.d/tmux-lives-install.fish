@@ -872,6 +872,68 @@ function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4
     printf '%s\n' $capC $capL (math "$capC * 0.62")
 end
 
+function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v4 core: seed + relationship(signed travel) + placement + mode -> bar tabs cap (3 hexes). Derived: seed hue anchors the re-anchored curve, seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. Endcap tapered. Non-hex seed / unknown relationship -> nothing.'
+    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
+    set -l sd (__tmux_lives_theme_reldef "$relationship")
+    test -n "$sd"; or return
+    test -n "$phase"; or set phase 0
+    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
+    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    set -l sL $ok[1]; set -l sC $ok[2]; set -l sH $ok[3]
+    # damped seed influence on the derived ramp
+    # (fish `test` compares floats with -lt/-gt; `math` has NO comparison ops)
+    set -l Ldamp (math "0.5 * ($sL - 0.51)")
+    test $Ldamp -lt -0.10; and set Ldamp -0.10
+    test $Ldamp -gt 0.10; and set Ldamp 0.10
+    set -l Cscale (math "0.5 * ($sC / 0.078 - 1) + 1")
+    test $Cscale -lt 0.6; and set Cscale 0.6
+    test $Cscale -gt 1.4; and set Cscale 1.4
+    set -l tp (__tmux_lives_theme_taper $sd)  # capC capL tabsC
+    # placement: re-anchor so the placed position carries the seed hue
+    set -l tplace 0
+    switch "$place"
+        case tabs; set tplace 0.42
+        case cap;  set tplace 1
+        case low;  set tplace 0.25; set mode derived
+        case high; set tplace 0.75; set mode derived
+        case '*';  set tplace 0
+    end
+    set -l H0 (math "$sH - $sd * $tplace")
+    # role L/C/H (derived)
+    set -l Lbar (math "0.40 + $Ldamp")
+    set -l Ltabs (math "0.51 + $Ldamp")
+    set -l Lcap (math "$tp[2] + $Ldamp")
+    set -l Cbar (math "0.045 * $Cscale")
+    set -l Ctabs (math "$tp[3] * $Cscale")
+    set -l Ccap (math "$tp[1] * $Cscale")
+    set -l Hbar (__tmux_lives_norm360 (math "$H0 + $sd * 0 + $phase"))
+    set -l Htabs (__tmux_lives_norm360 (math "$H0 + $sd * 0.42 + $phase"))
+    set -l Hcap (__tmux_lives_norm360 (math "$H0 + $sd * 1 + $phase"))
+    # clamp the three L values (unrolled — avoids the $$var-indirection gotcha)
+    test $Lbar -lt 0.05; and set Lbar 0.05
+    test $Lbar -gt 0.95; and set Lbar 0.95
+    test $Ltabs -lt 0.05; and set Ltabs 0.05
+    test $Ltabs -gt 0.95; and set Ltabs 0.95
+    test $Lcap -lt 0.05; and set Lcap 0.05
+    test $Lcap -gt 0.95; and set Lcap 0.95
+    set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
+    set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
+    set -l cap (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
+    # literal: the placed role renders the seed's EXACT hex (verbatim, not a
+    # recompute — an OKLCH round-trip can drift a channel). The re-anchor above
+    # already lands that role's derived hue on the seed hue, so the ramp stays
+    # coherent; this just pins L and C to the seed too.
+    if test "$mode" = literal
+        set -l s (string lower -- $seedHex)
+        switch "$place"
+            case bar;  set bar $s
+            case tabs; set tabs $s
+            case cap;  set cap $s
+        end
+    end
+    printf '%s\n' $bar $tabs $cap
+end
+
 function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v4 relationship name'
     contains -- "$token" (__tmux_lives_theme_relationships)
 end
