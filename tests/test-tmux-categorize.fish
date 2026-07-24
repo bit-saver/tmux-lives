@@ -1157,7 +1157,8 @@ functions -e tmux
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
-t "picker batches palettes via theme_schemes" yes (string match -q '*__tmux_lives_theme_schemes*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# v4 (Task 1): _reload batches via the relationship list, not the retired v3 scheme list.
+t "picker batches palettes via theme_relationships" yes (string match -q '*__tmux_lives_theme_relationships*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1270,6 +1271,19 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
 # 8 = init + a-anchor + a-list + esc-revert + 2 seed applies + 2 saves (the case-a anchor/else split is 2 textual sites, still one subprocess per press)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
+
+# --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
+# _reload/_init must consume the v4 engine (__tmux_lives_theme_relationships +
+# the 9-arg __tmux_lives_theme_palette) instead of the deleted v3 machinery
+# (theme_schemes/theme_ring/rotpal/the rotate universal). $pbody is the
+# already-extracted __tcz_theme_picker function body from the guard block above.
+t "picker uses v4 relationships"  1 (string match -q '*__tmux_lives_theme_relationships*' -- "$pbody"; and echo 1; or echo 0)
+t "picker drops v3 schemes"       0 (string match -q '*__tmux_lives_theme_schemes*'      -- "$pbody"; and echo 1; or echo 0)
+t "picker drops deleted ring"     0 (string match -q '*__tmux_lives_theme_ring*'         -- "$pbody"; and echo 1; or echo 0)
+t "picker drops rotpal"           0 (string match -q '*__tcz_thp_rotpal*'                -- "$pbody"; and echo 1; or echo 0)
+t "picker reads place universal"  1 (string match -q '*tmux_lives_theme_place*'  -- "$pbody"; and echo 1; or echo 0)
+t "picker reads mode universal"   1 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
+t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
