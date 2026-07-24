@@ -858,6 +858,20 @@ function __tmux_lives_theme_reldef --argument-names name --description 'v4 relat
     end
 end
 
+function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23): past a direction-dependent knee (72 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid.'
+    set -l ad (math "abs($signeddrift)")
+    set -l knee 40
+    test $signeddrift -lt 0; and set knee 72
+    set -l excess (math "max(0, $ad - $knee)")
+    set -l capC (math "0.115 - 0.0025 * $excess")
+    test $capC -lt 0.055; and set capC 0.055
+    test $capC -gt 0.115; and set capC 0.115
+    set -l capL (math "0.66 - 0.0015 * $excess")
+    test $capL -lt 0.62; and set capL 0.62
+    test $capL -gt 0.66; and set capL 0.66
+    printf '%s\n' $capC $capL (math "$capC * 0.62")
+end
+
 function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v4 relationship name'
     contains -- "$token" (__tmux_lives_theme_relationships)
 end

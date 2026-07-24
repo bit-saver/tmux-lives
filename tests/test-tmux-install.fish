@@ -1208,6 +1208,17 @@ t "reldef unknown empty"  ""   (__tmux_lives_theme_reldef nope)
 t "valid ember" 0 (__tmux_lives_theme_valid ember; echo $status)
 t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
 
+# ---- v4: endcap taper ----
+# near relationships stay vivid; far ones hit the muted floor
+t "taper mono vivid C"    0.115 (__tmux_lives_theme_taper 0    | sed -n 1p)
+t "taper mono vivid L"    0.66  (__tmux_lives_theme_taper 0    | sed -n 2p)
+t "taper ember vivid C"   0.115 (__tmux_lives_theme_taper -72  | sed -n 1p)   # warm knee 72: excess 0
+t "taper sage vivid C"    0.115 (__tmux_lives_theme_taper 40   | sed -n 1p)   # cool knee 40: excess 0
+t "taper coral floor C"   0.055 (__tmux_lives_theme_taper -100 | sed -n 1p)   # warm excess 28 -> below floor -> clamp
+t "taper coral floor L"   0.62  (__tmux_lives_theme_taper -100 | sed -n 2p)
+t "taper teal floor C"    0.055 (__tmux_lives_theme_taper 72   | sed -n 1p)   # cool excess 32 -> floor
+t "taper tabsC follows"   1     (set -l l (__tmux_lives_theme_taper 72); set -l diff (math "abs($l[3] - $l[1]*0.62)"); test $diff -lt 0.0001; and echo 1; or echo 0)
+
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
 t "v2 engine gone from the install file" 0 (grep -cE '__tmux_lives_(palette|target_hue|interp7|rgb_to_ryb_hue|ryb_to_rgb_hue|hsl_hue|hsl_to_rgb|cap_valid|cap_list|cap_picker|cap_apply_live|cap_cmd)\b' $plugindir/conf.d/tmux-lives-install.fish)
