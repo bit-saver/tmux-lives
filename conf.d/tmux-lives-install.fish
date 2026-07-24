@@ -839,12 +839,27 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it)'
+function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it) [v3 only — see __tmux_lives_theme_relationships for v4]'
     printf '%s\n' mono warm cool span wide aurora sunset fire complement full
 end
 
-function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v3 gradient-map scheme'
-    contains -- "$token" (__tmux_lives_theme_schemes)
+function __tmux_lives_theme_relationships --description 'v4 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
+    printf '%s\n' mono amber ember coral sage teal
+end
+
+function __tmux_lives_theme_reldef --argument-names name --description 'v4 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
+    switch "$name"
+        case mono;  echo 0
+        case amber; echo -40
+        case ember; echo -72
+        case coral; echo -100
+        case sage;  echo 40
+        case teal;  echo 72
+    end
+end
+
+function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v4 relationship name'
+    contains -- "$token" (__tmux_lives_theme_relationships)
 end
 
 function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <value> honoring the tmux_lives_tmux_socket test seam'

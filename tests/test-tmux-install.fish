@@ -1188,6 +1188,18 @@ for i in (seq (count $_th_names))
     test $_th_had[$i] -eq 1; and set -U $_th_names[$i] $_th_saved[$i]
 end
 
+# ---- v4: relationship table ----
+t "relationships list" "mono amber ember coral sage teal" (__tmux_lives_theme_relationships | string join ' ')
+t "reldef mono is flat"   0    (__tmux_lives_theme_reldef mono)
+t "reldef amber warm 40"  -40  (__tmux_lives_theme_reldef amber)
+t "reldef ember warm 72"  -72  (__tmux_lives_theme_reldef ember)
+t "reldef coral warm 100" -100 (__tmux_lives_theme_reldef coral)
+t "reldef sage cool 40"   40   (__tmux_lives_theme_reldef sage)
+t "reldef teal cool 72"   72   (__tmux_lives_theme_reldef teal)
+t "reldef unknown empty"  ""   (__tmux_lives_theme_reldef nope)
+t "valid ember" 0 (__tmux_lives_theme_valid ember; echo $status)
+t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
+
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
 t "v2 engine gone from the install file" 0 (grep -cE '__tmux_lives_(palette|target_hue|interp7|rgb_to_ryb_hue|ryb_to_rgb_hue|hsl_hue|hsl_to_rgb|cap_valid|cap_list|cap_picker|cap_apply_live|cap_cmd)\b' $plugindir/conf.d/tmux-lives-install.fish)
