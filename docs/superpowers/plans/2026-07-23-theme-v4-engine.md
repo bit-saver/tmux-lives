@@ -217,29 +217,44 @@ Algorithm:
 
 - [ ] **Step 1: Write the failing test**
 
+The calibration generators used a fixed ramp; derived mode adds damped seed L/C, so exact-hex pins would be brittle. Assert **properties** for derived roles (family/ranges via OKLCH) and keep **exact** only where the spec demands it — literal placement renders the seed verbatim. Helper (define once near the top of the test file if not already present):
+
+```fish
+function _oklch_of --argument-names hex   # -> "L C H"
+    set -l r (__tmux_lives_hex_to_rgb01 $hex)
+    __tmux_lives_rgb_to_oklch $r[1] $r[2] $r[3]
+end
+```
+
 ```fish
 # ---- v4: curve (bar/tabs/cap) ----
 set -l seed '#5f772b'
-# derived, place=bar: bar carries the seed hue at the dark ramp depth; 3 valid hexes
+set -l so (_oklch_of $seed)          # 0.533 0.106 124.7
 set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
 t "curve returns 3" 3 (count $tri)
-t "curve bar is hex"  1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[1]; and echo 1; or echo 0)
-t "curve cap is hex"  1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[3]; and echo 1; or echo 0)
-# reference values for the calibrated case (seed #5f772b, ember, bar, derived, phase 0)
-t "curve ember bar"  "#424c31" $tri[1]
-t "curve ember cap"  "#c97d4b" $tri[3]
-# coral is tapered -> dusty rose cap
-set -l tric (__tmux_lives_theme_curve $seed coral bar derived 0)
-t "curve coral cap dusty" "#a57a76" $tric[3]
-# literal cap: the endcap renders the seed EXACTLY
+t "curve bar is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[1]; and echo 1; or echo 0)
+t "curve cap is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[3]; and echo 1; or echo 0)
+# bar: dark olive family — near the seed hue, dark, modest chroma
+set -l bo (_oklch_of $tri[1])
+t "curve bar dark"          1 (test (math "$bo[1] > 0.37") = 1; and test (math "$bo[1] < 0.46") = 1; and echo 1; or echo 0)
+t "curve bar near seed hue" 1 (test (math "abs($bo[3] - $so[3]) < 6") = 1; and echo 1; or echo 0)
+# ember cap: warm side (~72 deg toward gold), still vivid
+set -l co (_oklch_of $tri[3])
+t "curve ember cap warm"  1 (test (math "abs($co[3] - ($so[3] - 72)) < 8") = 1; and echo 1; or echo 0)
+t "curve ember cap vivid" 1 (test (math "$co[2] > 0.10") = 1; and echo 1; or echo 0)
+# coral: tapered -> the cap is muted (lower chroma than a vivid cap)
+set -l cco (_oklch_of (__tmux_lives_theme_curve $seed coral bar derived 0)[3])
+t "curve coral cap muted" 1 (test (math "$cco[2] < 0.09") = 1; and echo 1; or echo 0)
+# literal cap: the endcap renders the seed's EXACT hex
 set -l tril (__tmux_lives_theme_curve $seed ember cap literal 0)
 t "curve literal cap = seed" "#5f772b" $tril[3]
-# bad seed -> nothing
+# literal bar: the bar renders the seed's EXACT hex
+set -l trilb (__tmux_lives_theme_curve $seed ember bar literal 0)
+t "curve literal bar = seed" "#5f772b" $trilb[1]
+# bad inputs -> nothing
 t "curve bad seed empty" 0 (count (__tmux_lives_theme_curve 'notahex' ember bar derived 0))
 t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar derived 0))
 ```
-
-(The exact reference hexes `#424c31/#c97d4b/#a57a76/#5f772b` come from the calibration generators; if the damping/Cscale rounds a channel by ±1 the reviewer should confirm against `fish scratch` output and update the pin, but the bar must be the dark olive `#424c31` and the literal-cap must be the seed verbatim.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -285,32 +300,36 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     set -l Hbar (__tmux_lives_norm360 (math "$H0 + $sd * 0 + $phase"))
     set -l Htabs (__tmux_lives_norm360 (math "$H0 + $sd * 0.42 + $phase"))
     set -l Hcap (__tmux_lives_norm360 (math "$H0 + $sd * 1 + $phase"))
-    # literal: the placed role renders the seed's own L and C verbatim
+    # clamp the three L values (unrolled — avoids the $$var-indirection gotcha)
+    test (math "$Lbar < 0.05") = 1; and set Lbar 0.05
+    test (math "$Lbar > 0.95") = 1; and set Lbar 0.95
+    test (math "$Ltabs < 0.05") = 1; and set Ltabs 0.05
+    test (math "$Ltabs > 0.95") = 1; and set Ltabs 0.95
+    test (math "$Lcap < 0.05") = 1; and set Lcap 0.05
+    test (math "$Lcap > 0.95") = 1; and set Lcap 0.95
+    set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
+    set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
+    set -l cap (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
+    # literal: the placed role renders the seed's EXACT hex (verbatim, not a
+    # recompute — an OKLCH round-trip can drift a channel). The re-anchor above
+    # already lands that role's derived hue on the seed hue, so the ramp stays
+    # coherent; this just pins L and C to the seed too.
     if test "$mode" = literal
+        set -l s (string lower -- $seedHex)
         switch "$place"
-            case bar;  set Lbar $sL;  set Cbar $sC
-            case tabs; set Ltabs $sL; set Ctabs $sC
-            case cap;  set Lcap $sL;  set Ccap $sC
+            case bar;  set bar $s
+            case tabs; set tabs $s
+            case cap;  set cap $s
         end
     end
-    for pair in Lbar Ltabs Lcap
-        set -l v $$pair
-        test (math "$v < 0.05") = 1; and set $pair 0.05
-        test (math "$v > 0.95") = 1; and set $pair 0.95
-    end
-    printf '%s\n' \
-        (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar) \
-        (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs) \
-        (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
+    printf '%s\n' $bar $tabs $cap
 end
 ```
-
-Note the clamp loop uses `set -l v $$pair` (dereference the var named by `$pair`) then `set $pair …`; this avoids repeating the three-way clamp. If `$$pair` indirection reads awkwardly to the reviewer, unrolling the three clamps explicitly is acceptable — same behavior.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `fish tests/test-tmux-install.fish` then `fish --no-config tests/test-tmux-install.fish`
-Expected: both PASS. If a reference hex is off by one channel, verify with `fish -c 'source conf.d/tmux-lives-install.fish; __tmux_lives_theme_curve "#5f772b" ember bar derived 0'` and update the pin to the actual output **only if** the bar is still `#424c31`-family dark olive and the literal-cap equals the seed.
+Expected: both PASS. The assertions are property-based (hue/lightness/chroma ranges + exact seed for literal), so they do not depend on the exact damping constants. To eyeball the actual colors: `fish -c 'source conf.d/tmux-lives-install.fish; __tmux_lives_theme_curve "#5f772b" ember bar derived 0'` should print a dark olive bar, a muted olive tab, and a warm gold cap.
 
 - [ ] **Step 5: Commit**
 
@@ -340,12 +359,14 @@ git commit -m "feat(theme): v4 curve — placement + mode + damped ramp"
 set -l seed '#5f772b'
 set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0 balanced arc linear auto)
 t "palette returns 7" 7 (count $pal)
-t "palette bar"  "#424c31" $pal[1]
-t "palette tabs" "#736633" $pal[3]
-t "palette cap"  "#c97d4b" $pal[6]
 for i in 1 2 3 4 5 6 7
     t "palette role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $pal[$i]; and echo 1; or echo 0)
 end
+# the trio matches the curve for the same inputs (order: bar[1] tabs[3] cap[6])
+set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
+t "palette bar = curve bar"   $tri[1] $pal[1]
+t "palette tabs = curve tabs" $tri[2] $pal[3]
+t "palette cap = curve cap"   $tri[3] $pal[6]
 # windows (status-style fg, on the dark bar) must be light for contrast
 set -l wrgb (__tmux_lives_hex_to_rgb01 $pal[5])
 set -l wok (__tmux_lives_rgb_to_oklch $wrgb[1] $wrgb[2] $wrgb[3])
@@ -719,7 +740,7 @@ git commit -m "chore(theme): v4 cleanup — grep guards, help row, full suite gr
 
 ## Open risks (carry into review, not blockers)
 
-- **Reference hexes** (`#424c31`, `#c97d4b`, `#a57a76`, `#736633`) are calibration-fit; the damping/Cscale terms are new since the calibration generators (which used fixed ramp L/C), so the derived-mode output may differ by a channel or two from the raw generators. Tasks 3–4 instruct the implementer to verify against live output and update the pin **only** if the color family still holds (dark olive bar, dusty coral cap, seed-verbatim literal cap). If damping visibly shifts the calibrated look, that is a signal to reduce the damping factor, not to repaint the pin.
+- **Damping vs. the calibrated look.** The calibration generators used a fixed ramp (no seed L/C influence); derived mode adds damped seed lightness (`Ldamp`) and chroma (`Cscale`). For the reference seed `#5f772b` (C≈0.106) `Cscale≈1.18`, so the derived palette runs ~18% more saturated than the calibration tiles. Tests assert properties, not exact hexes, so this does not fail them — but when `setup theme list` is eyeballed on the real bar (before Phase 2), if the palette reads more saturated than the approved mockups, the fix is to reduce the `Cscale` damping factor (or drop chroma damping, keeping only lightness — the user's damping decision was explicitly about lightness). Flagged, not blocking.
 - **`vividness/shape/ease/contrast`** are accepted by the palette but only `phase` shapes the Phase-1 curve. They are retained for signature stability and picker compatibility; wiring them to the curve (e.g. vividness scaling `Cscale`) is a deliberate later refinement, flagged in the spec's open items.
 - **Accent constants** are uncalibrated; they reach the user as tunable `@options`, so live adjustment needs no code change.
 
