@@ -1074,6 +1074,15 @@ t "readkey E" E (echo -n E | __tcz_popup_readkey)
 t "readkey D" D (echo -n D | __tcz_popup_readkey)
 t "readkey O" O (echo -n O | __tcz_popup_readkey)
 
+# --- Theme v4 picker rewrite (Phase 2), Task 3: readkey must deliver p/P/m/M.
+# Without an explicit case, readkey's catch-all returns "other" for any byte —
+# so the theme-picker's new p/P/m/M dispatch arms would be unreachable dead
+# code without these mappings. ---
+t "readkey p" p (echo -n p | __tcz_popup_readkey)
+t "readkey P" P (echo -n P | __tcz_popup_readkey)
+t "readkey m" m (echo -n m | __tcz_popup_readkey)
+t "readkey M" M (echo -n M | __tcz_popup_readkey)
+
 # --- v3.1 picker builders (Task 5) ---
 set -l zs (__tcz_thp_zsep 50 'adjustments · apply to all schemes' "" "")
 set -l zsp (__tcz_strip_sgr "$zs")
@@ -1162,8 +1171,12 @@ t "picker batches palettes via theme_relationships" yes (string match -q '*__tmu
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker has a contrast toggle" yes (string match -q '*case d*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker apply passes contrast+rotate" yes (string match -q '*--contrast*' -- (functions __tcz_theme_picker | string collect); and string match -q '*--rotate*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# Theme v4 picker rewrite (Phase 2), Task 3: the contrast toggle (case d) and
+# its --contrast/--rotate save flags are retired — 'd' is now free (place/mode
+# moved to p/P/m/M), and the engine's --rotate flag ERRORS return 1, so the
+# old save silently failed on every ⏎ before this fix.
+t "picker contrast toggle (case d) retired" yes (not string match -qr 'case d\b' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker save no longer sends contrast/rotate" yes (begin; not string match -q '*--contrast*' -- (functions __tcz_theme_picker | string collect); and not string match -q '*--rotate*' -- (functions __tcz_theme_picker | string collect); end; and echo yes; or echo no)
 t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
@@ -1191,8 +1204,11 @@ set -l _zp (random 0 71)
 set -l _zphase (math "$_zp * 5")
 t "shake phase pattern executes" 1 (count $_zphase)
 t "shake phase in range and step" 1 (test $_zphase -ge 0 -a $_zphase -le 355 -a (math "$_zphase % 5") -eq 0; and echo 1; or echo 0)
-t "shake rerolls rotate" 1 (string match -q '*set rotate (random 0 4)*' -- "$pk2"; and echo 1; or echo 0)
-t "shake flashes both fields" 1 (string match -q "*set flashfield 'phase rotate'*" -- "$pk2"; and echo 1; or echo 0)
+# v4 picker (Phase 2, Task 3): rotate is retired — shake now rerolls place +
+# mode alongside phase (relationship reroll above is unchanged).
+t "shake rerolls place" 1 (string match -q '*set place $places[$pi]*' -- "$pk2"; and echo 1; or echo 0)
+t "shake rerolls mode" 1 (string match -q '*set mode $modes[$mi]*' -- "$pk2"; and echo 1; or echo 0)
+t "shake flashes place/mode/phase" 1 (string match -q "*set flashfield 'place mode phase'*" -- "$pk2"; and echo 1; or echo 0)
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 d contrast o rotate z shake b seed)); and echo 1; or echo 0)
 set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
 t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*' -- $leglines; and echo 1; or echo 0)
@@ -1322,6 +1338,31 @@ t "litkv has 2 kv calls" 2 (count $litkvlines)
 t "kv1 fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
 t "kv2 fields synced (litkv == draw loop)" yes (test "$zonekvlines[2]" = "$litkvlines[2]"; and echo yes; or echo no)
 
+# --- Theme v4 picker rewrite (Phase 2), Task 3: key dispatch — place/mode
+# knobs, drop retired vividness/shape/ease/contrast/rotate keys, adapt
+# z-shake + apply/save to place/mode. Final key map: up/down/jk relationship,
+# p/P place, m/M mode, left/right phase, b seed, z shake, a apply, enter
+# save, r reset, esc/q close. $pbody is the already-extracted
+# __tcz_theme_picker function body (defined above, Task 1 section).
+t "key p cycles place"  1 (string match -qr 'case p\b' -- "$pbody"; and echo 1; or echo 0)
+t "key m cycles mode"   1 (string match -qr 'case m\b' -- "$pbody"; and echo 1; or echo 0)
+t "no vividness key"    0 (string match -qr 'case v\b' -- "$pbody"; and echo 1; or echo 0)
+t "no rotate key"       0 (string match -qr 'case o\b' -- "$pbody"; and echo 1; or echo 0)
+t "save passes --place" 1 (string match -q '*--place*' -- "$pbody"; and echo 1; or echo 0)
+t "save passes --mode"  1 (string match -q '*--mode*'  -- "$pbody"; and echo 1; or echo 0)
+# fish landmine guard: no command substitution inside quoted math (z-shake)
+t "shake captures random first" 0 (count (string match -ar 'math "[^"]*\(random' -- "$pbody"))
+
+# place cycles bar -> tabs -> cap -> low -> high -> bar (P reverses); low/high
+# force mode to derived at every site that can select them (p, P, and z-shake)
+# so the preview never disagrees with what the engine will force on save.
+t "place P is a distinct reverse arm"   1 (string match -qr 'case P\b' -- "$pbody"; and echo 1; or echo 0)
+t "place cycle bar->tabs (forward)"     1 (string match -q '*case bar;  set place tabs*' -- "$pbody"; and echo 1; or echo 0)
+t "place cycle bar->high (P, reverse)"  1 (string match -q '*case bar;  set place high*' -- "$pbody"; and echo 1; or echo 0)
+t "low/high force derived at p/P/m/z"   4 (count (string match -ar 'contains -- \$place low high' -- "$pbody"))
+t "mode M shares the m arm"             1 (string match -qr 'case m M\b' -- "$pbody"; and echo 1; or echo 0)
+t "mode toggles literal<->derived"      1 (string match -q '*test "$mode" = literal; and set mode derived; or set mode literal*' -- "$pbody"; and echo 1; or echo 0)
+
 # --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
@@ -1347,7 +1388,11 @@ t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_sche
 t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate*' -- "$pk"; and echo 1; or echo 0)
+# v4 (Task 3): the 8-arg apply_live preview form is relationship place mode
+# phase viv shape ease contrast — anch_place/anch_mode are Task 4's forward
+# reference (the anchor snapshot capture itself is Task 4 scope, untouched
+# here; the vars are empty until Task 4 lands, by design).
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 # anchor row sits at the BOTTOM, below the off row (2026-07-21 user request):
 # draw order = schemes, off, anchor; arrows walk the VISUAL order via the pure
@@ -1368,7 +1413,10 @@ t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and 
 set -l pk3 (functions __tcz_theme_picker | string collect)
 t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
 t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
-t "litkv called from every knob arm" 13 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
+# v4 (Task 3): 8 = the function def + the `functions -e` cleanup + 6 call
+# sites (left, right, p, P, m/M, z) — v/V/s/S/e/E/d/D/o/O's 8 call sites are
+# gone (was 11 call sites + def + cleanup = 13; r never called it either way).
+t "litkv called from every knob arm" 8 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
 
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---

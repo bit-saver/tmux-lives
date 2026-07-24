@@ -808,7 +808,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|a|r|b|z|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -849,6 +849,10 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 45; echo E; return                      # E (theme-picker: ease toggle)
         case 44; echo D; return                      # D (theme-picker: contrast backward)
         case 4f; echo O; return                      # O (theme-picker: rotate backward)
+        case 70; echo p; return                      # p (theme-picker: cycle seed placement)
+        case 50; echo P; return                      # P (theme-picker: cycle placement backward)
+        case 6d; echo m; return                      # m (theme-picker: toggle mode)
+        case 4d; echo M; return                      # M (theme-picker: toggle mode, same as m)
     end
     if test "$b" = 1b                                # ESC
         # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
@@ -1424,7 +1428,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v3.1 layout A): tab-chip + fake-bar preview, labeled global-adjustments zone, 10 scheme rows + off row + an anchor row LAST at the bottom (❯ <scheme> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (schemes, off, anchor), ❯ in the list marks whichever row matches the anchor scheme. ←→ phase (5°/press, coalesced), v vividness, s shape, e ease, d contrast (auto→lighter→darker), o rotate (0-4), z shake (random scheme+phase+rotate), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen knobs, list rows preview the live knobs), ⏎ save (via the CLI, silenced; the anchor saves its snapshot verbatim), r reset knobs, Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v4 key map): tab-chip + fake-bar preview, labeled global-adjustments zone (seed/place/mode/phase), 6 relationship rows + off row + an anchor row LAST at the bottom (❯ <relationship> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (relationships, off, anchor), ❯ in the list marks whichever row matches the anchor relationship. ←→ phase (5°/press, coalesced), p/P cycle seed placement bar→tabs→cap→low→high (P reverses; low/high force mode to derived, matching the engine), m/M toggle mode literal/derived (a no-op at low/high placement — those are derived-only), z shake (random relationship+place+mode+phase), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen place/mode/phase, list rows preview the live knobs), ⏎ save (via the CLI, silenced — only place/mode/phase are re-saved; vividness/shape/ease/contrast keep whatever they were last set to and are not editable here; the anchor saves its snapshot verbatim), r reset (phase/place/mode only), Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1880,102 +1884,85 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set flashfield phase
                 __tcz_thp_litkv
                 __tcz_thp_reload
-            case v
-                switch "$viv"
-                    case soft;     set viv balanced
-                    case balanced; set viv vivid
-                    case '*';      set viv soft
+            case p
+                switch "$place"
+                    case bar;  set place tabs
+                    case tabs; set place cap
+                    case cap;  set place low
+                    case low;  set place high
+                    case '*';  set place bar
                 end
-                set flashfield vividness
+                contains -- $place low high; and set mode derived
+                set flashfield place
                 __tcz_thp_litkv
                 __tcz_thp_reload
-            case V
-                switch "$viv"
-                    case vivid;    set viv balanced
-                    case balanced; set viv soft
-                    case '*';      set viv vivid
+            case P
+                switch "$place"
+                    case bar;  set place high
+                    case high; set place low
+                    case low;  set place cap
+                    case cap;  set place tabs
+                    case '*';  set place bar
                 end
-                set flashfield vividness
+                contains -- $place low high; and set mode derived
+                set flashfield place
                 __tcz_thp_litkv
                 __tcz_thp_reload
-            case s S
-                test "$shape" = arc; and set shape flat; or set shape arc
-                set flashfield shape
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case e E
-                test "$ease" = linear; and set ease cubic; or set ease linear
-                set flashfield ease
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case d
-                switch "$contrast"
-                    case auto;    set contrast lighter
-                    case lighter; set contrast darker
-                    case '*';     set contrast auto
+            case m M
+                if contains -- $place low high
+                    set mode derived
+                else
+                    test "$mode" = literal; and set mode derived; or set mode literal
                 end
-                set flashfield contrast
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case D
-                switch "$contrast"
-                    case auto;    set contrast darker
-                    case darker;  set contrast lighter
-                    case '*';     set contrast auto
-                end
-                set flashfield contrast
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case o
-                set rotate (math "($rotate + 1) % 5")
-                set flashfield rotate
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case O
-                set rotate (math "($rotate + 4) % 5")
-                set flashfield rotate
+                set flashfield mode
                 __tcz_thp_litkv
                 __tcz_thp_reload
             case r
-                set phase 0; set viv balanced; set shape arc; set ease linear
-                set contrast auto; set rotate 0
+                set phase 0; set place bar; set mode derived
                 set note 'knobs reset (not saved — ⏎ to save)'
                 set flashfield ''
                 __tcz_thp_reload
             case b
                 __tcz_thp_sliders
             case z
-                # shake: one press -> a radically different combo. Scheme +
-                # placement reroll; taste knobs (viv/shape/ease/contrast) kept.
-                # Capture random BEFORE the math: fish does NO command substitution
-                # inside double quotes — a substitution written inside a quoted math
-                # expression reaches math as LITERAL text (stderr into the popup) and
-                # the failed assignment leaves phase an empty list that vanishes from
-                # unquoted arg lists (2026-07-20 live bug: error spam + all-black).
+                # shake: one press -> a radically different combo. Relationship +
+                # placement + mode + phase reroll. Capture random BEFORE the math:
+                # fish does NO command substitution inside double quotes — a
+                # substitution written inside a quoted math expression reaches math
+                # as LITERAL text (stderr into the popup) and the failed assignment
+                # leaves phase an empty list that vanishes from unquoted arg lists
+                # (2026-07-20 live bug: error spam + all-black).
                 set sel (random 1 $n)
+                set -l places bar tabs cap low high
+                set -l pi (random 1 (count $places))
+                set place $places[$pi]
+                set -l modes literal derived
+                set -l mi (random 1 2)
+                set mode $modes[$mi]
+                contains -- $place low high; and set mode derived
                 set -l zp (random 0 71)
                 set phase (math "$zp * 5")
-                set rotate (random 0 4)
-                set flashfield 'phase rotate'
+                set flashfield 'place mode phase'
                 __tcz_thp_litkv
                 __tcz_thp_reload
             case a
                 if test $sel -eq 0
-                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate >/dev/null 2>&1
+                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                 else
                     set -l ptok off
                     test $sel -le $n; and set ptok $toks[$sel]
-                    fish -c '__tmux_lives_theme_apply_live $argv' $ptok $phase $viv $shape $ease $contrast $rotate >/dev/null 2>&1
+                    fish -c '__tmux_lives_theme_apply_live $argv' $ptok $place $mode $phase $viv $shape $ease $contrast >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $ptok — ⏎ save · esc revert"
                 end
             case enter
                 if test $sel -eq 0
                     set apply $anch_scheme
-                    set phase $anch_phase; set viv $anch_viv; set shape $anch_shape
-                    set ease $anch_ease; set contrast $anch_contrast; set rotate $anch_rotate
+                    set phase $anch_phase
+                    set place $anch_place
+                    set mode $anch_mode
                 else if test $sel -le $n
                     set apply $toks[$sel]
                 else
@@ -2001,7 +1988,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     if test "$apply" = off
         fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
     else if test -n "$apply"
-        fish -c 'tmux-lives setup theme $argv[1] --phase $argv[2] --vividness $argv[3] --shape $argv[4] --ease $argv[5] --contrast $argv[6] --rotate $argv[7]' "$apply" "$phase" "$viv" "$shape" "$ease" "$contrast" "$rotate" >/dev/null 2>&1
+        fish -c 'tmux-lives setup theme $argv[1] --place $argv[2] --mode $argv[3] --phase $argv[4]' "$apply" "$place" "$mode" "$phase" >/dev/null 2>&1
     end
     return 0
 end
