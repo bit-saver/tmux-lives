@@ -1520,8 +1520,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-8) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
         set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
-        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
-        set -l k2 (__tcz_thp_kv $IW "$flashfield" contrast "$contrast" rotate "$rotate" ease "$ease")
+        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" place "$place" mode "$mode")
+        set -l k2 (__tcz_thp_kv $IW "$flashfield" phase "+$phase°")
         set -l l1 (__tcz_thp_ln "$k1[1]" $IW $BORDER $RST)
         set -l l2 (__tcz_thp_ln "$k1[2]" $IW $BORDER $RST)
         set -l l3 (__tcz_thp_ln "$k2[1]" $IW $BORDER $RST)
@@ -1762,14 +1762,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'adjustments · apply to all schemes' $BORDER $RST)
-        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°" vividness "$viv" shape "$shape")
+        set -a lines (__tcz_thp_zsep $IW 'adjustments' $BORDER $RST)
+        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" place "$place" mode "$mode")
         set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
-        set -l kv2 (__tcz_thp_kv $IW "$flashfield" contrast "$contrast" rotate "$rotate" ease "$ease")
+        set -l kv2 (__tcz_thp_kv $IW "$flashfield" phase "+$phase°")
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'scheme · companion sets for the seed' $BORDER $RST)
+        set -a lines (__tcz_thp_zsep $IW 'relationship · hue-travels for your seed' $BORDER $RST)
         for i in (seq $n)
             set -l selflag 0
             test $i -eq $sel; and set selflag 1

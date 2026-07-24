@@ -1285,6 +1285,43 @@ t "picker reads place universal"  1 (string match -q '*tmux_lives_theme_place*' 
 t "picker reads mode universal"   1 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
+# --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
+# + the 6-relationship list ---
+# Scope narrowly to the actual kv-zone regions rather than the whole $pbody:
+# "place"/"mode" already appear elsewhere in the picker (var decls, v4
+# _reload's cache key + the __tmux_lives_theme_relationships call), and
+# "vividness"/"rotate" legitimately survive in the function docstring + the
+# o/O/r/z dispatch (Tasks 3-5 territory) — so a whole-body substring check
+# would either pass trivially before this edit or never go green after it.
+# Anchor on the actual zsep call sites (non-greedy across the draw-loop kv
+# lines) and the litkv function body.
+# NB: string match -r's multi-line match output gets auto-split-then-space-
+# joined by the enclosing command substitution unless piped through `string
+# collect` (same "capture then quote" class of landmine as the rest of this
+# file) — without it, embedded newlines vanish and a later `string split \n`
+# sees one flattened line instead of several.
+set -l zonebody (string match -r '(?s)__tcz_thp_zsep \$IW .adjustments.*?__tcz_thp_zsep \$IW' -- "$pbody" | string collect)
+set -l litbody (string match -r '(?s)function __tcz_thp_litkv.*?\n    end' -- "$pbody" | string collect)
+t "zone shows place"       1 (string match -q '*place*'     -- "$zonebody"; and echo 1; or echo 0)
+t "zone shows mode"        1 (string match -q '*mode*'      -- "$zonebody"; and echo 1; or echo 0)
+t "zone drops vividness"   0 (string match -q '*vividness*' -- "$zonebody"; and echo 1; or echo 0)
+t "zone drops rotate lbl"  0 (string match -q '*rotate*'    -- "$zonebody"; and echo 1; or echo 0)
+t "litkv shows place"      1 (string match -q '*place*'     -- "$litbody"; and echo 1; or echo 0)
+t "litkv shows mode"       1 (string match -q '*mode*'      -- "$litbody"; and echo 1; or echo 0)
+t "litkv drops vividness"  0 (string match -q '*vividness*' -- "$litbody"; and echo 1; or echo 0)
+t "litkv drops rotate lbl" 0 (string match -q '*rotate*'    -- "$litbody"; and echo 1; or echo 0)
+t "list label is relationship" 1 (string match -q '*relationship*' -- (string match -r '(?s)__tcz_thp_zsep \$IW .relationship.*' -- "$pbody"); and echo 1; or echo 0)
+t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to all schemes*' -- "$pbody"; and echo 1; or echo 0)
+# CRITICAL: both call sites (draw loop + the lit-first repaint) must render
+# IDENTICAL kv fields, or the lit-first flash paints stale labels before the
+# batch recompute lands.
+set -l zonekvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$zonebody"))
+set -l litkvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$litbody"))
+t "draw loop has 2 kv calls in the zone" 2 (count $zonekvlines)
+t "litkv has 2 kv calls" 2 (count $litkvlines)
+t "kv1 fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
+t "kv2 fields synced (litkv == draw loop)" yes (test "$zonekvlines[2]" = "$litkvlines[2]"; and echo yes; or echo no)
+
 # --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
