@@ -729,8 +729,8 @@ t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_f
 t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
 # theme ON: every role @option carries its gradient sample
-set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' | string collect)
-set -g TONPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced arc linear auto 0)
+set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived '' '' '' '' '' | string collect)
+set -g TONPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 0 balanced arc linear auto)
 t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
 t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
@@ -742,16 +742,12 @@ t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '
 t "on: mark_fg is the seed verbatim" yes (string match -q "*set -g @tmux_lives_mark_fg '#485b3c'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
 t "on: no claude_color anywhere" no (string match -q '*claude_color*' -- "$TON"; and echo yes; or echo no)
-# knobs flow through argv 14-19 (phase/vividness/shape/ease/contrast/rotate)
-set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm 90 vivid flat cubic darker 2 | string collect)
-set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" warm 90 vivid flat cubic darker 2)
+# knobs flow through argv 16-20 (phase/vividness/shape/ease/contrast); place/mode are argv 14-15
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 vivid flat cubic darker | string collect)
+set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 90 vivid flat cubic darker)
 t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
-# rotate (argv19) alone permutes the computed support colors reaching the cap role
-set -g TROT (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k warm '' '' '' '' '' 3 | string collect)
-set -g TROTPAL (__tmux_lives_theme_palette "#485b3c" warm 0 balanced arc linear auto 3)
-t "fragment argv19 rotate reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TROTPAL[6]'*" -- "$TROT"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
-set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k warm | string collect)
+set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k ember | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
 t "on+no seed: role seeds default" yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TBAD"; and echo yes; or echo no)
 # 'off' token renders the legacy branch; write_fragment's default is mono
@@ -761,7 +757,9 @@ t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_b
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_contrast" yes (string match -q '*tmux_lives_theme_contrast auto*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-t "write_fragment passes theme_rotate" yes (string match -q '*tmux_lives_theme_rotate 0*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_place" yes (string match -q '*tmux_lives_theme_place bar*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_mode" yes (string match -q '*tmux_lives_theme_mode derived*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment has no rotate arg leakage" no (string match -q '*theme_rotate*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null
@@ -1056,23 +1054,20 @@ for i in (seq (count $_mig_names))
     test $_mig_had[$i] -eq 1; and set -U $_mig_names[$i] $_mig_saved[$i]
 end
 
-# --- v3 -> v3.1 migration: contrast/rotate replace polarity/range -----------
-# argv18/19 = contrast/rotate
-set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear auto 0 | string collect)
-set -l fr1 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear auto 1 | string collect)
-set -l sep0 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr0")
-set -l sep1 (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$fr1")
-t "fragment rotate changes the sep role" 0 (test "$sep0" = "$sep1"; and echo 1; or echo 0)
-set -l frd (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k wide 0 balanced arc linear darker 0 | string collect)
-# v3.2: contrast no longer steers text (text is always bar-auto — see the
-# "text contrasts the BAR" contract above); it steers the ring companions
-# instead, so this now checks the sep role, which contrast DOES move.
-set -l sepd (string match -r "@tmux_lives_sep_fg '[^']*'" -- "$frd")
-t "fragment contrast flips the sep role" 0 (test "$sep0" = "$sepd"; and echo 1; or echo 0)
-# v3.2: the bar is no longer the seed verbatim for non-mono schemes (it's the
-# scheme's recipe cell on the seed-depth row) — assert the fragment's status-style
-# bg matches whatever the palette actually derives for wide, not the raw seed.
-set -l fr0pal (__tmux_lives_theme_palette '#485B3C' wide 0 balanced arc linear auto 0)
+# --- v4 fragment argv: 13 theme(relationship) 14 place 15 mode 16 phase
+# 17 vividness 18 shape 19 ease 20 contrast (rotate retired — see
+# [[theme-engine-v3-gradient-map]]).
+set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 0 balanced arc linear auto | string collect)
+# Phase 1: contrast is accepted-but-unused by the palette; phase DOES move the
+# curve (bar/tabs/cap hues), so it moves the cap role too.
+set -l frp (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 balanced arc linear auto | string collect)
+set -l cap0 (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$fr0")
+set -l capp (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$frp")
+t "fragment phase changes the cap" 0 (test "$cap0" = "$capp"; and echo 1; or echo 0)
+# the bar is not the seed verbatim for non-mono relationships in 'derived' mode
+# (it's a curve sample) — assert the fragment's status-style bg matches whatever
+# the palette actually derives for ember, not the raw seed.
+set -l fr0pal (__tmux_lives_theme_palette '#485B3C' ember bar derived 0 balanced arc linear auto)
 t "fragment bar bg matches the derived bar" 1 (string match -q "*status-style bg=$fr0pal[1]*" -- "$fr0"; and echo 1; or echo 0)
 # post_update runs the v3.1 shim right after the v2 shim
 t "post_update calls the v31 shim" yes (string match -q '*__tmux_lives_migrate_v31*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
@@ -1101,8 +1096,8 @@ t "install: no stale theme popup height" 0 (string match -q '*-w 52 -h 26*' -- "
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 # --- v3.3 Task 2: the ✦ mark is the seed's home base; claude window coloring
-# is removed. Reuse $fr0 (already the wide/balanced/arc/linear/auto/0 render
-# from the v3.1 migration section above) and $src (the full source text).
+# is removed. Reuse $fr0 (already the ember/bar/derived/balanced/arc/linear/auto
+# render from the v4 fragment argv section above) and $src (the full source text).
 t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_fg '#485b3c'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment window-status-format is plain (v3.3 render)" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)

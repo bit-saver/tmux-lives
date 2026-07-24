@@ -25,13 +25,14 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
-    set -l theme $argv[13]        # v3 scheme ('' or 'off' = legacy; write_fragment passes the effective default mono)
-    set -l themephase $argv[14]   # hue phase in degrees ('' = 0)
-    set -l themeviv $argv[15]     # soft|balanced|vivid ('' = balanced)
-    set -l themeshape $argv[16]   # arc|flat ('' = arc)
-    set -l themeease $argv[17]    # linear|cubic ('' = linear)
-    set -l themecontrast $argv[18]   #   18 themecontrast  companion side auto|lighter|darker ('' = auto)
-    set -l themerotate $argv[19]   #   19 themerotate    companion placement rotation 0-4 ('' = 0)
+    set -l theme $argv[13]        # v4 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
+    set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap|low|high ('' = bar)
+    set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
+    set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
+    set -l themeviv $argv[17]     #   17 themeviv    soft|balanced|vivid ('' = balanced)
+    set -l themeshape $argv[18]   #   18 themeshape  arc|flat ('' = arc)
+    set -l themeease $argv[19]    #   19 themeease   linear|cubic ('' = linear)
+    set -l themecontrast $argv[20]   #   20 themecontrast  companion side auto|lighter|darker ('' = auto)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -73,9 +74,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # continuum prepends its autosave hook when TPM runs. The user's file sets only the
     # @var, never status-right, so a re-source can't wipe the tick/continuum.
     set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
-    # --- theme engine v3 (gradient map, Phase 1): with a scheme in argv[13] the whole bar
-    # renders from the 7-role gradient palette (bar sep tabs active windows cap text);
-    # otherwise the v2 path is unchanged. Role->t lives in __tmux_lives_theme_roles.
+    # --- theme engine v4 (relationship curve): with a relationship in argv[13] the whole bar
+    # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
+    # __tmux_lives_theme_palette (seed + relationship/place/mode/knobs); otherwise the v2
+    # path is unchanged.
     set -l tpal
     # declared OUTSIDE the if: fish's `set -l` scopes to the enclosing BLOCK (if/for/while),
     # not just the function — a `set -l` inside the `if` below would go out of scope at its
@@ -83,7 +85,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l seedhex
     if test -n "$theme"
         set seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast" "$themerotate")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$place" "$mode" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -251,7 +253,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) (__tmux_lives_key tmux_lives_theme_rotate 0) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
