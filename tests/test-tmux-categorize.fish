@@ -1209,7 +1209,10 @@ t "shake phase in range and step" 1 (test $_zphase -ge 0 -a $_zphase -le 355 -a 
 t "shake rerolls place" 1 (string match -q '*set place $places[$pi]*' -- "$pk2"; and echo 1; or echo 0)
 t "shake rerolls mode" 1 (string match -q '*set mode $modes[$mi]*' -- "$pk2"; and echo 1; or echo 0)
 t "shake flashes place/mode/phase" 1 (string match -q "*set flashfield 'place mode phase'*" -- "$pk2"; and echo 1; or echo 0)
-t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 d contrast o rotate z shake b seed)); and echo 1; or echo 0)
+# Task 4 review fix: this used to feed the RETIRED "d contrast o rotate"
+# vocabulary as literal builder args — updated to the real v4 legend row
+# (phase/place/mode/shake) it now exercises.
+t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase p place m mode z shake)); and echo 1; or echo 0)
 set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
 t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*' -- $leglines; and echo 1; or echo 0)
 
@@ -1362,6 +1365,40 @@ t "place cycle bar->high (P, reverse)"  1 (string match -q '*case bar;  set plac
 t "low/high force derived at p/P/m/z"   4 (count (string match -ar 'contains -- \$place low high' -- "$pbody"))
 t "mode M shares the m arm"             1 (string match -qr 'case m M\b' -- "$pbody"; and echo 1; or echo 0)
 t "mode toggles literal<->derived"      1 (string match -q '*test "$mode" = literal; and set mode derived; or set mode literal*' -- "$pbody"; and echo 1; or echo 0)
+
+# --- Theme v4 picker rewrite (Phase 2), Task 4: anchor place/mode snapshot +
+# v4 legend. Task 3 left a forward reference — its case-a/case-enter sel-0
+# (anchor) branches already read $anch_place/$anch_mode (see lines using
+# `$anch_place`/`$anch_mode` in the apply/save arms) — so those vars must be
+# CAPTURED here for the picker to even parse. A whole-$pbody substring check
+# for "anch_place"/"place" would pass VACUOUSLY even before this task's
+# edits: "place"/"mode" already pervade $pbody (adjustments zone, Task 2/3
+# dispatch), and the literal substring "anch_place" already appears at the
+# Task-3 forward-reference sites. Scope narrowly instead: (a) the anchor
+# SNAPSHOT declaration block itself (bounded by its own comment through the
+# first post-snapshot var), and (b) the actual __tcz_thp_ln-wrapped
+# legend-row draw calls (not the whole file/function body).
+set -l anchsnap (awk '/anchor snapshot: the persisted theme/,/set -l anchpal/' $catfile | string collect)
+t "anchor snapshots place" 1 (string match -q '*set -l anch_place*' -- "$anchsnap"; and echo 1; or echo 0)
+t "anchor snapshots mode"  1 (string match -q '*set -l anch_mode*'  -- "$anchsnap"; and echo 1; or echo 0)
+t "anchor drops rotate"    0 (string match -q '*anch_rotate*' -- "$anchsnap"; and echo 1; or echo 0)
+# the anchor's OWN palette-build call must also move to the 9-arg v4
+# signature (seed relationship place mode phase vividness shape ease
+# contrast) — the same v3-breakage Task 1 fixed for the main list. Checked
+# against the full $pbody since this exact call text is unique to this site.
+t "anchor palette call is 9-arg (place+mode, drops rotate)" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pbody"; and echo 1; or echo 0)
+
+set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
+t "legend row count is 2 (was 3)" 2 (count $leglines)
+t "legend names place" 1 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
+t "legend names mode"  1 (string match -q '*mode*'  -- $leglines; and echo 1; or echo 0)
+t "legend names shake" 1 (string match -q '*shake*' -- $leglines; and echo 1; or echo 0)
+t "legend drops contrast"  0 (string match -qr 'contrast' -- $leglines; and echo 1; or echo 0)
+t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo 1; or echo 0)
+# brief's literal guard: no __tcz_legend_row call anywhere in the categorizer
+# still names the retired rotate knob (this scope is whole-file, but genuine:
+# before this task exactly one legend_row call names "rotate").
+t "legend drops rotate" 0 (string match -qr 'rotate' -- (awk '/__tcz_legend_row/' $catfile | string collect); and echo 1; or echo 0)
 
 # --- Task 6: picker layout A — 27-row frame, a/o/r keys, dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)

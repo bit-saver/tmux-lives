@@ -1680,12 +1680,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anch_shape $shape
     set -l anch_ease $ease
     set -l anch_contrast $contrast
-    set -l anch_rotate $rotate
+    set -l anch_place $place
+    set -l anch_mode $mode
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     if test "$anch_scheme" != off
-        set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast $anch_rotate)
+        set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast)
         if test (count $ap) -eq 7
             set -l apj (string join ' ' $ap)
             set anchpal "$apj"
@@ -1810,9 +1811,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase v vivid s shape e ease) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 d contrast o rotate z shake b seed) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 a apply '⏎' save r reset esc close) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase p place m mode z shake) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 9 b seed a apply '⏎' save r reset esc close) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         # Synchronized update (DECSET 2026): commit the whole frame atomically so a
