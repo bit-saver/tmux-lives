@@ -1283,12 +1283,30 @@ function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migrat
     return 0
 end
 
+function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: preserve the seed, retire tmux_lives_theme_rotate, and map a retired v3 scheme name onto v4 (mono/bar/derived). One notice when it changes anything.'
+    set -l changed 0
+    if set -q tmux_lives_theme_rotate
+        set -e tmux_lives_theme_rotate
+        set changed 1
+    end
+    if set -q tmux_lives_theme
+        if test "$tmux_lives_theme" != off; and not contains -- "$tmux_lives_theme" (__tmux_lives_theme_relationships)
+            set -U tmux_lives_theme mono
+            set -U tmux_lives_theme_place bar
+            set -U tmux_lives_theme_mode derived
+            set changed 1
+        end
+    end
+    test $changed -eq 1; and echo "tmux-lives: theme migrated to v4 (relationships + placement); your seed color is preserved — see 'tmux-lives setup theme list'"
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
     # hook) lands without a manual `tmux-lives setup` — then reload tmux.
     __tmux_lives_migrate_v2
     __tmux_lives_migrate_v31
+    __tmux_lives_migrate_v4
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment

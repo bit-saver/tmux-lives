@@ -1089,6 +1089,29 @@ t "guard: no themerange in source" 0 (string match -q '*themerange*' -- "$src"; 
 t "guard: no theme_lrange in source" 0 (string match -q '*theme_lrange*' -- "$src"; and echo 1; or echo 0)
 t "guard: no --polarity flag in source" 0 (string match -q '*--polarity*' -- "$src"; and echo 1; or echo 0)
 
+# --- v4: migration ----
+set -l _m_saved
+for v in tmux_lives_theme tmux_lives_theme_rotate tmux_lives_theme_place tmux_lives_theme_mode tmux_lives_bar_color
+    set -q $v; and set -a _m_saved "$v=$$v"; set -e $v
+end
+set -U tmux_lives_bar_color '#5f772b'
+set -U tmux_lives_theme complement   # a retired v3 scheme
+set -U tmux_lives_theme_rotate 3
+__tmux_lives_migrate_v4 >/dev/null
+t "migrate keeps seed"    "#5f772b" $tmux_lives_bar_color
+t "migrate resets scheme" mono      $tmux_lives_theme
+t "migrate sets place"    bar       $tmux_lives_theme_place
+t "migrate sets mode"     derived   $tmux_lives_theme_mode
+t "migrate erases rotate" 0         (set -q tmux_lives_theme_rotate; and echo 1; or echo 0)
+# idempotent: a valid v4 relationship is left alone
+set -U tmux_lives_theme ember
+__tmux_lives_migrate_v4 >/dev/null
+t "migrate leaves v4 rel" ember $tmux_lives_theme
+set -e tmux_lives_theme tmux_lives_theme_rotate tmux_lives_theme_place tmux_lives_theme_mode tmux_lives_bar_color
+for kv in $_m_saved
+    set -l p (string split '=' $kv); set -U $p[1] $p[2]
+end
+
 # --- Task 6: picker layout A — 52x27 popup geometry at every open site ---
 t "fragment theme-picker bind is 52x27" 1 (string match -q '*-h 27*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
 t "install: no stale theme popup height" 0 (string match -q '*-w 52 -h 26*' -- "$src"; and echo 1; or echo 0)
