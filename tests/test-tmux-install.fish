@@ -190,7 +190,8 @@ set -e tmux_lives_theme_key
 t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
-t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--contrast*auto|lighter|darker*' -- $h; and string match -q '*--rotate*0-4*' -- $h; end; and echo yes; or echo no)
+t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap|low|high*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--contrast*auto|lighter|darker*' -- $h; end; and echo yes; or echo no)
+t "setup help: --rotate retired from theme row" no (string match -q '*--rotate*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
 
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
@@ -1003,10 +1004,22 @@ t "palette cap = curve cap"   $tri[3] $pal[6]
 set -l wok (_oklch_of $pal[5])
 t "palette windows is light" 1 (test $wok[1] -gt 0.60; and echo 1; or echo 0)
 t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0 balanced arc linear auto))
-# the retired v3 builders are gone
-t "arc retired"    "" (functions -q __tmux_lives_theme_arc; and echo present)
-t "kincap retired" "" (functions -q __tmux_lives_theme_kincap; and echo present)
-t "ring retired"   "" (functions -q __tmux_lives_theme_ring; and echo present)
+# the retired v3 builders are gone — grep the SOURCE file, not the runtime
+# function table. A `functions -q` check would falsely fail under plain `fish`
+# (which loads the developer's LIVE fisher install of the old code, distinct
+# from this branch's source) while passing under `fish --no-config`; grepping
+# the source is environment-independent and green under both configs.
+t "v3 arc gone"    0 (grep -c '__tmux_lives_theme_arc' $plugindir/conf.d/tmux-lives-install.fish)
+t "v3 kincap gone" 0 (grep -c '__tmux_lives_theme_kincap' $plugindir/conf.d/tmux-lives-install.fish)
+t "v3 ring gone"   0 (grep -c '__tmux_lives_theme_ring' $plugindir/conf.d/tmux-lives-install.fish)
+t "v3 barpos gone" 0 (grep -c '__tmux_lives_theme_barpos' $plugindir/conf.d/tmux-lives-install.fish)
+# tmux_lives_theme_rotate must not appear anywhere in the install source EXCEPT
+# inside __tmux_lives_migrate_v4's own body (it retires the universal there).
+# awk strips the migrate_v4 and migrate_v31 function bodies (their closing
+# `end` is unindented, col 0 — nested if/for `end`s inside are indented and
+# don't match `^end$`) before grepping what remains.
+t "no rotate universal outside migration" 0 (awk '/^function __tmux_lives_migrate_v4/,/^end$/ {next} /^function __tmux_lives_migrate_v31/,/^end$/ {next} {print}' $plugindir/conf.d/tmux-lives-install.fish | grep -c 'tmux_lives_theme_rotate')
+t "help theme row mentions place" 1 (__tmux_lives_setup_help_lines | string match -q '*place*'; and echo 1; or echo 0)
 
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
@@ -1103,10 +1116,19 @@ t "migrate resets scheme" mono      $tmux_lives_theme
 t "migrate sets place"    bar       $tmux_lives_theme_place
 t "migrate sets mode"     derived   $tmux_lives_theme_mode
 t "migrate erases rotate" 0         (set -q tmux_lives_theme_rotate; and echo 1; or echo 0)
+# idempotent-quiet: a second run right after the retired-scheme migration
+# above (complement -> mono already landed) prints no notice
+t "migrate v4 second run silent" '' (__tmux_lives_migrate_v4 | string collect)
 # idempotent: a valid v4 relationship is left alone
 set -U tmux_lives_theme ember
 __tmux_lives_migrate_v4 >/dev/null
 t "migrate leaves v4 rel" ember $tmux_lives_theme
+# 'off' is left alone entirely — no scheme reset, and place/mode never get set
+set -e tmux_lives_theme_place tmux_lives_theme_mode
+set -U tmux_lives_theme off
+__tmux_lives_migrate_v4 >/dev/null
+t "migrate leaves off alone"       off $tmux_lives_theme
+t "migrate off: place stays unset" 0   (set -q tmux_lives_theme_place; and echo 1; or echo 0)
 set -e tmux_lives_theme tmux_lives_theme_rotate tmux_lives_theme_place tmux_lives_theme_mode tmux_lives_bar_color
 for kv in $_m_saved
     set -l p (string split '=' $kv); set -U $p[1] $p[2]
