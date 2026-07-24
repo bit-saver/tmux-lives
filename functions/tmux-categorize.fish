@@ -1000,7 +1000,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open the theme picker in its OWN popup
             # (the theme-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here).
-            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 27 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 22 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear
@@ -1367,21 +1367,6 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
-function __tcz_thp_rotpal --argument-names rotate pal ring --description 'v3.2 display-side rotation: replace pal fields 2/4/5 (sep active windows) from the rotated 5-sample accent ring (same perm index as the engine); bar/tabs/cap/text pinned. Malformed pal/ring -> pal unchanged.'
-    set -l p (string split ' ' -- $pal)
-    set -l g (string split ' ' -- $ring)
-    if test (count $p) -ne 7; or test (count $g) -ne 5
-        printf '%s' "$pal"
-        return
-    end
-    string match -qr '^[0-4]$' -- "$rotate"; or set rotate 0
-    set -l slots 2 4 5
-    for i in 1 2 3
-        set -l j (math "(($i - 1 - $rotate) % 5 + 5) % 5 + 1")
-        set p[$slots[$i]] $g[$j]
-    end
-    printf '%s' (string join ' ' $p)
-end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
@@ -1428,7 +1413,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v4 key map): tab-chip + fake-bar preview, labeled global-adjustments zone (seed/place/mode/phase), 6 relationship rows + off row + an anchor row LAST at the bottom (❯ <relationship> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (relationships, off, anchor), ❯ in the list marks whichever row matches the anchor relationship. ←→ phase (5°/press, coalesced), p/P cycle seed placement bar→tabs→cap→low→high (P reverses; low/high force mode to derived, matching the engine), m/M toggle mode literal/derived (a no-op at low/high placement — those are derived-only), z shake (random relationship+place+mode+phase), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen place/mode/phase, list rows preview the live knobs), ⏎ save (via the CLI, silenced — only place/mode/phase are re-saved; vividness/shape/ease/contrast keep whatever they were last set to and are not editable here; the anchor saves its snapshot verbatim), r reset (phase/place/mode only), Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 27); the frame is EXACTLY 27 rows.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v4 key map): tab-chip + fake-bar preview, labeled global-adjustments zone (seed/place/mode/phase), 6 relationship rows + off row + an anchor row LAST at the bottom (❯ <relationship> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (relationships, off, anchor), ❯ in the list marks whichever row matches the anchor relationship. ←→ phase (5°/press, coalesced), p/P cycle seed placement bar→tabs→cap→low→high (P reverses; low/high force mode to derived, matching the engine), m/M toggle mode literal/derived (a no-op at low/high placement — those are derived-only), z shake (random relationship+place+mode+phase), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen place/mode/phase, list rows preview the live knobs), ⏎ save (via the CLI, silenced — only place/mode/phase are re-saved; vividness/shape/ease/contrast keep whatever they were last set to and are not editable here; the anchor saves its snapshot verbatim), r reset (phase/place/mode only), Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 22); the frame is EXACTLY 22 rows (6 relationship rows, down from 10 in v3.1 — the frame shrank to fit, Task 5 of the v4 picker rewrite).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on

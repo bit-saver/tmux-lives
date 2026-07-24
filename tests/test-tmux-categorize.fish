@@ -670,7 +670,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 27*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 22*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1300,9 +1300,33 @@ t "picker uses v4 relationships"  1 (string match -q '*__tmux_lives_theme_relati
 t "picker drops v3 schemes"       0 (string match -q '*__tmux_lives_theme_schemes*'      -- "$pbody"; and echo 1; or echo 0)
 t "picker drops deleted ring"     0 (string match -q '*__tmux_lives_theme_ring*'         -- "$pbody"; and echo 1; or echo 0)
 t "picker drops rotpal"           0 (string match -q '*__tcz_thp_rotpal*'                -- "$pbody"; and echo 1; or echo 0)
+# Task 5: __tcz_thp_rotpal was the v3.2 display-side rotation-permutation
+# builder — module-level (not nested in the picker, so not part of the
+# helper-erase teardown block), left dangling once Task 1 dropped its
+# _reload call and Task 3 dropped the o/O rotate keys. Confirmed zero callers
+# anywhere in functions/ or conf.d/ before removal; the function is now gone
+# entirely (not merely uncalled).
+t "rotpal function fully removed" 0 (functions -q __tcz_thp_rotpal; and echo 1; or echo 0)
 t "picker reads place universal"  1 (string match -q '*tmux_lives_theme_place*'  -- "$pbody"; and echo 1; or echo 0)
 t "picker reads mode universal"   1 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
+
+# Task 5: every __tmux_lives_theme_palette call in the picker body must carry
+# the full 9-arg v4 signature (seed relationship place mode phase vividness
+# shape ease contrast) — a regression to the old 8-arg v3.1-era call (no
+# place/mode) would silently drop a param and desync the preview from what
+# the engine actually renders. Extract each call's argument text (everything
+# between the function name and the closing paren of its command
+# substitution) and count space-separated tokens, rather than a substring
+# match, so this guard actually goes red if either call loses an arg.
+set -l palcalls (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pbody"))
+t "picker has exactly 2 palette calls" 2 (count $palcalls)
+for pc in $palcalls
+    set -l argtail (string replace -r '.*__tmux_lives_theme_palette ' '' -- $pc)
+    set -l argstr (string replace -r '\).*' '' -- $argtail)
+    set -l nargs (count (string split ' ' -- $argstr))
+    t "palette call is 9-arg: $argstr" 9 $nargs
+end
 
 # --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
 # + the 6-relationship list ---
@@ -1329,7 +1353,15 @@ t "litkv shows place"      1 (string match -q '*place*'     -- "$litbody"; and e
 t "litkv shows mode"       1 (string match -q '*mode*'      -- "$litbody"; and echo 1; or echo 0)
 t "litkv drops vividness"  0 (string match -q '*vividness*' -- "$litbody"; and echo 1; or echo 0)
 t "litkv drops rotate lbl" 0 (string match -q '*rotate*'    -- "$litbody"; and echo 1; or echo 0)
-t "list label is relationship" 1 (string match -q '*relationship*' -- (string match -r '(?s)__tcz_thp_zsep \$IW .relationship.*' -- "$pbody"); and echo 1; or echo 0)
+# Task 2 review Minor (folded in Task 5): the old form nested an uncollected
+# greedy `string match -r` directly as a bare command-substitution argument —
+# it worked, but relied on argument-splitting incidentals rather than an
+# explicit gate. Conform to the zonebody/litbody discipline two lines above:
+# a bounded, non-greedy regex piped through `string collect`, captured into
+# its own var first. Same assertion (the relationship-list zsep label names
+# "relationship"), just an explicit, robust match.
+set -l rellabelbody (string match -r '(?s)__tcz_thp_zsep \$IW .relationship.*?\)' -- "$pbody" | string collect)
+t "list label is relationship" 1 (string match -q '*relationship*' -- "$rellabelbody"; and echo 1; or echo 0)
 t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to all schemes*' -- "$pbody"; and echo 1; or echo 0)
 # CRITICAL: both call sites (draw loop + the lit-first repaint) must render
 # IDENTICAL kv fields, or the lit-first flash paints stale labels before the
@@ -1404,7 +1436,13 @@ t "legend drops rotate" 0 (string match -qr 'rotate' -- (awk '/__tcz_legend_row/
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
-t "picker popup is 52x27 (modal open site)" 1 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
+# Task 5: frame shrank 27→22 rows (list 10→6, legend 3→2 dropped 4+1 content
+# rows) — the emitted-row count was counted directly off the draw loop's
+# `set -a lines` call sites (16 static + 6 relationship rows = 22) and the
+# exact-height contract (rows 1..-2 with \n, last without) demands -h ==
+# emitted; 27 is now stale everywhere.
+t "picker popup is 52x22 (modal open site)" 1 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
 
 # --- Task 7: seed screens — big swatch + shared legend ---

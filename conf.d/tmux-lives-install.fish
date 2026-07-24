@@ -160,7 +160,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "}"
     end
     test -n "$scratchkey"; and set -a f "bind-key -n $scratchkey run-shell 'fish --no-config $cat scratch'"
-    test -n "$themekey"; and set -a f "bind-key -n $themekey display-popup -B -E -w 52 -h 27 -- fish --no-config $cat theme-picker '#{client_name}'"
+    test -n "$themekey"; and set -a f "bind-key -n $themekey display-popup -B -E -w 52 -h 22 -- fish --no-config $cat theme-picker '#{client_name}'"
     if test -n "$resizekey"
         set -a f "bind-key -n $resizekey run-shell \"fish --no-config $cat resize-enter '#{client_name}'\""
         set -a f "bind-key -T tmuxlives-resize Left  { run-shell \"fish --no-config $cat scratch-resize L\" ; switch-client -T tmuxlives-resize }"
@@ -884,7 +884,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
             set -l cat "$__fish_config_dir/functions/tmux-categorize.fish"
             if test -f $cat
                 set -l client (tmux display-message -p '#{client_name}' 2>/dev/null)
-                tmux display-popup -B -E -w 52 -h 27 -- fish --no-config $cat theme-picker "$client"
+                tmux display-popup -B -E -w 52 -h 22 -- fish --no-config $cat theme-picker "$client"
                 return 0
             end
         end
