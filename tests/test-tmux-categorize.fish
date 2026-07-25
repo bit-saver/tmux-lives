@@ -1542,7 +1542,7 @@ t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the th
 set -l pk (functions __tcz_theme_picker | string collect)
 t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
-t "picker cursor starts on the anchor" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
+t "picker cursor starts on the top scheme (sel 0)" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
 # v4 (Task 3): the 8-arg apply_live preview form is relationship place mode
 # phase viv shape ease contrast — anch_place/anch_mode are Task 4's forward
