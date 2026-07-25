@@ -835,9 +835,24 @@ set -e tmux_lives_bar_color
 t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
 
-# list renders one row per relationship (6), each with a 7-cell truecolor strip
-t "theme list has 6 rows" 6 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 6 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+# v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
+t "catalog has 28 entries" 28 (count (__tmux_lives_theme_catalog))
+t "catalog default is 12"  12 (count (__tmux_lives_theme_catalog_default))
+t "catalog entries are 5 fields" 5 (count (string split '|' (__tmux_lives_theme_catalog | head -1)))
+t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|1$')) -eq 12; and echo 1; or echo 0)
+# every recipe is a valid engine input -> 7-hex palette
+set -l bad 0
+for e in (__tmux_lives_theme_catalog)
+    set -l f (string split '|' $e)
+    set -l p (__tmux_lives_theme_palette '#5f772b' $f[2] $f[3] $f[4] 0 balanced arc linear auto)
+    test (count $p) -eq 7; or set bad (math $bad + 1)
+end
+t "every catalog recipe yields 7 hexes" 0 $bad
+t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
+
+# list renders one row per catalog entry (28), each with a 7-cell truecolor strip
+t "theme list has 28 rows" 28 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 28 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir

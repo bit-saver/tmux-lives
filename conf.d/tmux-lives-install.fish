@@ -707,6 +707,27 @@ function __tmux_lives_theme_relationships --description 'v4 relationship names (
     printf '%s\n' mono amber ember coral sage teal
 end
 
+function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 28 schemes as name|relationship|place|mode|default (1 = in the curated default 12), ordered near-seed -> bold across tiers soft/glow/slate/deep/core. Shared source of truth for the picker + setup theme list.'
+    printf '%s\n' \
+        'mono soft|mono|bar|derived|1'   'amber soft|amber|bar|derived|1'  'coral soft|coral|bar|derived|1' \
+        'ember soft|ember|bar|derived|0' 'sage soft|sage|bar|derived|0'    'teal soft|teal|bar|derived|0' \
+        'mono glow|mono|bar|literal|0'   'amber glow|amber|bar|literal|0'  'ember glow|ember|bar|literal|1' \
+        'coral glow|coral|bar|literal|0' 'sage glow|sage|bar|literal|1'    'teal glow|teal|bar|literal|1' \
+        'amber slate|amber|tabs|derived|0' 'ember slate|ember|tabs|derived|1' 'coral slate|coral|tabs|derived|0' \
+        'sage slate|sage|tabs|derived|0'   'teal slate|teal|tabs|derived|0' \
+        'amber deep|amber|cap|derived|1' 'ember deep|ember|cap|derived|1'  'coral deep|coral|cap|derived|1' \
+        'sage deep|sage|cap|derived|0'   'teal deep|teal|cap|derived|0' \
+        'mono core|mono|cap|literal|0'   'amber core|amber|cap|literal|0'  'ember core|ember|cap|literal|0' \
+        'coral core|coral|cap|literal|0' 'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
+end
+
+function __tmux_lives_theme_catalog_default --description 'the curated 12: catalog rows flagged default=1'
+    # -e/--entire: plain `-r '\|1$'` outputs only the matched substring ("|1"),
+    # not the whole line, since the pattern isn't anchored at the start — a real
+    # fish landmine (verified empirically). --entire emits the full matching line.
+    __tmux_lives_theme_catalog | string match -re '\|1$'
+end
+
 function __tmux_lives_theme_reldef --argument-names name --description 'v4 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0
@@ -853,7 +874,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every relationship + a 7-role gradient strip at the current seed/place/mode/knobs'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every catalog scheme + a 7-role gradient strip at the current seed/knobs'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
@@ -861,9 +882,12 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
     set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
     set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
-    set -l place (__tmux_lives_key tmux_lives_theme_place bar)
-    set -l mode (__tmux_lives_key tmux_lives_theme_mode derived)
-    for rel in (__tmux_lives_theme_relationships)
+    for entry in (__tmux_lives_theme_catalog)
+        set -l f (string split '|' $entry)
+        set -l name $f[1]
+        set -l rel $f[2]
+        set -l place $f[3]
+        set -l mode $f[4]
         set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase $viv $shape $ease $contrast)
         test (count $pal) -eq 7; or continue
         set -l strip
@@ -872,7 +896,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-11s %s\n' (string join '' $strip) $rel $pal[6]
+        printf '%s %-11s %s\n' (string join '' $strip) $name $pal[6]
     end
 end
 
