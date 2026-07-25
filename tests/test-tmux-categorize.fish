@@ -1136,6 +1136,8 @@ t "kv multi-flash spares ease" 0 (string match -q "*"$FLASH"EASE*" -- "$kvm[1]";
 set -l kvs (__tcz_thp_kv 50 phase phase '+15°' rotate 2 ease linear)
 t "kv single-token flash still works" 1 (string match -q "*$FLASH*PHASE*" -- "$kvs[1]"; and echo 1; or echo 0)
 t "readkey z" z (echo -n z | __tcz_popup_readkey)
+# picker current-zone refinement, Task 2: c jumps to/from the current zone.
+t "readkey c" c (echo -n c | __tcz_popup_readkey)
 
 # tab STRIP: a full-width fake ShellFish tab bar (active bold title + faint ⋯
 # tabs behind │ separators) — replaces the old single title chip (user: the
@@ -1566,10 +1568,15 @@ t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0
 # [0, n-winsize] without special-casing the old anchor sel-0 wraparound.
 t "picker draws the anchor AFTER the off row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk"; and echo 1; or echo 0)
 t "picker up/down go through vismap" 2 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
+# picker current-zone refinement, Task 2 (2026-07-25): the current/anchor row
+# (sel n+1) moves OUT of the ↑↓ order entirely — it's reached only via the c
+# key (dispatch, tested below). vismap's down-clamp is now n (off), not n+1;
+# calling vismap with sel=n+1 (e.g. a stray ↑↓ press while sitting on the
+# current row) must NEVER hand back n+1 — both directions pull it to n (off).
+t "vismap down clamps at n (off), not n+1" 10 (__tcz_thp_vismap 10 10 down)
 t "vismap: down from last scheme -> off" 10 (__tcz_thp_vismap 9 10 down)
-t "vismap: down from off -> anchor" 11 (__tcz_thp_vismap 10 10 down)
-t "vismap: down from anchor stays" 11 (__tcz_thp_vismap 11 10 down)
-t "vismap: up from anchor -> off" 10 (__tcz_thp_vismap 11 10 up)
+t "vismap: down never returns n+1 (current zone is c-only)" 10 (__tcz_thp_vismap 11 10 down)
+t "vismap: up from current zone (n+1) -> off" 10 (__tcz_thp_vismap 11 10 up)
 t "vismap: up from off -> last scheme" 9 (__tcz_thp_vismap 10 10 up)
 t "vismap: up from scheme 0 stays" 0 (__tcz_thp_vismap 0 10 up)
 t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
@@ -1703,6 +1710,23 @@ t "picker legend still names more"  1 (string match -q '*more*' -- "$leggrid"; a
 t "picker legend still names shake" 1 (string match -q '*shake*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops place" 0 (string match -q '*place*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; and echo 1; or echo 0)
+
+# --- picker current-zone + legend-grid refinement, Task 2: the c jump key
+# (out of the ↑↓ flow), the pinned current zone's own zsep section, and the
+# ❯ list marker gated on phase as well as recipe. ---
+set -l pk2 (functions __tcz_theme_picker | string collect)
+t "picker has case c"        1 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
+t "case c toggles the current zone (n+1) / back to scheme 0" 1 (string match -q '*test $sel -eq (math $n + 1)*set sel 0*set sel (math $n + 1)*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
+t "marker gates on phase" 1 (string match -q '*test "$phase" = "$anch_phase"*' -- "$pk2"; and echo 1; or echo 0)
+t "current zone has its own zsep" 1 (string match -q '*zsep $IW '"'"'current'"'"'*' -- "$pk2"; and echo 1; or echo 0)
+# the current zsep must come AFTER the off row and BEFORE the current/anchor
+# row is appended, so the section header sits above its pinned content.
+t "current zsep sits between off row and current row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*zsep \$IW '"'"'current'"'"'.*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk2"; and echo 1; or echo 0)
+# named risk (task brief): __tcz_popup_readkey is SHARED with the session
+# switcher — its dispatch switch must have NO case c, so the new token stays
+# a harmless no-op there instead of accidentally doing something.
+set -l switcher_body (functions __tcz_popup | string collect)
+t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string match -qr 'case c\b' -- "$switcher_body"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

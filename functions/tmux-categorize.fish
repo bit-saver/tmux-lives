@@ -808,7 +808,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -841,6 +841,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 6f; echo o; return                      # o (theme-picker: rotate placement)
         case 72; echo r; return                      # r (theme-picker: reset knobs)
         case 7a; echo z; return                      # z (theme-picker: shake)
+        case 63; echo c; return                      # c (theme-picker: jump to/from current zone)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1341,15 +1342,14 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l RS2 (__tcz_theme reset)
     printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
 end
-function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one step in the LINEAR visual order — scheme_0 … scheme_{n-1} (sel 0..n-1), off (sel n), anchor (sel n+1, LAST). up = max(0, sel-1); down = min(n+1, sel+1). Edges clamp.'
+function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one step in the ↑↓ visual order — scheme_0 … scheme_{n-1} (sel 0..n-1), off (sel n, LAST). up = max(0, sel-1); down = min(n, sel+1). The current zone (sel n+1) is OUT of this order — reached only via the c key (dispatch) — so this never returns n+1, even when called with sel=n+1 (both directions pull it back to n/off).'
     set -l vp $sel
     if test "$dirn" = up
         set vp (math $vp - 1)
         test $vp -lt 0; and set vp 0
     else
         set vp (math $vp + 1)
-        set -l vmax (math $n + 1)
-        test $vp -gt $vmax; and set vp $vmax
+        test $vp -gt $n; and set vp $n
     end
     echo $vp
 end
@@ -1488,7 +1488,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row and a pinned anchor row LAST (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off, n+1 = anchor; ↑↓/jk walk this order via __tcz_thp_vismap, ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode). ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the anchor previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the anchor saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 24); the frame is EXACTLY 24 rows (16 static chrome/off/anchor rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 24); the frame is EXACTLY 24 rows (16 static chrome/off/anchor rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1882,7 +1882,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -l selflag 0
                 test $i -eq $sel; and set selflag 1
                 set -l curflag 0
-                test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and set curflag 1
+                test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
                 if test $selflag -eq 1
                     set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
@@ -1899,6 +1899,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set offrow "$SELBG$offrow$RST"
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
+        # current zone — its own titled section, PINNED below off (Gallery
+        # picker refinement, Task 2: sel n+1, reached only via the c key —
+        # see __tcz_thp_vismap/case c above — never via ↑↓).
+        set -a lines (__tcz_thp_zsep $IW 'current' $BORDER $RST)
         # anchor row LAST — the persisted theme sits at the bottom, below off
         # (2026-07-21 user request), PINNED below the scrolling scheme window
         # (Gallery rewrite Task 3). Linear sel: 0..n-1 = schemes, n = off,
@@ -2021,6 +2025,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set sel $zi
                 __tcz_thp_reload
                 set n (count $toks)
+                set flashfield ''
+            case c
+                # jump to/from the current zone (sel n+1) — OUT of the ↑↓
+                # order (see __tcz_thp_vismap); from n+1, ↑↓ naturally
+                # returns to off (n) since vismap clamps there.
+                if test $sel -eq (math $n + 1)
+                    set sel 0
+                else
+                    set sel (math $n + 1)
+                end
                 set flashfield ''
             case a
                 if test $sel -eq (math $n + 1)
