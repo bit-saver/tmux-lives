@@ -1,4 +1,19 @@
 #!/usr/bin/env fish
+if not set -q TMUX_LIVES_TEST_UVARS
+    set -l d (mktemp -d /tmp/tmux-lives-uv.XXXXXX)
+    if test -z "$d"; or not test -d "$d"
+        echo "FATAL: cannot create an isolated universal store; refusing to run" >&2
+        exit 1
+    end
+    set -gx TMUX_LIVES_TEST_UVARS $d
+    set -gx XDG_CONFIG_HOME $d
+    set -l fishargs
+    test (count $fish_function_path) -gt 0; or set fishargs --no-config
+    fish $fishargs (path resolve (status filename)) $argv
+    set -l rc $status
+    rm -rf $d
+    exit $rc
+end
 set -g plugindir (path resolve (status dirname)/..)
 source $plugindir/conf.d/tmux-lives-install.fish
 set -g pass 0; set -g fail 0
@@ -1175,5 +1190,24 @@ t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_
 t "fragment window-status-format is plain (v3.3 render)" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)
 t "guard: no claude_color in install source" 0 (string match -q '*claude_color*' -- "$src"; and echo 1; or echo 0)
+
+# --- universal-variable isolation (2026-07-25) ---------------------------
+# The suite drives the real CLI, which really does `set -U`. Without the
+# re-exec guard at the top of this file those writes hit the user's live
+# ~/.config/fish/fish_variables. These assertions prove the guard is active;
+# if it ever regresses they fail instead of silently eating the user's config.
+t "isolation: guard sentinel is set" 1 (set -q TMUX_LIVES_TEST_UVARS; and echo 1; or echo 0)
+t "isolation: sentinel matches XDG_CONFIG_HOME" 1 (test "$TMUX_LIVES_TEST_UVARS" = "$XDG_CONFIG_HOME"; and echo 1; or echo 0)
+t "isolation: store is not the real config dir" 1 (test "$XDG_CONFIG_HOME" != "$HOME/.config"; and echo 1; or echo 0)
+
+set -U tmux_lives_isolation_probe probe-(random)
+# Holds in BOTH fish modes and is the assertion that actually matters.
+t "isolation: probe never reaches the real store" 0 (grep -q tmux_lives_isolation_probe $HOME/.config/fish/fish_variables 2>/dev/null; and echo 1; or echo 0)
+# `fish --no-config` persists NO universals at all, so only assert the probe
+# landed in the temp store when running under a config-loaded fish.
+if test (count $fish_function_path) -gt 0
+    t "isolation: probe landed in the temp store" 1 (grep -q tmux_lives_isolation_probe $XDG_CONFIG_HOME/fish/fish_variables 2>/dev/null; and echo 1; or echo 0)
+end
+set -e tmux_lives_isolation_probe
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
