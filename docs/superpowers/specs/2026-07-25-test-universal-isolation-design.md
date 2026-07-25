@@ -29,7 +29,8 @@ Neither the existing `-L` socket seam nor the PATH shim can help: `set -U` write
 | Does `fish --no-config` still skip universals under the redirect? | **Yes.** The contract asserted at `test-tmux-install.fish:936-941` is unaffected. |
 | Do nested `fish -c` children inherit the redirect? | **Yes** (exported), so CLI paths that `set -U` inside child shells are captured too. |
 | Does the existing suite pass under the redirect? | **Yes — all 8 suites ALL PASS, unmodified** (install 464, 0 bytes stderr), with `~/.config/fish/fish_variables` byte-identical before and after (`4290006163 207596`). |
-| Do the re-exec mechanics behave? | **Yes**, prototyped: body ran exactly once, `$argv` preserved, exit code propagated, a deliberate `set -U tmux_lives_*` landed in the temp store, temp dir removed. (The prototype used `mktemp -d -t …`; the spec below switches to the explicit-template form for BSD portability — see Open items.) |
+| Do the re-exec mechanics behave? | **Yes**, prototyped with the exact guard below: body ran exactly once, `$argv` preserved, exit code propagated, a deliberate `set -U tmux_lives_*` landed in the temp store and never reached the real file, temp dir removed, `mktemp -d /tmp/tmux-lives-uv.XXXXXX` explicit-template form worked. |
+| Is `fish --no-config` mode preserved across the re-exec? | **Yes**, with `count $fish_function_path` as the discriminator: plain stays plain, `--no-config` stays `--no-config`. Using `set -q __fish_initialized` instead silently misclassifies **every** run as `--no-config`, because that variable is a universal and the child's store is empty by design. |
 
 The decisive consequence: **the isolation mechanism itself needs no change to any test body.** No assertion, stub, or seam has to move for the redirect to work — the suite is already green under it. The further changes in sections 2-5 are separately chosen scope, not requirements of the mechanism.
 
@@ -48,17 +49,20 @@ if not set -q TMUX_LIVES_TEST_UVARS
     end
     set -gx TMUX_LIVES_TEST_UVARS $d
     set -gx XDG_CONFIG_HOME $d
-    fish (status filename) $argv
+    set -l fishargs
+    test (count $fish_function_path) -gt 0; or set fishargs --no-config
+    fish $fishargs (path resolve (status filename)) $argv
     set -l rc $status
     rm -rf $d
     exit $rc
 end
 ```
 
-Three properties matter and are load-bearing:
+Four properties matter and are load-bearing:
 
 - **Fail closed.** If `mktemp` fails, the test aborts rather than running against the real store. An unprotected run must never be the fallback.
 - **Guarded delete.** `rm -rf $d` runs only on a verified non-empty directory path.
+- **Mode-preserving.** The project gates every suite under both `fish` and `fish --no-config`, so the re-exec must not silently convert one into the other. `count $fish_function_path` is the discriminator (5 under plain fish, 0 under `--no-config`) because it is **store-independent**. The obvious alternative, `set -q __fish_initialized`, is a trap: that variable is itself a *universal*, so inside the re-exec'd child — whose store is deliberately fresh and empty — it reads unset under plain fish too, and every run would be misclassified as `--no-config`. Verified by prototype in both modes.
 - **Repeated, not shared.** The guard is duplicated in each file rather than sourced from a helper, so every test file remains self-contained and safe when run standalone — the invocation path that caused the 2026-07-25 incident — with no ordering or path-resolution dependency.
 
 The guard is deliberately placed above everything, including each suite's `gcc`-availability check, so no code path can reach a `set -U` before isolation is active.
@@ -73,7 +77,8 @@ A new assertion in `tests/test-tmux-install.fish` writes a probe universal and c
 
 - `$TMUX_LIVES_TEST_UVARS` is set and equals `$XDG_CONFIG_HOME` (the guard ran).
 - `$XDG_CONFIG_HOME` is not `$HOME/.config` (the store is genuinely elsewhere).
-- After `set -U tmux_lives_isolation_probe …`, the value appears in `$XDG_CONFIG_HOME/fish/fish_variables` and does **not** appear in `$HOME/.config/fish/fish_variables` (read-only check of the real file).
+- After `set -U tmux_lives_isolation_probe …`, the value does **not** appear in `$HOME/.config/fish/fish_variables` (read-only check of the real file). This assertion holds in both fish modes and is the one that actually matters.
+- **Only under plain fish** (`count $fish_function_path` greater than 0), additionally assert the probe *did* land in `$XDG_CONFIG_HOME/fish/fish_variables`. Under `--no-config` fish persists no universals at all, so an unconditional version of this assertion would fail the `--no-config` half of the gate.
 
 If the guard ever regresses, this fails instead of silently eating configuration again.
 
