@@ -1190,31 +1190,25 @@ t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'w
 t "picker phase drains use the burst gap" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
 t "picker phase drains escalate the gap on burst" 2 (string match -a -r 'case left;  set delta \(math \$delta - 5\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
 
-# --- Task 3: shake key (z) + legend swap ---
+# --- Gallery picker rewrite, Task 4: shake key (z) rewritten -------------
+# Supersedes the earlier relationship-axis picker's shake (dae0155/3395e6d),
+# which rerolled scheme+place+mode+phase independently. The gallery shake is
+# simpler: place/mode are now baked into each catalog entry's recipe, so
+# shaking only needs to (a) expand to the full 28-entry catalog (so any
+# entry is reachable) and (b) land the cursor on a random entry — place/
+# mode/phase follow automatically at apply/save time via the recipe + the
+# live phase knob (case a/enter, Task 4 below).
 set -l pk2 (functions __tcz_theme_picker | string collect)
 t "picker has a shake arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; or echo 0)
-t "shake rerolls the scheme row" 1 (string match -q '*set sel (random 1 $n)*' -- "$pk2"; and echo 1; or echo 0)
-# NB fish performs NO command substitution inside double quotes — `math
-# "(random 0 71) * 5"` passes the LITERAL text to math ("Unknown function"
-# stderr into the popup) and leaves phase an EMPTY LIST that then vanishes
-# from unquoted arg lists, shifting every palette arg (2026-07-20 live bug:
-# z spammed errors + rendered everything black). The reroll must capture
-# random into a var FIRST; the guard bans the substitution-in-math form.
-t "shake rerolls phase in 5° steps" 1 (string match -q '*set phase (math "$zp \* 5")*' -- "$pk2"; and echo 1; or echo 0)
-# execute the fixed reroll pattern: phase must come back a single multiple of 5 in [0,355]
-set -l _zp (random 0 71)
-set -l _zphase (math "$_zp * 5")
-t "shake phase pattern executes" 1 (count $_zphase)
-t "shake phase in range and step" 1 (test $_zphase -ge 0 -a $_zphase -le 355 -a (math "$_zphase % 5") -eq 0; and echo 1; or echo 0)
-# v4 picker (Phase 2, Task 3): rotate is retired — shake now rerolls place +
-# mode alongside phase (relationship reroll above is unchanged).
-t "shake rerolls place" 1 (string match -q '*set place $places[$pi]*' -- "$pk2"; and echo 1; or echo 0)
-t "shake rerolls mode" 1 (string match -q '*set mode $modes[$mi]*' -- "$pk2"; and echo 1; or echo 0)
-t "shake flashes place/mode/phase" 1 (string match -q "*set flashfield 'place mode phase'*" -- "$pk2"; and echo 1; or echo 0)
-# Task 4 review fix: this used to feed the RETIRED "d contrast o rotate"
-# vocabulary as literal builder args — updated to the real v4 legend row
-# (phase/place/mode/shake) it now exercises.
-t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase p place m mode z shake)); and echo 1; or echo 0)
+t "shake expands the catalog" 1 (string match -q '*case z*set expanded 1*' -- "$pk2"; and echo 1; or echo 0)
+# fish landmine guard (2026-07-20 live bug, still relevant): capture random
+# into a var BEFORE using it as an index — never inline it into quoted math.
+t "shake captures random into a var first" 1 (string match -q '*set -l zi (random 0 27)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake selects the captured index" 1 (string match -q '*set sel $zi*' -- "$pk2"; and echo 1; or echo 0)
+t "shake reloads + reclamps n after expanding" 1 (string match -q '*set expanded 1*set -l zi (random 0 27)*set sel $zi*__tcz_thp_reload*set n (count $toks)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake no longer rerolls place/mode independently" yes (begin; not string match -q '*set place $places[$pi]*' -- "$pk2"; and not string match -q '*set mode $modes[$mi]*' -- "$pk2"; end; and echo yes; or echo no)
+
+t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase m more z shake)); and echo 1; or echo 0)
 set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
 t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*' -- $leglines; and echo 1; or echo 0)
 
@@ -1316,13 +1310,15 @@ t "picker drops rotpal"           0 (string match -q '*__tcz_thp_rotpal*'       
 # anywhere in functions/ or conf.d/ before removal; the function is now gone
 # entirely (not merely uncalled).
 t "rotpal function fully removed" 0 (functions -q __tcz_thp_rotpal; and echo 1; or echo 0)
-# Gallery picker rewrite, Task 2: place/mode are no longer picker-level
-# universal reads — _init drops them (they're per-catalog-entry fields now,
-# read out of each row in _reload). The universals themselves still exist
-# for the CLI (conf.d/tmux-lives-install.fish, --place/--mode flags) — this
-# guard is scoped to the picker body ($pbody) only.
-t "picker no longer reads place universal" 0 (string match -q '*tmux_lives_theme_place*'  -- "$pbody"; and echo 1; or echo 0)
-t "picker no longer reads mode universal"  0 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
+# Gallery picker rewrite, Task 2: place/mode are no longer LIVE picker knobs
+# — _init originally dropped their universal reads entirely (per-catalog-
+# entry fields now, read out of each row in _reload). Gallery Task 4 found
+# that was too aggressive: the anchor snapshot (the persisted theme, frozen
+# at open) still needs the PERSISTED place/mode to build its own recipe, so
+# _init re-reads them (see the "anchor reads persisted place/mode" guards
+# above) — just never as something a knob mutates during the loop. The
+# universals themselves always existed for the CLI (conf.d/tmux-lives-
+# install.fish, --place/--mode flags) — this guard is scoped to $pbody only.
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
 # Task 5: every __tmux_lives_theme_palette call in the picker body must carry
@@ -1400,14 +1396,23 @@ t "window: sel=3 no -0 start" "0 7" (__tcz_thp_window 3 12 7)
 # sees one flattened line instead of several.
 set -l zonebody (string match -r '(?s)__tcz_thp_zsep \$IW .adjustments.*?__tcz_thp_zsep \$IW' -- "$pbody" | string collect)
 set -l litbody (string match -r '(?s)function __tcz_thp_litkv.*?\n    end' -- "$pbody" | string collect)
-t "zone shows place"       1 (string match -q '*place*'     -- "$zonebody"; and echo 1; or echo 0)
-t "zone shows mode"        1 (string match -q '*mode*'      -- "$zonebody"; and echo 1; or echo 0)
+# Gallery rewrite Task 4 supersedes this Task 2 zone content: place/mode are
+# no longer top-level knobs (they come from the selected catalog entry's
+# recipe), so the adjustments zone shrinks further to seed + phase only.
+t "zone drops place"       0 (string match -q '*place*'     -- "$zonebody"; and echo 1; or echo 0)
+t "zone drops mode"        0 (string match -q '*mode*'      -- "$zonebody"; and echo 1; or echo 0)
 t "zone drops vividness"   0 (string match -q '*vividness*' -- "$zonebody"; and echo 1; or echo 0)
 t "zone drops rotate lbl"  0 (string match -q '*rotate*'    -- "$zonebody"; and echo 1; or echo 0)
-t "litkv shows place"      1 (string match -q '*place*'     -- "$litbody"; and echo 1; or echo 0)
-t "litkv shows mode"       1 (string match -q '*mode*'      -- "$litbody"; and echo 1; or echo 0)
+t "litkv drops place"      0 (string match -q '*place*'     -- "$litbody"; and echo 1; or echo 0)
+t "litkv drops mode"       0 (string match -q '*mode*'      -- "$litbody"; and echo 1; or echo 0)
 t "litkv drops vividness"  0 (string match -q '*vividness*' -- "$litbody"; and echo 1; or echo 0)
 t "litkv drops rotate lbl" 0 (string match -q '*rotate*'    -- "$litbody"; and echo 1; or echo 0)
+# the brief's own regex for this ("kv .*place .\$place") is VACUOUS: a bare
+# mid-pattern `$` in PCRE is an end-of-subject anchor, so `.*place .$place`
+# can never match ANYTHING regardless of what the code says (verified: both
+# a string containing `place "$place"` and one without it return no-match).
+# Assert the real thing instead — the exact literal call text is gone.
+t "zone drops place kv" 0 (string match -q '*seed "$seedchip" place "$place" mode "$mode"*' -- "$pbody"; and echo 1; or echo 0)
 # Task 2 review Minor (folded in Task 5): the old form nested an uncollected
 # greedy `string match -r` directly as a bare command-substitution argument —
 # it worked, but relied on argument-splitting incidentals rather than an
@@ -1428,30 +1433,36 @@ t "litkv has 2 kv calls" 2 (count $litkvlines)
 t "kv1 fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
 t "kv2 fields synced (litkv == draw loop)" yes (test "$zonekvlines[2]" = "$litkvlines[2]"; and echo yes; or echo no)
 
-# --- Theme v4 picker rewrite (Phase 2), Task 3: key dispatch — place/mode
-# knobs, drop retired vividness/shape/ease/contrast/rotate keys, adapt
-# z-shake + apply/save to place/mode. Final key map: up/down/jk relationship,
-# p/P place, m/M mode, left/right phase, b seed, z shake, a apply, enter
-# save, r reset, esc/q close. $pbody is the already-extracted
+# --- Gallery picker rewrite, Task 4: key dispatch — recipe-based
+# apply/save (place+mode come from the SELECTED catalog entry's recipe, not
+# user-cycled knobs), m repurposed to expand/collapse the 12->28 catalog, z
+# shake picks a random catalog row. Supersedes the earlier v4-relationship-
+# axis picker's p/P place-mode-cycle, m/M mode-toggle, and r reset keys
+# (dae0155/45b66ed), which this task deletes outright. Final key map: up/
+# down/jk move, left/right phase, b seed, m expand/collapse, z shake, a
+# apply, enter save, esc/q close. $pbody is the already-extracted
 # __tcz_theme_picker function body (defined above, Task 1 section).
-t "key p cycles place"  1 (string match -qr 'case p\b' -- "$pbody"; and echo 1; or echo 0)
-t "key m cycles mode"   1 (string match -qr 'case m\b' -- "$pbody"; and echo 1; or echo 0)
-t "no vividness key"    0 (string match -qr 'case v\b' -- "$pbody"; and echo 1; or echo 0)
-t "no rotate key"       0 (string match -qr 'case o\b' -- "$pbody"; and echo 1; or echo 0)
+t "no place-cycle key"         0 (string match -qr 'case p\b' -- "$pbody"; and echo 1; or echo 0)
+t "no place-cycle-reverse key" 0 (string match -qr 'case P\b' -- "$pbody"; and echo 1; or echo 0)
+t "no mode-toggle key"         0 (string match -qr 'case m M\b' -- "$pbody"; and echo 1; or echo 0)
+t "no reset key"               0 (string match -qr 'case r\b' -- "$pbody"; and echo 1; or echo 0)
+t "no vividness key"           0 (string match -qr 'case v\b' -- "$pbody"; and echo 1; or echo 0)
+t "no rotate key"              0 (string match -qr 'case o\b' -- "$pbody"; and echo 1; or echo 0)
+t "m is expand"                1 (string match -q '*expanded*' -- "$pbody"; and string match -qr 'case m\b' -- "$pbody"; and echo 1; or echo 0)
+t "expand toggles the flag"    1 (string match -q '*test "$expanded" = 1; and set expanded 0; or set expanded 1*' -- "$pbody"; and echo 1; or echo 0)
+t "expand clamps sel to new n" 1 (string match -q '*test $sel -gt (math $n + 1); and set sel (math $n + 1)*' -- "$pbody"; and echo 1; or echo 0)
+t "save reads recipes"         1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
+t "apply-preview derives from recipe" 1 (string match -qr '(?s)case a\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
+t "save derives from recipe"          1 (string match -qr '(?s)case enter\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
 t "save passes --place" 1 (string match -q '*--place*' -- "$pbody"; and echo 1; or echo 0)
 t "save passes --mode"  1 (string match -q '*--mode*'  -- "$pbody"; and echo 1; or echo 0)
 # fish landmine guard: no command substitution inside quoted math (z-shake)
 t "shake captures random first" 0 (count (string match -ar 'math "[^"]*\(random' -- "$pbody"))
-
-# place cycles bar -> tabs -> cap -> low -> high -> bar (P reverses); low/high
-# force mode to derived at every site that can select them (p, P, and z-shake)
-# so the preview never disagrees with what the engine will force on save.
-t "place P is a distinct reverse arm"   1 (string match -qr 'case P\b' -- "$pbody"; and echo 1; or echo 0)
-t "place cycle bar->tabs (forward)"     1 (string match -q '*case bar;  set place tabs*' -- "$pbody"; and echo 1; or echo 0)
-t "place cycle bar->high (P, reverse)"  1 (string match -q '*case bar;  set place high*' -- "$pbody"; and echo 1; or echo 0)
-t "low/high force derived at p/P/m/z"   4 (count (string match -ar 'contains -- \$place low high' -- "$pbody"))
-t "mode M shares the m arm"             1 (string match -qr 'case m M\b' -- "$pbody"; and echo 1; or echo 0)
-t "mode toggles literal<->derived"      1 (string match -q '*test "$mode" = literal; and set mode derived; or set mode literal*' -- "$pbody"; and echo 1; or echo 0)
+# anchor snapshot: place/mode Task 2 dropped as picker-level READS turn out to
+# still be needed — the anchor's own (relationship, place, mode) tuple must
+# reflect the PERSISTED theme, not the (now-deleted) live place/mode knobs.
+t "anchor reads persisted place" 1 (string match -q '*tmux_lives_theme_place*' -- "$pbody"; and echo 1; or echo 0)
+t "anchor reads persisted mode"  1 (string match -q '*tmux_lives_theme_mode*'  -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 4: anchor place/mode snapshot +
 # v4 legend. Task 3 left a forward reference — its case-a/case-enter sel-0
@@ -1477,8 +1488,11 @@ t "anchor palette call is 9-arg (place+mode, drops rotate)" 1 (string match -q '
 
 set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
 t "legend row count is 2 (was 3)" 2 (count $leglines)
-t "legend names place" 1 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
-t "legend names mode"  1 (string match -q '*mode*'  -- $leglines; and echo 1; or echo 0)
+# Gallery rewrite Task 4: place/mode are no longer knobs, so the legend no
+# longer names them (m is repurposed to expand — see "legend names more").
+t "legend drops place" 0 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
+t "legend drops mode"  0 (string match -q '*mode*'  -- $leglines; and echo 1; or echo 0)
+t "legend names more"  1 (string match -q '*more*' -- $leglines; and echo 1; or echo 0)
 t "legend names shake" 1 (string match -q '*shake*' -- $leglines; and echo 1; or echo 0)
 t "legend drops contrast"  0 (string match -qr 'contrast' -- $leglines; and echo 1; or echo 0)
 t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo 1; or echo 0)
@@ -1539,6 +1553,18 @@ t "vismap: up from anchor -> off" 10 (__tcz_thp_vismap 11 10 up)
 t "vismap: up from off -> last scheme" 9 (__tcz_thp_vismap 10 10 up)
 t "vismap: up from scheme 0 stays" 0 (__tcz_thp_vismap 0 10 up)
 t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
+
+# --- Gallery picker rewrite, Task 4: preview-palette lookup + list marker go
+# LINEAR (sel 0..n-1 scheme / n off / n+1 anchor), matching Task 3's vismap.
+# Pre-Task-4 the lookup used the OLD numbering (sel 0 = anchor, 1..n =
+# schemes 1-indexed, >n = off) and the marker compared row NAME to the
+# anchor RELATIONSHIP — always false, since $toks holds catalog entry names
+# ("ember glow") while $anch_scheme holds a relationship ("ember").
+t "marker compares the full recipe, not the name" 1 (string match -q '*test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"*' -- "$pk"; and echo 1; or echo 0)
+t "marker no longer compares toks to anch_scheme" 0 (string match -q '*test "$toks[$idx]" = "$anch_scheme"*' -- "$pk"; and echo 1; or echo 0)
+t "preview indexes pals at the captured sel+1" 1 (string match -q '*set -l pi (math $sel + 1)*set curpal $pals[$pi]*' -- "$pk"; and echo 1; or echo 0)
+t "preview off row is the linear n (or empty anchor)" 1 (string match -q '*test $sel -eq $n; or test -z "$anchpal"*' -- "$pk"; and echo 1; or echo 0)
+
 set -l catsrc3 (cat $catfile | string collect)
 t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
 
@@ -1546,10 +1572,12 @@ t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and 
 set -l pk3 (functions __tcz_theme_picker | string collect)
 t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
 t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
-# v4 (Task 3): 8 = the function def + the `functions -e` cleanup + 6 call
-# sites (left, right, p, P, m/M, z) — v/V/s/S/e/E/d/D/o/O's 8 call sites are
-# gone (was 11 call sites + def + cleanup = 13; r never called it either way).
-t "litkv called from every knob arm" 8 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
+# Gallery rewrite Task 4: p/P/m-M/z's litkv calls are gone along with those
+# keys — only left/right (phase) still flash the zone; the new m (expand)
+# and z (shake) don't touch seed/phase, so they have nothing in the zone to
+# lit-flash. 4 = def + `functions -e` cleanup + 2 call sites (left, right)
+# (was 8: def + cleanup + 6 call sites [left, right, p, P, m/M, z]).
+t "litkv called from the phase knob arms" 4 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
 
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---

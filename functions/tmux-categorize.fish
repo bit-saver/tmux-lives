@@ -1435,7 +1435,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (v4 key map): tab-chip + fake-bar preview, labeled global-adjustments zone (seed/place/mode/phase), 6 relationship rows + off row + an anchor row LAST at the bottom (❯ <relationship> · current — a frozen snapshot of the persisted theme, taken once at open). The cursor starts ON the anchor (sel 0, bottom row); ↑↓/jk walk the VISUAL order via __tcz_thp_vismap (relationships, off, anchor), ❯ in the list marks whichever row matches the anchor relationship. ←→ phase (5°/press, coalesced), p/P cycle seed placement bar→tabs→cap→low→high (P reverses; low/high force mode to derived, matching the engine), m/M toggle mode literal/derived (a no-op at low/high placement — those are derived-only), z shake (random relationship+place+mode+phase), b seed (RGB sliders; t drops to typed hex), a apply preview (no save; the anchor previews its own frozen place/mode/phase, list rows preview the live knobs), ⏎ save (via the CLI, silenced — only place/mode/phase are re-saved; vividness/shape/ease/contrast keep whatever they were last set to and are not editable here; the anchor saves its snapshot verbatim), r reset (phase/place/mode only), Esc/q revert+close. Runs INSIDE a display-popup (-w 52 -h 22); the frame is EXACTLY 22 rows (6 relationship rows, down from 10 in v3.1 — the frame shrank to fit, Task 5 of the v4 picker rewrite).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row and a pinned anchor row LAST (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off, n+1 = anchor; ↑↓/jk walk this order via __tcz_thp_vismap, ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode). ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the anchor previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the anchor saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 22); the frame is EXACTLY 22 rows.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1456,6 +1456,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l expanded 0
     set -l legacy ''
     set -l seedfg '#f5f5f5'
+    # place/mode: READ-ONLY picker state — populated once by __tcz_thp_init
+    # from the PERSISTED universals, consumed only by the anchor snapshot
+    # (below). Nothing in the interactive loop mutates them anymore: place/
+    # mode now come from the SELECTED catalog entry's recipe (see $recipes),
+    # not a user-cycled knob.
+    set -l place bar
+    set -l mode derived
     set -l previewed 0
     function __tcz_thp_init --no-scope-shadowing
         # Universal reads MUST go through a config-loaded child: this process
@@ -1471,7 +1478,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_ease linear)
             echo (__tmux_lives_key tmux_lives_theme_contrast auto)
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-            echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))' 2>/dev/null)
+            echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))
+            echo (__tmux_lives_key tmux_lives_theme_place bar)
+            echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
         test (count $init) -ge 3; and test -n "$init[3]"; and set phase $init[3]
@@ -1483,6 +1492,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $init) -ge 8; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[8]")
         set seedfg '#f5f5f5'
         test (count $init) -ge 9; and test -n "$init[9]"; and set seedfg $init[9]
+        # place/mode: read for the anchor snapshot ONLY (see the top-level
+        # comment on the `place`/`mode` decls) — appended here rather than
+        # inserted so the seed..seedfg indices above stay 1..9 unchanged.
+        test (count $init) -ge 10; and test -n "$init[10]"; and set place $init[10]
+        test (count $init) -ge 11; and test -n "$init[11]"; and set mode $init[11]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1532,7 +1546,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-8) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
         set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
-        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" place "$place" mode "$mode")
+        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
         set -l k2 (__tcz_thp_kv $IW "$flashfield" phase "+$phase°")
         set -l l1 (__tcz_thp_ln "$k1[1]" $IW $BORDER $RST)
         set -l l2 (__tcz_thp_ln "$k1[2]" $IW $BORDER $RST)
@@ -1733,33 +1747,34 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     printf '\e[?25l\e[2J'
     set -l apply ''
     while true
-        # cursor row palette (anchor -> the frozen snapshot; off row -> legacy
-        # colors: derived bar + plain text). An anchor with an EMPTY anchpal
-        # (off/no-seed) falls through to the legacy else — the first branch
-        # requires non-empty anchpal, so sel 0 there doesn't short-circuit it.
+        # cursor row palette — LINEAR sel: 0..n-1 = scheme rows (1-indexed
+        # into $pals/$fgs/$tabsfgs, so capture sel+1 into a var FIRST — a
+        # math() expression written directly inside a quoted subscript is a
+        # fish "Invalid index value" ERROR, not a valid index), n = off
+        # (legacy colors), n+1 = anchor (the frozen snapshot). An anchor
+        # with an EMPTY anchpal (the persisted theme was off/no-seed) falls
+        # through to the SAME legacy branch as the off row.
         set -l curpal ''
         set -l curfg '#f5f5f5'
-        if test $sel -eq 0; and test -n "$anchpal"
-            set curpal $anchpal
-            set curfg $anchfg
-        else if test $sel -ge 1; and test $sel -le $n
-            set curpal $pals[$sel]
-            set -l cf $fgs[$sel]
+        set -l curtabsfg '#f5f5f5'
+        if test $sel -lt $n
+            set -l pi (math $sel + 1)
+            set curpal $pals[$pi]
+            set -l cf $fgs[$pi]
             test -n "$cf"; and set curfg $cf
-        else
+            set curtabsfg "$tabsfgs[$pi]"
+        else if test $sel -eq $n; or test -z "$anchpal"
             set -l lb "$legacy"
             test -n "$lb"; or set lb '#444444'
             set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
             set curfg '#f5f5f5'
+        else
+            set curpal $anchpal
+            set curfg $anchfg
+            set curtabsfg $anchtabsfg
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
-        set -l curtabsfg '#f5f5f5'
-        if test $sel -eq 0
-            set curtabsfg $anchtabsfg
-        else if test $sel -ge 1; and test $sel -le $n
-            set curtabsfg "$tabsfgs[$sel]"
-        end
         set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
@@ -1776,7 +1791,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'adjustments' $BORDER $RST)
-        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" place "$place" mode "$mode")
+        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
         set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
         set -l kv2 (__tcz_thp_kv $IW "$flashfield" phase "+$phase°")
@@ -1806,7 +1821,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -l selflag 0
                 test $i -eq $sel; and set selflag 1
                 set -l curflag 0
-                test "$toks[$idx]" = "$anch_scheme"; and set curflag 1
+                test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
                 if test $selflag -eq 1
                     set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
@@ -1841,8 +1856,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase p place m mode z shake) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 9 b seed a apply '⏎' save r reset esc close) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase m more z shake) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_legend_row 9 b seed a apply '⏎' save esc close) $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         # Synchronized update (DECSET 2026): commit the whole frame atomically so a
@@ -1914,89 +1929,69 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set flashfield phase
                 __tcz_thp_litkv
                 __tcz_thp_reload
-            case p
-                switch "$place"
-                    case bar;  set place tabs
-                    case tabs; set place cap
-                    case cap;  set place low
-                    case low;  set place high
-                    case '*';  set place bar
-                end
-                contains -- $place low high; and set mode derived
-                set flashfield place
-                __tcz_thp_litkv
+            case m
+                # expand/collapse the catalog: 12 curated rows <-> all 28.
+                # Reload FIRST so $n reflects the NEW list length before the
+                # sel clamp below runs (an un-reloaded $n would clamp against
+                # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
+                # this m is a different key (expand), not the old mode toggle.
+                test "$expanded" = 1; and set expanded 0; or set expanded 1
                 __tcz_thp_reload
-            case P
-                switch "$place"
-                    case bar;  set place high
-                    case high; set place low
-                    case low;  set place cap
-                    case cap;  set place tabs
-                    case '*';  set place bar
-                end
-                contains -- $place low high; and set mode derived
-                set flashfield place
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case m M
-                if contains -- $place low high
-                    set mode derived
-                else
-                    test "$mode" = literal; and set mode derived; or set mode literal
-                end
-                set flashfield mode
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case r
-                set phase 0; set place bar; set mode derived
-                set note 'knobs reset (not saved — ⏎ to save)'
+                set n (count $toks)
+                test $sel -gt (math $n + 1); and set sel (math $n + 1)
                 set flashfield ''
-                __tcz_thp_reload
             case b
                 __tcz_thp_sliders
             case z
-                # shake: one press -> a radically different combo. Relationship +
-                # placement + mode + phase reroll. Capture random BEFORE the math:
-                # fish does NO command substitution inside double quotes — a
-                # substitution written inside a quoted math expression reaches math
-                # as LITERAL text (stderr into the popup) and the failed assignment
-                # leaves phase an empty list that vanishes from unquoted arg lists
-                # (2026-07-20 live bug: error spam + all-black).
-                set sel (random 1 $n)
-                set -l places bar tabs cap low high
-                set -l pi (random 1 (count $places))
-                set place $places[$pi]
-                set -l modes literal derived
-                set -l mi (random 1 2)
-                set mode $modes[$mi]
-                contains -- $place low high; and set mode derived
-                set -l zp (random 0 71)
-                set phase (math "$zp * 5")
-                set flashfield 'place mode phase'
-                __tcz_thp_litkv
+                # shake: land on a random row across the FULL 28-entry
+                # catalog (expanding first so it's reachable). Place/mode are
+                # no longer independent knobs to reroll — they're baked into
+                # each row's RECIPE (case a/enter below derive them from
+                # $recipes) — so shake only needs a random index. Capture
+                # random into a var FIRST: fish performs NO command
+                # substitution inside double-quoted math — writing the roll
+                # directly as a math() argument would hand math the LITERAL
+                # unexpanded text (stderr into the popup) and vanish the
+                # assignment downstream (2026-07-20 live bug, same class of
+                # landmine).
+                set expanded 1
+                set -l zi (random 0 27)
+                set sel $zi
                 __tcz_thp_reload
+                set n (count $toks)
+                set flashfield ''
             case a
-                if test $sel -eq 0
+                if test $sel -eq (math $n + 1)
                     fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                 else
-                    set -l ptok off
-                    test $sel -le $n; and set ptok $toks[$sel]
-                    fish -c '__tmux_lives_theme_apply_live $argv' $ptok $place $mode $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                    set -l rel off
+                    set -l rplace bar
+                    set -l rmode derived
+                    if test $sel -lt $n
+                        set -l pi (math $sel + 1)
+                        set -l rc (string split '|' -- $recipes[$pi])
+                        set rel $rc[1]; set rplace $rc[2]; set rmode $rc[3]
+                    end
+                    fish -c '__tmux_lives_theme_apply_live $argv' $rel $rplace $rmode $phase $viv $shape $ease $contrast >/dev/null 2>&1
                     set previewed 1
-                    set note "● previewing $ptok — ⏎ save · esc revert"
+                    set note "● previewing $rel — ⏎ save · esc revert"
                 end
             case enter
-                if test $sel -eq 0
+                if test $sel -eq (math $n + 1)
                     set apply $anch_scheme
                     set phase $anch_phase
                     set place $anch_place
                     set mode $anch_mode
-                else if test $sel -le $n
-                    set apply $toks[$sel]
-                else
+                else if test $sel -eq $n
                     set apply off
+                else
+                    set -l pi (math $sel + 1)
+                    set -l rc (string split '|' -- $recipes[$pi])
+                    set apply $rc[1]
+                    set place $rc[2]
+                    set mode $rc[3]
                 end
                 break
             case cancel
