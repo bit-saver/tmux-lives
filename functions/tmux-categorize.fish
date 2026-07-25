@@ -1357,7 +1357,12 @@ function __tcz_thp_window --argument-names sel total winsize --description 'pure
     if test $total -le $winsize
         echo "0 $total"; return
     end
-    set -l start (math "$sel - $winsize / 2")
+    # --scale=0: fish's `math` is floating-point, not integer division — an
+    # ODD winsize (e.g. 7) makes `winsize / 2` land on .5 for EVERY sel, so an
+    # un-truncated $start would be fractional on every non-clamped call. That
+    # fractional string then blows up downstream ($toks[$idx] -> fish "Invalid
+    # index value") — truncate here so start is always a clean integer.
+    set -l start (math --scale=0 "$sel - $winsize / 2")
     test $start -lt 0; and set start 0
     set -l maxstart (math "$total - $winsize")
     test $start -gt $maxstart; and set start $maxstart

@@ -1370,6 +1370,14 @@ t "window: top of long list"   "0 8"  (__tcz_thp_window 2 28 8)
 t "window: scrolled middle"    "8 8"  (__tcz_thp_window 12 28 8)
 t "window: clamped at bottom"  "20 8" (__tcz_thp_window 27 28 8)
 t "window: sel always visible" 1 (set -l w (__tcz_thp_window 15 28 8); set -l s (string split ' ' $w); test 15 -ge $s[1] -a 15 -lt (math $s[1] + $s[2]); and echo 1; or echo 0)
+# fish's `math` is FLOATING-POINT division, not integer — an ODD winsize (the
+# render loop's actual $WIN = 7) makes "$winsize / 2" land on .5 for EVERY
+# sel, so an un-truncated start would be fractional on every non-clamped
+# call, and a fractional $toks[$idx] downstream is a fish "Invalid index
+# value" ERROR (live-breaking, not cosmetic). Pins the --scale=0 truncation
+# fix with the picker's real WIN=7 and a start that must land on a clean
+# integer (12 - 7/2 = 8.5 -> truncated 8).
+t "window: odd winsize stays integer (no fractional start)" "8 7" (__tcz_thp_window 12 28 7)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
 # + the 6-relationship list ---
