@@ -1166,8 +1166,10 @@ functions -e tmux
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
-# v4 (Task 1): _reload batches via the relationship list, not the retired v3 scheme list.
-t "picker batches palettes via theme_relationships" yes (string match -q '*__tmux_lives_theme_relationships*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
+# the v4 relationship list directly (superseded — see the "Gallery picker
+# rewrite, Task 2" section further down for the catalog-wiring guards).
+t "picker batches palettes via the catalog" yes (string match -q '*__tmux_lives_theme_catalog*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1292,11 +1294,18 @@ t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
-# _reload/_init must consume the v4 engine (__tmux_lives_theme_relationships +
-# the 9-arg __tmux_lives_theme_palette) instead of the deleted v3 machinery
-# (theme_schemes/theme_ring/rotpal/the rotate universal). $pbody is the
-# already-extracted __tcz_theme_picker function body from the guard block above.
-t "picker uses v4 relationships"  1 (string match -q '*__tmux_lives_theme_relationships*' -- "$pbody"; and echo 1; or echo 0)
+# _reload/_init must consume the v4 engine (the 9-arg __tmux_lives_theme_palette)
+# instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the
+# rotate universal). $pbody is the already-extracted __tcz_theme_picker
+# function body from the guard block above. NB the relationship-list-iteration
+# part of this contract is itself superseded by the Gallery picker rewrite's
+# Task 2 (further down) — the picker now iterates catalog rows, not
+# __tmux_lives_theme_relationships directly.
+# Gallery picker rewrite, Task 2 (2026-07-24) further supersedes this: the
+# relationship list is no longer referenced directly in the picker body at
+# all (it comes in per-row via the catalog) — see the "Gallery picker
+# rewrite, Task 2" guards further down for the current contract.
+t "picker no longer iterates relationships directly" 0 (string match -q '*__tmux_lives_theme_relationships*' -- "$pbody"; and echo 1; or echo 0)
 t "picker drops v3 schemes"       0 (string match -q '*__tmux_lives_theme_schemes*'      -- "$pbody"; and echo 1; or echo 0)
 t "picker drops deleted ring"     0 (string match -q '*__tmux_lives_theme_ring*'         -- "$pbody"; and echo 1; or echo 0)
 t "picker drops rotpal"           0 (string match -q '*__tcz_thp_rotpal*'                -- "$pbody"; and echo 1; or echo 0)
@@ -1307,8 +1316,13 @@ t "picker drops rotpal"           0 (string match -q '*__tcz_thp_rotpal*'       
 # anywhere in functions/ or conf.d/ before removal; the function is now gone
 # entirely (not merely uncalled).
 t "rotpal function fully removed" 0 (functions -q __tcz_thp_rotpal; and echo 1; or echo 0)
-t "picker reads place universal"  1 (string match -q '*tmux_lives_theme_place*'  -- "$pbody"; and echo 1; or echo 0)
-t "picker reads mode universal"   1 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
+# Gallery picker rewrite, Task 2: place/mode are no longer picker-level
+# universal reads — _init drops them (they're per-catalog-entry fields now,
+# read out of each row in _reload). The universals themselves still exist
+# for the CLI (conf.d/tmux-lives-install.fish, --place/--mode flags) — this
+# guard is scoped to the picker body ($pbody) only.
+t "picker no longer reads place universal" 0 (string match -q '*tmux_lives_theme_place*'  -- "$pbody"; and echo 1; or echo 0)
+t "picker no longer reads mode universal"  0 (string match -q '*tmux_lives_theme_mode*'   -- "$pbody"; and echo 1; or echo 0)
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
 # Task 5: every __tmux_lives_theme_palette call in the picker body must carry
@@ -1327,6 +1341,20 @@ for pc in $palcalls
     set -l nargs (count (string split ' ' -- $argstr))
     t "palette call is 9-arg: $argstr" 9 $nargs
 end
+
+# --- Gallery picker rewrite, Task 2: _reload/_init consume the catalog ------
+# Supersedes the "Task 1" engine-wiring section above (relationship-axis v4
+# picker): the picker no longer treats place/mode as top-level knobs — they
+# are now per-catalog-entry fields, read out of __tmux_lives_theme_catalog /
+# __tmux_lives_theme_catalog_default rows in _reload. The 9-arg palette
+# signature itself is unchanged (still relationship/place/mode positionally,
+# just sourced from a catalog row instead of picker vars).
+t "picker uses catalog"             1 (string match -q '*__tmux_lives_theme_catalog*' -- "$pbody"; and echo 1; or echo 0)
+t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_catalog_default*' -- "$pbody"; and echo 1; or echo 0)
+t "picker drops relationships iter" 0 (string match -q '*for tok in (__tmux_lives_theme_relationships)*' -- "$pbody"; and echo 1; or echo 0)
+t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; and echo 1; or echo 0)
+t "picker has expanded state"       1 (string match -q '*expanded*' -- "$pbody"; and echo 1; or echo 0)
+t "picker still 9-arg palette"      1 (string match -q '*__tmux_lives_theme_palette $seed *$phase $viv $shape $ease $contrast*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
 # + the 6-relationship list ---

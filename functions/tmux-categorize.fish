@@ -1431,8 +1431,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l shape arc
     set -l ease linear
     set -l contrast auto
-    set -l place bar
-    set -l mode derived
+    set -l expanded 0
     set -l legacy ''
     set -l seedfg '#f5f5f5'
     set -l previewed 0
@@ -1449,8 +1448,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_shape arc)
             echo (__tmux_lives_key tmux_lives_theme_ease linear)
             echo (__tmux_lives_key tmux_lives_theme_contrast auto)
-            echo (__tmux_lives_key tmux_lives_theme_place bar)
-            echo (__tmux_lives_key tmux_lives_theme_mode derived)
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
             echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
@@ -1460,12 +1457,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
         test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
         test (count $init) -ge 7; and test -n "$init[7]"; and set contrast $init[7]
-        test (count $init) -ge 8; and test -n "$init[8]"; and set place $init[8]
-        test (count $init) -ge 9; and test -n "$init[9]"; and set mode $init[9]
         set legacy ''
-        test (count $init) -ge 10; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[10]")
+        test (count $init) -ge 8; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[8]")
         set seedfg '#f5f5f5'
-        test (count $init) -ge 11; and test -n "$init[11]"; and set seedfg $init[11]
+        test (count $init) -ge 9; and test -n "$init[9]"; and set seedfg $init[9]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1473,25 +1468,30 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l pals
     set -l fgs
     set -l tabsfgs
+    set -l recipes
     set -l cachekeys
     set -l cacheblobs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: all 6 relationship palettes + fgs, in-process; v4 engine results cached by knob-state key (seed/place/mode/phase)'
-        set toks; set pals; set fgs; set tabsfgs
-        set -l key "$seed|$place|$mode|$phase"
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (12 default / 28 all) + fgs, in-process; v4 engine results cached by knob-state key (seed/phase/expanded)'
+        set toks; set pals; set fgs; set tabsfgs; set recipes
+        set -l key "$seed|$phase|$expanded"
         set -l blob ''
         set -l ci (contains -i -- "$key" $cachekeys)
         if test -n "$ci"
             set blob $cacheblobs[$ci]
         else
             set -l lines
-            for tok in (__tmux_lives_theme_relationships)
-                set -l p (__tmux_lives_theme_palette $seed $tok $place $mode $phase $viv $shape $ease $contrast)
+            set -l rows (__tmux_lives_theme_catalog_default)
+            test "$expanded" = 1; and set rows (__tmux_lives_theme_catalog)
+            for e in $rows
+                set -l f (string split '|' -- $e)
+                set -l p (__tmux_lives_theme_palette $seed $f[2] $f[3] $f[4] $phase $viv $shape $ease $contrast)
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # cap/tabs are pinned (fields 6/3 of pal) -> compute their fgs once
                 set -l capfg (__tmux_lives_contrast_fg "$p[6]")
                 set -l tabsfg (__tmux_lives_contrast_fg "$p[3]")
                 set -l pj (string join ' ' $p)
-                set -a lines "$tok|$pj|$capfg|$tabsfg"
+                set -l recipe "$f[2]|$f[3]|$f[4]"
+                set -a lines "$f[1]|$pj|$capfg|$tabsfg|$recipe"
             end
             set -l bj (string join \x1e $lines)
             set blob "$bj"
@@ -1499,12 +1499,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a cacheblobs "$blob"
         end
         for line in (string split \x1e -- $blob)
-            set -l f (string split '|' -- $line)
+            set -l f (string split -m 4 '|' -- $line)   # recipe is last; keep embedded |
             test -n "$f[1]"; or continue
             set -a toks $f[1]
             set -a pals "$f[2]"
             set -a fgs "$f[3]"
             set -a tabsfgs "$f[4]"
+            set -a recipes "$f[5]"
         end
     end
     function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-8) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
