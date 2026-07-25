@@ -792,7 +792,7 @@ command tmux -L $thfsock kill-server 2>/dev/null; rm -f /tmp/tli-thfrag-$fish_pi
 # the v2 engine itself is gone (task 2), but these names are left in the save/restore
 # list defensively — harmless if untouched, and cheap insurance against a future
 # regression that starts reading them again.
-set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_theme_polarity tmux_lives_theme_contrast tmux_lives_theme_rotate tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role
+set -g _th_names tmux_lives_theme tmux_lives_theme_phase tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_range tmux_lives_theme_polarity tmux_lives_theme_contrast tmux_lives_theme_rotate tmux_lives_bar_color tmux_lives_status_invert tmux_lives_cap tmux_lives_cap_wheel tmux_lives_cap_vividness tmux_lives_cap_role tmux_lives_theme_place tmux_lives_theme_mode
 set -g _th_had
 set -g _th_saved
 for n in $_th_names
@@ -1190,6 +1190,8 @@ t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_
 t "fragment window-status-format is plain (v3.3 render)" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)
 t "guard: no claude_color in install source" 0 (string match -q '*claude_color*' -- "$src"; and echo 1; or echo 0)
+t "guard: _th_names covers theme_place" 1 (contains tmux_lives_theme_place $_th_names; and echo 1; or echo 0)
+t "guard: _th_names covers theme_mode" 1 (contains tmux_lives_theme_mode $_th_names; and echo 1; or echo 0)
 
 # --- universal-variable isolation (2026-07-25) ---------------------------
 # The suite drives the real CLI, which really does `set -U`. Without the
