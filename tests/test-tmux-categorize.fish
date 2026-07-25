@@ -1209,8 +1209,12 @@ t "shake reloads + reclamps n after expanding" 1 (string match -q '*set expanded
 t "shake no longer rerolls place/mode independently" yes (begin; not string match -q '*set place $places[$pi]*' -- "$pk2"; and not string match -q '*set mode $modes[$mi]*' -- "$pk2"; end; and echo yes; or echo no)
 
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase m more z shake)); and echo 1; or echo 0)
-set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
-t "picker legend dropped the nav hint" 0 (string match -q '*↑↓*' -- $leglines; and echo 1; or echo 0)
+# picker current-zone + legend-grid refinement, Task 1: the picker's legend
+# is now the __tcz_thp_leg 3x3 grid (see the dedicated section below), which
+# RE-ADDS the ↑↓ nav hint dropped here by the earlier gallery-picker-rewrite
+# Task 4 (it had no room in the 2-row fixed-pitch layout). Superseded — the
+# "dropped the nav hint" contract from that task no longer holds by design;
+# real coverage now lives in "picker legend names nav (up/down move)" below.
 
 # --- raw-mode seed entry (live swatch + hue readout) ---
 t "thp_readchar exists with hex classification" yes (string match -q '*0-9a-fA-F*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
@@ -1494,8 +1498,12 @@ t "anchor drops rotate"    0 (string match -q '*anch_rotate*' -- "$anchsnap"; an
 # against the full $pbody since this exact call text is unique to this site.
 t "anchor palette call is 9-arg (place+mode, drops rotate)" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pbody"; and echo 1; or echo 0)
 
-set -l leglines (string match -a -e '__tcz_thp_ln (__tcz_legend_row' -- (functions __tcz_theme_picker))
-t "legend row count is 2 (was 3)" 2 (count $leglines)
+# picker current-zone + legend-grid refinement, Task 1: the two fixed-pitch
+# __tcz_legend_row calls (was 2, itself "was 3" before the gallery rewrite)
+# are folded into ONE __tcz_thp_leg 3-col grid call — see the dedicated
+# section below for the row-count/content coverage that replaces this.
+set -l leglines (string match -r -- "__tcz_thp_leg .*" $pbody)
+t "legend is built via a single __tcz_thp_leg call" 1 (count $leglines)
 # Gallery rewrite Task 4: place/mode are no longer knobs, so the legend no
 # longer names them (m is repurposed to expand — see "legend names more").
 t "legend drops place" 0 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
@@ -1629,6 +1637,72 @@ set -l retitle_body (awk '/^function __tcz_retitle/,/^end$/' $catfile | string c
 t "recolor handles iterm2" 1 (string match -q '*iterm2*' -- "$recolor_body"; and echo 1; or echo 0)
 t "on-attach handles iterm2" 1 (string match -q '*iterm2*' -- "$onattach_body"; and echo 1; or echo 0)
 t "retitle handles iterm2" 1 (string match -q '*iterm2*' -- "$retitle_body"; and echo 1; or echo 0)
+
+# --- picker current-zone + legend-grid refinement, Task 1: __tcz_thp_leg
+# aligned legend grid (cross-row column widths). The bug this replaces: the
+# old two-call __tcz_legend_row wiring computed each ROW's cell widths
+# independently, so column 3 landed at a different x on every row. The new
+# builder takes ALL <key,desc> pairs at once and sizes each column by the
+# MAX width across every row, so descriptions line up regardless of which
+# row's icon happens to be longer.
+set -l L (__tcz_thp_leg 3 '↑↓' move '←→' phase b seed  m more z shake c current  a apply '⏎' save esc close)
+t "leg emits 3 rows" 3 (count $L)
+set -l lp1 (__tcz_strip_sgr $L[1])
+set -l lp2 (__tcz_strip_sgr $L[2])
+set -l lp3 (__tcz_strip_sgr $L[3])
+# Exact plain-text rows — the strongest cross-row-alignment gate: had any
+# column's width been computed per-row instead of as the max over all rows,
+# these literal strings would NOT match (concrete, hand/script-verified
+# offsets, not derived from the implementation itself).
+t "leg row1 exact text" ' ↑↓ move    ←→ phase   b   seed   ' "$lp1"
+t "leg row2 exact text" ' m  more    z  shake   c   current' "$lp2"
+t "leg row3 exact text" ' a  apply   ⏎  save    esc close  ' "$lp3"
+# Column-3 desc starts at the SAME visible offset (col 28) on every row —
+# the defining cross-row-alignment property, checked directly by position.
+t "leg col3 desc aligns row1" seed    (string sub -s 28 -l 4 -- "$lp1")
+t "leg col3 desc aligns row2" current (string sub -s 28 -l 7 -- "$lp2")
+t "leg col3 desc aligns row3" close   (string sub -s 28 -l 5 -- "$lp3")
+# Column-1 and column-2 descs likewise align across rows (offsets 5 and 16).
+t "leg col1 desc aligns row1" move  (string sub -s 5 -l 4 -- "$lp1")
+t "leg col1 desc aligns row2" more  (string sub -s 5 -l 4 -- "$lp2")
+t "leg col1 desc aligns row3" apply (string sub -s 5 -l 5 -- "$lp3")
+t "leg col2 desc aligns row1" phase (string sub -s 16 -l 5 -- "$lp1")
+t "leg col2 desc aligns row2" shake (string sub -s 16 -l 5 -- "$lp2")
+t "leg col2 desc aligns row3" save  (string sub -s 16 -l 4 -- "$lp3")
+# icon<->desc gap is exactly 1 space, checked on an UNPADDED cell (col2,
+# row1: key width 2 == keyw, desc width 5 == descw, so the single space
+# between them is purely the separator, not incidental padding).
+t "leg icon-desc gap is 1 space" '←→ phase' (string sub -s 13 -l 8 -- "$lp1")
+# each row fits inside the picker's IW (50)
+t "leg row1 fits IW" 1 (test (string length --visible -- "$lp1") -le 50; and echo 1; or echo 0)
+t "leg row2 fits IW" 1 (test (string length --visible -- "$lp2") -le 50; and echo 1; or echo 0)
+t "leg row3 fits IW" 1 (test (string length --visible -- "$lp3") -le 50; and echo 1; or echo 0)
+# colors sourced from the shared theme accessor (consistent with every other
+# picker element) — key tan, desc muted
+t "leg key colored" 1 (string match -q '*38;2;245;207;138*' -- "$L[1]"; and echo 1; or echo 0)
+t "leg desc muted"  1 (string match -q '*38;2;154;138;114*' -- "$L[1]"; and echo 1; or echo 0)
+# malformed input (odd pair count) guard: no output
+t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
+
+# picker wiring: the legend is now ONE __tcz_thp_leg 3-col call (9 pairs),
+# not two fixed-pitch __tcz_legend_row calls — supersedes the pre-gallery-
+# refinement assertions below that grepped for the old call pattern.
+set -l pbody2 (functions __tcz_theme_picker | string collect)
+set -l leggrid (string match -r -- "__tcz_thp_leg 3 .*" $pbody2)
+t "picker legend is a single __tcz_thp_leg 3-col call" 1 (count $leggrid)
+# scoped to the two RETIRED bottom-legend calls specifically (pitch 12/9) —
+# NOT a whole-body absence check, since __tcz_theme_picker's inline seed
+# screens (b/t) still legitimately call the shared __tcz_legend_row at
+# pitch 14 (out of scope for this task; left untouched).
+t "picker drops the old pitch-12 legend_row call" 0 (string match -q '*__tcz_legend_row 12*' -- "$pbody2"; and echo 1; or echo 0)
+t "picker drops the old pitch-9 legend_row call"  0 (string match -q '*__tcz_legend_row 9*'  -- "$pbody2"; and echo 1; or echo 0)
+t "picker seed-screen legend_row (pitch 14) untouched" 1 (string match -q '*__tcz_legend_row 14*' -- "$pbody2"; and echo 1; or echo 0)
+t "picker legend names nav (up/down move)" 1 (string match -q '*↑↓*move*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend names current (c)" 1 (string match -q '*current*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend still names more"  1 (string match -q '*more*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend still names shake" 1 (string match -q '*shake*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend still drops place" 0 (string match -q '*place*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

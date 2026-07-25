@@ -1435,6 +1435,59 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
+function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-aligned legend grid — argv[2..] = <key> <desc> pairs, `cols` pairs per row, row-major. Column widths are the MAX key/desc visible-width over ALL rows (not per-row) — the fix for the old __tcz_legend_row-per-row wiring, where each rows cell widths were sized independently and column 3 landed at a different x on every row. Each cell = key (key color, padded to the columns keyw) + 1 space + desc (muted, padded to the columns descw); cells joined by a 3-space gap; each row prefixed by 1 space. Prints one line per grid row.'
+    set -l pairs $argv[2..-1]
+    set -l n (count $pairs)
+    test (math "$n % 2") -eq 0; or return 1     # malformed: odd key/desc count
+    set -l npairs (math "$n / 2")
+    set -l keys
+    set -l descs
+    for i in (seq 1 2 $n)
+        set -a keys $pairs[$i]
+        set -a descs $pairs[(math $i + 1)]
+    end
+    # column widths = MAX over ALL rows — the whole point: this is what makes
+    # descriptions line up column-to-column regardless of a shorter/longer
+    # icon on some other row. fish math has no max()/comparison op, so track
+    # it via test+set (NOT `math max`).
+    set -l keyw
+    set -l descw
+    for c in (seq 1 $cols)
+        set -a keyw 0
+        set -a descw 0
+    end
+    for i in (seq 1 $npairs)
+        set -l col (math "($i - 1) % $cols + 1")
+        set -l kw (string length --visible -- $keys[$i])
+        set -l dw (string length --visible -- $descs[$i])
+        test $kw -gt $keyw[$col]; and set keyw[$col] $kw
+        test $dw -gt $descw[$col]; and set descw[$col] $dw
+    end
+    set -l KC (__tcz_theme key)
+    set -l DC (__tcz_theme muted)
+    set -l RS (__tcz_theme reset)
+    set -l line ' '
+    for i in (seq 1 $npairs)
+        set -l col (math "($i - 1) % $cols + 1")
+        # pad from the PLAIN glyph width, THEN colorize (SGR has 0 visible width)
+        set -l kpad (string pad -r -w $keyw[$col] -- $keys[$i])
+        set -l dpad (string pad -r -w $descw[$col] -- $descs[$i])
+        set -l cell "$KC$kpad$RS $DC$dpad$RS"
+        if test $col -eq 1
+            set line "$line$cell"
+        else
+            set line "$line   $cell"
+        end
+        # emit a line every `cols` cells — a counter/modulo, NOT a precomputed
+        # row count via --scale=0 division (that ROUNDS).
+        if test $col -eq $cols
+            printf '%s\n' "$line"
+            set line ' '
+        end
+    end
+    test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
+end
+
 function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row and a pinned anchor row LAST (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off, n+1 = anchor; ↑↓/jk walk this order via __tcz_thp_vismap, ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode). ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the anchor previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the anchor saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 24); the frame is EXACTLY 24 rows (16 static chrome/off/anchor rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
@@ -1864,8 +1917,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 12 '←→' phase m more z shake) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_legend_row 9 b seed a apply '⏎' save esc close) $IW $BORDER $RST)
+        for lline in (__tcz_thp_leg 3 '↑↓' move '←→' phase b seed  m more z shake c current  a apply '⏎' save esc close)
+            set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
+        end
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         # Synchronized update (DECSET 2026): commit the whole frame atomically so a
