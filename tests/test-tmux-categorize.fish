@@ -1356,6 +1356,21 @@ t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; 
 t "picker has expanded state"       1 (string match -q '*expanded*' -- "$pbody"; and echo 1; or echo 0)
 t "picker still 9-arg palette"      1 (string match -q '*__tmux_lives_theme_palette $seed *$phase $viv $shape $ease $contrast*' -- "$pbody"; and echo 1; or echo 0)
 
+# --- Gallery picker rewrite, Task 3: windowed scrolling list + linear nav ---
+# __tcz_thp_window <sel> <total> <winsize> -> "<start> <count>", the 0-based
+# first visible index + how many rows to draw, clamped so sel stays visible
+# and the window never overruns total. Pure; module-level (not nested inside
+# __tcz_theme_picker, so it is NOT part of the picker's --no-scope-shadowing
+# helper teardown at the end of the function).
+t "window: fits, no scroll"    "0 5"  (__tcz_thp_window 0 5 8)
+t "window: top of long list"   "0 8"  (__tcz_thp_window 2 28 8)
+# NB: "$sel - $winsize / 2" divides FIRST (8/2=4), so sel=12 centers at
+# start=12-4=8 — pinning the literal transcribed formula's actual output,
+# not a naively-centered "9" some other halving would give.
+t "window: scrolled middle"    "8 8"  (__tcz_thp_window 12 28 8)
+t "window: clamped at bottom"  "20 8" (__tcz_thp_window 27 28 8)
+t "window: sel always visible" 1 (set -l w (__tcz_thp_window 15 28 8); set -l s (string split ' ' $w); test 15 -ge $s[1] -a 15 -lt (math $s[1] + $s[2]); and echo 1; or echo 0)
+
 # --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
 # + the 6-relationship list ---
 # Scope narrowly to the actual kv-zone regions rather than the whole $pbody:
@@ -1499,15 +1514,18 @@ t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 # anchor row sits at the BOTTOM, below the off row (2026-07-21 user request):
 # draw order = schemes, off, anchor; arrows walk the VISUAL order via the pure
-# vismap (sel semantics unchanged: 0=anchor, 1..n=schemes, n+1=off)
+# vismap. Gallery rewrite Task 3 (2026-07-24): sel is now LINEAR — schemes
+# 0..n-1, off at n, anchor at n+1 LAST (was 0=anchor / 1..n=schemes / n+1=off
+# before this task) — this lets the scrolling window just clamp start into
+# [0, n-winsize] without special-casing the old anchor sel-0 wraparound.
 t "picker draws the anchor AFTER the off row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk"; and echo 1; or echo 0)
 t "picker up/down go through vismap" 2 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
-t "vismap: down from last scheme -> off" 11 (__tcz_thp_vismap 10 10 down)
-t "vismap: down from off -> anchor" 0 (__tcz_thp_vismap 11 10 down)
-t "vismap: down from anchor stays" 0 (__tcz_thp_vismap 0 10 down)
-t "vismap: up from anchor -> off" 11 (__tcz_thp_vismap 0 10 up)
-t "vismap: up from off -> last scheme" 10 (__tcz_thp_vismap 11 10 up)
-t "vismap: up from scheme 1 stays" 1 (__tcz_thp_vismap 1 10 up)
+t "vismap: down from last scheme -> off" 10 (__tcz_thp_vismap 9 10 down)
+t "vismap: down from off -> anchor" 11 (__tcz_thp_vismap 10 10 down)
+t "vismap: down from anchor stays" 11 (__tcz_thp_vismap 11 10 down)
+t "vismap: up from anchor -> off" 10 (__tcz_thp_vismap 11 10 up)
+t "vismap: up from off -> last scheme" 9 (__tcz_thp_vismap 10 10 up)
+t "vismap: up from scheme 0 stays" 0 (__tcz_thp_vismap 0 10 up)
 t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
 set -l catsrc3 (cat $catfile | string collect)
 t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)

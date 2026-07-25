@@ -1341,16 +1341,27 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l RS2 (__tcz_theme reset)
     printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
 end
-function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one VISUAL step and return the new sel. Visual order = schemes 1..n, off n+1, anchor (sel 0) at the BOTTOM; sel semantics unchanged. Edges clamp.'
+function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one step in the LINEAR visual order — scheme_0 … scheme_{n-1} (sel 0..n-1), off (sel n), anchor (sel n+1, LAST). up = max(0, sel-1); down = min(n+1, sel+1). Edges clamp.'
     set -l vp $sel
-    test $sel -eq 0; and set vp (math $n + 2)
     if test "$dirn" = up
-        test $vp -gt 1; and set vp (math $vp - 1)
+        set vp (math $vp - 1)
+        test $vp -lt 0; and set vp 0
     else
-        test $vp -lt (math $n + 2); and set vp (math $vp + 1)
+        set vp (math $vp + 1)
+        set -l vmax (math $n + 1)
+        test $vp -gt $vmax; and set vp $vmax
     end
-    test $vp -eq (math $n + 2); and set vp 0
     echo $vp
+end
+function __tcz_thp_window --argument-names sel total winsize --description 'pure: window a long list -> "<start> <count>" (0-based first visible index + rows to draw), clamped so sel stays visible and the window never overruns total'
+    if test $total -le $winsize
+        echo "0 $total"; return
+    end
+    set -l start (math "$sel - $winsize / 2")
+    test $start -lt 0; and set start 0
+    set -l maxstart (math "$total - $winsize")
+    test $start -gt $maxstart; and set start $maxstart
+    echo "$start $winsize"
 end
 
 function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-line big seed swatch — 12-col color band + readouts (hex bold / hue·L·chroma / the seed-IS-the-bar copy). Non-hex hex -> blank band, empty text.'
@@ -1760,21 +1771,41 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l kv2 (__tcz_thp_kv $IW "$flashfield" phase "+$phase°")
         set -a lines (__tcz_thp_ln "$kv2[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv2[2]" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'relationship · hue-travels for your seed' $BORDER $RST)
-        for i in (seq $n)
-            set -l selflag 0
-            test $i -eq $sel; and set selflag 1
-            set -l curflag 0
-            test "$toks[$i]" = "$anch_scheme"; and set curflag 1
-            set -l row (__tcz_thp_row "$pals[$i]" $toks[$i] $selflag $curflag)
-            if test $selflag -eq 1
-                set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
-                set row "$SELBG$row$RST"
+        # Windowed scrolling list (Gallery rewrite Task 3): only the SCHEME
+        # rows scroll; off + anchor are PINNED below, always drawn (the
+        # anchor is the revert-compare snapshot — it must stay visible while
+        # browsing). When the cursor is on off/anchor (sel >= n), clamp the
+        # window anchor to the last scheme so the window holds steady instead
+        # of chasing a sel value that isn't a scheme row.
+        set -l WIN 7
+        set -l winsel $sel
+        test $winsel -gt (math $n - 1); and set winsel (math $n - 1)
+        set -l win (__tcz_thp_window $winsel $n $WIN)
+        set -l ws (string split ' ' $win)
+        set -l start $ws[1]
+        set -l count $ws[2]
+        set -l below (math "$n - $start - $count")
+        set -l marks ''
+        test $start -gt 0; and set marks "$marks ▲$start"
+        test $below -gt 0; and set marks "$marks ▼$below"
+        set -a lines (__tcz_thp_zsep $IW 'relationship · hue-travels for your seed'"$marks" $BORDER $RST)
+        if test $count -gt 0
+            for i in (seq $start (math $start + $count - 1))
+                set -l idx (math $i + 1)
+                set -l selflag 0
+                test $i -eq $sel; and set selflag 1
+                set -l curflag 0
+                test "$toks[$idx]" = "$anch_scheme"; and set curflag 1
+                set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
+                if test $selflag -eq 1
+                    set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
+                    set row "$SELBG$row$RST"
+                end
+                set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
             end
-            set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
         end
         set -l offflag 0
-        test $sel -eq (math $n + 1); and set offflag 1
+        test $sel -eq $n; and set offflag 1
         set -l offrow (__tcz_thp_off_row "$legacy" $offflag)
         if test $offflag -eq 1
             set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
@@ -1782,9 +1813,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         # anchor row LAST — the persisted theme sits at the bottom, below off
-        # (2026-07-21 user request); sel semantics unchanged (0 = anchor)
+        # (2026-07-21 user request), PINNED below the scrolling scheme window
+        # (Gallery rewrite Task 3). Linear sel: 0..n-1 = schemes, n = off,
+        # n+1 = anchor (was 0=anchor/1..n=schemes/n+1=off before this task).
         set -l anchflag 0
-        test $sel -eq 0; and set anchflag 1
+        test $sel -eq (math $n + 1); and set anchflag 1
         set -l anchrow ''
         if test -n "$anchpal"
             set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
