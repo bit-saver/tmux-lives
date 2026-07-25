@@ -1378,6 +1378,10 @@ t "window: sel always visible" 1 (set -l w (__tcz_thp_window 15 28 8); set -l s 
 # fix with the picker's real WIN=7 and a start that must land on a clean
 # integer (12 - 7/2 = 8.5 -> truncated 8).
 t "window: odd winsize stays integer (no fractional start)" "8 7" (__tcz_thp_window 12 28 7)
+# --scale=0 truncates -0.5 toward zero to the STRING "-0", which the old
+# `-lt 0` clamp didn't catch (`test -0 -lt 0` is false) -> caller's
+# `string split ' ' -- "-0 7"` errored on "-0" as an unknown option.
+t "window: sel=3 no -0 start" "0 7" (__tcz_thp_window 3 12 7)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 2: adjustments zone (place/mode)
 # + the 6-relationship list ---

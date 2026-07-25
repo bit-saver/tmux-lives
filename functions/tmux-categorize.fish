@@ -1363,7 +1363,13 @@ function __tcz_thp_window --argument-names sel total winsize --description 'pure
     # fractional string then blows up downstream ($toks[$idx] -> fish "Invalid
     # index value") — truncate here so start is always a clean integer.
     set -l start (math --scale=0 "$sel - $winsize / 2")
-    test $start -lt 0; and set start 0
+    # --scale=0 truncates toward zero, so a fractional negative like -0.5
+    # becomes the STRING "-0" — not "0". `test -0 -lt 0` is false (string
+    # "-0" numerically equals 0), so the old `-lt 0` clamp let "-0" through
+    # uncaught, and the caller's `string split ' ' -- "-0 7"` then errors
+    # ("-0: unknown option", -0 parsed as a flag). `-le 0` catches -0 too;
+    # the harmless 0 -> 0 case still no-ops.
+    test $start -le 0; and set start 0
     set -l maxstart (math "$total - $winsize")
     test $start -gt $maxstart; and set start $maxstart
     echo "$start $winsize"
