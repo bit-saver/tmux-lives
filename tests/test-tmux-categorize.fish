@@ -670,7 +670,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 22*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 24*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1366,13 +1366,15 @@ t "window: top of long list"   "0 8"  (__tcz_thp_window 2 28 8)
 t "window: scrolled middle"    "8 8"  (__tcz_thp_window 12 28 8)
 t "window: clamped at bottom"  "20 8" (__tcz_thp_window 27 28 8)
 t "window: sel always visible" 1 (set -l w (__tcz_thp_window 15 28 8); set -l s (string split ' ' $w); test 15 -ge $s[1] -a 15 -lt (math $s[1] + $s[2]); and echo 1; or echo 0)
-# fish's `math` is FLOATING-POINT division, not integer — an ODD winsize (the
-# render loop's actual $WIN = 7) makes "$winsize / 2" land on .5 for EVERY
-# sel, so an un-truncated start would be fractional on every non-clamped
-# call, and a fractional $toks[$idx] downstream is a fish "Invalid index
-# value" ERROR (live-breaking, not cosmetic). Pins the --scale=0 truncation
-# fix with the picker's real WIN=7 and a start that must land on a clean
-# integer (12 - 7/2 = 8.5 -> truncated 8).
+# fish's `math` is FLOATING-POINT division, not integer — an ODD winsize
+# makes "$winsize / 2" land on .5 for EVERY sel, so an un-truncated start
+# would be fractional on every non-clamped call, and a fractional
+# $toks[$idx] downstream is a fish "Invalid index value" ERROR (live-
+# breaking, not cosmetic; this is how the bug was originally caught, back
+# when the render loop's $WIN was 7 — Task 5 moved the real WIN to 8, but
+# the pure function must stay correct for ANY winsize, odd or even). Pins
+# the --scale=0 truncation fix with an odd winsize=7 and a start that must
+# land on a clean integer (12 - 7/2 = 8.5 -> truncated 8).
 t "window: odd winsize stays integer (no fractional start)" "8 7" (__tcz_thp_window 12 28 7)
 # --scale=0 truncates -0.5 toward zero to the STRING "-0", which the old
 # `-lt 0` clamp didn't catch (`test -0 -lt 0` is false) -> caller's
@@ -1418,10 +1420,16 @@ t "zone drops place kv" 0 (string match -q '*seed "$seedchip" place "$place" mod
 # it worked, but relied on argument-splitting incidentals rather than an
 # explicit gate. Conform to the zonebody/litbody discipline two lines above:
 # a bounded, non-greedy regex piped through `string collect`, captured into
-# its own var first. Same assertion (the relationship-list zsep label names
-# "relationship"), just an explicit, robust match.
-set -l rellabelbody (string match -r '(?s)__tcz_thp_zsep \$IW .relationship.*?\)' -- "$pbody" | string collect)
-t "list label is relationship" 1 (string match -q '*relationship*' -- "$rellabelbody"; and echo 1; or echo 0)
+# its own var first.
+# Task 5 cleanup: the label itself was ALSO stale — "relationship · hue-
+# travels for your seed" described the pre-gallery relationship-axis picker;
+# the gallery list is a list of curated SCHEMES (catalog entries), and the
+# long label crowded the ▲▼ overflow markers. Renamed to "schemes · near-
+# seed → bold" (the catalog's own ordering description). Genuine gate: this
+# assertion was RED against the old "relationship" text before the rename.
+set -l schemelabelbody (string match -r '(?s)__tcz_thp_zsep \$IW .schemes.*?\)' -- "$pbody" | string collect)
+t "list label is schemes" 1 (string match -q '*schemes*' -- "$schemelabelbody"; and echo 1; or echo 0)
+t "list label drops stale relationship text" 0 (string match -q '*hue-travels for your seed*' -- "$pbody"; and echo 1; or echo 0)
 t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to all schemes*' -- "$pbody"; and echo 1; or echo 0)
 # CRITICAL: both call sites (draw loop + the lit-first repaint) must render
 # IDENTICAL kv fields, or the lit-first flash paints stale labels before the
@@ -1501,18 +1509,22 @@ t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo
 # before this task exactly one legend_row call names "rotate").
 t "legend drops rotate" 0 (string match -qr 'rotate' -- (awk '/__tcz_legend_row/' $catfile | string collect); and echo 1; or echo 0)
 
-# --- picker v4 — 22-row frame, key-map + dead-knob guards ---
+# --- picker v4 — 24-row windowed frame, key-map + dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
-# Task 5: frame shrank 27→22 rows (list 10→6, legend 3→2 dropped 4+1 content
-# rows) — the emitted-row count was counted directly off the draw loop's
-# `set -a lines` call sites (16 static + 6 relationship rows = 22) and the
+# Gallery picker rewrite, Task 5: the fixed 6-relationship-row list (Tasks
+# 1-4 predecessor) became a WINDOWED WIN=8 scheme list, so the frame grew
+# 22->24 rows — the emitted-row count was counted directly off the draw
+# loop's `set -a lines` call sites (16 static chrome/off/anchor rows + WIN=8
+# scheme rows = 24, CONSTANT across the 12-vs-28 catalog size) and the
 # exact-height contract (rows 1..-2 with \n, last without) demands -h ==
-# emitted; 27 is now stale everywhere.
-t "picker popup is 52x22 (modal open site)" 1 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
+# emitted; 27/22 are now stale everywhere.
+t "picker popup is 52x24 (modal open site)" 1 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker draw loop: WIN is 8" 1 (string match -q '*set -l WIN 8*' -- "$catsrc"; and echo 1; or echo 0)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
