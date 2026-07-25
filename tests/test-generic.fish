@@ -19,6 +19,7 @@ set -l hits (grep -rnE 'bitsaver|/home/[a-z]|/Users/|user@1000|su - bitsaver' \
     $plugindir/conf.d $plugindir/functions 2>/dev/null)
 if test -n "$hits"
     echo "FAIL: host-specifics found:"; printf '%s\n' $hits; echo "FAILED"
+    exit 1
 else
     echo "ALL PASS (1)"
 end

@@ -1210,4 +1210,4 @@ if test (count $fish_function_path) -gt 0
 end
 set -e tmux_lives_isolation_probe
 
-test $fail -eq 0; and echo "ALL PASS ($pass)"; or echo "FAILED ($fail)"
+test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
