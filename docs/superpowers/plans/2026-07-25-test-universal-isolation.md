@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Nothing outside `tests/` may be modified.** No change to `conf.d/`, `functions/`, the theme engine, the CLI, or any shipped behavior.
-- **Never run `set -U`, `set -Ux`, or `set -e` against a real `tmux_lives_*` universal outside a guarded test.** Ad-hoc verification in a terminal must not touch them. This is the exact rule whose violation caused the incident this plan fixes.
+- **Never run `set -U`, `set -Ux`, or `set -e` against a real `tmux_lives_*` universal.** Ad-hoc verification in a terminal must not touch them. This is the exact rule whose violation caused the incident this plan fixes. The single carve-out is Task 1 Step 2, the red state of the first test — it runs the suite unguarded **by design**, to demonstrate the bug, with a recorded before-snapshot and a mandatory cleanup-and-verify immediately after. No other step may run an unguarded suite.
 - **Never deploy.** Do not copy anything into `~/.config/fish/`. Commit and push only; the user deploys via `fisher update`.
 - **The gate is all 8 suites green under BOTH `fish` and `fish --no-config`.** Dev loop: `fish -c 'for t in tests/test-*.fish; fish $t < /dev/null; end'` (the `< /dev/null` matters — a shared-stdin loop can hang).
 - **Guard placement is immediately before each file's first executable statement** (after the shebang and any leading comment block), and specifically **above** the `gcc` availability checks in `test-tmux-categorize.fish` and `test-tmux-restore.fish`, so no code path can reach a `set -U` before isolation is active.
