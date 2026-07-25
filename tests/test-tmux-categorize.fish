@@ -670,7 +670,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 24*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1519,19 +1519,23 @@ t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo
 # before this task exactly one legend_row call names "rotate").
 t "legend drops rotate" 0 (string match -qr 'rotate' -- (awk '/__tcz_legend_row/' $catfile | string collect); and echo 1; or echo 0)
 
-# --- picker v4 — 24-row windowed frame, key-map + dead-knob guards ---
+# --- picker v4 — 26-row windowed frame, key-map + dead-knob guards ---
 set -l catsrc (cat $catfile | string collect)
 t "guard: no theme_polarity in categorizer" 0 (string match -q '*tmux_lives_theme_polarity*' -- "$catsrc"; and echo 1; or echo 0)
 t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_range*' -- "$catsrc"; and echo 1; or echo 0)
 # Gallery picker rewrite, Task 5: the fixed 6-relationship-row list (Tasks
 # 1-4 predecessor) became a WINDOWED WIN=8 scheme list, so the frame grew
-# 22->24 rows — the emitted-row count was counted directly off the draw
-# loop's `set -a lines` call sites (16 static chrome/off/anchor rows + WIN=8
-# scheme rows = 24, CONSTANT across the 12-vs-28 catalog size) and the
-# exact-height contract (rows 1..-2 with \n, last without) demands -h ==
-# emitted; 27/22 are now stale everywhere.
-t "picker popup is 52x24 (modal open site)" 1 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
+# 22->24 rows. Picker current-zone + legend-grid refinement, Task 3
+# (2026-07-25): the current zone gained its own `├─ current ─┤` zsep (+1)
+# and the legend grid grew 2->3 rows (+1), so the frame grew AGAIN 24->26 —
+# the emitted-row count was recounted directly off the draw loop's
+# `set -a lines` call sites (18 static chrome/off/current-zsep/anchor/
+# legend×3 rows + WIN=8 scheme rows = 26, CONSTANT across the 12-vs-28
+# catalog size) and the exact-height contract (rows 1..-2 with \n, last
+# without) demands -h == emitted; 27/24/22/20 are now stale everywhere.
+t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker popup: no stale 52x24 anywhere" 0 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker draw loop: WIN is 8" 1 (string match -q '*set -l WIN 8*' -- "$catsrc"; and echo 1; or echo 0)
@@ -1593,7 +1597,10 @@ t "preview indexes pals at the captured sel+1" 1 (string match -q '*set -l pi (m
 t "preview off row is the linear n (or empty anchor)" 1 (string match -q '*test $sel -eq $n; or test -z "$anchpal"*' -- "$pk"; and echo 1; or echo 0)
 
 set -l catsrc3 (cat $catfile | string collect)
-t "no stale 52x26 popups" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc3"; and echo 1; or echo 0)
+# picker current-zone + legend-grid refinement, Task 3 (2026-07-25): 52x26 is
+# now the CURRENT correct popup geometry (was a stale v3.1/Phase-2 value
+# guarded against here pre-windowing) — the "no stale 52x24" guard above
+# (picker v4 section) now plays that role for the value THIS task retires.
 
 # --- Task 4: lit-first kv repaint before recompute ---
 set -l pk3 (functions __tcz_theme_picker | string collect)
@@ -1727,6 +1734,49 @@ t "current zsep sits between off row and current row" 1 (string match -qr '(?s)s
 # a harmless no-op there instead of accidentally doing something.
 set -l switcher_body (functions __tcz_popup | string collect)
 t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string match -qr 'case c\b' -- "$switcher_body"; and echo 1; or echo 0)
+
+# --- picker current-zone + legend-grid refinement, Task 3: geometry recount
+# (26-row frame -- see the "picker v4 — 26-row windowed frame" section above
+# for the -h/-w/WIN pins), the frame-encloses invariant, adjustments-zone
+# alignment, and a consolidated pass over the dead-code/key guards the brief
+# calls out (most already exist from Tasks 1-2 and the earlier gallery-
+# rewrite cycle; this section is the single consolidated checkpoint).
+
+# Frame-encloses: the current/anchor row and every legend row must be
+# wrapped in __tcz_thp_ln (padded to IW + │...│-framed), same as every other
+# content row -- and the bottom border (╰...╯) must be the LAST `set -a
+# lines` emission in the draw loop (nothing appends after it).
+t "current row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
+t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline in \(__tcz_thp_leg.*set -a lines \(__tcz_thp_ln "\$lline" \$IW \$BORDER \$RST\)' -- "$pk2"; and echo 1; or echo 0)
+set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
+t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
+
+# Adjustments-zone alignment: the draw loop calls __tcz_thp_kv ONCE PER
+# FIELD (seed, then phase) -- not one combined multi-pair row -- so
+# "alignment" here is each field's own label/value line pair sharing a
+# column width, not cross-field matching. __tcz_thp_kv pads both lines from
+# the same computed cw, so this is expected to be a no-op; verified here
+# against the picker's REAL single-pair call shape (the multi-pair form
+# tested earlier, ~line 1102, is a different call shape and doesn't cover
+# this).
+set -l kvseed (__tcz_thp_kv 50 '' seed '#485b3c')
+set -l kvphase (__tcz_thp_kv 50 '' phase '+15°')
+t "adjustments seed kv: label/value columns align" (string match -rg '^( *)SEED' -- (__tcz_strip_sgr "$kvseed[1]") | string length) (string match -rg '^( *)#485b3c' -- (__tcz_strip_sgr "$kvseed[2]") | string length)
+t "adjustments phase kv: label/value columns align" (string match -rg '^( *)PHASE' -- (__tcz_strip_sgr "$kvphase[1]") | string length) (string match -rg '^( *)\+15°' -- (__tcz_strip_sgr "$kvphase[2]") | string length)
+
+# Consolidated guards: case c present; the retired axis keys/functions stay
+# gone; the current zsep + __tcz_thp_leg wiring are in place; vismap never
+# hands back n+1; both engine palette calls are still 9-arg (exactly 2 call
+# sites, matching the earlier per-call arg-count loop at ~line 1338).
+t "consolidated guard: case c present"       1 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: no rotpal"            0 (string match -q '*__tcz_thp_rotpal*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: current zsep present" 1 (string match -q '*zsep $IW '"'"'current'"'"'*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: vismap never yields n+1" 1 (test (__tcz_thp_vismap 10 10 down) -eq 10; and test (__tcz_thp_vismap 11 10 down) -eq 10; and echo 1; or echo 0)
+t "consolidated guard: exactly 2 palette call sites, all 9-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 rm -rf $shimdir
 if test $FAIL -eq 0

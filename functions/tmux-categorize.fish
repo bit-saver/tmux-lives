@@ -1001,7 +1001,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open the theme picker in its OWN popup
             # (the theme-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here).
-            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 24 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 26 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear
@@ -1488,7 +1488,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 24); the frame is EXACTLY 24 rows (16 static chrome/off/anchor rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (18 static chrome/off/current-zone/legend rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1860,10 +1860,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # anchor is the revert-compare snapshot — it must stay visible while
         # browsing). When the cursor is on off/anchor (sel >= n), clamp the
         # window anchor to the last scheme so the window holds steady instead
-        # of chasing a sel value that isn't a scheme row. WIN=8 (Task 5
-        # geometry): the frame is chrome(14) + off(1) + anchor(1) + WIN scheme
-        # rows = 16+WIN static+windowed rows, constant across the 12/28
-        # catalog size — matched to the popup -h at all three open sites.
+        # of chasing a sel value that isn't a scheme row. WIN=8: the frame is
+        # 18 static rows (border/chip/preview/adjustments-zsep/kv1×2/kv2×2/
+        # schemes-zsep/off/current-zsep/anchor/blank-zsep/legend×3/note/
+        # bottom-border) + WIN scheme rows = 26 total (picker current-zone +
+        # legend-grid refinement, Task 3: was 16+WIN=24 before the
+        # `current` zsep and the legend's 2->3-row grid), constant across
+        # the 12/28 catalog size — matched to the popup -h at all three open
+        # sites.
         set -l WIN 8
         set -l winsel $sel
         test $winsel -gt (math $n - 1); and set winsel (math $n - 1)

@@ -174,7 +174,7 @@ t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_live
 
 # dedicated M-k theme-picker keybind (argv[12] = theme_key)
 set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
-t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 24 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
+t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 26 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
 set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block '' | string collect)
 t "empty theme-key omits the bind" 1 (string match -q '*theme-picker*' -- "$CK0"; and echo 0; or echo 1)
 
@@ -816,7 +816,7 @@ set -e TMUX
 set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
-t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 24*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: invalid relationship rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: invalid relationship leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
@@ -1153,14 +1153,18 @@ end
 # relationship list to a WINDOWED WIN=8 scheme list (Tasks 2-4), so the frame
 # grew from 22 to 24 rows — 16 static chrome/off/anchor rows + WIN=8 scheme
 # rows, a CONSTANT total regardless of the 12-vs-28 catalog size — recounted
-# directly off the draw loop's `set -a lines` call sites. 52x24 popup
-# geometry at every open site; guard every stale height (27 was the
-# v3.1/Phase-2-Tasks-1-4 value, 26/20 were even older strays, 22 was this
-# task's own pre-windowing value). ---
-t "fragment theme-picker bind is 52x24" 1 (string match -q '*-h 24*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
+# directly off the draw loop's `set -a lines` call sites. Picker current-zone
+# + legend-grid refinement, Task 3 (2026-07-25): the current zone's own
+# `├─ current ─┤` zsep (+1) and the legend grid's 2->3-row growth (+1) grew
+# the frame AGAIN, 24->26 rows (18 static + WIN=8). 52x26 popup geometry at
+# every open site; guard every stale height (27 was the v3.1/Phase-2-Tasks-
+# 1-4 value, 24 was this task's own pre-current-zone/legend-grid value, 22
+# was the pre-windowing value, 20 an even older stray). ---
+t "fragment theme-picker bind is 52x26" 1 (string match -q '*-h 26*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
 t "install: no stale theme popup height (27)" 0 (string match -q '*-w 52 -h 27*' -- "$src"; and echo 1; or echo 0)
-t "install: no stale theme popup height (26)" 0 (string match -q '*-w 52 -h 26*' -- "$src"; and echo 1; or echo 0)
+t "install: no stale theme popup height (24)" 0 (string match -q '*-w 52 -h 24*' -- "$src"; and echo 1; or echo 0)
 t "install: no stale theme popup height (22)" 0 (string match -q '*-w 52 -h 22*' -- "$src"; and echo 1; or echo 0)
+t "install: no stale theme popup height (20)" 0 (string match -q '*-w 52 -h 20*' -- "$src"; and echo 1; or echo 0)
 
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
