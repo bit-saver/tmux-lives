@@ -346,6 +346,41 @@ sleep 0.5
 __tcz_categorize
 t "cat: hand-named claude protected" "yes" \
     (tmux has-session -t =myclaude 2>/dev/null; and echo yes; or echo no)
+
+# --- bare-number -t targeting (tmux 3.3a) -------------------------------------------
+# set-option/show-option resolve a BARE NUMBER in -t as the CURRENT session, NOT the
+# session NAMED that number (verified: with alpha=$0, "0"=$1, zulu=$2, a write aimed at
+# -t 0 landed on zulu). Fresh sessions are named 0,1,2..., so every option lookup for one
+# hits a DIFFERENT session. Worst case: that session carries @tmux_lives_name, the numeric
+# one is misread as claimed, and it is skipped -> permanently stranded at its numeric name,
+# re-failing every pass. Reproduced live before the fix.
+cleanup
+tmux new-session -d -s 0 "$shimdir/claude --name Numeric Claude"
+tmux new-session -d -s claimant
+tmux set-option -t claimant @tmux_lives_name "Claimed By App"
+sleep 0.5
+__tcz_categorize
+t "cat: numeric session not stranded by another session's claim" "yes" \
+    (tmux has-session -t =Numeric-Claude 2>/dev/null; and echo yes; or echo no)
+t "cat: the claiming session keeps its own name" "yes" \
+    (tmux has-session -t =claimant 2>/dev/null; and echo yes; or echo no)
+
+# ...and a numeric session's claude identity must land on ITSELF, not on a neighbour.
+cleanup
+tmux new-session -d -s 0 "$shimdir/claude --name Cross Write"
+tmux new-session -d -s neighbour
+sleep 0.5
+__tcz_set_claude_opt 0
+set -g sid0 ''
+for l in (tmux list-sessions -F '#{session_name} #{session_id}' 2>/dev/null)
+    set -l p (string split ' ' -- $l)
+    test "$p[1]" = 0; and set -g sid0 $p[2]
+end
+t "set_claude_opt: numeric session gets its OWN claude name" "Cross Write" \
+    (tmux show-option -qv -t "$sid0" @tmux_lives_claude 2>/dev/null)
+t "set_claude_opt: the neighbour is untouched" "" \
+    (tmux show-option -qv -t neighbour @tmux_lives_claude 2>/dev/null)
+set -e sid0
 cleanup
 
 # ---------------------------------------------------------------------

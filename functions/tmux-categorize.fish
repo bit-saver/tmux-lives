@@ -315,6 +315,23 @@ function __tcz_snapshot --description 'one line per session: name\tcategory\tatt
     end
 end
 
+function __tcz_session_target --argument-names session --description 'a -t target that is SAFE for set-option/show-option. tmux 3.3a resolves a BARE NUMBER as the CURRENT session, not the session NAMED that number (verified: with alpha=$0, "0"=$1, zulu=$2, a write aimed at -t 0 landed on zulu), so map a numeric name to its unambiguous $id. Non-numeric names pass straight through WITHOUT a tmux call — this runs per session per tick.'
+    if not string match -qr '^[0-9]+$' -- "$session"
+        echo $session
+        return
+    end
+    set -l TAB (printf '\t')
+    for line in (tmux list-sessions -F "#{session_name}$TAB#{session_id}" 2>/dev/null)
+        set -l p (string split $TAB -- $line)
+        if test "$p[1]" = "$session"
+            echo $p[2]
+            return
+        end
+    end
+    # Unresolvable (no server / raced away): fall back to the name — no worse than before.
+    echo $session
+end
+
 function __tcz_owned --description 'true if we may rename: name == @tmux_auto_name, or purely numeric'
     set -l cur $argv[1]
     string match -qr '^(gen-)?[0-9]+$' -- "$cur"; and return 0
@@ -332,7 +349,11 @@ function __tcz_categorize --description 'rename every owned session to its live-
         set -l cur $f[1]
         __tcz_set_claude_opt $cur
         # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
-        set -l claimed (tmux show-option -qv -t "$cur" @tmux_lives_name 2>/dev/null)
+        # Target via __tcz_session_target: a fresh session is named 0/1/2..., and a BARE
+        # NUMBER in -t resolves to the CURRENT session — so this used to read a DIFFERENT
+        # session's claim and, when that one was claimed, skip the numeric session forever
+        # (stranding it at its numeric name, re-failing every pass).
+        set -l claimed (tmux show-option -qv -t (__tcz_session_target "$cur") @tmux_lives_name 2>/dev/null)
         test -n "$claimed"; and continue
         set -l desired
         switch $f[2]
@@ -360,8 +381,9 @@ function __tcz_categorize --description 'rename every owned session to its live-
         tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
         # Stamp with one silent retry: a lost stamp would permanently freeze the name
         # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
-        tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
-        or tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
+        set -l stamptgt (__tcz_session_target "$desired")
+        tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+        or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
     end
 end
 
@@ -2144,8 +2166,9 @@ function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claud
     set desired (__tcz_unique $desired $others)
     tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or return 0
     # stamp + one silent retry (a lost stamp would freeze the name as hand-named)
-    tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
-    or tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
+    set -l stamptgt (__tcz_session_target "$desired")
+    tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+    or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
 end
 
 function __tcz_tab_color --argument-names fallback --description 'effective ShellFish tab colour: the live tabs-role @option (@tmux_lives_tabs_color, set by the themed fragment) when non-empty, else <fallback> (the baked seed / legacy)'
@@ -2225,11 +2248,19 @@ function __tcz_session_has_claude --argument-names session --description 'true i
     return 1
 end
 
-function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). BARE name for set-option (=target quirk).'
+function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). Options are targeted via __tcz_session_target (a bare-number -t would hit the CURRENT session).'
     test -n "$session"; or return
     set -l TAB (printf '\t')
     set -l name ''
-    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
+    # A purely numeric session name is unreliable in EVERY -t, not just options: with
+    # sessions "0" and "neighbour", `list-panes -t "=0"` returns NEIGHBOUR's panes (the
+    # "=" exact prefix does not rescue it) while `-t $id` is correct. So resolve once and
+    # use the id for both lookups; a non-numeric name keeps the exact-match "=" it needs
+    # for panes, and the bare form options require.
+    set -l tgt (__tcz_session_target "$session")
+    set -l ptgt $tgt
+    string match -qr '^\$' -- "$tgt"; or set ptgt "=$session"
+    for line in (tmux list-panes -s -t "$ptgt" -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
         # -m 2: the title is last and may contain tabs.
         set -l parts (string split -m 2 $TAB -- $line)
         test "$parts[1]" = claude; or continue
@@ -2249,10 +2280,11 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     # fish_postexec forces a redraw of the bar (@tmux_lives_claude is status-read), which makes
     # tmux re-emit the cursor style → ShellFish cursor flicker (see [[shellfish-cursor-flicker]]).
     # Capture+quote the current value (empty -> zero-word subst would throw; the empty-cache gotcha).
-    # BARE name for show/set-option (=target quirk).
-    set -l cur (tmux show-option -qv -t "$session" @tmux_lives_claude 2>/dev/null)
+    # $tgt (resolved above) is ID-safe: a bare-number -t hits the CURRENT session, so a
+    # numeric session's identity used to be read from, and written onto, another session.
+    set -l cur (tmux show-option -qv -t "$tgt" @tmux_lives_claude 2>/dev/null)
     test "$name" = "$cur"; and return
-    tmux set-option -t "$session" @tmux_lives_claude "$name" 2>/dev/null
+    tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
 function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'
@@ -2263,7 +2295,7 @@ function __tcz_session_title --argument-names session --description 'session -> 
     set -l path (tmux list-panes -t "=$session" -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
-    set -l name (tmux show-option -qv -t "$session" @tmux_lives_name 2>/dev/null)
+    set -l name (tmux show-option -qv -t (__tcz_session_target "$session") @tmux_lives_name 2>/dev/null)
     test -n "$name"; or set name (__tcz_dir_display $path)
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
