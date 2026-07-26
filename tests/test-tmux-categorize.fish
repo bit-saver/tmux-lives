@@ -383,6 +383,29 @@ t "set_claude_opt: the neighbour is untouched" "" \
 set -e sid0
 cleanup
 
+# PANE/CAPTURE targets need a different shape than option targets: they want exact-match
+# "=name", which options reject. But for a NUMERIC name even "=0" mis-resolves (it returned
+# a neighbour's panes), so those callers need the $id too. __tcz_pane_target encodes that.
+tmux new-session -d -s 0 'sleep 1000'
+tmux new-session -d -s other-idle
+sleep 0.3
+set -g pt0 (__tcz_pane_target 0)
+t "pane_target: numeric name resolves to a session id" "yes" (string match -qr '^\$[0-9]+$' -- "$pt0"; and echo yes; or echo no)
+t "pane_target: ordinary name keeps exact-match =" "=other-idle" (__tcz_pane_target other-idle)
+# a session literally named like an id must NOT be mistaken for one (the resolved-string
+# sniff this replaced got that wrong)
+t "pane_target: a session named '\$1' is treated as a NAME" '=$1' (__tcz_pane_target '$1')
+set -e pt0
+cleanup
+
+# ...and the pane lookups themselves must read the RIGHT session's panes.
+tmux new-session -d -s 0 "$shimdir/claude --name Numeric Pane"
+tmux new-session -d -s plain-shell
+sleep 0.5
+t "has_claude: numeric session running claude is detected" "yes" (__tcz_session_has_claude 0; and echo yes; or echo no)
+t "has_claude: the neighbour is correctly claude-free" "no" (__tcz_session_has_claude plain-shell; and echo yes; or echo no)
+cleanup
+
 # ---------------------------------------------------------------------
 # @tmux_lives_name: explicit display override + claimed-session no-rename
 # Session name is numeric (42) rather than the brief's "dev1" example: a

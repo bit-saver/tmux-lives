@@ -332,6 +332,14 @@ function __tcz_session_target --argument-names session --description 'a -t targe
     echo $session
 end
 
+function __tcz_pane_target --argument-names session --description 'a -t target for PANE/CAPTURE commands (list-panes, capture-pane). Those need exact-match "=name", which option commands reject — but for a NUMERIC name even "=0" mis-resolves (it returns another session panes), so those fall back to the unambiguous $id. Keyed off the ORIGINAL name, never the shape of the resolved string: a session may legitimately be NAMED "$1".'
+    if string match -qr '^[0-9]+$' -- "$session"
+        __tcz_session_target "$session"
+    else
+        echo "=$session"
+    end
+end
+
 function __tcz_owned --description 'true if we may rename: name == @tmux_auto_name, or purely numeric'
     set -l cur $argv[1]
     string match -qr '^(gen-)?[0-9]+$' -- "$cur"; and return 0
@@ -584,7 +592,7 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
         test "$f[3]" != "$exclude"; or continue
         # general = at least one pane, every pane a bare shell (fail-safe: an
         # un-inspectable session is never picked)
-        set -l cmds (tmux list-panes -s -t "=$f[3]" -F '#{pane_current_command}' 2>/dev/null)
+        set -l cmds (tmux list-panes -s -t (__tcz_pane_target "$f[3]") -F '#{pane_current_command}' 2>/dev/null)
         test -n "$cmds[1]"; or continue
         set -l idle 1
         for cmd in $cmds
@@ -819,7 +827,7 @@ end
 
 function __tcz_popup_preview --argument-names session w h --description 'colored capture-pane (-e) of session active pane, clipped to w×h'
     test -n "$session"; or return 0
-    tmux capture-pane -e -p -t "$session" 2>/dev/null | __tcz_popup_clip $w $h
+    tmux capture-pane -e -p -t (__tcz_pane_target "$session") 2>/dev/null | __tcz_popup_clip $w $h
 end
 
 function __tcz_legend_row --argument-names pitch --description 'pure: one aligned key-legend row — argv[2..] = <key> <label> pairs; each cell = key (key color) + space + label (muted) padded to <pitch> visible cols; leading space. The shared footer convention for every tmux-lives popup.'
@@ -2241,7 +2249,7 @@ end
 
 function __tcz_session_has_claude --argument-names session --description 'true if any pane in the session runs claude'
     set -l TAB (printf '\t')
-    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
+    for line in (tmux list-panes -s -t (__tcz_pane_target "$session") -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
         set -l p (string split $TAB -- $line)
         __tcz_pane_is_claude "$p[1]" "$p[2]"; and return 0
     end
@@ -2258,8 +2266,7 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     # use the id for both lookups; a non-numeric name keeps the exact-match "=" it needs
     # for panes, and the bare form options require.
     set -l tgt (__tcz_session_target "$session")
-    set -l ptgt $tgt
-    string match -qr '^\$' -- "$tgt"; or set ptgt "=$session"
+    set -l ptgt (__tcz_pane_target "$session")
     for line in (tmux list-panes -s -t "$ptgt" -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
         # -m 2: the title is last and may contain tabs.
         set -l parts (string split -m 2 $TAB -- $line)
@@ -2292,7 +2299,7 @@ function __tcz_session_title --argument-names session --description 'session -> 
     # NB: `display-message -t "=$session" '#{pane_current_path}'` returns EMPTY in tmux
     # 3.3a (the =exact-target quirk — see [[tmux-target-quirks]]); list-panes honors = AND
     # resolves the active pane's path. Filter to the active pane of the session's window.
-    set -l path (tmux list-panes -t "=$session" -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
+    set -l path (tmux list-panes -t (__tcz_pane_target "$session") -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
     set -l name (tmux show-option -qv -t (__tcz_session_target "$session") @tmux_lives_name 2>/dev/null)
