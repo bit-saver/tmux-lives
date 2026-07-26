@@ -2225,7 +2225,7 @@ function __tcz_session_has_claude --argument-names session --description 'true i
     return 1
 end
 
-function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name (empty if no claude pane). BARE name for set-option (=target quirk).'
+function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). BARE name for set-option (=target quirk).'
     test -n "$session"; or return
     set -l TAB (printf '\t')
     set -l name ''
