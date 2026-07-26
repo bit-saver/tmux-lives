@@ -182,10 +182,15 @@ function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>:
     echo $s
 end
 
-function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" (@tmux_lives_name, else the claude --name) — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Non-claude: @tmux_lives_name, else session_name.'
+function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" (@tmux_lives_name, else the claude name) — NOT "slug ✦ name" (the session slug is slugify(name), so the old append-form doubled it). Non-claude: @tmux_lives_name, else the durable @tmux_lives_display, else session_name.'
     # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name if set, else the claude name).
-    # otherwise: @tmux_lives_name if set, else the session slug. No mark, no doubling.
-    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
+    # otherwise: @tmux_lives_name, else @tmux_lives_display, else the session slug.
+    # @tmux_lives_display is the LAST KNOWN READABLE name, persisted by __tcz_categorize.
+    # Without it the centre regressed to #{session_name} — a slug (spaces -> dashes), and a
+    # FROZEN one for an unstamped restored claude breadcrumb (conf.d/tmux.fish:100-104), so a
+    # session showed "TMUX-Setup-18" while its title said "TMUX Setup 21". It also keeps a
+    # momentarily-unparseable title from flipping the bar to the slug and back.
+    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}}'
 end
 
 function __tcz_status_format --description 'pure: the status-format[0] string (all tunables are @options; right zone renders status-right so tick/continuum survive)'
@@ -334,6 +339,21 @@ function __tcz_categorize --description 'rename every owned session to its live-
         # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
         set -l claimed (tmux show-option -qv -t "$cur" @tmux_lives_name 2>/dev/null)
         test -n "$claimed"; and continue
+        # Persist the READABLE name so the bar never has to fall back to #{session_name}
+        # (a slug, and a frozen one for unstamped breadcrumbs). CLAUDE ONLY: a claude name
+        # is prose ("TMUX Setup 21") whose slug is lossy, whereas a `running` session's slug
+        # IS its command ("htop") and already reads fine — writing a display there instead
+        # HIJACKED hand-named sessions, rendering "my-project" as "htop" (caught in review).
+        # A general session keeps whatever was stored, which is what keeps a breadcrumb
+        # readable after claude exits; it is cleared below on an actual revert to gen-N.
+        # NB skip a numerically-named session here: `set-option -t 0` does NOT target the
+        # session NAMED "0" — tmux 3.3a resolves a bare number as a session INDEX and
+        # silently writes to a DIFFERENT session (verified on a private socket). Numeric
+        # names are always renamed below, so they get written against the final name.
+        switch $f[2]
+            case claude
+                string match -qr '^[0-9]+$' -- "$cur"; or __tcz_set_display_opt "$cur" "$f[5]"
+        end
         set -l desired
         switch $f[2]
             case claude running
@@ -362,6 +382,16 @@ function __tcz_categorize --description 'rename every owned session to its live-
         # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
         tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
         or tmux set-option -t "$desired" @tmux_auto_name "$desired" 2>/dev/null
+        # Reverting to gen-N means the identity genuinely reset, so drop any stored name.
+        # Otherwise write the readable name against the final name (claude only, as above).
+        # $desired can itself be numeric — __tcz_slugify passes digits through, so
+        # `claude --name 42` slugs to "42" — and the same bare-number targeting hazard
+        # applies, so skip those too.
+        if string match -qr '^gen-[0-9]+$' -- "$desired"
+            __tcz_set_display_opt "$desired" ''
+        else if test "$f[2]" = claude; and not string match -qr '^[0-9]+$' -- "$desired"
+            __tcz_set_display_opt "$desired" "$f[5]"
+        end
     end
 end
 
@@ -2223,6 +2253,15 @@ function __tcz_session_has_claude --argument-names session --description 'true i
         __tcz_pane_is_claude "$p[1]" "$p[2]"; and return 0
     end
     return 1
+end
+
+function __tcz_set_display_opt --argument-names session display --description 'set @tmux_lives_display on <session> = its last known READABLE name (empty clears). Survives claude exiting, so the status bar never falls back to the slugified session_name. Dedup: only write when CHANGED (same redraw/flicker contract as __tcz_set_claude_opt). BARE name for set-option (=target quirk).'
+    test -n "$session"; or return
+    # Capture+quote the current value: an empty option would make a bare command
+    # substitution expand to zero words and throw (the empty-cache gotcha).
+    set -l cur (tmux show-option -qv -t "$session" @tmux_lives_display 2>/dev/null)
+    test "$display" = "$cur"; and return
+    tmux set-option -t "$session" @tmux_lives_display "$display" 2>/dev/null
 end
 
 function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). BARE name for set-option (=target quirk).'

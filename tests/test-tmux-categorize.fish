@@ -319,6 +319,14 @@ sleep 0.5
 __tcz_categorize
 t "cat: claude renamed to slug"  "yes" (tmux has-session -t =TMUX-Setup-2 2>/dev/null; and echo yes; or echo no)
 t "cat: claude stamped"          "TMUX-Setup-2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_auto_name)
+# The READABLE name is persisted alongside the slug so the status bar never has to fall
+# back to #{session_name} (which is slugify()d, and frozen for unstamped breadcrumbs).
+t "cat: readable display persisted (not the slug)" "TMUX Setup 2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_lives_display)
+# CLAUDE ONLY. A running session's slug IS its command ("sleep"), which already reads
+# fine, and writing a display for it HIJACKED hand-named sessions — a session the user
+# named "my-project" running htop rendered as "htop" on the bar.
+t "cat: running session gets NO stored display"    "" (tmux show-option -qv -t sleep @tmux_lives_display)
+t "cat: hand-named session keeps its own name on the bar" "" (tmux show-option -qv -t handname @tmux_lives_display)
 t "cat: running renamed to cmd"  "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
 t "cat: numeric general renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 t "cat: hand-named protected"    "yes" (tmux has-session -t =handname 2>/dev/null; and echo yes; or echo no)
@@ -346,6 +354,19 @@ sleep 0.5
 __tcz_categorize
 t "cat: hand-named claude protected" "yes" \
     (tmux has-session -t =myclaude 2>/dev/null; and echo yes; or echo no)
+
+# Display lifecycle. Reverting to gen-N means the identity genuinely reset, so the stored
+# readable name must go. An UNSTAMPED session is never renamed, so it KEEPS its display —
+# that is exactly what keeps a restored claude breadcrumb readable before you re-run claude.
+cleanup
+tmux new-session -d -s 0
+tmux set-option -t 0 @tmux_lives_display "Old Claude Name"
+__tcz_categorize
+t "cat: revert to gen-N clears the stored display" "" (tmux show-option -qv -t gen-1 @tmux_lives_display)
+tmux new-session -d -s TMUX-Setup-18
+tmux set-option -t TMUX-Setup-18 @tmux_lives_display "TMUX Setup 21"
+__tcz_categorize
+t "cat: unstamped breadcrumb keeps its display" "TMUX Setup 21" (tmux show-option -qv -t TMUX-Setup-18 @tmux_lives_display)
 cleanup
 
 # ---------------------------------------------------------------------
@@ -832,7 +853,7 @@ t "sf has all three align zones" yes (string match -q '*#[align=left]*' -- "$SF"
 t "sf right zone renders status-right (tick/continuum preserved)" yes (string match -q '*#{T;=/#{status-right-length}:status-right}*' -- "$SF"; and echo yes; or echo no)
 t "sf window list is names-only, no trailing sep" yes (string match -q '*#{W:*window_end_flag*window-status-separator*' -- "$SF"; and echo yes; or echo no)
 t "sf window list template-expands the option" yes (string match -q '*#{T:window-status-format}*' -- "$SF"; and echo yes; or echo no)
-t "sf identity honors @tmux_lives_name then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity honors @tmux_lives_name then @tmux_lives_display then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}*' -- "$SF"; and echo yes; or echo no)
 t "sf identity uses the collapsed claude idiom (single readable ✦ mark)" yes (string match -q '*✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}}*' -- "$SF"; and echo yes; or echo no)
 t "sf separator is format-expanded (T:)" yes (string match -q '*#{T:window-status-separator}*' -- "$SF"; and echo yes; or echo no)
 t "sf centre identity wears the text role" yes (string match -q '*#[fg=#{@tmux_lives_text_fg}]#{?#{!=:#{@tmux_lives_claude},*' -- "$SF"; and echo yes; or echo no)
@@ -859,6 +880,21 @@ set -g IDFMT (__tcz_status_identity)
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_claude "TMUX Setup 13" 2>/dev/null
 t "identity: claude session collapses to a single '✦ name'" "#[fg=default]✦#[fg=default] TMUX Setup 13" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 t "identity: non-claude session shows its name only" "gen-1" (command tmux -L $idsock display-message -p -t gen-1 "$IDFMT" 2>/dev/null)
+# --- durable readable display: session_name is a SLUG (spaces -> dashes) and, for an
+#     unstamped restored claude breadcrumb, a FROZEN one. Once we have derived a readable
+#     name we persist it in @tmux_lives_display so the centre never regresses to the slug
+#     when claude is not running (breadcrumb) or the title is briefly unparseable.
+command tmux -L $idsock new-session -d -s TMUX-Setup-18 2>/dev/null
+command tmux -L $idsock set-option -t TMUX-Setup-18 @tmux_lives_display "TMUX Setup 21" 2>/dev/null
+t "identity: stored display beats the slug" "TMUX Setup 21" (command tmux -L $idsock display-message -p -t TMUX-Setup-18 "$IDFMT" 2>/dev/null)
+# an explicit app claim still outranks the derived display
+command tmux -L $idsock set-option -t TMUX-Setup-18 @tmux_lives_name "Claimed" 2>/dev/null
+t "identity: @tmux_lives_name still beats the stored display" "Claimed" (command tmux -L $idsock display-message -p -t TMUX-Setup-18 "$IDFMT" 2>/dev/null)
+command tmux -L $idsock set-option -t TMUX-Setup-18 -u @tmux_lives_name 2>/dev/null
+# a live claude still wins over the stored display (the ✦ marks a running claude)
+command tmux -L $idsock set-option -t TMUX-Setup-18 @tmux_lives_claude "Live Name" 2>/dev/null
+t "identity: live claude beats the stored display" "#[fg=default]✦#[fg=default] Live Name" (command tmux -L $idsock display-message -p -t TMUX-Setup-18 "$IDFMT" 2>/dev/null)
+command tmux -L $idsock set-option -t TMUX-Setup-18 -u @tmux_lives_claude 2>/dev/null
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_name "Neurotto CLI" 2>/dev/null
 t "identity: @tmux_lives_name overrides the claude name (still ✦-marked)" "#[fg=default]✦#[fg=default] Neurotto CLI" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 command tmux -L $idsock kill-server 2>/dev/null
