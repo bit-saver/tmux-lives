@@ -529,16 +529,19 @@ function __tcz_modal_menu --argument-names client --description 'display-menu fa
     tmux display-menu -T ' tmux-lives ' -- $args
 end
 
-function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: switch the choosing client to <session>; only --take disturbs other clients (ghost-detach + detach-all)'
+function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: switch the choosing client to <session>; other clients are left alone unless --take, which detaches them all'
     test -n "$session"; or return 0
     # no-blanket-kick (conf.d/tmux.fish:176): visiting a session must not evict
-    # anyone. Ghost-detach drops any client idle > tmux_auto_ghost_minutes (5),
-    # so running it on every pick silently "took" sessions the user only meant to
-    # switch to. Gated on --take, matching `tmux-lives attach -t`.
-    if test "$argv[3]" = --take
-        __tcz_ghosts "$session"
-        tmux detach-client -s "=$session" 2>/dev/null
-    end
+    # anyone. This used to call __tcz_ghosts unconditionally, dropping any client
+    # idle > tmux_auto_ghost_minutes (5) — so a plain pick silently "took" sessions
+    # the user only meant to switch to. Removed rather than gated: under --take,
+    # detach-client -s already drops EVERY client on the session, a strict superset
+    # of the idle ones ghost-detach would pick. Matches `tmux-lives attach -t`.
+    # TRADE-OFF: ghost-detach's original job was evicting a stale client whose size
+    # squashed the session (the "stale Claude TUI size" fix). This was its only
+    # load-bearing call site, so that no longer happens on a plain switch — use
+    # --take (or `tmux-lives picker -t`) when a stale client is sizing you down.
+    test "$argv[3]" = --take; and tmux detach-client -s "=$session" 2>/dev/null
     if test -n "$client"
         tmux switch-client -c "$client" -t "=$session" 2>/dev/null
     else

@@ -524,13 +524,20 @@ function __tcz_ghosts; set -g __g_called 1; end
 set -g __g_called 0
 __tcz_switch gsw ''
 t "switch: plain switch does NOT ghost-detach" "0" "$__g_called"
-set -g __g_called 0
-__tcz_switch gsw '' --take
-t "switch: --take DOES ghost-detach" "1" "$__g_called"
 functions -e __tcz_ghosts
 functions -c __tcz_ghosts_bak __tcz_ghosts
 functions -e __tcz_ghosts_bak
 set -e __g_called
+# The --take path is observable by command-spy where the plain path is not:
+# __tcz_switch issues detach-client -s itself, unconditionally, rather than
+# behind an (always-empty headless) list-clients loop.
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_switch gsw '' --take
+t "switch: --take detaches the session's clients" "1" \
+    (string match -qr 'detach-client -s' -- "$__t_cmds"; and echo 1; or echo 0)
+functions -e tmux
+set -e __t_cmds
 cleanup
 t "main: bad subcommand rc=1" "1" (fish --no-config $plugindir/functions/tmux-categorize.fish bogus 2>/dev/null; echo $status)
 cleanup
