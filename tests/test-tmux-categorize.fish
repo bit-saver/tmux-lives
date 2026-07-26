@@ -508,6 +508,30 @@ cleanup
 tmux new-session -d -s sw1
 t "switch: headless degrades silently (rc 0)" "0" (__tcz_switch sw1 ''; echo $status)
 cleanup
+
+# no-blanket-kick: a plain switch must NOT disturb other clients. Ghost-detach
+# evicts any client idle > tmux_auto_ghost_minutes, so running it on every pick
+# silently "takes" sessions the user only meant to visit. It must be gated on
+# --take, like `tmux-lives attach -t` already is (conf.d/tmux.fish:344-348).
+# Spying on the emitted tmux commands looks like the better test but is VACUOUS
+# here: headless, list-clients returns nothing, so __tcz_ghosts never reaches its
+# detach-client call and a "no detach-client was issued" assertion passes whether
+# or not the gate exists (verified — it passed against the unfixed code). The
+# invocation itself is the only non-vacuous seam, so spy on that.
+tmux new-session -d -s gsw
+functions -c __tcz_ghosts __tcz_ghosts_bak
+function __tcz_ghosts; set -g __g_called 1; end
+set -g __g_called 0
+__tcz_switch gsw ''
+t "switch: plain switch does NOT ghost-detach" "0" "$__g_called"
+set -g __g_called 0
+__tcz_switch gsw '' --take
+t "switch: --take DOES ghost-detach" "1" "$__g_called"
+functions -e __tcz_ghosts
+functions -c __tcz_ghosts_bak __tcz_ghosts
+functions -e __tcz_ghosts_bak
+set -e __g_called
+cleanup
 t "main: bad subcommand rc=1" "1" (fish --no-config $plugindir/functions/tmux-categorize.fish bogus 2>/dev/null; echo $status)
 cleanup
 

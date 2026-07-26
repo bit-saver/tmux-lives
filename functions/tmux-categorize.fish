@@ -529,10 +529,16 @@ function __tcz_modal_menu --argument-names client --description 'display-menu fa
     tmux display-menu -T ' tmux-lives ' -- $args
 end
 
-function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: ghost-detach, then switch the choosing client; --take detaches all other clients first'
+function __tcz_switch --argument-names session client --description 'switch <session> <client> [--take]: switch the choosing client to <session>; only --take disturbs other clients (ghost-detach + detach-all)'
     test -n "$session"; or return 0
-    __tcz_ghosts "$session"
-    test "$argv[3]" = --take; and tmux detach-client -s "=$session" 2>/dev/null
+    # no-blanket-kick (conf.d/tmux.fish:176): visiting a session must not evict
+    # anyone. Ghost-detach drops any client idle > tmux_auto_ghost_minutes (5),
+    # so running it on every pick silently "took" sessions the user only meant to
+    # switch to. Gated on --take, matching `tmux-lives attach -t`.
+    if test "$argv[3]" = --take
+        __tcz_ghosts "$session"
+        tmux detach-client -s "=$session" 2>/dev/null
+    end
     if test -n "$client"
         tmux switch-client -c "$client" -t "=$session" 2>/dev/null
     else
