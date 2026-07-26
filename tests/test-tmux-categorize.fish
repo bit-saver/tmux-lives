@@ -998,6 +998,28 @@ t "set_claude_opt clears @tmux_lives_claude when a claude went away" yes (string
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
 __tcz_set_claude_opt sA
 t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
+# --- title fallback: claude is usually started WITHOUT --name (e.g. `claude -c`), so
+#     __tcz_cmdline_name returns nothing and @tmux_lives_claude stayed empty. The centre
+#     identity then fell back to session_name — a SLUG (spaces become dashes) which is also
+#     frozen for unstamped restored breadcrumbs, so it showed e.g. "TMUX-Setup-18" while the
+#     live title said "TMUX Setup 21". The readable name is right there in the pane title,
+#     and __tcz_categorize already trusts the title to name the session.
+set -g tcz_claude_panes (printf 'claude\t4242\t⠂ TMUX Setup 21')
+functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt falls back to the pane title when there is no --name" yes (string match -q '*@tmux_lives_claude*TMUX Setup 21*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# --name still WINS when present (stable flag beats a volatile title)
+functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt prefers --name over the pane title" yes (string match -q '*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# an untrusted title (no leading glyph word) must NOT become the name
+set -g tcz_claude_panes (printf 'claude\t4242\tbare-title')
+functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+__tcz_set_claude_opt sA
+t "set_claude_opt ignores an unparseable title" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET; set -e CLAUDE_CUR
 
 # ---------------------------------------------------------------------

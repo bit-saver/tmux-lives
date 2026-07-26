@@ -2229,10 +2229,20 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     test -n "$session"; or return
     set -l TAB (printf '\t')
     set -l name ''
-    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
-        set -l parts (string split $TAB -- $line)
+    for line in (tmux list-panes -s -t "=$session" -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
+        # -m 2: the title is last and may contain tabs.
+        set -l parts (string split -m 2 $TAB -- $line)
         test "$parts[1]" = claude; or continue
         set name (__tcz_cmdline_name $parts[2])
+        # claude is usually started WITHOUT --name (e.g. `claude -c`), so the cmdline
+        # yields nothing and the readable name lives in the pane title instead —
+        # the same source __tcz_categorize already slugifies for the session name.
+        # Without this the option stayed empty and the status-bar centre fell back to
+        # session_name: a slug (spaces -> dashes), and a frozen one for unstamped
+        # restored breadcrumbs. --name still wins: a flag beats a volatile title.
+        if test -z "$name"; and test (count $parts) -ge 3
+            set name (__tcz_title_name "$parts[3]")
+        end
         test -n "$name"; and break
     end
     # Dedup: only write when the value actually CHANGED. An unconditional set every tick /
