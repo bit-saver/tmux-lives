@@ -392,9 +392,12 @@ sleep 0.3
 set -g pt0 (__tcz_pane_target 0)
 t "pane_target: numeric name resolves to a session id" "yes" (string match -qr '^\$[0-9]+$' -- "$pt0"; and echo yes; or echo no)
 t "pane_target: ordinary name keeps exact-match =" "=other-idle" (__tcz_pane_target other-idle)
-# a session literally named like an id must NOT be mistaken for one (the resolved-string
-# sniff this replaced got that wrong)
-t "pane_target: a session named '\$1' is treated as a NAME" '=$1' (__tcz_pane_target '$1')
+# The decision keys off the ORIGINAL name, not the shape of the resolved string — the
+# sniff this replaced ('does the result start with $?') misfired on a session NAMED "$1".
+# NB this only pins the shape we emit. tmux itself still resolves a $<digits>-shaped
+# target as an ID even with the "=" prefix, so a session literally named "$1" cannot be
+# addressed reliably by ANY target form. Out of reach here; documented, not claimed fixed.
+t "pane_target: keys off the original name, not the resolved shape" '=$1' (__tcz_pane_target '$1')
 set -e pt0
 cleanup
 
@@ -404,6 +407,18 @@ tmux new-session -d -s plain-shell
 sleep 0.5
 t "has_claude: numeric session running claude is detected" "yes" (__tcz_session_has_claude 0; and echo yes; or echo no)
 t "has_claude: the neighbour is correctly claude-free" "no" (__tcz_session_has_claude plain-shell; and echo yes; or echo no)
+cleanup
+
+# capture-pane does NOT accept the "=name" form that list-panes tolerates — it errors
+# "can't find pane: =name" — so the preview needs the bare-name/id shape instead. Routing
+# it through the pane-target helper blanked the picker preview for EVERY non-numeric
+# session (i.e. almost all of them). End-to-end, because the pre-existing guard only
+# greps the source for a literal '-t "=' and passed vacuously through the helper.
+tmux new-session -d -s preview-me 'echo PREVIEW_MARKER; sleep 500'
+sleep 0.5
+set -g prev (__tcz_popup_preview preview-me 40 6 | string collect)
+t "popup_preview: renders a NON-numeric session" "yes" (string match -q '*PREVIEW_MARKER*' -- "$prev"; and echo yes; or echo no)
+set -e prev
 cleanup
 
 # ---------------------------------------------------------------------

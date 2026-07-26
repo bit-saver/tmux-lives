@@ -332,7 +332,7 @@ function __tcz_session_target --argument-names session --description 'a -t targe
     echo $session
 end
 
-function __tcz_pane_target --argument-names session --description 'a -t target for PANE/CAPTURE commands (list-panes, capture-pane). Those need exact-match "=name", which option commands reject — but for a NUMERIC name even "=0" mis-resolves (it returns another session panes), so those fall back to the unambiguous $id. Keyed off the ORIGINAL name, never the shape of the resolved string: a session may legitimately be NAMED "$1".'
+function __tcz_pane_target --argument-names session --description 'a -t target for PANE/CAPTURE commands (list-panes, capture-pane). Those need exact-match "=name", which option commands reject — but for a NUMERIC name even "=0" mis-resolves (it returns another session panes), so those fall back to the unambiguous $id. Keyed off the ORIGINAL name, never the shape of the resolved string (that sniff misfired on a session NAMED "$1"). Caveat: tmux resolves a $<digits>-shaped target as an ID even with "=", so a session literally named "$1" is unaddressable by any form — out of reach here.'
     if string match -qr '^[0-9]+$' -- "$session"
         __tcz_session_target "$session"
     else
@@ -827,7 +827,10 @@ end
 
 function __tcz_popup_preview --argument-names session w h --description 'colored capture-pane (-e) of session active pane, clipped to w×h'
     test -n "$session"; or return 0
-    tmux capture-pane -e -p -t (__tcz_pane_target "$session") 2>/dev/null | __tcz_popup_clip $w $h
+    # __tcz_session_target, NOT __tcz_pane_target: capture-pane REJECTS the "=name" form
+    # that list-panes tolerates ("can't find pane: =name"), so it needs the bare-name/id
+    # shape. Using the pane shape here blanked the preview for every non-numeric session.
+    tmux capture-pane -e -p -t (__tcz_session_target "$session") 2>/dev/null | __tcz_popup_clip $w $h
 end
 
 function __tcz_legend_row --argument-names pitch --description 'pure: one aligned key-legend row — argv[2..] = <key> <label> pairs; each cell = key (key color) + space + label (muted) padded to <pitch> visible cols; leading space. The shared footer convention for every tmux-lives popup.'
