@@ -879,8 +879,10 @@ t "catalog: amber chip is a default" 1 (string match -q '*amber chip*' -- (__tmu
 t "catalog: ember deep cut" 0 (string match -q '*ember deep*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: ember core cut" 0 (string match -q '*ember core*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: no ember at cap placement at all" 0 (count (__tmux_lives_theme_catalog | string match -r '\|ember\|cap\|'))
-# the other cap-placed relationships were all kept — the cut is ember-specific, not a purge
-t "catalog: other cap-placed schemes kept" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|cap\|')) -ge 8; and echo 1; or echo 0)
+# The cut is ember-specific, not a purge of cap placement: 4 deep (amber/coral/sage/teal)
+# + 5 core (mono/amber/coral/sage/teal) = 9. Pinned EXACTLY — a >= bound passes on the
+# pre-cut catalog too and would let a future accidental removal slip through.
+t "catalog: cap placement keeps exactly its other 9" 9 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 28 rows" 28 (count (__tmux_lives_theme_list))
