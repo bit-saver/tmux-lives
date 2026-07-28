@@ -866,6 +866,22 @@ end
 t "every catalog recipe yields 7 hexes" 0 $bad
 t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
 
+# --- catalog composition (2026-07-28 weeding pass) ------------------------------------
+# The seed was verbatim at bar (glow) and cap (core) but NEVER at tabs — 0 of 28 — so the
+# "chip" tier exists to close that. And ember at CAP placement was cut: at that placement
+# the BAR carries the full 72° swing at a chroma the taper never touches (verified: the bar
+# hex is identical at C .115 and .090), so a green seed yields a near-miss teal bar that
+# reads as a mistake. coral at 100° survives because the further swing reads as deliberate.
+t "catalog: tabs+literal tier exists (the chip tier)" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|')) -ge 1; and echo 1; or echo 0)
+t "catalog: amber chip present" 1 (string match -q '*amber chip|amber|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
+t "catalog: sage chip present" 1 (string match -q '*sage chip|sage|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
+t "catalog: amber chip is a default" 1 (string match -q '*amber chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
+t "catalog: ember deep cut" 0 (string match -q '*ember deep*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
+t "catalog: ember core cut" 0 (string match -q '*ember core*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
+t "catalog: no ember at cap placement at all" 0 (count (__tmux_lives_theme_catalog | string match -r '\|ember\|cap\|'))
+# the other cap-placed relationships were all kept — the cut is ember-specific, not a purge
+t "catalog: other cap-placed schemes kept" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|cap\|')) -ge 8; and echo 1; or echo 0)
+
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 28 rows" 28 (count (__tmux_lives_theme_list))
 t "theme list rows carry truecolor swatches" 28 (count (string match -r '48;2;' (__tmux_lives_theme_list)))

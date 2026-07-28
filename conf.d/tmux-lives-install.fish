@@ -707,7 +707,7 @@ function __tmux_lives_theme_relationships --description 'v4 relationship names (
     printf '%s\n' mono amber ember coral sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 28 schemes as name|relationship|place|mode|default (1 = in the curated default 12), ordered near-seed -> bold across tiers soft/glow/slate/deep/core. Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 28 schemes as name|relationship|place|mode|default (1 = in the curated default 12), ordered near-seed -> bold across tiers soft/glow/slate/chip/deep/core (bar, then tabs, then cap; derived before literal within each). chip = the seed verbatim on the TAB, the one slot it never occupied. NO ember at cap: there the BAR carries the full 72deg swing at a chroma the taper never reaches, so a green seed gives a near-miss teal that reads as a mistake (coral at 100deg survives — a swing that far reads as deliberate). Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
         'mono soft|mono|bar|derived|1'   'amber soft|amber|bar|derived|1'  'coral soft|coral|bar|derived|1' \
         'ember soft|ember|bar|derived|0' 'sage soft|sage|bar|derived|0'    'teal soft|teal|bar|derived|0' \
@@ -715,10 +715,11 @@ function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 28 scheme
         'coral glow|coral|bar|literal|0' 'sage glow|sage|bar|literal|1'    'teal glow|teal|bar|literal|1' \
         'amber slate|amber|tabs|derived|0' 'ember slate|ember|tabs|derived|1' 'coral slate|coral|tabs|derived|0' \
         'sage slate|sage|tabs|derived|0'   'teal slate|teal|tabs|derived|0' \
-        'amber deep|amber|cap|derived|1' 'ember deep|ember|cap|derived|1'  'coral deep|coral|cap|derived|1' \
-        'sage deep|sage|cap|derived|0'   'teal deep|teal|cap|derived|0' \
-        'mono core|mono|cap|literal|0'   'amber core|amber|cap|literal|0'  'ember core|ember|cap|literal|0' \
-        'coral core|coral|cap|literal|0' 'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
+        'amber chip|amber|tabs|literal|1'  'sage chip|sage|tabs|literal|0' \
+        'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|1' \
+        'sage deep|sage|cap|derived|0'    'teal deep|teal|cap|derived|0' \
+        'mono core|mono|cap|literal|0'    'amber core|amber|cap|literal|0' \
+        'coral core|coral|cap|literal|0'  'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
 end
 
 function __tmux_lives_theme_catalog_default --description 'the curated 12: catalog rows flagged default=1'
