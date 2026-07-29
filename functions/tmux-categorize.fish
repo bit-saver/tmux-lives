@@ -850,7 +850,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -903,8 +903,15 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         set -l b2 ''
         dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
         set -l b3 ''
+        set -l b4 ''
         if test "$b2" = 5b; or test "$b2" = 4f       # [ or O
             dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b3
+            # PgUp/PgDn are ESC [ 5 ~ / ESC [ 6 ~ — consume the trailing '~' HERE,
+            # while the tty is still non-blocking. Restoring stty first and then
+            # reading would block forever when the byte is absent.
+            if test "$b3" = 35; or test "$b3" = 36
+                dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b4
+            end
         end
         stty min 1 time 0 2>/dev/null
         if test "$b2" = 5b; or test "$b2" = 4f
@@ -913,6 +920,8 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
                 case 42; echo down; return           # B (down)
                 case 43; echo right; return          # C (right)
                 case 44; echo left; return           # D (left)
+                case 35; echo pgup; return           # 5~ (page up)
+                case 36; echo pgdn; return           # 6~ (page down)
             end
             echo other; return
         end
@@ -1650,7 +1659,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
-        test (count $init) -ge 3; and test -n "$init[3]"; and set phase $init[3]
+        # phase is deliberately NOT loaded: it is hidden and pinned at 0 in the
+        # picker, so every scheme row previews and saves at 0. A stored non-zero
+        # phase therefore resets to 0 the next time a scheme is saved — intended,
+        # since a different SEED is the better lever. The anchor snapshot below
+        # still carries the persisted phase, so the `current` row keeps meaning
+        # "exactly what you have now".
         test (count $init) -ge 4; and test -n "$init[4]"; and set viv $init[4]
         test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
         test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
@@ -1718,7 +1732,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-6) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
         set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
-        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°")
+        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
         set -l l1 (__tcz_thp_ln "$k1[1]" $IW $BORDER $RST)
         set -l l2 (__tcz_thp_ln "$k1[2]" $IW $BORDER $RST)
         printf '\e[?2026h\e[5;1H%s\e[K\e[6;1H%s\e[K\e[?2026l' "$l1" "$l2"
@@ -1896,6 +1910,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         exit 130
     end
     set -l IW 50
+    # Window size lives out here so BOTH the draw loop and the key dispatch (which
+    # pages by it) see one value — a second literal would drift.
+    set -l WIN 10
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -1960,7 +1977,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW 'adjustments' $BORDER $RST)
-        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip" phase "+$phase°")
+        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
         set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
         # Windowed scrolling list (Gallery rewrite Task 3): only the SCHEME
@@ -1977,7 +1994,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # stacked kv pairs onto ONE space-between row pair; the two rows that
         # freed went to the window rather than shrinking the frame, since the
         # catalog had just grown 28->37 and could use the extra visible rows.
-        set -l WIN 10
         set -l winsel $sel
         test $winsel -gt (math $n - 1); and set winsel (math $n - 1)
         set -l win (__tcz_thp_window $winsel $n $WIN)
@@ -2034,7 +2050,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        for lline in (__tcz_thp_leg 3 '↑↓' move '←→' phase b seed  m more z shake c current  a apply '⏎' save esc close)
+        for lline in (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake c current  a apply '⏎' save esc close)
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
         end
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
@@ -2061,62 +2077,76 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set tok (__tcz_popup_readkey)
         end
         switch $tok
-            case up
-                set sel (__tcz_thp_vismap $sel $n up)
-            case down
-                set sel (__tcz_thp_vismap $sel $n down)
-            case left
-                # net-delta coalescing: drain buffered arrows into ONE recompute.
-                # The readkey ESC/CSI-arrow branch leaves the tty in `min 1 time 0`
-                # (blocking) on return, so each iteration re-asserts non-blocking
-                # BEFORE reading — otherwise the second drain read blocks forever.
-                set -l delta -5
-                # gap escalation (2026-07-19 held-arrow lag): the FIRST pass is
-                # instant (time 0) so a single press settles immediately; once a
-                # burst is detected the drain waits ~100ms (time 1) per pass so a
-                # HELD arrow's autorepeat (~30-60ms gaps) coalesces into ONE
-                # recompute at release instead of stuttering per buffered chunk.
+            case up down pgup pgdn
+                # Drain-coalescing, the same shape the phase arrows have used since
+                # 2026-07-19. Without it a HELD arrow queued one redraw PER autorepeat
+                # keypress, so the list kept scrolling for seconds after release while
+                # it worked through the backlog. Collapse the burst into ONE net move:
+                # a held key then scrolls FASTER (more rows per redraw) and stops dead
+                # on release. Re-assert non-blocking INSIDE the loop — readkey's CSI
+                # branch leaves the tty blocking on return, so the next drain read
+                # would hang (the documented drain-hang hazard).
+                set -l steps 0
+                switch $tok
+                    case up;   set steps -1
+                    case down; set steps 1
+                    case pgup; set steps (math "0 - $WIN")
+                    case pgdn; set steps $WIN
+                end
                 set -l gap 0
                 while true
                     stty min 0 time $gap 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
-                        case left;  set delta (math $delta - 5); set gap 1
-                        case right; set delta (math $delta + 5); set gap 1
-                        case '*';   break   # cancel = drained (EOF); anything else ends the burst
+                        case up;   set steps (math "$steps - 1"); set gap 1
+                        case down; set steps (math "$steps + 1"); set gap 1
+                        case pgup; set steps (math "$steps - $WIN"); set gap 1
+                        case pgdn; set steps (math "$steps + $WIN"); set gap 1
+                        case '*';  break
                     end
                 end
                 stty min 1 time 0 2>/dev/null
-                set phase (math "((($phase + $delta) % 360) + 360) % 360")
-                set flashfield phase
-                __tcz_thp_litkv
-                __tcz_thp_reload
-            case right
-                set -l delta 5
-                set -l gap 0
-                while true
-                    stty min 0 time $gap 2>/dev/null
-                    set -l k2 (__tcz_popup_readkey)
-                    switch "$k2"
-                        case left;  set delta (math $delta - 5); set gap 1
-                        case right; set delta (math $delta + 5); set gap 1
-                        case '*';   break
-                    end
+                # Step through __tcz_thp_vismap rather than clamping inline, so the
+                # current zone (sel n+1) stays out of the walk exactly as for a single
+                # press — one clamp implementation, not two.
+                set -l dir down
+                test $steps -lt 0; and set dir up
+                for _i in (seq (math "abs($steps)"))
+                    set sel (__tcz_thp_vismap $sel $n $dir)
                 end
-                stty min 1 time 0 2>/dev/null
-                set phase (math "((($phase + $delta) % 360) + 360) % 360")
-                set flashfield phase
-                __tcz_thp_litkv
-                __tcz_thp_reload
+            # ←→ retired with the phase field: phase is HIDDEN and pinned at 0
+            # for now (a different seed is the better lever, and a knob nobody
+            # reaches for is a knob that lies). The engine and CLI still accept
+            # --phase; only the picker stops exposing it.
             case m
                 # expand/collapse the catalog: 14 curated rows <-> all 37.
                 # Reload FIRST so $n reflects the NEW list length before the
                 # sel clamp below runs (an un-reloaded $n would clamp against
                 # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
                 # this m is a different key (expand), not the old mode toggle.
+                # Remember WHICH scheme the cursor is on, not its index: expanding
+                # interleaves the hidden rows between the curated ones, so a kept
+                # index lands on an unrelated scheme and you lose your place while
+                # browsing. Re-find the same row by name in the new list instead.
+                set -l keep ''
+                if test $sel -lt $n
+                    # Compute the index into a VAR first. Inlining an arithmetic
+                    # expression inside a quoted list subscript makes fish reject it
+                    # with "Invalid index value" and spray a stack trace into the
+                    # popup; a guard test greps for that shape, and it matches
+                    # comments too — so do not spell the shape out even in prose.
+                    set -l ki (math "$sel + 1")
+                    set keep "$toks[$ki]"
+                end
                 test "$expanded" = 1; and set expanded 0; or set expanded 1
                 __tcz_thp_reload
                 set n (count $toks)
+                if test -n "$keep"
+                    set -l found (contains -i -- "$keep" $toks)
+                    # collapsing can drop the row entirely (it was a hidden one) —
+                    # fall back to the clamp below rather than guessing a neighbour.
+                    test -n "$found"; and set sel (math $found - 1)
+                end
                 test $sel -gt (math $n + 1); and set sel (math $n + 1)
                 set flashfield ''
             case b

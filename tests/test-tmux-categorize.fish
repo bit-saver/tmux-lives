@@ -1315,7 +1315,12 @@ t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (func
 # rewrite, Task 2" section further down for the catalog-wiring guards).
 t "picker batches palettes via the catalog" yes (string match -q '*__tmux_lives_theme_catalog*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker coalesces phase in 5° steps" yes (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# The phase arrows retired with the phase field; the SAME drain-coalescing now
+# serves ↑↓ (and pgup/pgdn), which is what a held arrow needed all along — it used
+# to queue one redraw per autorepeat press and scroll on for seconds after release.
+t "picker up/down coalesce into one net move" yes (string match -q '*case up;   set steps (math "$steps - 1"); set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker pages by WIN, not a literal" yes (string match -q '*case pgup; set steps (math "$steps - $WIN"); set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker has no phase-delta arm left" no (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # Theme v4 picker rewrite (Phase 2), Task 3: the contrast toggle (case d) and
 # its --contrast/--rotate save flags are retired — 'd' is now free (place/mode
@@ -1331,8 +1336,8 @@ t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'w
 # the two PHASE drains escalate to a ~100ms repeat-gap wait once a burst is
 # detected (gap=1) so a HELD arrow coalesces into ONE recompute at release;
 # a single press still settles instantly (first pass is gap=0)
-t "picker phase drains use the burst gap" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
-t "picker phase drains escalate the gap on burst" 2 (string match -a -r 'case left;  set delta \(math \$delta - 5\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker drain re-asserts non-blocking inside the loop" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker drain escalates the gap on burst" 1 (string match -a -r 'case up;   set steps \(math "\$steps - 1"\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
 
 # --- Gallery picker rewrite, Task 4: shake key (z) rewritten -------------
 # Supersedes the earlier relationship-axis picker's shake (dae0155/3395e6d),
@@ -1592,7 +1597,8 @@ set -l litkvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (str
 t "draw loop has 1 kv call in the zone" 1 (count $zonekvlines)
 t "litkv has 1 kv call" 1 (count $litkvlines)
 t "kv fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
-t "kv call carries BOTH seed and phase" 1 (string match -q '*seed*phase*' -- "$zonekvlines[1]"; and echo 1; or echo 0)
+# phase is hidden and pinned at 0 — the zone carries seed alone for now.
+t "kv call carries seed only (phase hidden)" 1 (string match -q '*seed*' -- "$zonekvlines[1]"; and not string match -q '*phase*' -- "$zonekvlines[1]"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 4: key dispatch — recipe-based
 # apply/save (place+mode come from the SELECTED catalog entry's recipe, not
@@ -1721,7 +1727,10 @@ t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0
 # before this task) — this lets the scrolling window just clamp start into
 # [0, n-winsize] without special-casing the old anchor sel-0 wraparound.
 t "picker draws the anchor AFTER the off row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk"; and echo 1; or echo 0)
-t "picker up/down go through vismap" 2 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
+# one vismap call now — inside the step loop, so a multi-row jump reuses the SAME
+# clamp as a single press (the current zone stays out of the ↑↓ walk).
+t "picker up/down go through vismap" 1 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
+t "picker steps through vismap in a loop" 1 (string match -q '*for _i in (seq (math "abs($steps)"))*' -- "$pk"; and echo 1; or echo 0)
 # picker current-zone refinement, Task 2 (2026-07-25): the current/anchor row
 # (sel n+1) moves OUT of the ↑↓ order entirely — it's reached only via the c
 # key (dispatch, tested below). vismap's down-clamp is now n (off), not n+1;
@@ -1761,7 +1770,8 @@ t "litkv paints kv rows 5-6 atomically" 1 (string match -q '*2026h*5;1H*' -- "$p
 # and z (shake) don't touch seed/phase, so they have nothing in the zone to
 # lit-flash. 4 = def + `functions -e` cleanup + 2 call sites (left, right)
 # (was 8: def + cleanup + 6 call sites [left, right, p, P, m/M, z]).
-t "litkv called from the phase knob arms" 4 (count (string match -ar '__tcz_thp_litkv' -- "$pk3"))
+# litkv survives only as the seed-entry repaint now that the phase arms are gone.
+t "litkv still wired for the seed path" 1 (test (count (string match -ar '__tcz_thp_litkv' -- "$pk3")) -ge 1; and echo 1; or echo 0)
 
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---
@@ -1809,7 +1819,7 @@ t "retitle handles iterm2" 1 (string match -q '*iterm2*' -- "$retitle_body"; and
 # builder takes ALL <key,desc> pairs at once and sizes each column by the
 # MAX width across every row, so descriptions line up regardless of which
 # row's icon happens to be longer.
-set -l L (__tcz_thp_leg 3 '↑↓' move '←→' phase b seed  m more z shake c current  a apply '⏎' save esc close)
+set -l L (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake c current  a apply '⏎' save esc close)
 t "leg emits 3 rows" 3 (count $L)
 set -l lp1 (__tcz_strip_sgr $L[1])
 set -l lp2 (__tcz_strip_sgr $L[2])
@@ -1818,7 +1828,7 @@ set -l lp3 (__tcz_strip_sgr $L[3])
 # column's width been computed per-row instead of as the max over all rows,
 # these literal strings would NOT match (concrete, hand/script-verified
 # offsets, not derived from the implementation itself).
-t "leg row1 exact text" ' ↑↓ move    ←→ phase   b   seed   ' "$lp1"
+t "leg row1 exact text" ' ↑↓ move    ⇞⇟ page    b   seed   ' "$lp1"
 t "leg row2 exact text" ' m  more    z  shake   c   current' "$lp2"
 t "leg row3 exact text" ' a  apply   ⏎  save    esc close  ' "$lp3"
 # Column-3 desc starts at the SAME visible offset (col 28) on every row —
@@ -1830,13 +1840,13 @@ t "leg col3 desc aligns row3" close   (string sub -s 28 -l 5 -- "$lp3")
 t "leg col1 desc aligns row1" move  (string sub -s 5 -l 4 -- "$lp1")
 t "leg col1 desc aligns row2" more  (string sub -s 5 -l 4 -- "$lp2")
 t "leg col1 desc aligns row3" apply (string sub -s 5 -l 5 -- "$lp3")
-t "leg col2 desc aligns row1" phase (string sub -s 16 -l 5 -- "$lp1")
+t "leg col2 desc aligns row1" page (string sub -s 16 -l 4 -- "$lp1")
 t "leg col2 desc aligns row2" shake (string sub -s 16 -l 5 -- "$lp2")
 t "leg col2 desc aligns row3" save  (string sub -s 16 -l 4 -- "$lp3")
 # icon<->desc gap is exactly 1 space, checked on an UNPADDED cell (col2,
 # row1: key width 2 == keyw, desc width 5 == descw, so the single space
 # between them is purely the separator, not incidental padding).
-t "leg icon-desc gap is 1 space" '←→ phase' (string sub -s 13 -l 8 -- "$lp1")
+t "leg icon-desc gap is 1 space" '⇞⇟ page' (string sub -s 13 -l 7 -- "$lp1")
 # each row fits inside the picker's IW (50)
 t "leg row1 fits IW" 1 (test (string length --visible -- "$lp1") -le 50; and echo 1; or echo 0)
 t "leg row2 fits IW" 1 (test (string length --visible -- "$lp2") -le 50; and echo 1; or echo 0)
