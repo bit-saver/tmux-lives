@@ -1296,7 +1296,7 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
-function __tcz_thp_spread --argument-names w --description 'pure: lay <width> <cell> pairs across w cols SPACE-BETWEEN — first flush left, last flush right, any middles evenly spaced; one pair is flush left. Gaps are clamped to >=1: string repeat -n 0 emits ZERO words, which would collapse the whole concatenation to nothing (the zero-output-substitution landmine).'
+function __tcz_thp_spread --argument-names w --description 'pure: lay <width> <cell> pairs across w cols SPACE-BETWEEN — first flush left, last flush right, any middles evenly spaced; one pair is flush left. Gaps may legitimately be ZERO when the content fills w: the repeat is captured into a var and interpolated QUOTED, so an empty gap stays one empty string instead of collapsing the concatenation (the zero-output-substitution landmine). Never force a minimum gap — that overruns w on a tight fit.'
     set -l rest $argv[2..]
     set -l ws
     set -l cells
@@ -1320,24 +1320,33 @@ function __tcz_thp_spread --argument-names w --description 'pure: lay <width> <c
     end
     set -l gaps (math "$n - 1")
     set -l free (math "$w - 1 - $tot")
+    # --scale=0 of a negative yields the STRING "-0", and `test -0 -lt 0` is FALSE
+    # (documented trap, see __tcz_thp_window) — so floor at 0 with -lt 1, which
+    # catches "-0" too. Zero is a legal gap here; content simply fills the row.
+    test $free -lt 0; and set free 0
     set -l base (math --scale=0 "$free / $gaps")
-    test $base -lt 1; and set base 1
+    test $base -lt 1; and set base 0
     set -l extra (math "$free - $base * $gaps")
     test $extra -lt 0; and set extra 0
     set -l out " $cells[1]"
     for i in (seq 2 $n)
         set -l g $base
         test $i -le (math "1 + $extra"); and set g (math "$base + 1")
-        set out "$out"(string repeat -n $g ' ')"$cells[$i]"
+        set -l gap ''
+        test $g -gt 0; and set gap (string repeat -n $g ' ')
+        set out "$out$gap$cells[$i]"
     end
     echo "$out"
 end
 
-function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments fields — TWO lines (uppercase muted labels / values) laid out SPACE-BETWEEN across w, so two fields sit on opposite edges of the frame instead of stacked in one column; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (space-separated, case-insensitive label matches, empty = none) renders matching pairs in the flash role instead of muted/its own SGR.'
+function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments fields — TWO lines (uppercase muted labels / values) laid out SPACE-BETWEEN across w, so two fields sit on opposite edges of the frame instead of stacked in one column; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (space-separated, case-insensitive label matches, empty = none) renders matching pairs in the flash role instead of muted/its own SGR. Both rows share ONE set of per-field column widths (max of label/value), so a field label sits directly above its own value even in the middle of a 3+ field row.'
     set -l MUT (__tcz_theme muted)
     set -l RST (__tcz_theme reset)
-    set -l labargs
-    set -l valargs
+    set -l labs
+    set -l vals
+    set -l lws
+    set -l vws
+    set -l fls
     set -l rest $argv[3..]
     while test (count $rest) -ge 2
         set -l lab (string upper -- $rest[1])
@@ -1347,16 +1356,45 @@ function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled
             set -l lab_lc (string lower -- $rest[1])
             contains -- $lab_lc (string split ' ' -- (string lower -- $flashfield)); and set FL (__tcz_theme flash)
         end
-        set -a labargs (string length --visible -- "$lab")
-        set -a valargs (string length --visible -- "$vplain")
-        if test -n "$FL"
-            set -a labargs "$FL$lab$RST"
-            set -a valargs "$FL$vplain$RST"
-        else
-            set -a labargs "$MUT$lab$RST"
-            set -a valargs "$rest[2]$RST"
-        end
+        set -a labs "$lab"
+        set -a vals "$rest[2]"
+        set -a lws (string length --visible -- "$lab")
+        set -a vws (string length --visible -- "$vplain")
+        set -a fls "$FL"
         set -e rest[1..2]
+    end
+    set -l n (count $labs)
+    set -l labargs
+    set -l valargs
+    for i in (seq 1 $n)
+        # ONE shared width per field so the label lands above its own value.
+        set -l cw $lws[$i]
+        test $vws[$i] -gt $cw; and set cw $vws[$i]
+        set -l lpad ''
+        set -l vpad ''
+        # A lone field needs no cell padding — it is simply flush left, and padding
+        # it would only add invisible trailing space inside the frame.
+        if test $n -gt 1
+            test (math "$cw - $lws[$i]") -gt 0; and set lpad (string repeat -n (math "$cw - $lws[$i]") ' ')
+            test (math "$cw - $vws[$i]") -gt 0; and set vpad (string repeat -n (math "$cw - $vws[$i]") ' ')
+        end
+        # the LAST field is flush right, so pad it on the left instead
+        set -l labcell "$labs[$i]$lpad"
+        set -l valcell "$vals[$i]$vpad"
+        if test $i -eq $n; and test $n -gt 1
+            set labcell "$lpad$labs[$i]"
+            set valcell "$vpad$vals[$i]"
+        end
+        if test -n "$fls[$i]"
+            set -l vp (__tcz_strip_sgr "$vals[$i]")
+            set labcell (string replace -- "$labs[$i]" "$fls[$i]$labs[$i]$RST" "$labcell")
+            set valcell (string replace -- "$vals[$i]" "$fls[$i]$vp$RST" "$valcell")
+        else
+            set labcell (string replace -- "$labs[$i]" "$MUT$labs[$i]$RST" "$labcell")
+            set valcell (string replace -- "$vals[$i]" "$vals[$i]$RST" "$valcell")
+        end
+        set -a labargs $cw $labcell
+        set -a valargs $cw $valcell
     end
     printf '%s\n%s\n' (__tcz_thp_spread $w $labargs) (__tcz_thp_spread $w $valargs)
 end

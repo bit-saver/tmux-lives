@@ -1676,10 +1676,13 @@ t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_r
 # (2026-07-25): the current zone gained its own `├─ current ─┤` zsep (+1)
 # and the legend grid grew 2->3 rows (+1), so the frame grew AGAIN 24->26 —
 # the emitted-row count was recounted directly off the draw loop's
-# `set -a lines` call sites (18 static chrome/off/current-zsep/anchor/
-# legend×3 rows + WIN=8 scheme rows = 26, CONSTANT across the 12-vs-28
-# catalog size) and the exact-height contract (rows 1..-2 with \n, last
-# without) demands -h == emitted; 27/24/22/20 are now stale everywhere.
+# `set -a lines` call sites. 2026-07-29: seed+phase moved from two stacked
+# kv pairs onto ONE space-between row pair, freeing 2 static rows, which
+# went to the WINDOW rather than shrinking the frame (the catalog had just
+# grown 28->37). So the split is now 16 static (chrome/off/current-zsep/
+# anchor/legend×3) + WIN=10 scheme rows = 26 — SAME total, CONSTANT across
+# the 14-vs-37 catalog size. The exact-height contract (rows 1..-2 with \n,
+# last without) demands -h == emitted; 27/24/22/20 are stale everywhere.
 t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x24 anywhere" 0 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
@@ -1752,7 +1755,7 @@ set -l catsrc3 (cat $catfile | string collect)
 # --- Task 4: lit-first kv repaint before recompute ---
 set -l pk3 (functions __tcz_theme_picker | string collect)
 t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
-t "litkv paints kv rows 5-8 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
+t "litkv paints kv rows 5-6 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
 # Gallery rewrite Task 4: p/P/m-M/z's litkv calls are gone along with those
 # keys — only left/right (phase) still flash the zone; the new m (expand)
 # and z (shake) don't touch seed/phase, so they have nothing in the zone to
@@ -1913,6 +1916,21 @@ t "adjustments kv: phase value flush right" 1 (string match -q '*+15°' -- "$kvl
 # a single field degrades to flush-left (no phantom right-edge padding)
 set -l kv1p (__tcz_thp_kv 50 '' seed '#485b3c')
 t "adjustments kv: one field stays flush left" " SEED" (__tcz_strip_sgr "$kv1p[1]")
+t "adjustments kv: one field value flush left too" " #485b3c" (__tcz_strip_sgr "$kv1p[2]")
+# --- __tcz_thp_spread directly: the edge cases the kv paths never reach.
+# A minimum-1 gap clamp used to force the row PAST w on a tight fit (w=10 with
+# 9 cols of content rendered 11). Zero is a legal gap; the repeat is captured
+# into a var and interpolated quoted so an empty gap cannot collapse the
+# concatenation (string repeat -n 0 emits ZERO words).
+t "spread: exact fit lands on w"      10 (string length --visible -- (__tcz_thp_spread 10 4 WXYZ 5 ABCDE))
+t "spread: roomy row fills w"         40 (string length --visible -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE))
+t "spread: first cell is flush left"   1 (string match -q ' WXYZ*' -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE); and echo 1; or echo 0)
+t "spread: last cell is flush right"   1 (string match -q '*ABCDE' -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE); and echo 1; or echo 0)
+# content wider than w cannot fit: degrade minimally (no gaps) rather than error
+t "spread: overflow degrades, no crash" 10 (string length --visible -- (__tcz_thp_spread 6 4 WXYZ 5 ABCDE))
+t "spread: single cell is flush left"  " ONLY" (__tcz_thp_spread 20 4 ONLY)
+t "spread: three cells still fill w"   40 (string length --visible -- (__tcz_thp_spread 40 3 AAA 3 BBB 3 CCC))
+t "spread: no args yields a blank"     " " (__tcz_thp_spread 20)
 
 # Consolidated guards: case c present; the retired axis keys/functions stay
 # gone; the current zsep + __tcz_thp_leg wiring are in place; vismap never
