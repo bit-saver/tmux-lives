@@ -1587,10 +1587,12 @@ t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to
 # batch recompute lands.
 set -l zonekvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$zonebody"))
 set -l litkvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$litbody"))
-t "draw loop has 2 kv calls in the zone" 2 (count $zonekvlines)
-t "litkv has 2 kv calls" 2 (count $litkvlines)
-t "kv1 fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
-t "kv2 fields synced (litkv == draw loop)" yes (test "$zonekvlines[2]" = "$litkvlines[2]"; and echo yes; or echo no)
+# Seed and phase are now ONE space-between kv call (opposite edges), not two
+# stacked pairs — so exactly one call site each, and they must still match.
+t "draw loop has 1 kv call in the zone" 1 (count $zonekvlines)
+t "litkv has 1 kv call" 1 (count $litkvlines)
+t "kv fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
+t "kv call carries BOTH seed and phase" 1 (string match -q '*seed*phase*' -- "$zonekvlines[1]"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 4: key dispatch — recipe-based
 # apply/save (place+mode come from the SELECTED catalog entry's recipe, not
@@ -1683,7 +1685,7 @@ t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- 
 t "picker popup: no stale 52x24 anywhere" 0 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
-t "picker draw loop: WIN is 8" 1 (string match -q '*set -l WIN 8*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker draw loop: WIN is 10" 1 (string match -q '*set -l WIN 10*' -- "$catsrc"; and echo 1; or echo 0)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -1896,18 +1898,21 @@ t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline i
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
 
-# Adjustments-zone alignment: the draw loop calls __tcz_thp_kv ONCE PER
-# FIELD (seed, then phase) -- not one combined multi-pair row -- so
-# "alignment" here is each field's own label/value line pair sharing a
-# column width, not cross-field matching. __tcz_thp_kv pads both lines from
-# the same computed cw, so this is expected to be a no-op; verified here
-# against the picker's REAL single-pair call shape (the multi-pair form
-# tested earlier, ~line 1102, is a different call shape and doesn't cover
-# this).
-set -l kvseed (__tcz_thp_kv 50 '' seed '#485b3c')
-set -l kvphase (__tcz_thp_kv 50 '' phase '+15°')
-t "adjustments seed kv: label/value columns align" (string match -rg '^( *)SEED' -- (__tcz_strip_sgr "$kvseed[1]") | string length) (string match -rg '^( *)#485b3c' -- (__tcz_strip_sgr "$kvseed[2]") | string length)
-t "adjustments phase kv: label/value columns align" (string match -rg '^( *)PHASE' -- (__tcz_strip_sgr "$kvphase[1]") | string length) (string match -rg '^( *)\+15°' -- (__tcz_strip_sgr "$kvphase[2]") | string length)
+# Adjustments zone: seed and phase are laid out SPACE-BETWEEN across the frame
+# (seed flush left, phase flush right) rather than stacked in one column, so
+# both rows are exactly IW wide and the right-hand field ends at the edge.
+set -l kvsp (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°')
+set -l kvl1 (__tcz_strip_sgr "$kvsp[1]")
+set -l kvl2 (__tcz_strip_sgr "$kvsp[2]")
+t "adjustments kv: label row fills the width" 50 (string length --visible -- "$kvl1")
+t "adjustments kv: value row fills the width" 50 (string length --visible -- "$kvl2")
+t "adjustments kv: seed is flush left"  1 (string match -q ' SEED *' -- "$kvl1"; and echo 1; or echo 0)
+t "adjustments kv: phase is flush right" 1 (string match -q '*PHASE' -- "$kvl1"; and echo 1; or echo 0)
+t "adjustments kv: seed value flush left"  1 (string match -q ' #485b3c *' -- "$kvl2"; and echo 1; or echo 0)
+t "adjustments kv: phase value flush right" 1 (string match -q '*+15°' -- "$kvl2"; and echo 1; or echo 0)
+# a single field degrades to flush-left (no phantom right-edge padding)
+set -l kv1p (__tcz_thp_kv 50 '' seed '#485b3c')
+t "adjustments kv: one field stays flush left" " SEED" (__tcz_strip_sgr "$kv1p[1]")
 
 # Consolidated guards: case c present; the retired axis keys/functions stay
 # gone; the current zsep + __tcz_thp_leg wiring are in place; vismap never
