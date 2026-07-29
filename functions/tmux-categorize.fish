@@ -1625,6 +1625,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l seed ''
     set -l theme mono
     set -l phase 0
+    # The picker's WORKING phase is pinned at 0 (hidden knob). The PERSISTED
+    # phase is kept separately so the `current` row can still snapshot what you
+    # actually have — otherwise confirming your own theme would silently zero it.
+    set -l persisted_phase 0
     set -l viv balanced
     set -l shape arc
     set -l ease linear
@@ -1659,12 +1663,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
-        # phase is deliberately NOT loaded: it is hidden and pinned at 0 in the
-        # picker, so every scheme row previews and saves at 0. A stored non-zero
-        # phase therefore resets to 0 the next time a scheme is saved — intended,
-        # since a different SEED is the better lever. The anchor snapshot below
-        # still carries the persisted phase, so the `current` row keeps meaning
-        # "exactly what you have now".
+        # $phase stays pinned at 0 — hidden knob, so every SCHEME row previews and
+        # saves at 0, and a stored non-zero phase resets when you save a scheme
+        # (intended: a different SEED is the better lever). The persisted value is
+        # captured separately for the anchor snapshot so the `current` row still
+        # means "exactly what you have now" rather than silently zeroing it.
+        test (count $init) -ge 3; and test -n "$init[3]"; and set persisted_phase $init[3]
         test (count $init) -ge 4; and test -n "$init[4]"; and set viv $init[4]
         test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
         test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
@@ -1729,13 +1733,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a tabsfgs "$f[4]"
             set -a recipes "$f[5]"
         end
-    end
-    function __tcz_thp_litkv --no-scope-shadowing --description 'lit-first feedback: repaint the kv zone (frame rows 5-6) with the CURRENT knob values + flash BEFORE the recompute runs — the changed field lights up instantly and stays lit until the batch lands'
-        set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
-        set -l k1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
-        set -l l1 (__tcz_thp_ln "$k1[1]" $IW $BORDER $RST)
-        set -l l2 (__tcz_thp_ln "$k1[2]" $IW $BORDER $RST)
-        printf '\e[?2026h\e[5;1H%s\e[K\e[6;1H%s\e[K\e[?2026l' "$l1" "$l2"
     end
     function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
                 set -l buf (string replace -r '^#' '' -- $seed)
@@ -1880,7 +1877,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l n (count $toks)          # n = catalog rows (14/37); off at sel==n, anchor at sel==n+1
     # anchor snapshot: the persisted theme, frozen for this picker session
     set -l anch_scheme $theme
-    set -l anch_phase $phase
+    set -l anch_phase $persisted_phase
     set -l anch_viv $viv
     set -l anch_shape $shape
     set -l anch_ease $ease
@@ -2228,7 +2225,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_sliders
-    functions -e __tcz_thp_litkv
     set -e __tcz_thp_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'

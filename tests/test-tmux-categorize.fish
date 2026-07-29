@@ -1553,7 +1553,6 @@ t "window: sel=3 no -0 start" "0 7" (__tcz_thp_window 3 12 7)
 # file) — without it, embedded newlines vanish and a later `string split \n`
 # sees one flattened line instead of several.
 set -l zonebody (string match -r '(?s)__tcz_thp_zsep \$IW .adjustments.*?__tcz_thp_zsep \$IW' -- "$pbody" | string collect)
-set -l litbody (string match -r '(?s)function __tcz_thp_litkv.*?\n    end' -- "$pbody" | string collect)
 # Gallery rewrite Task 4 supersedes this Task 2 zone content: place/mode are
 # no longer top-level knobs (they come from the selected catalog entry's
 # recipe), so the adjustments zone shrinks further to seed + phase only.
@@ -1561,10 +1560,6 @@ t "zone drops place"       0 (string match -q '*place*'     -- "$zonebody"; and 
 t "zone drops mode"        0 (string match -q '*mode*'      -- "$zonebody"; and echo 1; or echo 0)
 t "zone drops vividness"   0 (string match -q '*vividness*' -- "$zonebody"; and echo 1; or echo 0)
 t "zone drops rotate lbl"  0 (string match -q '*rotate*'    -- "$zonebody"; and echo 1; or echo 0)
-t "litkv drops place"      0 (string match -q '*place*'     -- "$litbody"; and echo 1; or echo 0)
-t "litkv drops mode"       0 (string match -q '*mode*'      -- "$litbody"; and echo 1; or echo 0)
-t "litkv drops vividness"  0 (string match -q '*vividness*' -- "$litbody"; and echo 1; or echo 0)
-t "litkv drops rotate lbl" 0 (string match -q '*rotate*'    -- "$litbody"; and echo 1; or echo 0)
 # the brief's own regex for this ("kv .*place .\$place") is VACUOUS: a bare
 # mid-pattern `$` in PCRE is an end-of-subject anchor, so `.*place .$place`
 # can never match ANYTHING regardless of what the code says (verified: both
@@ -1591,12 +1586,11 @@ t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to
 # IDENTICAL kv fields, or the lit-first flash paints stale labels before the
 # batch recompute lands.
 set -l zonekvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$zonebody"))
-set -l litkvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$litbody"))
-# Seed and phase are now ONE space-between kv call (opposite edges), not two
-# stacked pairs — so exactly one call site each, and they must still match.
+# ONE space-between kv call now. __tcz_thp_litkv is GONE: the lit-first repaint
+# existed only for the ←→ phase arms, and those retired with the phase field, so
+# it had zero call sites left (dead code, caught in review).
 t "draw loop has 1 kv call in the zone" 1 (count $zonekvlines)
-t "litkv has 1 kv call" 1 (count $litkvlines)
-t "kv fields synced (litkv == draw loop)" yes (test "$zonekvlines[1]" = "$litkvlines[1]"; and echo yes; or echo no)
+t "picker has no lit-first repaint left" 0 (string match -q '*__tcz_thp_litkv*' -- "$pbody"; and echo 1; or echo 0)
 # phase is hidden and pinned at 0 — the zone carries seed alone for now.
 t "kv call carries seed only (phase hidden)" 1 (string match -q '*seed*' -- "$zonekvlines[1]"; and not string match -q '*phase*' -- "$zonekvlines[1]"; and echo 1; or echo 0)
 
@@ -1763,15 +1757,13 @@ set -l catsrc3 (cat $catfile | string collect)
 
 # --- Task 4: lit-first kv repaint before recompute ---
 set -l pk3 (functions __tcz_theme_picker | string collect)
-t "litkv helper defined" 1 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
-t "litkv paints kv rows 5-6 atomically" 1 (string match -q '*2026h*5;1H*' -- "$pk3"; and echo 1; or echo 0)
-# Gallery rewrite Task 4: p/P/m-M/z's litkv calls are gone along with those
-# keys — only left/right (phase) still flash the zone; the new m (expand)
-# and z (shake) don't touch seed/phase, so they have nothing in the zone to
-# lit-flash. 4 = def + `functions -e` cleanup + 2 call sites (left, right)
-# (was 8: def + cleanup + 6 call sites [left, right, p, P, m/M, z]).
-# litkv survives only as the seed-entry repaint now that the phase arms are gone.
-t "litkv still wired for the seed path" 1 (test (count (string match -ar '__tcz_thp_litkv' -- "$pk3")) -ge 1; and echo 1; or echo 0)
+# The lit-first kv repaint is retired: its only callers were the ←→ phase arms.
+t "no orphaned litkv definition" 0 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
+t "no orphaned litkv cleanup" 0 (string match -q '*functions -e __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
+# the anchor keeps the PERSISTED phase even though the picker pins its working
+# phase at 0 — otherwise confirming your own theme would silently zero it.
+t "anchor snapshots the persisted phase" 1 (string match -q '*set -l anch_phase $persisted_phase*' -- "$pk3"; and echo 1; or echo 0)
+t "persisted phase is loaded from init" 1 (string match -q '*set persisted_phase $init*' -- "$pk3"; and echo 1; or echo 0)
 
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---
