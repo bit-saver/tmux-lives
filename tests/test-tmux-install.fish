@@ -852,10 +852,10 @@ t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember
 set -U tmux_lives_bar_color '#485b3c'
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
-t "catalog has 28 entries" 28 (count (__tmux_lives_theme_catalog))
-t "catalog default is 12"  12 (count (__tmux_lives_theme_catalog_default))
+t "catalog has 37 entries" 37 (count (__tmux_lives_theme_catalog))
+t "catalog default is 14"  14 (count (__tmux_lives_theme_catalog_default))
 t "catalog entries are 5 fields" 5 (count (string split '|' (__tmux_lives_theme_catalog | head -1)))
-t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|1$')) -eq 12; and echo 1; or echo 0)
+t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|1$')) -eq 14; and echo 1; or echo 0)
 # every recipe is a valid engine input -> 7-hex palette
 set -l bad 0
 for e in (__tmux_lives_theme_catalog)
@@ -882,11 +882,20 @@ t "catalog: no ember at cap placement at all" 0 (count (__tmux_lives_theme_catal
 # The cut is ember-specific, not a purge of cap placement: 4 deep (amber/coral/sage/teal)
 # + 5 core (mono/amber/coral/sage/teal) = 9. Pinned EXACTLY — a >= bound passes on the
 # pre-cut catalog too and would let a future accidental removal slip through.
-t "catalog: cap placement keeps exactly its other 9" 9 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
+t "catalog: cap placement holds exactly 13" 13 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
+# 20deg tier: user picked 10 of 12 placements, rejecting BOTH cool-20 at tabs — so wheat
+# gets 5 rows (no slate) and mint 4 (no slate, no chip).
+t "catalog: wheat has 5 rows" 5 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|'))
+t "catalog: mint has 4 rows"  4 (count (__tmux_lives_theme_catalog | string match -r '\|mint\|'))
+t "catalog: no mint at tabs (both rejected)" 0 (count (__tmux_lives_theme_catalog | string match -r '\|mint\|tabs\|'))
+t "catalog: no wheat at tabs derived" 0 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|derived\|'))
+t "catalog: wheat chip exists (tabs literal kept)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|literal\|'))
+t "catalog: wheat soft is a default" 1 (string match -q '*wheat soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
+t "catalog: mint soft is a default" 1 (string match -q '*mint soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
-t "theme list has 28 rows" 28 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 28 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+t "theme list has 37 rows" 37 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 37 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir
@@ -981,7 +990,9 @@ for i in (seq (count $_th_names))
 end
 
 # ---- v4: relationship table ----
-t "relationships list" "mono amber ember coral sage teal" (__tmux_lives_theme_relationships | string join ' ')
+t "relationships list" "mono wheat amber ember coral mint sage teal" (__tmux_lives_theme_relationships | string join ' ')
+t "reldef wheat warm 20"  -20  (__tmux_lives_theme_reldef wheat)
+t "reldef mint cool 20"   20   (__tmux_lives_theme_reldef mint)
 t "reldef mono is flat"   0    (__tmux_lives_theme_reldef mono)
 t "reldef amber warm 40"  -40  (__tmux_lives_theme_reldef amber)
 t "reldef ember warm 72"  -72  (__tmux_lives_theme_reldef ember)
@@ -996,7 +1007,15 @@ t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
 # near relationships stay vivid; far ones hit the muted floor
 t "taper mono vivid C"    0.115 (__tmux_lives_theme_taper 0    | sed -n 1p)
 t "taper mono vivid L"    0.66  (__tmux_lives_theme_taper 0    | sed -n 2p)
-t "taper ember vivid C"   0.115 (__tmux_lives_theme_taper -72  | sed -n 1p)   # warm knee 72: excess 0
+# Ember used to sit EXACTLY on the warm knee, so max(0, dH-knee) was 0 and it escaped
+# muting entirely — the loudest scheme was the only one the taper skipped. Warm knee
+# dropped 72 -> 62 pulls it under: excess 10 -> capC .090 / capL .645, the values the
+# user picked by eye. amber/sage stay below their knees; coral/teal already clamp.
+t "taper ember muted C"   0.09  (__tmux_lives_theme_taper -72  | sed -n 1p)
+t "taper ember muted L"   0.645 (__tmux_lives_theme_taper -72  | sed -n 2p)
+t "taper amber still vivid C" 0.115 (__tmux_lives_theme_taper -40 | sed -n 1p)
+t "taper wheat vivid C"   0.115 (__tmux_lives_theme_taper -20  | sed -n 1p)
+t "taper mint vivid C"    0.115 (__tmux_lives_theme_taper 20   | sed -n 1p)
 t "taper sage vivid C"    0.115 (__tmux_lives_theme_taper 40   | sed -n 1p)   # cool knee 40: excess 0
 t "taper coral floor C"   0.055 (__tmux_lives_theme_taper -100 | sed -n 1p)   # warm excess 28 -> below floor -> clamp
 t "taper coral floor L"   0.62  (__tmux_lives_theme_taper -100 | sed -n 2p)

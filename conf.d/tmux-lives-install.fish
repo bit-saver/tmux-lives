@@ -704,21 +704,26 @@ function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per
 end
 
 function __tmux_lives_theme_relationships --description 'v4 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
-    printf '%s\n' mono amber ember coral sage teal
+    printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 28 schemes as name|relationship|place|mode|default (1 = in the curated default 12), ordered near-seed -> bold across tiers soft/glow/slate/chip/deep/core (bar, then tabs, then cap; derived before literal within each). chip = the seed verbatim on the TAB, the one slot it never occupied. NO ember at cap: there the BAR carries the full 72deg swing at a chroma the taper never reaches, so a green seed gives a near-miss teal that reads as a mistake (coral at 100deg survives — a swing that far reads as deliberate). Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 37 schemes as name|relationship|place|mode|default (1 = in the curated default 14), ordered near-seed -> bold across tiers soft/glow/slate/chip/deep/core (bar, then tabs, then cap; derived before literal within each). chip = the seed verbatim on the TAB, the one slot it never occupied. NO ember at cap: there the BAR carries the full 72deg swing at a chroma the taper never reaches, so a green seed gives a near-miss teal that reads as a mistake (coral at 100deg survives — a swing that far reads as deliberate). Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
-        'mono soft|mono|bar|derived|1'   'amber soft|amber|bar|derived|1'  'coral soft|coral|bar|derived|1' \
+        'mono soft|mono|bar|derived|1'   'wheat soft|wheat|bar|derived|1'  'mint soft|mint|bar|derived|1' \
+        'amber soft|amber|bar|derived|1'  'coral soft|coral|bar|derived|1' \
         'ember soft|ember|bar|derived|0' 'sage soft|sage|bar|derived|0'    'teal soft|teal|bar|derived|0' \
-        'mono glow|mono|bar|literal|0'   'amber glow|amber|bar|literal|0'  'ember glow|ember|bar|literal|1' \
+        'mono glow|mono|bar|literal|0'   'wheat glow|wheat|bar|literal|0'  'mint glow|mint|bar|literal|0' \
+        'amber glow|amber|bar|literal|0'  'ember glow|ember|bar|literal|1' \
         'coral glow|coral|bar|literal|0' 'sage glow|sage|bar|literal|1'    'teal glow|teal|bar|literal|1' \
         'amber slate|amber|tabs|derived|0' 'ember slate|ember|tabs|derived|1' 'coral slate|coral|tabs|derived|0' \
         'sage slate|sage|tabs|derived|0'   'teal slate|teal|tabs|derived|0' \
         'amber chip|amber|tabs|literal|1'  'sage chip|sage|tabs|literal|0' \
+        'wheat chip|wheat|tabs|literal|0' \
+        'wheat deep|wheat|cap|derived|0'  'mint deep|mint|cap|derived|0' \
         'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|1' \
         'sage deep|sage|cap|derived|0'    'teal deep|teal|cap|derived|0' \
-        'mono core|mono|cap|literal|0'    'amber core|amber|cap|literal|0' \
+        'mono core|mono|cap|literal|0'    'wheat core|wheat|cap|literal|0'  'mint core|mint|cap|literal|0' \
+        'amber core|amber|cap|literal|0' \
         'coral core|coral|cap|literal|0'  'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
 end
 
@@ -732,18 +737,20 @@ end
 function __tmux_lives_theme_reldef --argument-names name --description 'v4 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0
+        case wheat; echo -20
         case amber; echo -40
         case ember; echo -72
         case coral; echo -100
+        case mint;  echo 20
         case sage;  echo 40
         case teal;  echo 72
     end
 end
 
-function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23): past a direction-dependent knee (72 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid.'
+function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23; warm knee retuned 72->62 on 2026-07-29): past a direction-dependent knee (62 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid. The warm knee is 62 NOT 72 deliberately: at 72 ember sat EXACTLY on it, so max(0,dH-knee) was 0 and the loudest relationship was the only one that escaped muting. 62 pulls ember under at capC .090 / capL .645 (user-picked by eye) and leaves amber/wheat/mint/sage below their knees and coral/teal already on the clamp floors — i.e. ember is the ONLY relationship this moves.'
     set -l ad (math "abs($signeddrift)")
     set -l knee 40
-    test $signeddrift -lt 0; and set knee 72
+    test $signeddrift -lt 0; and set knee 62
     set -l excess (math "max(0, $ad - $knee)")
     set -l capC (math "0.115 - 0.0025 * $excess")
     test $capC -lt 0.055; and set capC 0.055

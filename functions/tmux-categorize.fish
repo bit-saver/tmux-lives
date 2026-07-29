@@ -1530,7 +1530,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (12 default, m expands to all 28) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 12<->28 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 28-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (18 static chrome/off/current-zone/legend rows + a fixed 8-row scheme window, constant regardless of the 12-vs-28 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 37) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->37 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 37-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (18 static chrome/off/current-zone/legend rows + a fixed 8-row scheme window, constant regardless of the 14-vs-37 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1602,7 +1602,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l recipes
     set -l cachekeys
     set -l cacheblobs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (12 default / 28 all) + fgs, in-process; v4 engine results cached by knob-state key (seed/phase/expanded)'
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 37 all) + fgs, in-process; v4 engine results cached by knob-state key (seed/phase/expanded)'
         set toks; set pals; set fgs; set tabsfgs; set recipes
         set -l key "$seed|$phase|$expanded"
         set -l blob ''
@@ -1794,7 +1794,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '\e[2J'
     end
     __tcz_thp_reload
-    set -l n (count $toks)          # n = catalog rows (12/28); off at sel==n, anchor at sel==n+1
+    set -l n (count $toks)          # n = catalog rows (14/37); off at sel==n, anchor at sel==n+1
     # anchor snapshot: the persisted theme, frozen for this picker session
     set -l anch_scheme $theme
     set -l anch_phase $phase
@@ -1908,7 +1908,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # bottom-border) + WIN scheme rows = 26 total (picker current-zone +
         # legend-grid refinement, Task 3: was 16+WIN=24 before the
         # `current` zsep and the legend's 2->3-row grid), constant across
-        # the 12/28 catalog size — matched to the popup -h at all three open
+        # the 14/37 catalog size — matched to the popup -h at all three open
         # sites.
         set -l WIN 8
         set -l winsel $sel
@@ -2042,7 +2042,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 __tcz_thp_litkv
                 __tcz_thp_reload
             case m
-                # expand/collapse the catalog: 12 curated rows <-> all 28.
+                # expand/collapse the catalog: 14 curated rows <-> all 37.
                 # Reload FIRST so $n reflects the NEW list length before the
                 # sel clamp below runs (an un-reloaded $n would clamp against
                 # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
