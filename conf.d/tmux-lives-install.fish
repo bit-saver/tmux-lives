@@ -717,8 +717,8 @@ function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 37 scheme
         'coral glow|coral|bar|literal|0' 'sage glow|sage|bar|literal|1'    'teal glow|teal|bar|literal|1' \
         'amber slate|amber|tabs|derived|0' 'ember slate|ember|tabs|derived|1' 'coral slate|coral|tabs|derived|0' \
         'sage slate|sage|tabs|derived|0'   'teal slate|teal|tabs|derived|0' \
-        'amber chip|amber|tabs|literal|1'  'sage chip|sage|tabs|literal|0' \
-        'wheat chip|wheat|tabs|literal|0' \
+        'wheat chip|wheat|tabs|literal|0'  'amber chip|amber|tabs|literal|1' \
+        'sage chip|sage|tabs|literal|0' \
         'wheat deep|wheat|cap|derived|0'  'mint deep|mint|cap|derived|0' \
         'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|1' \
         'sage deep|sage|cap|derived|0'    'teal deep|teal|cap|derived|0' \
@@ -727,7 +727,7 @@ function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 37 scheme
         'coral core|coral|cap|literal|0'  'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
 end
 
-function __tmux_lives_theme_catalog_default --description 'the curated 12: catalog rows flagged default=1'
+function __tmux_lives_theme_catalog_default --description 'the curated default set (14): catalog rows flagged default=1'
     # -e/--entire: plain `-r '\|1$'` outputs only the matched substring ("|1"),
     # not the whole line, since the pattern isn't anchored at the start — a real
     # fish landmine (verified empirically). --entire emits the full matching line.

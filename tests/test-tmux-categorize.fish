@@ -1347,9 +1347,12 @@ t "picker has a shake arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; 
 t "shake expands the catalog" 1 (string match -q '*case z*set expanded 1*' -- "$pk2"; and echo 1; or echo 0)
 # fish landmine guard (2026-07-20 live bug, still relevant): capture random
 # into a var BEFORE using it as an index — never inline it into quoted math.
-t "shake captures random into a var first" 1 (string match -q '*set -l zi (random 0 27)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake captures random into a var first" 1 (string match -q '*set -l zi (random 0 (math $n - 1))*' -- "$pk2"; and echo 1; or echo 0)
+# The bound must be DERIVED, never a literal: it was `random 0 27`, taken BEFORE the
+# reload, so when the catalog grew past 28 the tail silently became unreachable.
+t "shake bound is derived, not a literal" 0 (string match -qr 'random 0 [0-9]' -- "$pk2"; and echo 1; or echo 0)
 t "shake selects the captured index" 1 (string match -q '*set sel $zi*' -- "$pk2"; and echo 1; or echo 0)
-t "shake reloads + reclamps n after expanding" 1 (string match -q '*set expanded 1*set -l zi (random 0 27)*set sel $zi*__tcz_thp_reload*set n (count $toks)*' -- "$pk2"; and echo 1; or echo 0)
+t "shake reloads BEFORE rolling (bound sees the expanded list)" 1 (string match -q '*set expanded 1*__tcz_thp_reload*set n (count $toks)*set -l zi (random 0 (math $n - 1))*set sel $zi*' -- "$pk2"; and echo 1; or echo 0)
 t "shake no longer rerolls place/mode independently" yes (begin; not string match -q '*set place $places[$pi]*' -- "$pk2"; and not string match -q '*set mode $modes[$mi]*' -- "$pk2"; end; and echo yes; or echo no)
 
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase m more z shake)); and echo 1; or echo 0)

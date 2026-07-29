@@ -2055,22 +2055,25 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case b
                 __tcz_thp_sliders
             case z
-                # shake: land on a random row across the FULL 28-entry
-                # catalog (expanding first so it's reachable). Place/mode are
-                # no longer independent knobs to reroll — they're baked into
-                # each row's RECIPE (case a/enter below derive them from
-                # $recipes) — so shake only needs a random index. Capture
-                # random into a var FIRST: fish performs NO command
-                # substitution inside double-quoted math — writing the roll
+                # shake: land on a random row across the FULL catalog. RELOAD
+                # BEFORE ROLLING so the bound is the real expanded size — the
+                # roll used to be a hardcoded upper bound taken before the
+                # reload, which silently stopped covering the tail when the
+                # catalog grew (9 rows became unreachable). Never reintroduce
+                # a literal bound here — a guard test greps for one, and it
+                # matches comments too, so do not spell one out even in prose. Place/mode are not knobs to
+                # reroll — they're baked into each row's RECIPE (case a/enter
+                # derive them from $recipes) — so shake only needs an index.
+                # Capture random into a var FIRST: fish performs NO command
+                # substitution inside double-quoted math, so writing the roll
                 # directly as a math() argument would hand math the LITERAL
                 # unexpanded text (stderr into the popup) and vanish the
-                # assignment downstream (2026-07-20 live bug, same class of
-                # landmine).
+                # assignment downstream (2026-07-20 live bug).
                 set expanded 1
-                set -l zi (random 0 27)
-                set sel $zi
                 __tcz_thp_reload
                 set n (count $toks)
+                set -l zi (random 0 (math $n - 1))
+                set sel $zi
                 set flashfield ''
             case c
                 # jump to/from the current zone (sel n+1) — OUT of the ↑↓
