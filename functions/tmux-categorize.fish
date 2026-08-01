@@ -1322,12 +1322,12 @@ end
 function __tcz_thp_sep --argument-names w od t --description 'the frame mid separator (├──┤)'
     printf '%s├%s┤%s\n' $od (string repeat -n $w ─) $t
 end
-function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone separator ├─ <label> ─…┤ (BOLD muted label; empty label -> plain __tcz_thp_sep). od = border SGR, t = reset.'
+function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone separator ├─ <label> ─…┤ (BOLD title-role label; empty label -> plain __tcz_thp_sep). od = border SGR, t = reset.'
     if test -z "$label"
         __tcz_thp_sep $w $od $t
         return
     end
-    set -l MUT (__tcz_theme muted)
+    set -l MUT (__tcz_theme title)
     set -l len (string length --visible -- "$label")
     set -l fill (math "$w - 3 - $len")
     test $fill -lt 0; and set fill 0
@@ -2265,12 +2265,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     return 0
 end
 
-function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/key/muted/value/mark/flash/sel-bg/sel-fg/reset)'
+function __tcz_theme --argument-names role --description 'tl theme palette -> truecolor SGR for a named role (brand/border/title/key/muted/value/mark/flash/sel-bg/sel-fg/reset)'
     switch $role
         case brand;  printf '\e[38;2;255;138;31m'
         case border; printf '\e[38;2;168;106;44m'
         case key;    printf '\e[38;2;245;207;138m'
         case muted;  printf '\e[38;2;154;138;114m'
+        # section-separator titles: the brand orange pulled down ~18%. Distinct from
+        # `border` (which would blend the label into the rule it sits on) and from
+        # `brand` (which the top border's own `theme` title already uses).
+        case title;  printf '\e[38;2;210;120;42m'
         case value;  printf '\e[38;2;111;199;184m'
         # mark: a TRUE neutral grey for the active-column rule. Intentionally neither `key`
         # (tan — the ▐ selector; sharing it read as a colour collision) nor `muted` (a WARM

@@ -898,6 +898,19 @@ functions -e tmux
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 
 # ---------------------------------------------------------------------
+# __tcz_theme title — section separators in dimmed orange
+# ---------------------------------------------------------------------
+# The brand orange pulled down ~18%: distinct from the frame rule AND from the
+# undimmed brand the picker uses for its own `theme` title in the top border.
+t "theme title role is the dimmed orange" (printf '\e[38;2;210;120;42m') (__tcz_theme title)
+set -g ZS (__tcz_thp_zsep 40 schemes (__tcz_theme border) (__tcz_theme reset))
+t "zsep label wears the title role" 1 (string match -q '*'(__tcz_theme title)'*' -- "$ZS"; and echo 1; or echo 0)
+t "zsep label no longer wears muted"  0 (string match -q '*'(__tcz_theme muted)'*' -- "$ZS"; and echo 1; or echo 0)
+t "zsep is still exactly w visible cols" 42 (string length --visible -- "$ZS")
+# an empty label still falls through to the plain rule
+t "zsep with no label is the plain rule" 42 (string length --visible -- (__tcz_thp_zsep 40 '' (__tcz_theme border) (__tcz_theme reset)))
+
+# ---------------------------------------------------------------------
 # __tcz_status_right_merge — pure: keep a FOREIGN #() hook, replace ours
 # ---------------------------------------------------------------------
 # tmux-continuum schedules its autosave by prepending #(continuum_save.sh) to
