@@ -195,11 +195,16 @@ function __tcz_status_right_merge --argument-names current ours --description 'p
     # absent: a plugin may have set status-right before we ever ran.
     set -l re (string escape --style=regex -- "$marker")
     set -l pre (string replace -r -- "$re"'.*$' '' "$current")
-    # Keep the prefix only if it is a command interpolation. tmux's default
-    # status-right ("#{=21:pane_title}" %H:%M …) has none and must be replaced,
-    # or we would render the default clock alongside our own.
-    string match -q -- '*#(*' "$pre"; or set pre ''
-    echo "$pre$ours"
+    # Keep the prefix ONLY if it is nothing but command interpolations and space.
+    # A looser "contains #(" test would weld a user's own decorated status-right on
+    # forever — `#(uptime) %H:%M` would render their clock next to ours with no way
+    # to remove it. tmux's DEFAULT status-right has no #() at all and is dropped here,
+    # which is the point: otherwise we'd paint the default clock beside our own.
+    # KNOWN LIMIT: a group ends at its first `)`, so a hook whose command contains a
+    # literal `)` is not recognised and gets dropped. Still strictly better than the
+    # assignment this replaces, which preserved nothing at all. Test pins the shape.
+    string match -qr '^(\s*#\([^)]*\)\s*)+$' -- "$pre"; or set pre ''
+    printf '%s\n' "$pre$ours"
 end
 
 function __tcz_status_right_install --argument-names color --description 'install our status-right content without discarding a foreign #() hook. Called from the managed fragment via run-shell (plain run-shell is SYNCHRONOUS in tmux 3.3a, so the value lands before the fragment finishes sourcing).'

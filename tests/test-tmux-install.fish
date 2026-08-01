@@ -54,8 +54,16 @@ t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frag
 # does not drag the real plugin set into the test server.
 set -l uesock tli-ue-$fish_pid
 set -l uefile /tmp/tli-ue-$fish_pid.conf
-__tmux_lives_render_fragment $plugindir/functions/tmux-categorize.fish S M-s \
+# Point the baseline/state seams at paths that do not exist, so the rendered fragment's
+# `if-shell [ -f … ] source-file` lines are no-ops. Without this the test server sources
+# the DEVELOPER's live ~/.tmux-lives.conf and state file, making these assertions depend
+# on their machine's config.
+set -g tmux_lives_baseline_conf /nonexistent/tli-baseline-$fish_pid.conf
+set -g tmux_lives_state_file /nonexistent/tli-state-$fish_pid.conf
+__tmux_lives_render_fragment $plugindir/functions/tmux-categorize.fish S M-s '#1f6feb' \
     | string match -v -- '*tpm/tpm*' > $uefile
+set -e tmux_lives_baseline_conf
+set -e tmux_lives_state_file
 command tmux -L $uesock -f /dev/null new-session -d 2>/dev/null
 # a plugin got there first
 command tmux -L $uesock set -g status-right '#(FOREIGN_HOOK)' 2>/dev/null
@@ -68,8 +76,10 @@ t "update-environment: exactly one LC_TERMINAL_VERSION after 3 sources" 1 (count
 set -l sr (command tmux -L $uesock show -gv status-right 2>/dev/null)
 t "status-right: a foreign hook survives the fragment"  1 (string match -q '*FOREIGN_HOOK*' -- "$sr"; and echo 1; or echo 0)
 t "status-right: our own part is installed"             1 (string match -q '*@tmux_lives_status_right*' -- "$sr"; and echo 1; or echo 0)
-t "status-right: the clock @var is template-expanded"   1 (string match -q '*#{T:@tmux_lives_status_right}*' -- "$sr"; and echo 1; or echo 0)
-t "status-right: the categorize tick is installed"      1 (string match -q "*#(fish --no-config *tick '')*" -- "$sr"; and echo 1; or echo 0)
+# Pin marker->tick ADJACENCY in one pattern (the assignment this replaced pinned it, and
+# two independent substring checks would not), and pin that a NON-EMPTY baked colour
+# actually reaches the installed tick — the fragment-text assertion alone can't show that.
+t "status-right: the clock @var is adjacent to the tick" 1 (string match -q "*#{T:@tmux_lives_status_right}#(fish --no-config *tick '#1f6feb')*" -- "$sr"; and echo 1; or echo 0)
 t "status-right: our part appears exactly once"         1 (count (string match -ra '@tmux_lives_status_right' -- "$sr"))
 t "status-right: the foreign hook appears exactly once" 1 (count (string match -ra 'FOREIGN_HOOK' -- "$sr"))
 command tmux -L $uesock kill-server 2>/dev/null; rm -f $uefile

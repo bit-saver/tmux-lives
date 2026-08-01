@@ -907,6 +907,10 @@ set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 # ~/.tmux.conf happens to source the fragment BEFORE the tpm run-line, so tpm
 # re-sources continuum.tmux, which re-prepends — and even that is skipped when
 # continuum's own `another_tmux_server_running` guard trips.
+# The function must EXIST. Without this, every assertion below is invisible: when a
+# command substitution calls an undefined function fish aborts the whole statement, so
+# `t` never runs, nothing prints, and this suite (no pass counter) still says ALL PASS.
+t "srm the function exists" 1 (functions -q __tcz_status_right_merge; and echo 1; or echo 0)
 set -g OURS '#{T:@tmux_lives_status_right}#(cat.fish tick)'
 # a foreign hook already present is kept, ours goes after it
 t "srm keeps a foreign hook" "#(FOREIGN)$OURS" (__tcz_status_right_merge '#(FOREIGN)' "$OURS")
@@ -923,6 +927,19 @@ t "srm keeps a foreign hook with no marker" "#(FOREIGN)$OURS" (__tcz_status_righ
 # ours may have been rendered with a DIFFERENT baked colour — the old one is replaced,
 # not accumulated (this is what `setup color` relies on)
 t "srm replaces a stale rendering of ours" "#(FOREIGN)$OURS" (__tcz_status_right_merge '#(FOREIGN)#{T:@tmux_lives_status_right}#(cat.fish tick OLDCOLOR)' "$OURS")
+# several stacked hooks are all kept
+t "srm keeps multiple foreign hooks" "#(A)#(B)$OURS" (__tcz_status_right_merge '#(A)#(B)' "$OURS")
+# a hook with surrounding whitespace still qualifies
+t "srm tolerates whitespace around hooks" "  #(A) $OURS" (__tcz_status_right_merge '  #(A) ' "$OURS")
+# a user's DECORATED status-right is dropped, not welded on forever: keeping
+# `#(uptime) %H:%M` would paint their clock beside ours with no way to remove it
+t "srm drops a decorated foreign value" "$OURS" (__tcz_status_right_merge '#(uptime) %H:%M' "$OURS")
+# CONTRACT: only a PREFIX is preserved. continuum prepends (verified in continuum.tmux),
+# so this covers the real case; a plugin using `set -ga status-right` would be dropped.
+t "srm keeps only a prefix, not a suffix" "$OURS" (__tcz_status_right_merge "$OURS#(APPENDED)" "$OURS")
+# KNOWN LIMIT: a group ends at its first ')', so a hook whose command contains a literal
+# ')' is not recognised. Pinned so the behaviour is a decision, not a surprise.
+t "srm known limit: a hook containing ) is dropped" "$OURS" (__tcz_status_right_merge '#(echo (x))' "$OURS")
 
 # ---------------------------------------------------------------------
 # __tcz_status_format — pure status-format[0] builder

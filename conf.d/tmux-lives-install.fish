@@ -76,10 +76,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # #(continuum_save.sh) — the bar's refresh IS its scheduler, no daemon, no timer. So
     # overwriting the option stops session snapshots permanently and silently (observed
     # on macwork: 52h with no autosave across ten live sessions).
-    # Recovery used to be accidental: ~/.tmux.conf happens to source this fragment BEFORE
-    # the tpm run-line, so tpm re-sourced continuum.tmux and it re-prepended. That repair
-    # is skipped entirely whenever continuum's own `another_tmux_server_running` guard
-    # trips, which is how macwork lost it. Merge instead of assign, and depend on nobody.
+    # Recovery used to be accidental: this fragment emits the tpm run-line AFTER this
+    # point, so tpm re-sourced continuum.tmux and it re-prepended itself. That repair is
+    # skipped entirely whenever continuum's own `another_tmux_server_running` guard trips,
+    # which is how macwork lost it for 52h. Merge instead of assign, and depend on nobody.
     # Plain run-shell (no -b) is SYNCHRONOUS in tmux 3.3a — verified — so the value is in
     # place before the fragment finishes sourcing.
     set -a f "run-shell \"fish --no-config $cat status-right-install '$color'\""
@@ -199,8 +199,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # `show -gv update-environment` prints ONE NAME PER LINE (it is an array option), so
     # `grep -qx` is the exact test — and -x is load-bearing, since a substring match would
     # let LC_TERMINAL_VERSION satisfy the LC_TERMINAL check and silently drop it.
+    # FAIL CLOSED: capture first and `&&`. A bare `! tmux show … | grep -qx X` takes the
+    # PIPELINE's status, which is grep's 1 when tmux is unreachable — the `!` flips that
+    # to true and the unbounded growth comes straight back, silently. With `&&`, a failed
+    # `show` short-circuits to status 1 and nothing is appended.
     for uev in LC_TERMINAL LC_TERMINAL_VERSION
-        set -a f "if-shell '! tmux show -gv update-environment | grep -qx $uev' 'set -ga update-environment \"$uev\"'"
+        set -a f "if-shell 'ue=\$(tmux show -gv update-environment) && ! printf \"%s\\n\" \"\$ue\" | grep -qx $uev' 'set -ga update-environment \"$uev\"'"
     end
     set -a f "# Load declared plugins via TPM (setup clones them); without this they are"
     set -a f "# present but never sourced — no resurrect save/restore, no continuum autosave."
