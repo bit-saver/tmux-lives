@@ -898,6 +898,33 @@ functions -e tmux
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 
 # ---------------------------------------------------------------------
+# __tcz_status_right_merge — pure: keep a FOREIGN #() hook, replace ours
+# ---------------------------------------------------------------------
+# tmux-continuum schedules its autosave by prepending #(continuum_save.sh) to
+# status-right — the status bar's refresh IS its scheduler, there is no daemon.
+# A bare `set -g status-right` in the fragment discards it, and autosave stops
+# permanently and silently. Recovery today is accidental: it only works because
+# ~/.tmux.conf happens to source the fragment BEFORE the tpm run-line, so tpm
+# re-sources continuum.tmux, which re-prepends — and even that is skipped when
+# continuum's own `another_tmux_server_running` guard trips.
+set -g OURS '#{T:@tmux_lives_status_right}#(cat.fish tick)'
+# a foreign hook already present is kept, ours goes after it
+t "srm keeps a foreign hook" "#(FOREIGN)$OURS" (__tcz_status_right_merge '#(FOREIGN)' "$OURS")
+# re-merging an already-merged value is idempotent (the fragment re-sources often)
+t "srm is idempotent" "#(FOREIGN)$OURS" (__tcz_status_right_merge "#(FOREIGN)$OURS" "$OURS")
+# tmux's DEFAULT status-right carries no #() and must be replaced, not preserved
+t "srm drops tmux's default" "$OURS" (__tcz_status_right_merge '"#{=21:pane_title}" %H:%M %d-%b-%y' "$OURS")
+# empty / unset current
+t "srm handles an empty current" "$OURS" (__tcz_status_right_merge '' "$OURS")
+# a value that is already exactly ours stays exactly ours
+t "srm handles an exact match" "$OURS" (__tcz_status_right_merge "$OURS" "$OURS")
+# a foreign hook with NO marker present (first install after a plugin got there first)
+t "srm keeps a foreign hook with no marker" "#(FOREIGN)$OURS" (__tcz_status_right_merge '#(FOREIGN)' "$OURS")
+# ours may have been rendered with a DIFFERENT baked colour — the old one is replaced,
+# not accumulated (this is what `setup color` relies on)
+t "srm replaces a stale rendering of ours" "#(FOREIGN)$OURS" (__tcz_status_right_merge '#(FOREIGN)#{T:@tmux_lives_status_right}#(cat.fish tick OLDCOLOR)' "$OURS")
+
+# ---------------------------------------------------------------------
 # __tcz_status_format — pure status-format[0] builder
 # ---------------------------------------------------------------------
 set -g SF (__tcz_status_format)

@@ -188,6 +188,30 @@ function __tcz_status_identity --description 'pure: the centre identity format. 
     echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
 end
 
+function __tcz_status_right_merge --argument-names current ours --description 'pure: merge our status-right content with any FOREIGN #() interpolation already there -> "<foreign prefix><ours>". The prefix is whatever precedes our marker, kept ONLY when it contains a #( command interpolation — so tmux\'s DEFAULT status-right is replaced while a plugin hook survives. Why: tmux-continuum schedules its autosave by PREPENDING #(continuum_save.sh) to status-right; the status bar refresh IS its scheduler (no daemon, no timer), so a bare `set -g status-right` discards it and session snapshots stop permanently and silently.'
+    set -l marker '#{T:@tmux_lives_status_right}'
+    # Truncate at the marker (regex-escaped — it is full of format punctuation).
+    # No match leaves $current intact, which is what we want when the marker is
+    # absent: a plugin may have set status-right before we ever ran.
+    set -l re (string escape --style=regex -- "$marker")
+    set -l pre (string replace -r -- "$re"'.*$' '' "$current")
+    # Keep the prefix only if it is a command interpolation. tmux's default
+    # status-right ("#{=21:pane_title}" %H:%M …) has none and must be replaced,
+    # or we would render the default clock alongside our own.
+    string match -q -- '*#(*' "$pre"; or set pre ''
+    echo "$pre$ours"
+end
+
+function __tcz_status_right_install --argument-names color --description 'install our status-right content without discarding a foreign #() hook. Called from the managed fragment via run-shell (plain run-shell is SYNCHRONOUS in tmux 3.3a, so the value lands before the fragment finishes sourcing).'
+    # Must reproduce byte-for-byte what the fragment used to assign, so that a
+    # re-install replaces our old rendering rather than stacking a second copy —
+    # this is what `setup color` relies on when the baked colour changes.
+    set -l ours (string join '' '#{T:@tmux_lives_status_right}' \
+        '#(fish --no-config ' $__tcz_self ' tick ' "'$color'" ')')
+    set -l cur (tmux show -gv status-right 2>/dev/null)
+    tmux set -g status-right (__tcz_status_right_merge "$cur" "$ours")
+end
+
 function __tcz_status_format --description 'pure: the status-format[0] string (all tunables are @options; right zone renders status-right so tick/continuum survive)'
     # PUA glyphs via codepoints (never paste literal PUA): powerline slants.
     set -l slantR (printf '\U0000e0b0')   # right-pointing, closes a left-anchored cap
@@ -2559,8 +2583,10 @@ function __tcz_main
             __tcz_host_kind
         case status-format
             __tcz_status_format
+        case status-right-install
+            __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|host-kind|status-format" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

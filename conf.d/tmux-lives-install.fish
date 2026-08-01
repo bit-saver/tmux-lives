@@ -71,9 +71,18 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @tmux_lives_status_right \"%-I:%M %p · %b %-d \""
     set -a f "if-shell '[ -f $baseline ]' 'source-file $baseline'"
     # status-right = the time format via #{T:@var} (so strftime applies) + our tick.
-    # continuum prepends its autosave hook when TPM runs. The user's file sets only the
-    # @var, never status-right, so a re-source can't wipe the tick/continuum.
-    set -a f "set -g status-right \"#{T:@tmux_lives_status_right}#(fish --no-config $cat tick '$color')\""
+    # It is INSTALLED, not assigned: a bare `set -g status-right` discards whatever is
+    # already there, and tmux-continuum schedules its autosave by PREPENDING
+    # #(continuum_save.sh) — the bar's refresh IS its scheduler, no daemon, no timer. So
+    # overwriting the option stops session snapshots permanently and silently (observed
+    # on macwork: 52h with no autosave across ten live sessions).
+    # Recovery used to be accidental: ~/.tmux.conf happens to source this fragment BEFORE
+    # the tpm run-line, so tpm re-sourced continuum.tmux and it re-prepended. That repair
+    # is skipped entirely whenever continuum's own `another_tmux_server_running` guard
+    # trips, which is how macwork lost it. Merge instead of assign, and depend on nobody.
+    # Plain run-shell (no -b) is SYNCHRONOUS in tmux 3.3a — verified — so the value is in
+    # place before the fragment finishes sourcing.
+    set -a f "run-shell \"fish --no-config $cat status-right-install '$color'\""
     # --- theme engine v4 (relationship curve): with a relationship in argv[13] the whole bar
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
     # __tmux_lives_theme_palette (seed + relationship/place/mode/knobs); otherwise the v2
@@ -184,8 +193,15 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set-hook -g client-attached {"
     set -a f "    run-shell \"fish --no-config $cat on-attach '#{client_pid}' '#{client_tty}' '$color'\""
     set -a f "}"
-    set -a f "set -ga update-environment \"LC_TERMINAL\""
-    set -a f "set -ga update-environment \"LC_TERMINAL_VERSION\""
+    # `set -ga` appends UNCONDITIONALLY and this fragment is re-sourced on every reload,
+    # so a bare append grows without bound — 54 copies of each name observed on a host
+    # with ~18 days of uptime. Guard each: append only when absent.
+    # `show -gv update-environment` prints ONE NAME PER LINE (it is an array option), so
+    # `grep -qx` is the exact test — and -x is load-bearing, since a substring match would
+    # let LC_TERMINAL_VERSION satisfy the LC_TERMINAL check and silently drop it.
+    for uev in LC_TERMINAL LC_TERMINAL_VERSION
+        set -a f "if-shell '! tmux show -gv update-environment | grep -qx $uev' 'set -ga update-environment \"$uev\"'"
+    end
     set -a f "# Load declared plugins via TPM (setup clones them); without this they are"
     set -a f "# present but never sourced — no resurrect save/restore, no continuum autosave."
     set -a f "run '~/.tmux/plugins/tpm/tpm'"

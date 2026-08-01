@@ -43,6 +43,47 @@ t "disabled switcher: prefix kept" 1 (string match -q '*bind-key S display-popup
 set -l frags (__tmux_lives_render_fragment /X/cat.fish '' M-s | string collect)
 t "disabled prefix: no prefix bind" 0 (string match -q '*bind-key S *' -- "$frags"; and echo 1; or echo 0)
 
+# --- fragment is re-sourced on EVERY reload: it must not accumulate, and it must
+# --- not evict interpolations it did not author -------------------------------
+# `set -ga update-environment` appends unconditionally, so a bare append grows without
+# bound — 54 copies of each name observed on a host with ~18 days of uptime. And a bare
+# `set -g status-right` DISCARDS whatever is there; tmux-continuum schedules its autosave
+# by prepending #(continuum_save.sh) and the bar's refresh IS its scheduler, so evicting
+# it stops session snapshots permanently and silently (observed: 52h, ten live sessions).
+# Sourced on a private -f /dev/null socket, with the tpm run-line stripped so the test
+# does not drag the real plugin set into the test server.
+set -l uesock tli-ue-$fish_pid
+set -l uefile /tmp/tli-ue-$fish_pid.conf
+__tmux_lives_render_fragment $plugindir/functions/tmux-categorize.fish S M-s \
+    | string match -v -- '*tpm/tpm*' > $uefile
+command tmux -L $uesock -f /dev/null new-session -d 2>/dev/null
+# a plugin got there first
+command tmux -L $uesock set -g status-right '#(FOREIGN_HOOK)' 2>/dev/null
+for _i in 1 2 3
+    command tmux -L $uesock source-file $uefile 2>/dev/null
+end
+set -l ue (command tmux -L $uesock show -gv update-environment 2>/dev/null | string split ' ')
+t "update-environment: exactly one LC_TERMINAL after 3 sources"         1 (count (string match -r '^LC_TERMINAL$' -- $ue))
+t "update-environment: exactly one LC_TERMINAL_VERSION after 3 sources" 1 (count (string match -r '^LC_TERMINAL_VERSION$' -- $ue))
+set -l sr (command tmux -L $uesock show -gv status-right 2>/dev/null)
+t "status-right: a foreign hook survives the fragment"  1 (string match -q '*FOREIGN_HOOK*' -- "$sr"; and echo 1; or echo 0)
+t "status-right: our own part is installed"             1 (string match -q '*@tmux_lives_status_right*' -- "$sr"; and echo 1; or echo 0)
+t "status-right: the clock @var is template-expanded"   1 (string match -q '*#{T:@tmux_lives_status_right}*' -- "$sr"; and echo 1; or echo 0)
+t "status-right: the categorize tick is installed"      1 (string match -q "*#(fish --no-config *tick '')*" -- "$sr"; and echo 1; or echo 0)
+t "status-right: our part appears exactly once"         1 (count (string match -ra '@tmux_lives_status_right' -- "$sr"))
+t "status-right: the foreign hook appears exactly once" 1 (count (string match -ra 'FOREIGN_HOOK' -- "$sr"))
+command tmux -L $uesock kill-server 2>/dev/null; rm -f $uefile
+# And the fragment must no longer carry either unconditional form. Anchor at the START
+# of a LINE and keep the render as a LIST (no `string collect`): the guarded append
+# legitimately contains `set -ga update-environment` as if-shell's then-command, so a
+# bare substring ban would fire on the fix itself. The two positive assertions below
+# are what stop all four passing vacuously if the render ever returns nothing.
+set -l uelines (__tmux_lives_render_fragment /X/cat.fish S M-s)
+t "fragment: no UNGUARDED update-environment append" 0 (count (string match -r '^set -ga update-environment' -- $uelines))
+t "fragment: no UNGUARDED status-right assignment"   0 (count (string match -r '^set -g status-right ' -- $uelines))
+t "fragment: update-environment appends are guarded" 2 (count (string match -r '^if-shell .*grep -qx LC_TERMINAL.*set -ga update-environment' -- $uelines))
+t "fragment: status-right is installed via the verb" 1 (count (string match -r '^run-shell .*status-right-install' -- $uelines))
+
 set -g FRAG (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t | string collect)
 t "fragment binds modal key (popup)" yes (string match -q '*bind-key -n M-m display-popup*cat.fish modal*' -- "$FRAG"; and echo yes; or echo no)
 t "fragment binds modal key (menu fallback)" yes (string match -q '*bind-key -n M-m run-shell*modal-menu*' -- "$FRAG"; and echo yes; or echo no)
@@ -89,7 +130,7 @@ command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid
 # substitutions yield empty (render silences their stderr), but the option NAMES are present.
 set -g BAR (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
 t "fragment sets status-format[0]" yes (string match -q '*set -g status-format[0]*' -- "$BAR"; and echo yes; or echo no)
-t "fragment still sets status-right with the tick" yes (string match -q '*set -g status-right*tick*' -- "$BAR"; and echo yes; or echo no)
+t "fragment still installs status-right (now via the verb)" yes (string match -q '*status-right-install*' -- "$BAR"; and echo yes; or echo no)
 # v3.3: claude windows render like any other window (coloring removed 2026-07-21)
 t "fragment window-status-format is plain" yes (string match -q "*set -g window-status-format '#W'*" -- "$BAR"; and echo yes; or echo no)
 t "fragment sets window-status-separator bullet" yes (string match -q '*window-status-separator*•*' -- "$BAR"; and echo yes; or echo no)
@@ -231,13 +272,16 @@ t "no color -> hook still there"  1 (string match -q '*client-attached*' -- "$fr
 set -l fragsr (__tmux_lives_render_fragment /X/cat.fish S M-s "" 0 | string collect)
 t "fragment sources user config"  1 (string match -q '*source-file*.tmux-lives.conf*' -- "$fragsr"; and echo 1; or echo 0)
 t "fragment default status-right var" 1 (string match -q '*set -g @tmux_lives_status_right*' -- "$fragsr"; and echo 1; or echo 0)
-t "fragment status-right uses T:@var" 1 (string match -q '*set -g status-right "#{T:@tmux_lives_status_right}*' -- "$fragsr"; and echo 1; or echo 0)
-t "fragment status-right keeps tick"  1 (string match -q "*#{T:@tmux_lives_status_right}#(fish*tick '')*" -- "$fragsr"; and echo 1; or echo 0)
+# status-right is no longer ASSIGNED here — it is installed by the categorizer verb so a
+# foreign #() hook (tmux-continuum's autosave) survives a re-source. That the installed
+# value really does carry T:@var AND the tick is asserted end-to-end on a live socket
+# above, which is a stronger check than the string match this replaces.
+t "fragment delegates status-right to the verb" 1 (string match -q '*run-shell*status-right-install*' -- "$fragsr"; and echo 1; or echo 0)
 t "fragment drops old -ga status-right" 0 (string match -q '*set -ga status-right*' -- "$fragsr"; and echo 1; or echo 0)
 set -g FRAGT (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 | string collect)
-t "tick call bakes the bar color" yes (string match -q "*cat.fish tick '#1f6feb'*" -- "$FRAGT"; and echo yes; or echo no)
+t "install call bakes the bar color" yes (string match -q "*status-right-install '#1f6feb'*" -- "$FRAGT"; and echo yes; or echo no)
 set -g FRAGT0 (__tmux_lives_render_fragment /x/cat.fish S M-s "" 0 | string collect)
-t "tick call empty color when unset" yes (string match -q "*cat.fish tick ''*" -- "$FRAGT0"; and echo yes; or echo no)
+t "install call empty color when unset" yes (string match -q "*status-right-install ''*" -- "$FRAGT0"; and echo yes; or echo no)
 set -g FRAGT2 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 | string collect)
 t "client-session-changed hook re-titles" yes (string match -q "*client-session-changed*cat.fish retitle*" -- "$FRAGT2"; and echo yes; or echo no)
 
