@@ -1299,14 +1299,19 @@ t "theme flash role" (printf '\e[38;2;95;168;232m') (__tcz_theme flash)
 t "readkey timeout mode" timeout (printf '' | __tcz_popup_readkey timeout)
 t "readkey EOF still cancels by default" cancel (printf '' | __tcz_popup_readkey)
 
-# --- anchor-wave builders (Task 1) ---
+# --- anchor-wave builders (Task 1); picker-second-list Task 5: the ❯ chevron
+# is retired — the current entry is marked by rendering its NAME in brand
+# bold instead (the same language as the second list's `current` label).
 set -l CURM (printf '\e[38;5;179m')
+set -l BRANDB (__tcz_theme brand)(printf '\e[1m')
 set -l rowc (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 0 1)
-t "row current flag adds the chevron" 1 (string match -q '*❯ wide*' -- (__tcz_strip_sgr "$rowc"); and echo 1; or echo 0)
-t "row current chevron wears the switcher yellow" 1 (string match -q "*$CURM*" -- "$rowc"; and echo 1; or echo 0)
+t "row current flag renders the name in brand bold" 1 (string match -q "*$BRANDB"wide"*" -- "$rowc"; and echo 1; or echo 0)
+t "row current no longer wears the switcher yellow" 0 (string match -q "*$CURM*" -- "$rowc"; and echo 1; or echo 0)
 set -l rown (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 0)
 t "row without current has no chevron" 0 (string match -q '*❯*' -- "$rown"; and echo 1; or echo 0)
-t "row current is exactly 2 cols wider" (math (string length --visible -- (__tcz_strip_sgr "$rown"))" + 2") (string length --visible -- (__tcz_strip_sgr "$rowc"))
+t "row current is the same width as without (no glyph added)" 0 (math (string length --visible -- (__tcz_strip_sgr "$rowc")) - (string length --visible -- (__tcz_strip_sgr "$rown")))
+set -l rowcs (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 1 1)
+t "row current+selected: selection styling wins over brand bold" 0 (string match -q "*$BRANDB*" -- "$rowcs"; and echo 1; or echo 0)
 # picker-second-list Task 3: __tcz_thp_off_row is retired. Its old combined
 # "❯ <name> · current" chevron text is replaced by __tcz_thp_staterow's
 # separate name/label columns — the chevron is gone by design, not just moved.
@@ -1660,11 +1665,12 @@ t "zone drops place kv" 0 (string match -q '*seed "$seedchip" place "$place" mod
 # its own var first.
 # Task 5 cleanup: the label itself was ALSO stale — "relationship · hue-
 # travels for your seed" described the pre-gallery relationship-axis picker;
-# the gallery list is a list of curated SCHEMES (catalog entries), and the
-# long label crowded the ▲▼ overflow markers. Renamed to "schemes · near-
-# seed → bold" (the catalog's own ordering description). Genuine gate: this
-# assertion was RED against the old "relationship" text before the rename.
-set -l schemelabelbody (string match -r '(?s)__tcz_thp_zsep \$IW .schemes.*?\)' -- "$pbody" | string collect)
+# the gallery list is a list of curated SCHEMES (catalog entries). Genuine
+# gate: this assertion was RED against the old "relationship" text before
+# the rename. picker-second-list Task 5 (later) went further and made the
+# rule BARE — no subtitle, no overflow markers — so the label match now
+# targets the bare `schemes` token directly (no leading quote character).
+set -l schemelabelbody (string match -r '(?s)__tcz_thp_zsep \$IW schemes.*?\)' -- "$pbody" | string collect)
 t "list label is schemes" 1 (string match -q '*schemes*' -- "$schemelabelbody"; and echo 1; or echo 0)
 t "list label drops stale relationship text" 0 (string match -q '*hue-travels for your seed*' -- "$pbody"; and echo 1; or echo 0)
 t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to all schemes*' -- "$pbody"; and echo 1; or echo 0)
@@ -1692,7 +1698,10 @@ t "no vividness key"           0 (string match -qr 'case v\b' -- "$pbody"; and e
 t "no rotate key"              0 (string match -qr 'case o\b' -- "$pbody"; and echo 1; or echo 0)
 t "m is expand"                1 (string match -q '*expanded*' -- "$pbody"; and string match -qr 'case m\b' -- "$pbody"; and echo 1; or echo 0)
 t "expand toggles the flag"    1 (string match -q '*test "$expanded" = 1; and set expanded 0; or set expanded 1*' -- "$pbody"; and echo 1; or echo 0)
-t "expand clamps sel to new n" 1 (string match -q '*test $sel -gt (math $n + 1); and set sel (math $n + 1)*' -- "$pbody"; and echo 1; or echo 0)
+# picker-second-list Task 5: off/current left the linear sel range entirely
+# (they now live on sel2, a separate list), so the post-expand clamp target
+# moved from n+1 (old off/anchor tail) to n-1 (the new last scheme row).
+t "expand clamps sel to the last scheme row" 1 (string match -q '*set -l lastrow (math $n - 1)*test $sel -gt $lastrow; and set sel $lastrow*' -- "$pbody"; and echo 1; or echo 0)
 t "save reads recipes"         1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
 t "apply-preview derives from recipe" 1 (string match -qr '(?s)case a\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
 t "save derives from recipe"          1 (string match -qr '(?s)case enter\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
@@ -1795,27 +1804,35 @@ t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_
 # here; the vars are empty until Task 4 lands, by design).
 t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
-# anchor row sits at the BOTTOM, below the off row (2026-07-21 user request):
-# draw order = schemes, off, anchor; arrows walk the VISUAL order via the pure
-# vismap. Gallery rewrite Task 3 (2026-07-24): sel is now LINEAR — schemes
-# 0..n-1, off at n, anchor at n+1 LAST (was 0=anchor / 1..n=schemes / n+1=off
-# before this task) — this lets the scrolling window just clamp start into
-# [0, n-winsize] without special-casing the old anchor sel-0 wraparound.
-t "picker draws the anchor AFTER the off row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk"; and echo 1; or echo 0)
+# picker-second-list Task 5: off and the current/anchor row moved into a
+# SECOND list at the bottom (its own cursor, sel2, reached with ⇥ — see the
+# "second list + ⇥ focus" section further down). Draw order within it is now
+# current BEFORE off (was off then anchor, pre-Task-5) — the current row is
+# the var $currow, and off keeps its old var name $offrow.
+t "picker draws the second list: current before off" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$currow".*set -a lines \(__tcz_thp_ln "\$offrow"' -- "$pk"; and echo 1; or echo 0)
 # one vismap call now — inside the step loop, so a multi-row jump reuses the SAME
 # clamp as a single press (the current zone stays out of the ↑↓ walk).
 t "picker up/down go through vismap" 1 (count (string match -ar '__tcz_thp_vismap \$sel \$n' -- "$pk"))
 t "picker steps through vismap in a loop" 1 (string match -q '*for _i in (seq (math "abs($steps)"))*' -- "$pk"; and echo 1; or echo 0)
-# picker current-zone refinement, Task 2 (2026-07-25): the current/anchor row
-# (sel n+1) moves OUT of the ↑↓ order entirely — it's reached only via the c
-# key (dispatch, tested below). vismap's down-clamp is now n (off), not n+1;
-# calling vismap with sel=n+1 (e.g. a stray ↑↓ press while sitting on the
-# current row) must NEVER hand back n+1 — both directions pull it to n (off).
-t "vismap down clamps at n (off), not n+1" 10 (__tcz_thp_vismap 10 10 down)
-t "vismap: down from last scheme -> off" 10 (__tcz_thp_vismap 9 10 down)
-t "vismap: down never returns n+1 (current zone is c-only)" 10 (__tcz_thp_vismap 11 10 down)
-t "vismap: up from current zone (n+1) -> off" 10 (__tcz_thp_vismap 11 10 up)
-t "vismap: up from off -> last scheme" 9 (__tcz_thp_vismap 10 10 up)
+# picker-second-list Task 5: off and current/anchor left the ↑↓ order
+# ENTIRELY — they are no longer sel values at all (n and n+1 respectively);
+# they live on sel2, a separate list reached only via ⇥ (dispatch, tested in
+# the "second list + ⇥ focus" section further down). vismap's down-clamp
+# moved from n (off) to n-1 (the last scheme) — off is not a stop anymore.
+# "vismap down clamps at n (off), not n+1" (a call with sel=10=n) is DELETED
+# outright, not rewritten: sel=n is now simply an out-of-range input for this
+# n=10 convention, and the concept it pinned — off as a walkable stop — no
+# longer exists. The equivalent in-range coverage (n=5, both directions,
+# every sel 0..n-1) lives in the "second list + ⇥ focus" section's
+# "vismap never yields n" test.
+t "vismap: down from last scheme stays (off left the walk)" 9 (__tcz_thp_vismap 9 10 down)
+t "vismap: an out-of-range sel still clamps to n-1" 9 (__tcz_thp_vismap 11 10 down)
+# up has NO upper clamp by design — it only ever decrements or floors at 0
+# (see __tcz_thp_vismap's description) — so these two still return their
+# pre-Task-5 values verbatim; only their framing ("current zone", "off") is
+# retired, since sel=n/n+1 are no longer meaningful positions to begin with.
+t "vismap: up decrements without an upper clamp" 10 (__tcz_thp_vismap 11 10 up)
+t "vismap: up from n decrements to n-1" 9 (__tcz_thp_vismap 10 10 up)
 t "vismap: up from scheme 0 stays" 0 (__tcz_thp_vismap 0 10 up)
 t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
 
@@ -1945,26 +1962,38 @@ t "picker drops the old pitch-12 legend_row call" 0 (string match -q '*__tcz_leg
 t "picker drops the old pitch-9 legend_row call"  0 (string match -q '*__tcz_legend_row 9*'  -- "$pbody2"; and echo 1; or echo 0)
 t "picker seed-screen legend_row (pitch 14) untouched" 1 (string match -q '*__tcz_legend_row 14*' -- "$pbody2"; and echo 1; or echo 0)
 t "picker legend names nav (up/down move)" 1 (string match -q '*↑↓*move*' -- "$leggrid"; and echo 1; or echo 0)
-t "picker legend names current (c)" 1 (string match -q '*current*' -- "$leggrid"; and echo 1; or echo 0)
+# picker-second-list Task 5: the c key is retired; the legend now advertises
+# ⇥ for current/off (the second list), not a bare "current" reached by c.
+t "picker legend names current/off (tab)" 1 (string match -q '*current/off*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still names more"  1 (string match -q '*more*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still names shake" 1 (string match -q '*shake*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops place" 0 (string match -q '*place*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; and echo 1; or echo 0)
 
-# --- picker current-zone + legend-grid refinement, Task 2: the c jump key
-# (out of the ↑↓ flow), the pinned current zone's own zsep section, and the
-# ❯ list marker gated on phase as well as recipe. ---
+# --- picker current-zone + legend-grid refinement, Task 2: the ❯ list marker
+# gated on phase as well as recipe. Superseded by picker-second-list Task 5
+# for the jump-key/zsep coverage: the current zone is no longer a pinned
+# sel-n+1 tail reached by pressing c — it is a row in a SECOND list, reached
+# by ⇥, tested in the "second list + ⇥ focus" section further down (readkey's
+# tab token, `focus`/`sel2`, `case tab`, the untitled zsep, "current/off" in
+# the legend). ---
 set -l pk2 (functions __tcz_theme_picker | string collect)
-t "picker has case c"        1 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
-t "case c toggles the current zone (n+1) / back to scheme 0" 1 (string match -q '*test $sel -eq (math $n + 1)*set sel 0*set sel (math $n + 1)*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
+t "picker has case c (retired, superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
+t "tab toggles focus between list and state" 1 (string match -q '*test $focus = list; and set focus state; or set focus list*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
 t "marker gates on phase" 1 (string match -q '*test "$phase" = "$anch_phase"*' -- "$pk2"; and echo 1; or echo 0)
-t "current zone has its own zsep" 1 (string match -q '*zsep $IW '"'"'current'"'"'*' -- "$pk2"; and echo 1; or echo 0)
-# the current zsep must come AFTER the off row and BEFORE the current/anchor
-# row is appended, so the section header sits above its pinned content.
-t "current zsep sits between off row and current row" 1 (string match -qr '(?s)set -a lines \(__tcz_thp_ln "\$offrow".*zsep \$IW '"'"'current'"'"'.*set -a lines \(__tcz_thp_ln "\$anchrow"' -- "$pk2"; and echo 1; or echo 0)
+# the titled `├─ current ─┤` zsep is retired (the second list is untitled);
+# in its place, the second list gets its OWN untitled zsep — count 2 total,
+# the pre-existing blank separator before the legend plus this new one.
+# NB: match PER LINE, not against the whole multi-line $pk2 — a glob match
+# against the whole string returns the whole string as its one "match",
+# which command substitution then re-splits on newlines, making `count`
+# report the picker's total LINE count instead of the occurrence count.
+t "second list gets its own untitled zsep" 2 (count (string match -- "*zsep \$IW ''*" -- (string split \n -- "$pk2")))
 # named risk (task brief): __tcz_popup_readkey is SHARED with the session
-# switcher — its dispatch switch must have NO case c, so the new token stays
-# a harmless no-op there instead of accidentally doing something.
+# switcher — its dispatch switch must have NO case c, so the token stays
+# a harmless no-op there instead of accidentally doing something. Still true
+# post-Task-5: readkey keeps mapping the 'c' byte to the token "c" (just
+# unused in the picker now), and the switcher never had a case for it.
 set -l switcher_body (functions __tcz_popup | string collect)
 t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string match -qr 'case c\b' -- "$switcher_body"; and echo 1; or echo 0)
 
@@ -1979,7 +2008,10 @@ t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string m
 # wrapped in __tcz_thp_ln (padded to IW + │...│-framed), same as every other
 # content row -- and the bottom border (╰...╯) must be the LAST `set -a
 # lines` emission in the draw loop (nothing appends after it).
-t "current row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
+# picker-second-list Task 5: the anchor row was renamed $currow (it lives in
+# the second list now, alongside $offrow — also frame-enclosed, unchanged).
+t "current row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$currow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
+t "off row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
 t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline in \(__tcz_thp_leg.*set -a lines \(__tcz_thp_ln "\$lline" \$IW \$BORDER \$RST\)' -- "$pk2"; and echo 1; or echo 0)
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
@@ -2008,18 +2040,59 @@ t "scheme window is 11 rows"           1 (string match -q '*set -l WIN 11*' -- "
 t "WIN is defined exactly once"        1 (count (string match -ra 'set -l WIN ' -- "$PK"))
 t "no stale WIN 10"                    0 (string match -q '*set -l WIN 10*' -- "$PK"; and echo 1; or echo 0)
 
-# Consolidated guards: case c present; the retired axis keys/functions stay
-# gone; the current zsep + __tcz_thp_leg wiring are in place; vismap never
-# hands back n+1; both engine palette calls are still 9-arg (exactly 2 call
-# sites, matching the earlier per-call arg-count loop at ~line 1338).
-t "consolidated guard: case c present"       1 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
+# ---------------------------------------------------------------------
+# second list + ⇥ focus
+# ---------------------------------------------------------------------
+# readkey gains one token. Safe for the SHARED switcher: __tcz_popup's dispatch
+# has cases only for up/down/enter/kill/cancel and NO case '*', so an unlisted
+# token is silently ignored there — the same argument that covered p/P/m/M and c.
+t "readkey maps 0x09 to tab" 1 (string match -q '*case 09*tab*' -- (functions __tcz_popup_readkey | string collect); and echo 1; or echo 0)
+set -g POPBODY (functions __tcz_popup | string collect)
+t "switcher has no tab arm"   0 (string match -q '*case tab*' -- "$POPBODY"; and echo 1; or echo 0)
+t "switcher still has no catch-all" 0 (string match -q "*case '*'*" -- "$POPBODY"; and echo 1; or echo 0)
+
+# vismap now clamps to the SCHEME list only — off left it, so n is no longer a stop
+t "vismap down stops at n-1" 4 (__tcz_thp_vismap 4 5 down)
+t "vismap up stops at 0"     0 (__tcz_thp_vismap 0 5 up)
+t "vismap walks normally"    3 (__tcz_thp_vismap 2 5 down)
+t "vismap never yields n"    0 (set -l bad 0; for s in 0 1 2 3 4; for d in up down; test (__tcz_thp_vismap $s 5 $d) -ge 5; and set bad 1; end; end; echo $bad)
+
+set -g PK2 (functions __tcz_theme_picker | string collect)
+t "picker tracks focus"      1 (string match -q '*set -l focus list*' -- "$PK2"; and echo 1; or echo 0)
+t "picker tracks sel2"       1 (string match -q '*set -l sel2 0*' -- "$PK2"; and echo 1; or echo 0)
+t "picker has a tab arm"     1 (string match -q '*case tab*' -- "$PK2"; and echo 1; or echo 0)
+## Brief's literal pattern here was '*case c*' — that ALSO matches "case cancel"
+## (a substring, not a whole word), so it can never read 0 regardless of whether the
+## "case c" arm exists — verified: `string match -q '*case c*' -- 'case cancel'`
+## returns true. Fixed to the word-boundary regex the rest of this file already
+## uses for the identical check (e.g. the consolidated guard below).
+t "the c key is retired"     0 (string match -qr 'case c\b' -- "$PK2"; and echo 1; or echo 0)
+t "legend offers current/off" 1 (string match -q '*current/off*' -- "$PK2"; and echo 1; or echo 0)
+t "legend drops the c entry"  0 (string match -q '*c current*' -- "$PK2"; and echo 1; or echo 0)
+# the schemes rule loses its subtitle and scroll counts
+t "schemes rule is bare"      0 (string match -q '*near-seed*' -- "$PK2"; and echo 1; or echo 0)
+t "no scroll-count marks"     0 (string match -q '*▲*' -- "$PK2"; and echo 1; or echo 0)
+# the second list's rule is untitled
+t "second list rule is untitled" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$PK2"; and echo 1; or echo 0)
+# no chevrons anywhere, and the retired switcher-yellow is gone with them
+t "no chevron in the picker"  0 (count (string match -ra '❯' -- "$PK2"))
+t "switcher-yellow retired"   0 (string match -q '*38;5;179*' -- "$PK2"; and echo 1; or echo 0)
+
+# Consolidated guards: case c retired (picker-second-list Task 5 — superseded
+# by tab); the retired axis keys/functions stay gone; the titled current zsep
+# is retired along with it (superseded by the second list's own untitled
+# zsep + __tcz_thp_leg wiring, both in place); vismap never hands back n (off
+# left the walk entirely, not just n+1); both engine palette calls are still
+# 9-arg (exactly 2 call sites, matching the earlier per-call arg-count loop
+# at ~line 1338).
+t "consolidated guard: case c retired (superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no rotpal"            0 (string match -q '*__tcz_thp_rotpal*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- "$pk2"; and echo 1; or echo 0)
-t "consolidated guard: current zsep present" 1 (string match -q '*zsep $IW '"'"'current'"'"'*' -- "$pk2"; and echo 1; or echo 0)
+t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
-t "consolidated guard: vismap never yields n+1" 1 (test (__tcz_thp_vismap 10 10 down) -eq 10; and test (__tcz_thp_vismap 11 10 down) -eq 10; and echo 1; or echo 0)
+t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
 t "consolidated guard: exactly 2 palette call sites, all 9-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 rm -rf $shimdir

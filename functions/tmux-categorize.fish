@@ -879,7 +879,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -912,7 +912,8 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 6f; echo o; return                      # o (theme-picker: rotate placement)
         case 72; echo r; return                      # r (theme-picker: reset knobs)
         case 7a; echo z; return                      # z (theme-picker: shake)
-        case 63; echo c; return                      # c (theme-picker: jump to/from current zone)
+        case 63; echo c; return                      # c (theme-picker: retired — unused, harmless no-op)
+        case 09; echo tab; return                    # TAB (theme-picker: switch lists)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
         case 0d 0a; echo enter; return              # CR / LF
@@ -1255,7 +1256,7 @@ function __tcz_thp_band --argument-names hex --description 'pure: a 14-col band 
     printf '%s\n' "$fg"(string repeat -n 14 ▇)(printf '\e[0m')
 end
 
-function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + [current chevron +] name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 prefixes name with "❯ " in switcher yellow'
+function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
     set -l cells (__tcz_thp_cells "$hexes")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
@@ -1263,13 +1264,13 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
         set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
-    set -l curpre ''
-    if test "$current" = 1
-        set -l CUR (printf '\e[38;5;179m')
-        set -l R2 (printf '\e[0m')
-        set curpre "$CUR❯ $R2"
+    # The current entry is marked by its NAME, in brand bold — the same language as
+    # the second list's `current` label. The old ❯ prefix is gone: it sat on a row
+    # that is never the cursor while wearing a glyph that means "cursor".
+    if test "$current" = 1; and test "$selected" != 1
+        set namecol (__tcz_theme brand)(printf '\e[1m')
     end
-    printf '%s%s %s%s%s%s' "$marker" "$cells" "$curpre" "$namecol" "$name" (__tcz_theme reset)
+    printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
 end
 function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells>(14) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 14 columns identically. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
@@ -1421,14 +1422,16 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l RS2 (__tcz_theme reset)
     printf '%s%s%s%s %s %s%s%s' "$marker" "$labcol" "$label" "$RS2" "$bar" "$VC" "$valtxt" "$RS2"
 end
-function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one step in the ↑↓ visual order — scheme_0 … scheme_{n-1} (sel 0..n-1), off (sel n, LAST). up = max(0, sel-1); down = min(n, sel+1). The current zone (sel n+1) is OUT of this order — reached only via the c key (dispatch) — so this never returns n+1, even when called with sel=n+1 (both directions pull it back to n/off).'
+function __tcz_thp_vismap --argument-names sel n dirn --description 'pure: move the picker cursor one step within the SCHEME list — scheme_0 … scheme_{n-1} (sel 0..n-1). up = max(0, sel-1); down = min(n-1, sel+1). The second list (current + off) is a SEPARATE list with its own cursor, reached only with ⇥, so this never leaves the scheme range.'
     set -l vp $sel
     if test "$dirn" = up
         set vp (math $vp - 1)
         test $vp -lt 0; and set vp 0
     else
         set vp (math $vp + 1)
-        test $vp -gt $n; and set vp $n
+        set -l last (math $n - 1)
+        test $last -lt 0; and set last 0
+        test $vp -gt $last; and set vp $last
     end
     echo $vp
 end
@@ -1567,7 +1570,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 37) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->37 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 37-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/off/current-zone/legend rows + an 11-row scheme window, constant regardless of the 14-vs-37 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 37) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->37 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 37-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/second-list/legend rows + an 11-row scheme window, constant regardless of the 14-vs-37 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1830,7 +1833,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '\e[2J'
     end
     __tcz_thp_reload
-    set -l n (count $toks)          # n = catalog rows (14/37); off at sel==n, anchor at sel==n+1
+    set -l n (count $toks)          # n = catalog rows (14/37); the scheme list is sel 0..n-1
     # anchor snapshot: the persisted theme, frozen for this picker session
     set -l anch_scheme $theme
     set -l anch_phase $persisted_phase
@@ -1840,6 +1843,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anch_contrast $contrast
     set -l anch_place $place
     set -l anch_mode $mode
+    # Two-list model. The scheme list owns `sel` (0..n-1); the second list — the
+    # current theme and off — owns `sel2` (0 = current, 1 = off). ⇥ moves between
+    # them and ↑↓ never crosses. This replaces the old linear order, where off was
+    # sel n and the current row was an sel n+1 tail reachable only by pressing c.
+    set -l focus list
+    set -l sel2 0
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -1935,30 +1944,26 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # pure overhead — and the row it frees goes to the scheme window below.
         set -l seedrow (__tcz_thp_seedrow "$flashfield" "$seedchip")
         set -a lines (__tcz_thp_ln "$seedrow" $IW $BORDER $RST)
-        # Windowed scrolling list (Gallery rewrite Task 3): only the SCHEME
-        # rows scroll; off + anchor are PINNED below, always drawn (the
-        # anchor is the revert-compare snapshot — it must stay visible while
-        # browsing). When the cursor is on off/anchor (sel >= n), clamp the
-        # window anchor to the last scheme so the window holds steady instead
-        # of chasing a sel value that isn't a scheme row. WIN=11: the frame is
-        # 15 static rows (border/chip/preview/configuration-zsep/seed/schemes-zsep/off/
-        # current-zsep/anchor/blank-zsep/legend×3/note/bottom-border) + WIN scheme rows = 26
-        set -l winsel $sel
-        test $winsel -gt (math $n - 1); and set winsel (math $n - 1)
-        set -l win (__tcz_thp_window $winsel $n $WIN)
+        # Windowed scrolling list: only the SCHEME rows scroll; the second list
+        # (current + off) is pinned below, always drawn. sel can never exceed
+        # n-1 (vismap clamps it there), so the window anchor no longer needs a
+        # clamp for an off/anchor cursor position — that clamp is dead, removed.
+        # WIN=11: the frame is 15 static rows (border/chip/preview/configuration-
+        # zsep/seed/schemes-zsep/second-list-zsep/current/off/blank-zsep/
+        # legend×3/note/bottom-border) + WIN scheme rows = 26
+        set -l win (__tcz_thp_window $sel $n $WIN)
         set -l ws (string split ' ' $win)
         set -l start $ws[1]
         set -l count $ws[2]
-        set -l below (math "$n - $start - $count")
-        set -l marks ''
-        test $start -gt 0; and set marks "$marks ▲$start"
-        test $below -gt 0; and set marks "$marks ▼$below"
-        set -a lines (__tcz_thp_zsep $IW 'schemes · near-seed → bold'"$marks" $BORDER $RST)
+        # Bare `schemes`: the subtitle and the scroll-position overflow counts are
+        # gone at the user request. KNOWN COST, accepted: those counts were the only
+        # cue that the list scrolls at all. It still scrolls; you just cannot see how much.
+        set -a lines (__tcz_thp_zsep $IW schemes $BORDER $RST)
         if test $count -gt 0
             for i in (seq $start (math $start + $count - 1))
                 set -l idx (math $i + 1)
                 set -l selflag 0
-                test $i -eq $sel; and set selflag 1
+                test $focus = list; and test $i -eq $sel; and set selflag 1
                 set -l curflag 0
                 test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
@@ -1969,34 +1974,30 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
             end
         end
+        # ── second list: the current theme and off. Untitled: no word covers both,
+        # and the user would rather have none than a bad one. ⇥ moves the cursor here.
+        set -l islive 1
+        set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
+        set -l curflag2 0
+        test $focus = state; and test $sel2 -eq 0; and set curflag2 1
+        set -l anchcells (__tcz_thp_band "$legacy")
+        test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
+        set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anch_scheme" current $curflag2 $islive)
+        if test $curflag2 -eq 1
+            set currow (string replace -a -- "$RST" "$RST$SELBG" "$currow")
+            set currow "$SELBG$currow$RST"
+        end
+        set -a lines (__tcz_thp_ln "$currow" $IW $BORDER $RST)
         set -l offflag 0
-        test $sel -eq $n; and set offflag 1
+        test $focus = state; and test $sel2 -eq 1; and set offflag 1
         set -l offrow (__tcz_thp_staterow $IW (__tcz_thp_band "$legacy") 'legacy look' off $offflag 0)
         if test $offflag -eq 1
             set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
             set offrow "$SELBG$offrow$RST"
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
-        # current zone — its own titled section, PINNED below off (Gallery
-        # picker refinement, Task 2: sel n+1, reached only via the c key —
-        # see __tcz_thp_vismap/case c above — never via ↑↓).
-        set -a lines (__tcz_thp_zsep $IW 'current' $BORDER $RST)
-        # anchor row LAST — the persisted theme sits at the bottom, below off
-        # (2026-07-21 user request), PINNED below the scrolling scheme window
-        # (Gallery rewrite Task 3). Linear sel: 0..n-1 = schemes, n = off,
-        # n+1 = anchor (was 0=anchor/1..n=schemes/n+1=off before this task).
-        set -l anchflag 0
-        test $sel -eq (math $n + 1); and set anchflag 1
-        set -l anchcells (__tcz_thp_band "$legacy")
-        test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
-        set -l anchrow (__tcz_thp_staterow $IW "$anchcells" "$anch_scheme" current $anchflag 1)
-        if test $anchflag -eq 1
-            set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
-            set anchrow "$SELBG$anchrow$RST"
-        end
-        set -a lines (__tcz_thp_ln "$anchrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        for lline in (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake c current  a apply '⏎' save esc close)
+        for lline in (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close)
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
         end
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
@@ -2052,13 +2053,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     end
                 end
                 stty min 1 time 0 2>/dev/null
-                # Step through __tcz_thp_vismap rather than clamping inline, so the
-                # current zone (sel n+1) stays out of the walk exactly as for a single
-                # press — one clamp implementation, not two.
-                set -l dir down
-                test $steps -lt 0; and set dir up
-                for _i in (seq (math "abs($steps)"))
-                    set sel (__tcz_thp_vismap $sel $n $dir)
+                if test $focus = state
+                    # the second list is two rows; clamp within it
+                    set sel2 (math "$sel2 + $steps")
+                    test $sel2 -lt 0; and set sel2 0
+                    test $sel2 -gt 1; and set sel2 1
+                else
+                    set -l dir down
+                    test $steps -lt 0; and set dir up
+                    for _i in (seq (math "abs($steps)"))
+                        set sel (__tcz_thp_vismap $sel $n $dir)
+                    end
                 end
             # ←→ retired with the phase field: phase is HIDDEN and pinned at 0
             # for now (a different seed is the better lever, and a knob nobody
@@ -2093,7 +2098,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # fall back to the clamp below rather than guessing a neighbour.
                     test -n "$found"; and set sel (math $found - 1)
                 end
-                test $sel -gt (math $n + 1); and set sel (math $n + 1)
+                set -l lastrow (math $n - 1)
+                test $lastrow -lt 0; and set lastrow 0
+                test $sel -gt $lastrow; and set sel $lastrow
                 set flashfield ''
             case b
                 __tcz_thp_sliders
@@ -2117,16 +2124,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set n (count $toks)
                 set -l zi (random 0 (math $n - 1))
                 set sel $zi
+                set focus list
                 set flashfield ''
-            case c
-                # jump to/from the current zone (sel n+1) — OUT of the ↑↓
-                # order (see __tcz_thp_vismap); from n+1, ↑↓ naturally
-                # returns to off (n) since vismap clamps there.
-                if test $sel -eq (math $n + 1)
-                    set sel 0
-                else
-                    set sel (math $n + 1)
-                end
+            case tab
+                # move between the two lists. `c` is retired: a key meaning "current"
+                # that lands on current, from which you arrow to off, promises one
+                # thing and does another. ⇥ carries no such claim and toggles back.
+                test $focus = list; and set focus state; or set focus list
                 set flashfield ''
             case a
                 if test $sel -eq (math $n + 1)
