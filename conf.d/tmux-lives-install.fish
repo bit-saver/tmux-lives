@@ -26,7 +26,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
     set -l theme $argv[13]        # v4 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
-    set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap|low|high ('' = bar)
+    set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap ('' = bar)
     set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
     set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
     set -l themeviv $argv[17]     #   17 themeviv    soft|balanced|vivid ('' = balanced)
@@ -967,7 +967,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap|low|high] [--mode literal|derived]: the v4 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap] [--mode literal|derived]: the v4 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -1026,7 +1026,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
             case --mode
                 set i (math $i + 1); set mode $argv[$i]; set have_mode 1
             case --rotate
-                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap|low|high to move the seed instead" >&2
+                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap to move the seed instead" >&2
                 return 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1
@@ -1077,9 +1077,9 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
     end
     if test $have_place -eq 1
         switch "$place"
-            case bar tabs cap low high
+            case bar tabs cap
             case '*'
-                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap, low, high" >&2
+                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap" >&2
                 return 1
         end
     end
@@ -1224,7 +1224,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
         'theme [<rel>|list|off]      gradient-map bar theme; no-arg=picker' \
-        "      --place <p>           bar|tabs|cap|low|high (default: bar)" \
+        "      --place <p>           bar|tabs|cap (default: bar)" \
         "      --mode <m>            literal|derived (default: derived)" \
         "      --phase <deg>         rotate the hue arc (default: 0)" \
         "      --vividness <v>       soft|balanced|vivid (default: balanced)" \
@@ -1392,6 +1392,14 @@ function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: pre
     test $changed -eq 1; and echo "tmux-lives: theme migrated to v4 (relationships + placement); your seed color is preserved — see 'tmux-lives setup theme list'"
 end
 
+function __tmux_lives_migrate_v41 --description 'v4 -> v4.1 big-area migration: --place low|high meant "partway along the curve", and the big-area model has no curve to sit partway along — the seed anchors a large area (or the endcap). Rewrite a stored low/high to bar. Idempotent; runs on fisher update.'
+    set -q tmux_lives_theme_place; or return 0
+    contains -- "$tmux_lives_theme_place" low high; or return 0
+    set -U tmux_lives_theme_place bar
+    echo "tmux-lives: theme place low/high retired — the seed now anchors a large area; set to bar (see 'tmux-lives setup theme list')"
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -1399,6 +1407,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     __tmux_lives_migrate_v2
     __tmux_lives_migrate_v31
     __tmux_lives_migrate_v4
+    __tmux_lives_migrate_v41
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment

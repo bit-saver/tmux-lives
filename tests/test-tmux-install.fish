@@ -257,7 +257,7 @@ set -e tmux_lives_theme_key
 t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
-t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap|low|high*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--contrast*auto|lighter|darker*' -- $h; end; and echo yes; or echo no)
+t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--contrast*auto|lighter|darker*' -- $h; end; and echo yes; or echo no)
 t "setup help: --rotate retired from theme row" no (string match -q '*--rotate*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
 
@@ -894,6 +894,11 @@ t "theme: invalid place rejected" 1 (__tmux_lives_theme_cmd ember --place middle
 t "theme: invalid place mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
 t "theme: invalid mode rejected" 1 (__tmux_lives_theme_cmd ember --mode dyed 2>/dev/null; echo $status)
 t "theme: invalid mode mutates nothing" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "theme: --place low rejected"  1 (__tmux_lives_theme_cmd ember --place low 2>/dev/null; echo $status)
+t "theme: --place high rejected" 1 (__tmux_lives_theme_cmd ember --place high 2>/dev/null; echo $status)
+t "theme: --place error names the three survivors" 1 (__tmux_lives_theme_cmd ember --place low 2>&1 | string match -q '*bar, tabs, cap*'; and echo 1; or echo 0)
+t "theme: --place low mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "theme: --rotate error no longer offers low/high" 0 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*low*'; and echo 1; or echo 0)
 t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd ember --phase x 2>/dev/null; echo $status)
 t "theme: invalid phase mutates nothing" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
 t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 2>/dev/null; echo $status)
@@ -1390,6 +1395,37 @@ set -e tmux_lives_theme tmux_lives_theme_rotate tmux_lives_theme_place tmux_live
 for kv in $_m_saved
     set -l p (string split '=' $kv); set -U $p[1] $p[2]
 end
+
+# --- v4.1: place low/high retirement ---------------------------------------------
+set -U tmux_lives_theme_place low
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41: low -> bar" bar $tmux_lives_theme_place
+set -U tmux_lives_theme_place high
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41: high -> bar" bar $tmux_lives_theme_place
+set -U tmux_lives_theme_place tabs
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41: tabs is left alone" tabs $tmux_lives_theme_place
+set -U tmux_lives_theme_place cap
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41: cap is left alone" cap $tmux_lives_theme_place
+set -U tmux_lives_theme_place low
+__tmux_lives_migrate_v41 >/dev/null
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41 is idempotent" bar $tmux_lives_theme_place
+set -e tmux_lives_theme_place
+__tmux_lives_migrate_v41 >/dev/null
+t "migrate v41: an unset place stays unset" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "post-update runs migrate v41" 1 (awk '/^function _tmux_lives_post_update/,/^end$/' $plugindir/conf.d/tmux-lives-install.fish | grep -c '__tmux_lives_migrate_v41')
+t "help place row drops low/high" 0 (__tmux_lives_setup_help_lines | string match -q '*low|high*'; and echo 1; or echo 0)
+# The retired tokens survive ONLY inside the migration that retires them. awk strips
+# that function body (its closing `end` is unindented at column 0; nested if/for `end`s
+# are indented and do not match) before grepping what remains. Two shapes are banned:
+# the switch form `low high` and the help/error form `low|high`.
+# NB this grep matches COMMENTS too — if you need to explain the retirement anywhere
+# else in the install file, describe it, don't spell either shape out.
+t "no low/high switch token outside the migration" 0 (awk '/^function __tmux_lives_migrate_v41/,/^end$/ {next} {print}' $plugindir/conf.d/tmux-lives-install.fish | grep -c 'low high')
+t "no low/high help token outside the migration"   0 (awk '/^function __tmux_lives_migrate_v41/,/^end$/ {next} {print}' $plugindir/conf.d/tmux-lives-install.fish | grep -cF 'low|high')
 
 # --- Gallery picker rewrite, Task 5: the list went from a fixed 6-row
 # relationship list to a WINDOWED WIN=8 scheme list (Tasks 2-4), so the frame
