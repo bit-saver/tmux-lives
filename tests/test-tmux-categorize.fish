@@ -2121,6 +2121,42 @@ t "preview palette branches on focus" 1 (string match -q '*focus = state*' -- "$
 # have caught all three sites at once
 t "no surviving reads of the retired sel range" 0 (count (string match -ra 'sel -eq \$n|sel -eq \(math \$n \+ 1\)' -- "$PK5"))
 
+# ---------------------------------------------------------------------
+# `current` is a live-state readout, not a static label
+# ---------------------------------------------------------------------
+set -g PK3 (functions __tcz_theme_picker | string collect)
+# previewed is three-valued: 0 none, 1 a LISTED scheme, 2 the current row.
+# Bounded to the current-row branch alone (case a's sel2 -eq 0 arm) so a fix
+# that flips the WRONG branch to previewed 2 can't pass by coincidence — a
+# bare `case a\b` substring is unsafe here: a comment two arms up literally
+# reads "case a/enter" and would be matched instead of the real case label.
+set -l currowblock (string match -r '(?ms)^ *case a$.*?sel2 -eq 0\b.*?else\b' -- "$PK3" | string collect)
+t "current-row preview sets previewed 2"           1 (string match -q '*set previewed 2*' -- "$currowblock"; and echo 1; or echo 0)
+t "current-row preview no longer sets previewed 1" 0 (string match -q '*set previewed 1*' -- "$currowblock"; and echo 1; or echo 0)
+# the off row and the listed-scheme branch both still set previewed 1 —
+# exactly twice across the whole apply arm now that the current row moved
+# to 2 (regression guard: the two OTHER sites must stay put).
+set -l applyarm (string match -r '(?ms)^ *case a$.*?^ *case enter$' -- "$PK3" | string collect)
+t "off and listed-scheme previews both stay at previewed 1" 2 (count (string match -ar 'set previewed 1' -- (string split \n -- "$applyarm")))
+t "exactly one site sets previewed 2"                        1 (count (string match -ar 'set previewed 2' -- (string split \n -- "$applyarm")))
+# islive is computed from previewed, not the Task 5 placeholder alone. A
+# bare '*set -l islive*' (or even '*set -l islive 1*') substring already
+# matches the placeholder by itself, both before AND after this fix — the
+# real fix's init line is still literally "set -l islive 1", now followed
+# by a narrowing test — so a plain substring check can never go RED here.
+# Anchored instead to the actual adjacency: the init line immediately
+# followed by the narrowing line.
+t "islive is derived from previewed" 1 (string match -qr 'set -l islive 1\s*\n\s*test \$previewed -eq 1; and set islive 0' -- "$PK3"; and echo 1; or echo 0)
+t "islive is false only for a listed preview" 1 (string match -q '*test $previewed -eq 1*islive 0*' -- "$PK3"; and echo 1; or echo 0)
+# the revert on cancel must still fire for BOTH preview kinds
+t "cancel reverts for any preview" 1 (string match -q '*test $previewed -ne 0*' -- "$PK3"; and echo 1; or echo 0)
+# and the Task 5 placeholder — islive pinned to 1 with nothing computing it
+# — is gone. Anchored to the OLD adjacency (the placeholder directly
+# followed by the zsep call, nothing narrowing in between), which only the
+# unfixed code exhibits — a bare '*set -l islive 1*' substring would still
+# match the fixed code's own init line and could never go GREEN.
+t "the islive placeholder is gone" 0 (string match -qr 'set -l islive 1\s*\n\s*set -a lines \(__tcz_thp_zsep' -- "$PK3"; and echo 1; or echo 0)
+
 # Consolidated guards: case c retired (picker-second-list Task 5 — superseded
 # by tab); the retired axis keys/functions stay gone; the titled current zsep
 # is retired along with it (superseded by the second list's own untitled

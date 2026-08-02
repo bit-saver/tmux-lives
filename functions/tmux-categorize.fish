@@ -1980,7 +1980,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         # ── second list: the current theme and off. Untitled: no word covers both,
         # and the user would rather have none than a bad one. ⇥ moves the cursor here.
+        # `current` is lit only while the persisted theme really is what is applied.
+        # Previewing the current row (previewed 2) still satisfies that; previewing a
+        # listed scheme (previewed 1) does not.
         set -l islive 1
+        test $previewed -eq 1; and set islive 0
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
         set -l curflag2 0
         test $focus = state; and test $sel2 -eq 0; and set curflag2 1
@@ -2136,11 +2140,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # thing and does another. ⇥ carries no such claim and toggles back.
                 test $focus = list; and set focus state; or set focus list
                 set flashfield ''
+            # previewed: 0 none, 1 a LISTED scheme, 2 the current row. The distinction
+            # matters because previewing the current row still leaves the persisted
+            # theme on the bar — so `current` stays lit. It is never reset: `cancel`
+            # needs it to know a revert is owed.
             case a
                 if test $focus = state
                     if test $sel2 -eq 0
                         fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
-                        set previewed 1
+                        set previewed 2
                         set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                     else
                         fish -c '__tmux_lives_theme_apply_live $argv' off bar derived $phase $viv $shape $ease $contrast >/dev/null 2>&1
@@ -2176,7 +2184,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 break
             case cancel
-                if test $previewed -eq 1
+                if test $previewed -ne 0
                     fish -c __tmux_lives_theme_apply_live >/dev/null 2>&1
                 end
                 break
