@@ -1412,7 +1412,7 @@ t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives s
 # release. ↑↓ no longer SUM the drained burst into one net move (that traded
 # the backlog for undrawn intermediate positions and an overshoot on
 # release, Task 8) — they swallow it, moving one row per render cycle.
-t "picker up/down drain swallows without accumulating" yes (string match -q '*case up down; set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker up/down drain swallows without accumulating" yes (begin; string match -q '*case up down*' -- (functions __tcz_theme_picker | string collect); and not string match -q '*case up down; set gap 1*' -- (functions __tcz_theme_picker | string collect); end; and echo yes; or echo no)
 t "picker pages by WIN, not a literal" yes (string match -q '*case pgup; set steps (math "$steps - $WIN"); set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker has no phase-delta arm left" no (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1426,15 +1426,23 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
-t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
-# the ↑↓/pgup/pgdn drain escalates to a ~100ms repeat-gap wait once a burst is
-# detected (gap=1) so a HELD key doesn't spawn a redraw per autorepeat press;
-# a single press still settles instantly (first pass is gap=0). For pgup/pgdn
-# that still coalesces into one net page-move; for ↑↓ each drained key is
-# swallowed rather than summed (Task 8), so the escalation only throttles the
-# read rate — it does not accumulate steps.
+# NB this specific literal (a gap-less "stty min 0 time 0") lives ONLY in the
+# seed RGB-slider's ←→ drain (__tcz_thp_sliders) — a separate loop in a
+# separate function from the ↑↓/pgup/pgdn drain below, which uses a variable
+# gap ($gap) and has its own, differently-scoped pin further down ("picker
+# drain re-asserts non-blocking inside the loop"). This test used to be named
+# as if it covered that drain; it never did — renamed to say what it actually
+# checks rather than retired, since the slider hang guard has no other cover.
+t "picker seed-slider drain re-asserts non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+# The ↑↓/pgup/pgdn drain must NEVER escalate on the arrow arm: it only breaks
+# on a poll TIMEOUT, so a gap=1 (~100ms) wait never times out while autorepeat
+# keeps delivering faster than that — no redraw, no movement, until release
+# (measured on this host: 2 rows moved in 2s of holding, at a 61ms redraw
+# cost). Pages DO still escalate — they are discrete keypresses, never
+# autorepeated in practice, so coalescing a burst of them is safe. A single
+# press still settles instantly either way (first pass is gap=0).
 t "picker drain re-asserts non-blocking inside the loop" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
-t "picker drain escalates the gap on burst" 1 (string match -a -r 'case up down; set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker drain: arrows do not escalate, pages do" yes (begin; not string match -q '*case up down; set gap 1*' -- (functions __tcz_theme_picker | string collect); and test (count (string match -ar 'set gap 1' -- (functions __tcz_theme_picker | string collect))) -eq 2; end; and echo yes; or echo no)
 
 # --- Gallery picker rewrite, Task 4: shake key (z) rewritten -------------
 # Supersedes the earlier relationship-axis picker's shake (dae0155/3395e6d),
@@ -2232,7 +2240,16 @@ set -g DRAIN (string match -r '(?s)case up down pgup pgdn.*?case tab' -- (functi
 t "the drain arm was found" 1 (test -n "$DRAIN"; and echo 1; or echo 0)
 # a queued up/down must NOT add to steps — that is the accumulate-and-jump bug
 t "queued arrows do not accumulate" 0 (count (string match -ra 'case up;   set steps \(math "\$steps - 1"\)' -- "$DRAIN"))
-t "queued arrows are swallowed"     1 (string match -q '*case up down; set gap 1*' -- "$DRAIN"; and echo 1; or echo 0)
+# a queued up/down must not RE-ARM the drain's ~100ms poll either — the loop
+# only exits on a poll TIMEOUT, so escalating here (the pre-fix "case up
+# down; set gap 1") meant a held key never redrew at all until release.
+# Superseded/deduplicated the old "queued arrows are swallowed" test, which
+# pinned the same literal this one now pins the absence of, at a different
+# scope than the whole-body "picker drain: arrows do not escalate, pages do".
+t "queued arrows do not escalate the gap" 0 (string match -q '*case up down; set gap 1*' -- "$DRAIN"; and echo 1; or echo 0)
+# ...and the page arms still do — losing this would silently regress Task 8's
+# page-coalescing property ("pages still coalesce" just below).
+t "page arms still escalate the gap" 2 (count (string match -ar 'set gap 1' -- "$DRAIN"))
 # pages DO still coalesce — they are discrete and not autorepeated
 t "pages still coalesce" 1 (string match -q '*case pgup;*steps*WIN*' -- "$DRAIN"; and echo 1; or echo 0)
 # the drain-hang guard must survive: readkey's CSI branch leaves the tty BLOCKING

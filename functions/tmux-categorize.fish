@@ -2065,7 +2065,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         # the accumulated total rather than the last row you saw. One row
                         # per render cycle instead: a held key scrolls at whatever rate
                         # the terminal can actually paint, and release stops where it is.
-                        case up down; set gap 1
+                        # NB do not escalate `gap` here: the loop only breaks on a POLL
+                        # TIMEOUT, so a gap=1 (~100ms) wait never times out while
+                        # autorepeat keeps delivering faster than that — no redraw, no
+                        # movement, until release, when exactly one row applies (measured:
+                        # 2 rows moved in 2s of holding, at a 61ms redraw cost). A gap=0
+                        # poll still drains whatever the terminal has already buffered, so
+                        # the anti-backlog property survives without ever blocking on it.
+                        case up down
                         # pages DO coalesce — discrete, not autorepeated in practice
                         case pgup; set steps (math "$steps - $WIN"); set gap 1
                         case pgdn; set steps (math "$steps + $WIN"); set gap 1
