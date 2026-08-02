@@ -784,7 +784,7 @@ function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-ca
     end
 end
 
-function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v5 core: TWO LARGE AREAS AND A BRIDGE. The seed anchors one large area (place = bar|tabs); the relationship signed travel separates the OTHER large area from it; the endcap bridges at half that travel, floored at the calibrated family separation so it never collapses into the bar. Depth is FIXED per role — hue differentiates, lightness coheres. Derived: seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. -> bar tabs cap (3 hexes). Non-hex seed / unknown relationship -> nothing.'
+function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v5 core: TWO LARGE AREAS AND A BRIDGE. The seed anchors one large area (place = bar|tabs anchors a LARGE area; place = cap anchors the endcap instead (the accent-led minority) and solves the bar backwards); the relationship signed travel separates the OTHER large area from it; the endcap bridges at half that travel, floored at the calibrated family separation so it never collapses into the bar. Depth is FIXED per role — hue differentiates, lightness coheres. Derived: seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. -> bar tabs cap (3 hexes). Non-hex seed / unknown relationship -> nothing.'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l sd (__tmux_lives_theme_reldef "$relationship")
     test -n "$sd"; or return
@@ -815,11 +815,23 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     set -l dir 1
     test $half -lt 0; and set dir -1
     # the seed anchors one large area; the OTHER travels by sd.
+    set -l capseed 0
     set -l Hbar $sH
     set -l Htabs $sH
     switch "$place"
         case tabs
             set Hbar (math "$sH + $sd")
+        case cap
+            # the seed lands on the ENDCAP; solve the bar backwards. The bridge offset
+            # depends on the BAR's hue, which is what we are solving for, so the family
+            # separation is evaluated at the SEED's hue — a deliberate single pass, not
+            # an iteration. Deterministic and testable.
+            set capseed 1
+            set -l m0 (math "abs($sd / 2)")
+            set -l f0 (__tmux_lives_theme_family $sH)
+            test $m0 -lt $f0; and set m0 $f0
+            set Hbar (math "$sH - $dir * $m0")
+            set Htabs (math "$Hbar + $sd")
         case '*'
             set Htabs (math "$sH + $sd")
     end
@@ -839,6 +851,7 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
         set -l s (string lower -- $seedHex)
         switch "$place"
             case tabs; set tabs $s
+            case cap;  # the cap is the seed — pinned below, where the cap is built
             case '*';  set bar $s
         end
     end
@@ -850,11 +863,22 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     test $bok[1] -ge 0.55; and set Lcap (math "$bok[1] - 0.10")
     test $Lcap -lt 0.05; and set Lcap 0.05
     test $Lcap -gt 0.95; and set Lcap 0.95
-    set -l mag (math "abs($half)")
-    set -l minsep (__tmux_lives_theme_family $bok[3])
-    test $mag -lt $minsep; and set mag $minsep
-    set -l Hcap (__tmux_lives_norm360 (math "$bok[3] + $dir * $mag"))
-    set -l cap (__tmux_lives_oklch_hex $Lcap $bok[2] $Hcap)
+    set -l cap
+    if test $capseed -eq 1
+        # the seed is placed HERE: verbatim in literal, at cap depth on the seed's hue
+        # in derived. Either way the cap is the anchor and does not move by relationship.
+        if test "$mode" = literal
+            set cap (string lower -- $seedHex)
+        else
+            set cap (__tmux_lives_oklch_hex $Lcap $bok[2] (__tmux_lives_norm360 (math "$sH + $phase")))
+        end
+    else
+        set -l mag (math "abs($half)")
+        set -l minsep (__tmux_lives_theme_family $bok[3])
+        test $mag -lt $minsep; and set mag $minsep
+        set -l Hcap (__tmux_lives_norm360 (math "$bok[3] + $dir * $mag"))
+        set cap (__tmux_lives_oklch_hex $Lcap $bok[2] $Hcap)
+    end
     printf '%s\n' $bar $tabs $cap
 end
 

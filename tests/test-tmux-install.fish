@@ -1208,6 +1208,44 @@ t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar deriv
 # install, and `fish --no-config`, which does not).
 t "endcap taper gone" 0 (grep -c '__tmux_lives_theme_taper' $plugindir/conf.d/tmux-lives-install.fish)
 
+# ---- v5: cap placement — the seed on the endcap, the bar solved backwards ----
+# The accent-led minority. Neither large area is anchored here; the endcap is.
+set -l cp (__tmux_lives_theme_curve $seed amber cap derived 0)
+t "cap placement returns 3" 3 (count $cp)
+set -l cpo (_oklch_of $cp[3])
+set -l cperr (_dhue $cpo[3] $so[3])
+t "cap placement: the cap carries the seed hue" 1 (test $cperr -lt 2; and echo 1; or echo 0)
+set -l cpl (__tmux_lives_theme_curve $seed coral cap literal 0)
+t "cap placement literal = seed exactly" '#5f772b' $cpl[3]
+# literal at cap must pin ONLY the cap — the bar is still derived
+t "cap placement literal leaves the bar derived" 0 (test "$cpl[1]" = '#5f772b'; and echo 1; or echo 0)
+# the bar is solved BACK from the seed by the family separation, so it is NOT at the seed hue
+set -l cpb (_oklch_of $cp[1])
+set -l cpbd (_dhue $cpb[3] $so[3])
+t "cap placement: the bar steps off the seed hue" 1 (test $cpbd -gt 15; and echo 1; or echo 0)
+# the cap is the anchor here, so it is the invariant one
+set -l capbad 0
+for r in mono wheat mint amber sage ember teal coral
+    set -l p (__tmux_lives_theme_curve $seed $r cap derived 0)
+    set -l o (_oklch_of $p[3])
+    set -l d (_dhue $o[3] $so[3])
+    test $d -lt 2; or set capbad (math $capbad + 1)
+end
+t "cap placement: the cap holds the seed hue in every relationship" 0 $capbad
+# and the two large areas still sit |sd| apart
+set -l cptrav 0
+for r in mono wheat mint amber sage ember teal coral
+    set -l sd (__tmux_lives_theme_reldef $r)
+    set -l p (__tmux_lives_theme_curve $seed $r cap derived 0)
+    set -l hb (_oklch_of $p[1])
+    set -l ht (_oklch_of $p[2])
+    set -l got (_dhue $ht[3] $hb[3])
+    set -l want (math "abs($sd)")
+    set -l err (math "abs($got - $want)")
+    test $err -lt 2; or set cptrav (math $cptrav + 1)
+end
+t "cap placement: the large areas still sit |sd| apart" 0 $cptrav
+
 # ---- v4: accents + palette ----
 set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0 balanced arc linear auto)
 t "palette returns 7" 7 (count $pal)
