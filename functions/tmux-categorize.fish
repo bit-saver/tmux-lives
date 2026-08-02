@@ -1358,108 +1358,6 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
-function __tcz_thp_spread --argument-names w --description 'pure: lay <width> <cell> pairs across w cols SPACE-BETWEEN — first flush left, last flush right, any middles evenly spaced; one pair is flush left. Gaps may legitimately be ZERO when the content fills w: the repeat is captured into a var and interpolated QUOTED, so an empty gap stays one empty string instead of collapsing the concatenation (the zero-output-substitution landmine). Never force a minimum gap — that overruns w on a tight fit.'
-    set -l rest $argv[2..]
-    set -l ws
-    set -l cells
-    while test (count $rest) -ge 2
-        set -a ws $rest[1]
-        set -a cells $rest[2]
-        set -e rest[1..2]
-    end
-    set -l n (count $cells)
-    test $n -gt 0; or begin
-        echo ' '
-        return
-    end
-    test $n -eq 1; and begin
-        echo " $cells[1]"
-        return
-    end
-    set -l tot 0
-    for x in $ws
-        set tot (math "$tot + $x")
-    end
-    set -l gaps (math "$n - 1")
-    set -l free (math "$w - 1 - $tot")
-    # --scale=0 of a negative yields the STRING "-0", and `test -0 -lt 0` is FALSE
-    # (documented trap, see __tcz_thp_window) — so floor at 0 with -lt 1, which
-    # catches "-0" too. Zero is a legal gap here; content simply fills the row.
-    test $free -lt 0; and set free 0
-    set -l base (math --scale=0 "$free / $gaps")
-    test $base -lt 1; and set base 0
-    set -l extra (math "$free - $base * $gaps")
-    test $extra -lt 0; and set extra 0
-    set -l out " $cells[1]"
-    for i in (seq 2 $n)
-        set -l g $base
-        test $i -le (math "1 + $extra"); and set g (math "$base + 1")
-        set -l gap ''
-        test $g -gt 0; and set gap (string repeat -n $g ' ')
-        set out "$out$gap$cells[$i]"
-    end
-    echo "$out"
-end
-
-function __tcz_thp_kv --argument-names w flashfield --description 'pure: labeled adjustments fields — TWO lines (uppercase muted labels / values) laid out SPACE-BETWEEN across w, so two fields sit on opposite edges of the frame instead of stacked in one column; argv[3..] = <label> <value> pairs, values may carry SGR (widths measured visible); flashfield (space-separated, case-insensitive label matches, empty = none) renders matching pairs in the flash role instead of muted/its own SGR. Both rows share ONE set of per-field column widths (max of label/value), so a field label sits directly above its own value even in the middle of a 3+ field row.'
-    set -l MUT (__tcz_theme muted)
-    set -l RST (__tcz_theme reset)
-    set -l labs
-    set -l vals
-    set -l lws
-    set -l vws
-    set -l fls
-    set -l rest $argv[3..]
-    while test (count $rest) -ge 2
-        set -l lab (string upper -- $rest[1])
-        set -l vplain (__tcz_strip_sgr "$rest[2]")
-        set -l FL ''
-        if test -n "$flashfield"
-            set -l lab_lc (string lower -- $rest[1])
-            contains -- $lab_lc (string split ' ' -- (string lower -- $flashfield)); and set FL (__tcz_theme flash)
-        end
-        set -a labs "$lab"
-        set -a vals "$rest[2]"
-        set -a lws (string length --visible -- "$lab")
-        set -a vws (string length --visible -- "$vplain")
-        set -a fls "$FL"
-        set -e rest[1..2]
-    end
-    set -l n (count $labs)
-    set -l labargs
-    set -l valargs
-    for i in (seq 1 $n)
-        # ONE shared width per field so the label lands above its own value.
-        set -l cw $lws[$i]
-        test $vws[$i] -gt $cw; and set cw $vws[$i]
-        set -l lpad ''
-        set -l vpad ''
-        # A lone field needs no cell padding — it is simply flush left, and padding
-        # it would only add invisible trailing space inside the frame.
-        if test $n -gt 1
-            test (math "$cw - $lws[$i]") -gt 0; and set lpad (string repeat -n (math "$cw - $lws[$i]") ' ')
-            test (math "$cw - $vws[$i]") -gt 0; and set vpad (string repeat -n (math "$cw - $vws[$i]") ' ')
-        end
-        # the LAST field is flush right, so pad it on the left instead
-        set -l labcell "$labs[$i]$lpad"
-        set -l valcell "$vals[$i]$vpad"
-        if test $i -eq $n; and test $n -gt 1
-            set labcell "$lpad$labs[$i]"
-            set valcell "$vpad$vals[$i]"
-        end
-        if test -n "$fls[$i]"
-            set -l vp (__tcz_strip_sgr "$vals[$i]")
-            set labcell (string replace -- "$labs[$i]" "$fls[$i]$labs[$i]$RST" "$labcell")
-            set valcell (string replace -- "$vals[$i]" "$fls[$i]$vp$RST" "$valcell")
-        else
-            set labcell (string replace -- "$labs[$i]" "$MUT$labs[$i]$RST" "$labcell")
-            set valcell (string replace -- "$vals[$i]" "$vals[$i]$RST" "$valcell")
-        end
-        set -a labargs $cw $labcell
-        set -a valargs $cw $valcell
-    end
-    printf '%s\n%s\n' (__tcz_thp_spread $w $labargs) (__tcz_thp_spread $w $valargs)
-end
 function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
     set -l bg (__tcz_thp_bg "$tabshex")
     test -n "$bg"; or return
@@ -1664,7 +1562,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed/phase adjustments zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 37) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->37 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 37-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (16 static chrome/off/current-zone/legend rows + a fixed 10-row scheme window, constant regardless of the 14-vs-37 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 37) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a pinned off row, then a separate ├─ current ─┤ zone holding the pinned current row (❯ <name> · current — a frozen snapshot of the persisted theme, taken once at open). Linear sel: 0..n-1 = scheme rows, n = off; ↑↓/jk walk ONLY schemes+off via __tcz_thp_vismap (clamped to 0..n) — the current zone (sel n+1) is OUT of the ↑↓ flow, reached only by pressing c, which jumps to n+1 or back to scheme 0 (any stray ↑↓ from n+1 falls through vismaps clamp back to off). ❯ in the list marks whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->37 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 37-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/off/current-zone/legend rows + an 11-row scheme window, constant regardless of the 14-vs-37 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1962,7 +1860,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l IW 50
     # Window size lives out here so BOTH the draw loop and the key dispatch (which
     # pages by it) see one value — a second literal would drift.
-    set -l WIN 10
+    set -l WIN 11
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2026,24 +1924,22 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'adjustments' $BORDER $RST)
-        set -l kv1 (__tcz_thp_kv $IW "$flashfield" seed "$seedchip")
-        set -a lines (__tcz_thp_ln "$kv1[1]" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln "$kv1[2]" $IW $BORDER $RST)
+        set -a lines (__tcz_thp_zsep $IW 'configuration' $BORDER $RST)
+        # ONE horizontal row: label and value side by side. The zone holds a single
+        # field now that phase is hidden, so the stacked label-row/value-row form was
+        # pure overhead — and the row it frees goes to the scheme window below.
+        set -l seedlab (__tcz_theme muted)
+        test "$flashfield" = seed; and set seedlab (__tcz_theme flash)
+        set -l seedrow (printf '%sSEED%s   %s' "$seedlab" $RST "$seedchip")
+        set -a lines (__tcz_thp_ln "$seedrow" $IW $BORDER $RST)
         # Windowed scrolling list (Gallery rewrite Task 3): only the SCHEME
         # rows scroll; off + anchor are PINNED below, always drawn (the
         # anchor is the revert-compare snapshot — it must stay visible while
         # browsing). When the cursor is on off/anchor (sel >= n), clamp the
         # window anchor to the last scheme so the window holds steady instead
-        # of chasing a sel value that isn't a scheme row. WIN=10: the frame is
-        # 16 static rows (border/chip/preview/adjustments-zsep/kv×2/
-        # schemes-zsep/off/current-zsep/anchor/blank-zsep/legend×3/note/
-        # bottom-border) + WIN scheme rows = 26 total, constant across the
-        # 14/37 catalog size — matched to the popup -h at all three open
-        # sites. Static was 18 with WIN=8 until seed and phase moved from two
-        # stacked kv pairs onto ONE space-between row pair; the two rows that
-        # freed went to the window rather than shrinking the frame, since the
-        # catalog had just grown 28->37 and could use the extra visible rows.
+        # of chasing a sel value that isn't a scheme row. WIN=11: the frame is
+        # 15 static rows (border/chip/preview/configuration-zsep/seed/schemes-zsep/off/
+        # current-zsep/anchor/blank-zsep/legend×3/note/bottom-border) + WIN scheme rows = 26
         set -l winsel $sel
         test $winsel -gt (math $n - 1); and set winsel (math $n - 1)
         set -l win (__tcz_thp_window $winsel $n $WIN)
@@ -2303,7 +2199,7 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
         # colour story rather than join it; neutral grey also stays legible both ways —
         # darker than a light swatch, lighter than a dark one.
         case mark;   printf '\e[38;2;138;138;138m'
-        # change-flash blue (picker adjustments zone; 2026-07-17 UX request)
+        # change-flash blue (picker configuration zone; 2026-07-17 UX request)
         case flash;  printf '\e[38;2;95;168;232m'
         case sel-bg; printf '\e[48;2;25;25;19m'     # near-black band: must read as CHROME, never as one of the scheme colors beside it (2026-07-17 picker feedback)
         case sel-fg; printf '\e[38;2;242;239;233m'

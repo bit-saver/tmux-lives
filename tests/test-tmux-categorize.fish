@@ -1294,28 +1294,10 @@ set -l boldon (printf '\e[1m')
 t "zsep label is bold" 1 (string match -q "*$boldon*" -- "$zs"; and echo 1; or echo 0)
 set -l zse (__tcz_thp_zsep 50 '' "" "")
 t "zsep empty label = plain sep" (__tcz_thp_sep 50 "" "") "$zse"
-set -l kv (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°' vividness balanced shape arc)
-t "kv emits two lines" 2 (count $kv)
-set -l l1 (__tcz_strip_sgr "$kv[1]")
-set -l l2 (__tcz_strip_sgr "$kv[2]")
-t "kv labels uppercased" 1 (string match -q '*SEED*PHASE*VIVIDNESS*SHAPE*' -- "$l1"; and echo 1; or echo 0)
-t "kv values line carries values" 1 (string match -q '*#485b3c*+15°*balanced*arc*' -- "$l2"; and echo 1; or echo 0)
-# columns align: each label starts at the same visible offset as its value
-t "kv label/value columns align" (string match -rg '^( *)SEED' -- "$l1" | string length) (string match -rg '^( *)#485b3c' -- "$l2" | string length)
-
-# --- change-flash (Task 3): flash role + timeout readkey + kv flash arg ---
+# --- change-flash (Task 3): flash role + timeout readkey ---
 t "theme flash role" (printf '\e[38;2;95;168;232m') (__tcz_theme flash)
 t "readkey timeout mode" timeout (printf '' | __tcz_popup_readkey timeout)
 t "readkey EOF still cancels by default" cancel (printf '' | __tcz_popup_readkey)
-set -l FLASH (__tcz_theme flash)
-set -l kvf (__tcz_thp_kv 50 vividness seed '#485b3c' phase '+15°' vividness balanced shape arc)
-t "kv flash colors the flagged label" 1 (string match -q "*$FLASH*VIVIDNESS*" -- "$kvf[1]"; and echo 1; or echo 0)
-t "kv flash colors the flagged value" 1 (string match -q "*$FLASH*balanced*" -- "$kvf[2]"; and echo 1; or echo 0)
-t "kv flash leaves others muted" 0 (string match -q "*$FLASH*SEED*" -- "$kvf[1]"; and echo 1; or echo 0)
-set -l kvn (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°' vividness balanced shape arc)
-t "kv no-flash has no flash SGR" 0 (string match -q "*$FLASH*" -- "$kvn[1]$kvn[2]"; and echo 1; or echo 0)
-# widths identical with and without flash
-t "kv flash width-neutral" (string length --visible -- (__tcz_strip_sgr "$kvn[2]")) (string length --visible -- (__tcz_strip_sgr "$kvf[2]"))
 
 # --- anchor-wave builders (Task 1) ---
 set -l CURM (printf '\e[38;5;179m')
@@ -1331,14 +1313,6 @@ t "row current is exactly 2 cols wider" (math (string length --visible -- (__tcz
 set -l offc (__tcz_thp_staterow 50 (__tcz_thp_band '#5c6b52') 'off · current' myrole 0 1)
 t "staterow replaces off-row's chevron text with a name/label split" 1 (string match -q '*off · current*myrole*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
 t "staterow off-style row never renders a chevron" 0 (string match -q '*❯*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
-# kv multi-field flash
-set -l kvm (__tcz_thp_kv 50 'phase rotate' phase '+15°' rotate 2 ease linear)
-t "kv multi-flash lights phase" 1 (string match -q "*$FLASH*PHASE*" -- "$kvm[1]"; and echo 1; or echo 0)
-t "kv multi-flash lights rotate" 1 (string match -q "*$FLASH*ROTATE*" -- "$kvm[1]"; and echo 1; or echo 0)
-# check that EASE does not have FLASH color code immediately before it
-t "kv multi-flash spares ease" 0 (string match -q "*"$FLASH"EASE*" -- "$kvm[1]"; and echo 1; or echo 0)
-set -l kvs (__tcz_thp_kv 50 phase phase '+15°' rotate 2 ease linear)
-t "kv single-token flash still works" 1 (string match -q "*$FLASH*PHASE*" -- "$kvs[1]"; and echo 1; or echo 0)
 t "readkey z" z (echo -n z | __tcz_popup_readkey)
 # picker current-zone refinement, Task 2: c jumps to/from the current zone.
 t "readkey c" c (echo -n c | __tcz_popup_readkey)
@@ -1694,17 +1668,12 @@ set -l schemelabelbody (string match -r '(?s)__tcz_thp_zsep \$IW .schemes.*?\)' 
 t "list label is schemes" 1 (string match -q '*schemes*' -- "$schemelabelbody"; and echo 1; or echo 0)
 t "list label drops stale relationship text" 0 (string match -q '*hue-travels for your seed*' -- "$pbody"; and echo 1; or echo 0)
 t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to all schemes*' -- "$pbody"; and echo 1; or echo 0)
-# CRITICAL: both call sites (draw loop + the lit-first repaint) must render
-# IDENTICAL kv fields, or the lit-first flash paints stale labels before the
-# batch recompute lands.
-set -l zonekvlines (string match -ar '__tcz_thp_kv \$IW "\$flashfield".*' -- (string split \n -- "$zonebody"))
-# ONE space-between kv call now. __tcz_thp_litkv is GONE: the lit-first repaint
-# existed only for the ←→ phase arms, and those retired with the phase field, so
-# it had zero call sites left (dead code, caught in review).
-t "draw loop has 1 kv call in the zone" 1 (count $zonekvlines)
-t "picker has no lit-first repaint left" 0 (string match -q '*__tcz_thp_litkv*' -- "$pbody"; and echo 1; or echo 0)
-# phase is hidden and pinned at 0 — the zone carries seed alone for now.
-t "kv call carries seed only (phase hidden)" 1 (string match -q '*seed*' -- "$zonekvlines[1]"; and not string match -q '*phase*' -- "$zonekvlines[1]"; and echo 1; or echo 0)
+# __tcz_thp_kv and __tcz_thp_litkv are GONE: when phase was hidden, the zone
+# (initially with 3 rows: zsep + label row + value row) collapsed to 2 rows
+# (zsep + one horizontal row), and the kv builder was no longer needed.
+# The zone now renders seed label and value inline rather than stacked.
+t "picker has no lit-first repaint" 0 (string match -q '*__tcz_thp_litkv*' -- "$pbody"; and echo 1; or echo 0)
+t "configuration zone renders seed inline" 1 (string match -q '*configuration*' -- "$pbody"; and string match -q '*SEED*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 4: key dispatch — recipe-based
 # apply/save (place+mode come from the SELECTED catalog entry's recipe, not
@@ -1800,7 +1769,7 @@ t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- 
 t "picker popup: no stale 52x24 anywhere" 0 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
-t "picker draw loop: WIN is 10" 1 (string match -q '*set -l WIN 10*' -- "$catsrc"; and echo 1; or echo 0)
+t "picker draw loop: WIN is 11" 1 (string match -q '*set -l WIN 11*' -- "$catsrc"; and echo 1; or echo 0)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -2015,36 +1984,18 @@ t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline i
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
 
-# Adjustments zone: seed and phase are laid out SPACE-BETWEEN across the frame
-# (seed flush left, phase flush right) rather than stacked in one column, so
-# both rows are exactly IW wide and the right-hand field ends at the edge.
-set -l kvsp (__tcz_thp_kv 50 '' seed '#485b3c' phase '+15°')
-set -l kvl1 (__tcz_strip_sgr "$kvsp[1]")
-set -l kvl2 (__tcz_strip_sgr "$kvsp[2]")
-t "adjustments kv: label row fills the width" 50 (string length --visible -- "$kvl1")
-t "adjustments kv: value row fills the width" 50 (string length --visible -- "$kvl2")
-t "adjustments kv: seed is flush left"  1 (string match -q ' SEED *' -- "$kvl1"; and echo 1; or echo 0)
-t "adjustments kv: phase is flush right" 1 (string match -q '*PHASE' -- "$kvl1"; and echo 1; or echo 0)
-t "adjustments kv: seed value flush left"  1 (string match -q ' #485b3c *' -- "$kvl2"; and echo 1; or echo 0)
-t "adjustments kv: phase value flush right" 1 (string match -q '*+15°' -- "$kvl2"; and echo 1; or echo 0)
-# a single field degrades to flush-left (no phantom right-edge padding)
-set -l kv1p (__tcz_thp_kv 50 '' seed '#485b3c')
-t "adjustments kv: one field stays flush left" " SEED" (__tcz_strip_sgr "$kv1p[1]")
-t "adjustments kv: one field value flush left too" " #485b3c" (__tcz_strip_sgr "$kv1p[2]")
-# --- __tcz_thp_spread directly: the edge cases the kv paths never reach.
-# A minimum-1 gap clamp used to force the row PAST w on a tight fit (w=10 with
-# 9 cols of content rendered 11). Zero is a legal gap; the repeat is captured
-# into a var and interpolated quoted so an empty gap cannot collapse the
-# concatenation (string repeat -n 0 emits ZERO words).
-t "spread: exact fit lands on w"      10 (string length --visible -- (__tcz_thp_spread 10 4 WXYZ 5 ABCDE))
-t "spread: roomy row fills w"         40 (string length --visible -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE))
-t "spread: first cell is flush left"   1 (string match -q ' WXYZ*' -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE); and echo 1; or echo 0)
-t "spread: last cell is flush right"   1 (string match -q '*ABCDE' -- (__tcz_thp_spread 40 4 WXYZ 5 ABCDE); and echo 1; or echo 0)
-# content wider than w cannot fit: degrade minimally (no gaps) rather than error
-t "spread: overflow degrades, no crash" 10 (string length --visible -- (__tcz_thp_spread 6 4 WXYZ 5 ABCDE))
-t "spread: single cell is flush left"  " ONLY" (__tcz_thp_spread 20 4 ONLY)
-t "spread: three cells still fill w"   40 (string length --visible -- (__tcz_thp_spread 40 3 AAA 3 BBB 3 CCC))
-t "spread: no args yields a blank"     " " (__tcz_thp_spread 20)
+# ---------------------------------------------------------------------
+# layout: horizontal SEED, `configuration`, an 11-row window
+# ---------------------------------------------------------------------
+set -g PK (functions __tcz_theme_picker | string collect)
+t "zone is titled configuration" 1 (string match -q '*configuration*' -- "$PK"; and echo 1; or echo 0)
+t "the old adjustments title is gone" 0 (string match -q '*adjustments*' -- "$PK"; and echo 1; or echo 0)
+t "SEED label and value share one row" 1 (string match -q '*SEED*' -- "$PK"; and echo 1; or echo 0)
+t "the two-row kv builder is gone"     0 (grep -c '__tcz_thp_kv' $catfile)
+t "the spread builder is gone"         0 (grep -c '__tcz_thp_spread' $catfile)
+t "scheme window is 11 rows"           1 (string match -q '*set -l WIN 11*' -- "$PK"; and echo 1; or echo 0)
+t "WIN is defined exactly once"        1 (count (string match -ra 'set -l WIN ' -- "$PK"))
+t "no stale WIN 10"                    0 (string match -q '*set -l WIN 10*' -- "$PK"; and echo 1; or echo 0)
 
 # Consolidated guards: case c present; the retired axis keys/functions stay
 # gone; the current zsep + __tcz_thp_leg wiring are in place; vismap never
