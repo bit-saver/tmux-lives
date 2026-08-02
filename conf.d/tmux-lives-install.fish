@@ -767,6 +767,23 @@ function __tmux_lives_theme_reldef --argument-names name --description 'v4 relat
     end
 end
 
+function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-cap family table: OKLCH bar hue -> the minimum hue separation, in degrees, that the endcap keeps from the bar. Fitted in the 2026-07-20 calibration study (4 rounds, blind numbered tiles; ~84% of judgments explained, and the rule-generated validation batch scored 9/10 vs 5/10 pre-rule). Restored from the v3.3 kincap rule the v4 rewrite deleted, in the role it was actually fitted for: bar and endcap judged as a PAIR. Blue and red/pink are untested extrapolations — first suspects if a future seed misbehaves.'
+    set -l h (__tmux_lives_norm360 $hue)
+    if test $h -ge 40; and test $h -lt 90
+        echo 40
+    else if test $h -ge 90; and test $h -lt 160
+        echo 20
+    else if test $h -ge 160; and test $h -lt 210
+        echo 30
+    else if test $h -ge 210; and test $h -lt 280
+        echo 25
+    else if test $h -ge 280; and test $h -lt 330
+        echo 18
+    else
+        echo 15
+    end
+end
+
 function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23; warm knee retuned 72->62 on 2026-07-29): past a direction-dependent knee (62 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid. The warm knee is 62 NOT 72 deliberately: at 72 ember sat EXACTLY on it, so max(0,dH-knee) was 0 and the loudest relationship was the only one that escaped muting. 62 pulls ember under at capC .090 / capL .645 (user-picked by eye) and leaves amber/wheat/mint/sage below their knees and coral/teal already on the clamp floors — i.e. ember is the ONLY relationship this moves.'
     set -l ad (math "abs($signeddrift)")
     set -l knee 40

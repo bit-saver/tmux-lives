@@ -1057,6 +1057,50 @@ t "reldef unknown empty"  ""   (__tmux_lives_theme_reldef nope)
 t "valid ember" 0 (__tmux_lives_theme_valid ember; echo $status)
 t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
 
+# ---- v5: kin-cap family table ----
+# Fitted in the 2026-07-20 calibration study (4 rounds, user as blind subject, ~84% of
+# judgments explained; the rule-generated validation batch scored 9/10 vs 5/10 pre-rule).
+# Restored from the v3.3 kincap rule the v4 rewrite deleted.
+# The function must EXIST. Without this, every assertion below is invisible: when a
+# command substitution calls an undefined function fish aborts the whole statement, so
+# `t` never runs, nothing prints, and this suite (no pass counter) still says ALL PASS.
+t "family fn exists" 1 (functions -q __tmux_lives_theme_family; and echo 1; or echo 0)
+set -l f60 (__tmux_lives_theme_family 60)
+t "family warm/earth 40"           40 "$f60"
+set -l f125 (__tmux_lives_theme_family 125)
+t "family olive/green 20"          20 "$f125"
+set -l f185 (__tmux_lives_theme_family 185)
+t "family teal 30"                 30 "$f185"
+set -l f240 (__tmux_lives_theme_family 240)
+t "family blue 25"                 25 "$f240"
+set -l f300 (__tmux_lives_theme_family 300)
+t "family purple 18"               18 "$f300"
+set -l f10 (__tmux_lives_theme_family 10)
+t "family red low 15"              15 "$f10"
+set -l f350 (__tmux_lives_theme_family 350)
+t "family red high 15"             15 "$f350"
+set -l f40 (__tmux_lives_theme_family 40)
+t "family lower bound 40 is warm"  40 "$f40"
+set -l f90 (__tmux_lives_theme_family 90)
+t "family upper bound 90 is olive" 20 "$f90"
+set -l f485 (__tmux_lives_theme_family 485)
+t "family wraps past 360"          20 "$f485"
+
+# ---- the ink is NOT part of the big-area rewrite: pin it byte-identical ----
+# __tmux_lives_theme_accents is deliberately untouched (the user's instruction: "the ink
+# isn't what needs changing currently"). These four hexes are its output at a fixed bar,
+# captured from the pre-rewrite engine. If a later refactor drifts the ink, this fails.
+set -l ink (__tmux_lives_theme_accents '#405733' '#6cb040')
+t "ink returns 4"  4         (count $ink)
+t "ink sep"        '#7f8a78' $ink[1]
+t "ink active"     '#cfdcc9' $ink[2]
+t "ink windows"    '#a0b198' $ink[3]
+t "ink text"       '#cfdcc8' $ink[4]
+# the cap argument is declared and unused — documented as intentional for now, not a bug
+# to fix in this cycle. Changing the cap must not change the ink.
+set -l ink2 (__tmux_lives_theme_accents '#405733' '#ff0000')
+t "ink is independent of the cap argument" "$ink" "$ink2"
+
 # ---- v4: endcap taper ----
 # near relationships stay vivid; far ones hit the muted floor
 t "taper mono vivid C"    0.115 (__tmux_lives_theme_taper 0    | sed -n 1p)
