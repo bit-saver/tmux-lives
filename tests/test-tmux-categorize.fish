@@ -1406,10 +1406,13 @@ t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (func
 # rewrite, Task 2" section further down for the catalog-wiring guards).
 t "picker batches palettes via the catalog" yes (string match -q '*__tmux_lives_theme_catalog*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-# The phase arrows retired with the phase field; the SAME drain-coalescing now
-# serves ↑↓ (and pgup/pgdn), which is what a held arrow needed all along — it used
-# to queue one redraw per autorepeat press and scroll on for seconds after release.
-t "picker up/down coalesce into one net move" yes (string match -q '*case up;   set steps (math "$steps - 1"); set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# The phase arrows retired with the phase field; the SAME drain now serves ↑↓
+# (and pgup/pgdn), which is what a held arrow needed all along — it used to
+# queue one redraw per autorepeat press and scroll on for seconds after
+# release. ↑↓ no longer SUM the drained burst into one net move (that traded
+# the backlog for undrawn intermediate positions and an overshoot on
+# release, Task 8) — they swallow it, moving one row per render cycle.
+t "picker up/down drain swallows without accumulating" yes (string match -q '*case up down; set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker pages by WIN, not a literal" yes (string match -q '*case pgup; set steps (math "$steps - $WIN"); set gap 1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker has no phase-delta arm left" no (string match -q '*math $delta + 5*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cleanup*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
@@ -1424,11 +1427,14 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
 t "picker drain re-asserts non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
-# the two PHASE drains escalate to a ~100ms repeat-gap wait once a burst is
-# detected (gap=1) so a HELD arrow coalesces into ONE recompute at release;
-# a single press still settles instantly (first pass is gap=0)
+# the ↑↓/pgup/pgdn drain escalates to a ~100ms repeat-gap wait once a burst is
+# detected (gap=1) so a HELD key doesn't spawn a redraw per autorepeat press;
+# a single press still settles instantly (first pass is gap=0). For pgup/pgdn
+# that still coalesces into one net page-move; for ↑↓ each drained key is
+# swallowed rather than summed (Task 8), so the escalation only throttles the
+# read rate — it does not accumulate steps.
 t "picker drain re-asserts non-blocking inside the loop" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
-t "picker drain escalates the gap on burst" 1 (string match -a -r 'case up;   set steps \(math "\$steps - 1"\); set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
+t "picker drain escalates the gap on burst" 1 (string match -a -r 'case up down; set gap 1' -- (functions __tcz_theme_picker | string collect) | count)
 
 # --- Gallery picker rewrite, Task 4: shake key (z) rewritten -------------
 # Supersedes the earlier relationship-axis picker's shake (dae0155/3395e6d),
@@ -2218,6 +2224,20 @@ t "no setup-color commit inside the seed screens" 0 (count (string match -ra 'se
 # which is what it actually meant to test.
 t "exactly one setup-color commit in the whole picker" 1 (count (string match -ra 'setup color' -- "$SLB"))
 t "the commit is guarded on a changed seed" 1 (string match -q '*"$seed" != "$anch_seed"*' -- "$SLB"; and echo 1; or echo 0)
+
+# ---------------------------------------------------------------------
+# held ↑↓ rate-limits with DISCARD, it does not accumulate
+# ---------------------------------------------------------------------
+set -g DRAIN (string match -r '(?s)case up down pgup pgdn.*?case tab' -- (functions __tcz_theme_picker | string collect))
+t "the drain arm was found" 1 (test -n "$DRAIN"; and echo 1; or echo 0)
+# a queued up/down must NOT add to steps — that is the accumulate-and-jump bug
+t "queued arrows do not accumulate" 0 (count (string match -ra 'case up;   set steps \(math "\$steps - 1"\)' -- "$DRAIN"))
+t "queued arrows are swallowed"     1 (string match -q '*case up down; set gap 1*' -- "$DRAIN"; and echo 1; or echo 0)
+# pages DO still coalesce — they are discrete and not autorepeated
+t "pages still coalesce" 1 (string match -q '*case pgup;*steps*WIN*' -- "$DRAIN"; and echo 1; or echo 0)
+# the drain-hang guard must survive: readkey's CSI branch leaves the tty BLOCKING
+t "drain re-asserts non-blocking inside the loop" 1 (string match -q '*while true*stty min 0 time $gap*' -- "$DRAIN"; and echo 1; or echo 0)
+t "drain restores blocking on exit" 1 (string match -q '*stty min 1 time 0*' -- "$DRAIN"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

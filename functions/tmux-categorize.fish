@@ -2042,14 +2042,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         switch $tok
             case up down pgup pgdn
-                # Drain-coalescing, the same shape the phase arrows have used since
-                # 2026-07-19. Without it a HELD arrow queued one redraw PER autorepeat
-                # keypress, so the list kept scrolling for seconds after release while
-                # it worked through the backlog. Collapse the burst into ONE net move:
-                # a held key then scrolls FASTER (more rows per redraw) and stops dead
-                # on release. Re-assert non-blocking INSIDE the loop — readkey's CSI
-                # branch leaves the tty blocking on return, so the next drain read
-                # would hang (the documented drain-hang hazard).
+                # Drain, then move ONE row. The drain is what prevents the original
+                # defect — an unbounded redraw backlog that kept scrolling for seconds
+                # after release — but it must not COUNT what it swallows. Re-assert
+                # non-blocking INSIDE the loop: readkey's CSI branch leaves the tty
+                # blocking on return, and a drain read after it hangs (hit for real once).
                 set -l steps 0
                 switch $tok
                     case up;   set steps -1
@@ -2062,8 +2059,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     stty min 0 time $gap 2>/dev/null
                     set -l k2 (__tcz_popup_readkey)
                     switch "$k2"
-                        case up;   set steps (math "$steps - 1"); set gap 1
-                        case down; set steps (math "$steps + 1"); set gap 1
+                        # SWALLOW queued autorepeats without counting them. Summing the
+                        # burst (the 2026-07-29 form) moved many rows per redraw, so the
+                        # intermediate positions were never drawn and release landed on
+                        # the accumulated total rather than the last row you saw. One row
+                        # per render cycle instead: a held key scrolls at whatever rate
+                        # the terminal can actually paint, and release stops where it is.
+                        case up down; set gap 1
+                        # pages DO coalesce — discrete, not autorepeated in practice
                         case pgup; set steps (math "$steps - $WIN"); set gap 1
                         case pgdn; set steps (math "$steps + $WIN"); set gap 1
                         case '*';  break
