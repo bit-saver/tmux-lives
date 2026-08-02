@@ -1271,24 +1271,33 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
     end
     printf '%s%s %s%s%s%s' "$marker" "$cells" "$curpre" "$namecol" "$name" (__tcz_theme reset)
 end
-function __tcz_thp_off_row --argument-names barhex selected name current --description 'pure: the off-row (default "off — legacy look" label); one 14-col derived-bg band where the strip sits; <name> overrides the label; <current> = 1 prefixes with "❯ " in switcher yellow'
-    set -l bg (__tcz_thp_bg "$barhex")
-    set -l band '              '
-    test -n "$bg"; and set band "$bg              "(printf '\e[0m')
-    test -n "$name"; or set name 'off — legacy look'
+function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells>(14) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 14 columns identically. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
         set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
-    set -l curpre ''
-    if test "$current" = 1
-        set -l CUR (printf '\e[38;5;179m')
-        set -l R2 (printf '\e[0m')
-        set curpre "$CUR❯ $R2"
+    set -l labcol (__tcz_theme muted)
+    set -l labon ''
+    if test "$live" = 1
+        set labcol (__tcz_theme brand)
+        set labon (printf '\e[1m')
     end
-    printf '%s%s %s%s%s%s' "$marker" "$band" "$curpre" "$namecol" "$name" (__tcz_theme reset)
+    # marker(1) + cells(14) + space(1) + name + pad + label + trailing space(1)
+    set -l nlen (string length --visible -- "$name")
+    set -l llen (string length --visible -- "$label")
+    set -l pad (math "$w - 17 - $nlen - $llen")
+    test $pad -lt 1; and set pad 1
+    # Capture the repeat into a var and interpolate it QUOTED: a zero-output command
+    # substitution used as a bare argument VANISHES from the arg list and shifts every
+    # later printf field. The -lt 1 floor also catches math's "-0" STRING.
+    set -l padstr (string repeat -n $pad ' ')
+    printf '%s%s %s%s%s%s%s%s%s \n' \
+        "$marker" "$cells" \
+        "$namecol" "$name" (__tcz_theme reset) \
+        "$padstr" \
+        "$labon$labcol" "$label" (__tcz_theme reset)
 end
 function __tcz_thp_preview --argument-names hexes capfg host name w --description 'pure: the fake status-bar row from 7 role hexes (bar sep tabs active windows cap text) + cap fg — host cap, windows, ✦ identity, clock cap; EXACTLY <w> visible cols (host/name truncated, gaps computed)'
     set -l p (string split ' ' -- "$hexes")
@@ -2063,7 +2072,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l offflag 0
         test $sel -eq $n; and set offflag 1
-        set -l offrow (__tcz_thp_off_row "$legacy" $offflag)
+        set -l offrow (__tcz_thp_staterow $IW (__tcz_thp_band "$legacy") 'legacy look' off $offflag 0)
         if test $offflag -eq 1
             set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
             set offrow "$SELBG$offrow$RST"
@@ -2079,12 +2088,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # n+1 = anchor (was 0=anchor/1..n=schemes/n+1=off before this task).
         set -l anchflag 0
         test $sel -eq (math $n + 1); and set anchflag 1
-        set -l anchrow ''
-        if test -n "$anchpal"
-            set anchrow (__tcz_thp_row "$anchpal" "$anch_scheme · current" $anchflag 1)
-        else
-            set anchrow (__tcz_thp_off_row "$legacy" $anchflag "$anch_scheme · current" 1)
-        end
+        set -l anchcells (__tcz_thp_band "$legacy")
+        test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
+        set -l anchrow (__tcz_thp_staterow $IW "$anchcells" "$anch_scheme" current $anchflag 1)
         if test $anchflag -eq 1
             set anchrow (string replace -a -- "$RST" "$RST$SELBG" "$anchrow")
             set anchrow "$SELBG$anchrow$RST"

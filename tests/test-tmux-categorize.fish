@@ -1254,7 +1254,10 @@ t "thp_fg non-hex -> empty" 0 (count (__tcz_thp_fg colour238))
 t "thp_row lead is 16 visible cols + name" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
 t "thp_row selected keeps the width" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
 t "thp_row selected carries the ▐ marker" yes (string match -q '*▐*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
-t "thp_off_row width matches" 33 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_off_row "#76846d" 0)))
+# __tcz_thp_off_row is retired (picker-second-list Task 3) — its fixed
+# natural-width contract has no equivalent under __tcz_thp_staterow's
+# always-exactly-w model; that invariant is covered by the staterow block
+# further down instead of being pinned here.
 t "thp_preview is exactly 50 cols" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" rocket Monitoring 50)))
 t "thp_preview holds width on long names" 50 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_preview "$THX" "#111111" a-very-long-host An-Extremely-Long-Session-Name 50)))
 # a malformed role hex must degrade to uncolored text, never collapse a segment
@@ -1322,10 +1325,12 @@ t "row current chevron wears the switcher yellow" 1 (string match -q "*$CURM*" -
 set -l rown (__tcz_thp_row '#111111 #222222 #333333 #444444 #555555 #666666 #777777' wide 0)
 t "row without current has no chevron" 0 (string match -q '*❯*' -- "$rown"; and echo 1; or echo 0)
 t "row current is exactly 2 cols wider" (math (string length --visible -- (__tcz_strip_sgr "$rown"))" + 2") (string length --visible -- (__tcz_strip_sgr "$rowc"))
-set -l offc (__tcz_thp_off_row '#5c6b52' 0 'off · current' 1)
-t "off-row name override + chevron" 1 (string match -q '*❯ off · current*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
-set -l offd (__tcz_thp_off_row '#5c6b52' 0)
-t "off-row default label unchanged" 1 (string match -q '*off — legacy look*' -- (__tcz_strip_sgr "$offd"); and echo 1; or echo 0)
+# picker-second-list Task 3: __tcz_thp_off_row is retired. Its old combined
+# "❯ <name> · current" chevron text is replaced by __tcz_thp_staterow's
+# separate name/label columns — the chevron is gone by design, not just moved.
+set -l offc (__tcz_thp_staterow 50 (__tcz_thp_band '#5c6b52') 'off · current' myrole 0 1)
+t "staterow replaces off-row's chevron text with a name/label split" 1 (string match -q '*off · current*myrole*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
+t "staterow off-style row never renders a chevron" 0 (string match -q '*❯*' -- (__tcz_strip_sgr "$offc"); and echo 1; or echo 0)
 # kv multi-field flash
 set -l kvm (__tcz_thp_kv 50 'phase rotate' phase '+15°' rotate 2 ease linear)
 t "kv multi-flash lights phase" 1 (string match -q "*$FLASH*PHASE*" -- "$kvm[1]"; and echo 1; or echo 0)
@@ -1386,6 +1391,34 @@ t "band uses the same glyph"  14 (count (string match -ra '▇' -- "$BAND"))
 t "band degrades non-hex to blanks" 14 (string length --visible -- (__tcz_thp_band nope))
 # and the scheme row still measures the same as before
 t "row strip is still 14 cols inside the row" 1 (string match -q '*▇▇*' -- (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 0 0); and echo 1; or echo 0)
+
+# ---------------------------------------------------------------------
+# __tcz_thp_staterow — the second list's row: name left, role label RIGHT
+# ---------------------------------------------------------------------
+t "staterow fn exists" 1 (functions -q __tcz_thp_staterow; and echo 1; or echo 0)
+set -g SR (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'mono soft' current 0 1)
+t "staterow is exactly w visible cols" 50 (string length --visible -- "$SR")
+t "staterow shows the name" 1 (string match -q '*mono soft*' -- "$SR"; and echo 1; or echo 0)
+t "staterow shows the label" 1 (string match -q '*current*' -- "$SR"; and echo 1; or echo 0)
+# the label ends one column short of the border: exactly one trailing space
+t "staterow label ends one col short" 1 (string match -qr 'current(\e\[[0-9;]*m)* $' -- "$SR"; and echo 1; or echo 0)
+# live -> the label is bold in brand; not live -> muted
+t "staterow live label wears brand" 1 (string match -q '*'(__tcz_theme brand)'current*' -- "$SR"; and echo 1; or echo 0)
+set -g SRD (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'mono soft' current 0 0)
+t "staterow not-live label wears muted" 1 (string match -q '*'(__tcz_theme muted)'current*' -- "$SRD"; and echo 1; or echo 0)
+t "staterow not-live is still w cols" 50 (string length --visible -- "$SRD")
+# selection puts the ▐ marker in brand and brightens the name
+set -g SRS (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'legacy look' off 1 0)
+t "staterow selected shows the marker" 1 (string match -q '*▐*' -- "$SRS"; and echo 1; or echo 0)
+t "staterow selected is still w cols" 50 (string length --visible -- "$SRS")
+# width holds for a long name and a short label, and vice versa
+t "staterow long name still w cols" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'a-very-long-scheme-name-here' off 0 0))
+# it accepts a full 7-role strip too — the current row shows its real palette
+t "staterow accepts a 7-role strip" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_cells '#112233 #223344 #334455 #445566 #556677 #667788 #778899') 'mono soft' current 0 1))
+# and the retired builder is gone (catfile isn't defined until further down
+# the suite, so pin it locally here rather than forward-reference it)
+set -l catfile $plugindir/functions/tmux-categorize.fish
+t "off_row builder is gone" 0 (grep -c '__tcz_thp_off_row' $catfile)
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
