@@ -1984,6 +1984,17 @@ t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline i
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
 
+# --- configuration zone: seedrow flash affordance ---
+# The configuration zone renders SEED label + value on one row. The label wears
+# the flash role when the user is editing the seed (flashfield = seed), else muted.
+set -g SRW (__tcz_thp_seedrow seed 'CHIP')
+set -g SRN (__tcz_thp_seedrow '' 'CHIP')
+t "seedrow flashes the label when flagged" 1 (string match -q '*'(__tcz_theme flash)'SEED*' -- "$SRW"; and echo 1; or echo 0)
+t "seedrow label is muted when not flagged" 1 (string match -q '*'(__tcz_theme muted)'SEED*' -- "$SRN"; and echo 1; or echo 0)
+t "seedrow carries no flash SGR when not flagged" 0 (string match -q '*'(__tcz_theme flash)'*' -- "$SRN"; and echo 1; or echo 0)
+t "seedrow flash is width-neutral" (string length --visible -- "$SRN") (string length --visible -- "$SRW")
+t "seedrow shows the value" 1 (string match -q '*CHIP*' -- "$SRN"; and echo 1; or echo 0)
+
 # ---------------------------------------------------------------------
 # layout: horizontal SEED, `configuration`, an 11-row window
 # ---------------------------------------------------------------------

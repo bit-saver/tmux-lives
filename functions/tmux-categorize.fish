@@ -1376,6 +1376,11 @@ function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --descriptio
     set -l padstr (string repeat -n $pad ' ')
     printf '%s%s %s%s%s %s│ ⋯ │ ⋯ %s%s%s' "$bg" "$fgS" "$B1" "$title" "$NI" "$FA" "$NI" "$padstr" "$RST"
 end
+function __tcz_thp_seedrow --argument-names flashfield seedchip --description 'pure: the configuration zone row — the SEED label beside its value. The label wears the `flash` role while <flashfield> is `seed` (the change-flash affordance), else `muted`.'
+    set -l seedlab (__tcz_theme muted)
+    test "$flashfield" = seed; and set seedlab (__tcz_theme flash)
+    printf '%sSEED%s   %s' "$seedlab" (__tcz_theme reset) "$seedchip"
+end
 function __tcz_thp_shellfish --description 'true iff any attached client is ShellFish — the production detection (__tcz_client_is_shellfish; tmux_lives_fake_environ seam applies), checked ONCE at picker open.'
     for pid in (tmux list-clients -F '#{client_pid}' 2>/dev/null)
         __tcz_client_is_shellfish $pid; and return 0
@@ -1928,9 +1933,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # ONE horizontal row: label and value side by side. The zone holds a single
         # field now that phase is hidden, so the stacked label-row/value-row form was
         # pure overhead — and the row it frees goes to the scheme window below.
-        set -l seedlab (__tcz_theme muted)
-        test "$flashfield" = seed; and set seedlab (__tcz_theme flash)
-        set -l seedrow (printf '%sSEED%s   %s' "$seedlab" $RST "$seedchip")
+        set -l seedrow (__tcz_thp_seedrow "$flashfield" "$seedchip")
         set -a lines (__tcz_thp_ln "$seedrow" $IW $BORDER $RST)
         # Windowed scrolling list (Gallery rewrite Task 3): only the SCHEME
         # rows scroll; off + anchor are PINNED below, always drawn (the
