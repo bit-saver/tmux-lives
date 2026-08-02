@@ -1534,8 +1534,13 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # from one site (anchor-or-off, sharing a call) into two (a-current, a-off),
 # since off now needs its OWN apply_live call (`off bar derived`) rather than
 # falling out of the old sel-linear else branch. 8 -> 9 sites.
-t "guard: exactly 9 action-site subprocesses" 9 (count (string match -ar 'fish -c' -- "$pbody"))
-# 9 = init + a-current + a-off + a-list + esc-revert + 2 seed applies + 2 saves (case-a's 3 branches are 3 textual sites, still one subprocess per press)
+# Task 7 (Esc restores the seed): the two seed-screen commits are GONE — the
+# RGB-slider and typed-hex screens no longer touch the universal at all, they
+# only reload the in-process preview — so those 2 sites drop out. A single
+# NEW site takes their place: the exit path now commits the seed once, on
+# save, only if it moved. Net -2 +1 = 9 -> 8.
+t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
+# 8 = init + a-current + a-off + a-list + esc-revert + seed-commit-on-save + 2 saves (case-a's 3 branches are 3 textual sites, still one subprocess per press)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
@@ -2173,6 +2178,46 @@ t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_t
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
 t "consolidated guard: exactly 2 palette call sites, all 9-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+
+# ---------------------------------------------------------------------
+# Esc restores the seed: the seed screens are preview-only, ⏎ commits
+# ---------------------------------------------------------------------
+# The RGB-slider and typed-hex screens used to commit immediately via the
+# CLI colour setter, which writes the universal, re-renders the fragment and
+# applies live — so Esc had nothing to restore to, and since every role
+# derives from the seed, the whole scheme looked unrestored too even with
+# its own universals intact. Now the screens only mutate the in-picker
+# $seed var and reload the in-process preview; ⏎ at the top level commits,
+# and cancel restores both the theme AND the seed.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+set -g SLB (functions __tcz_theme_picker | string collect)
+# the anchor snapshot carries the seed so cancel can restore it
+t "anchor snapshot captures the seed" 1 (string match -q '*set -l anch_seed $seed*' -- "$SLB"; and echo 1; or echo 0)
+# live preview shadows the universal in the child rather than writing it
+t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$SLB"; and echo 1; or echo 0)
+# Bounded, not whole-body: same vacuity risk as the earlier "dispatch_tail"
+# checks — a bare '*case a*' substring would also catch the "(case a/enter"
+# comment inside the z-shake key's explanation, two arms up. Anchored to the
+# whole line instead ("^ *case a$"), which only the real dispatch arm is.
+set -l casea (string match -r '(?ms)^ *case a$.*?^ *case cancel$' -- "$SLB" | string collect)
+t "all three case-a previews shadow the seed" 3 (count (string match -ar 'set -g tmux_lives_bar_color' -- "$casea"))
+set -l cancelblock (string match -r '(?ms)^ *case cancel$.*?^ *end$' -- "$SLB" | string collect)
+t "cancel restores by shadowing the anchor seed" 1 (string match -q "*__tmux_lives_theme_apply_live' \"\$anch_seed\"*" -- "$cancelblock"; and echo 1; or echo 0)
+# saving commits the seed — exactly once, in the EXIT path, never in a seed
+# screen. awk scopes the two seed screens out first (both are NESTED
+# functions indented 4 spaces — verified non-empty below rather than trusted
+# blind); the commit call must survive only outside them.
+set -g SEEDSCREENS (awk '/^    function __tcz_thp_sliders/,/^    end$/' $catfile; awk '/^    function __tcz_thp_hexentry/,/^    end$/' $catfile | string collect)
+t "seed-screen extraction is non-empty (sliders+hexentry)" 1 (test (string length -- "$SEEDSCREENS") -gt 0; and echo 1; or echo 0)
+t "no setup-color commit inside the seed screens" 0 (count (string match -ra 'setup color' -- "$SEEDSCREENS"))
+# NB the brief's whole-body version of this check ("seed screens do not run
+# setup color", asserted 0 against $SLB rather than $SEEDSCREENS) is
+# self-contradictory with the very next test below once the exit-path commit
+# exists — $SLB legitimately contains exactly one "setup color" after this
+# fix, not zero. Dropped in favor of the two SEEDSCREENS-scoped checks above,
+# which is what it actually meant to test.
+t "exactly one setup-color commit in the whole picker" 1 (count (string match -ra 'setup color' -- "$SLB"))
+t "the commit is guarded on a changed seed" 1 (string match -q '*"$seed" != "$anch_seed"*' -- "$SLB"; and echo 1; or echo 0)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

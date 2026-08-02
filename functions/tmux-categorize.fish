@@ -1728,10 +1728,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                             test -n "$buf"; and set buf (string sub -e -1 -- $buf)
                         case enter
                             if test -n "$cand"
-                                fish -c 'tmux-lives setup color $argv[1]' "$cand" >/dev/null 2>&1
-                                __tcz_thp_init
+                                # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
+                                # universal here is why Esc could not restore the seed: it was
+                                # already gone, and every role derives from it, so the scheme
+                                # looked unrestored too even with its own universals intact.
+                                set seed $cand
+                                set seedfg (__tmux_lives_contrast_fg "$seed")
                                 __tcz_thp_reload
-                                set note "seed applied: $seed"
+                                set note "seed previewed: $seed"
                                 set flashfield seed
                             end
                             set entering 0
@@ -1820,10 +1824,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     __tcz_thp_hexentry
                     set sliding 0
                 case enter
-                    fish -c 'tmux-lives setup color $argv[1]' (printf '#%02x%02x%02x' $r $g $b) >/dev/null 2>&1
-                    __tcz_thp_init
+                    # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
+                    # universal here is why Esc could not restore the seed: it was
+                    # already gone, and every role derives from it, so the scheme
+                    # looked unrestored too even with its own universals intact.
+                    set seed (printf '#%02x%02x%02x' $r $g $b)
+                    set seedfg (__tmux_lives_contrast_fg "$seed")
                     __tcz_thp_reload
-                    set note "seed applied: $seed"
+                    set note "seed previewed: $seed"
                     set flashfield seed
                     set sliding 0
                 case esc
@@ -1835,6 +1843,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     __tcz_thp_reload
     set -l n (count $toks)          # n = catalog rows (14/37); the scheme list is sel 0..n-1
     # anchor snapshot: the persisted theme, frozen for this picker session
+    set -l anch_seed $seed
     set -l anch_scheme $theme
     set -l anch_phase $persisted_phase
     set -l anch_viv $viv
@@ -2147,11 +2156,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case a
                 if test $focus = state
                     if test $sel2 -eq 0
-                        fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
+                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
                         set previewed 2
                         set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                     else
-                        fish -c '__tmux_lives_theme_apply_live $argv' off bar derived $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase $viv $shape $ease $contrast >/dev/null 2>&1
                         set previewed 1
                         set note "● previewing off — ⏎ save · esc revert"
                     end
@@ -2161,7 +2170,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -l rel $rc[1]
                     set -l rplace $rc[2]
                     set -l rmode $rc[3]
-                    fish -c '__tmux_lives_theme_apply_live $argv' $rel $rplace $rmode $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase $viv $shape $ease $contrast >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $rel — ⏎ save · esc revert"
                 end
@@ -2184,8 +2193,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 break
             case cancel
-                if test $previewed -ne 0
-                    fish -c __tmux_lives_theme_apply_live >/dev/null 2>&1
+                # Restore BOTH. Restoring the theme alone is what made this look
+                # broken: every role derives from the seed, so a correct theme
+                # rendered against a changed seed still is not what you started with.
+                if test $previewed -ne 0; or test "$seed" != "$anch_seed"
+                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live' "$anch_seed" >/dev/null 2>&1
                 end
                 break
         end
@@ -2198,6 +2210,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -e __tcz_thp_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
+    # Commit the seed only if it actually moved — the CLI call below re-renders
+    # the fragment, and every fragment write re-sources status-right.
+    if test -n "$apply"; and test "$seed" != "$anch_seed"
+        fish -c 'tmux-lives setup color $argv[1]' "$seed" >/dev/null 2>&1
+    end
     if test "$apply" = off
         fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
     else if test -n "$apply"
