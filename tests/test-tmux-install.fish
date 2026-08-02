@@ -1101,59 +1101,112 @@ t "ink text"       '#cfdcc8' $ink[4]
 set -l ink2 (__tmux_lives_theme_accents '#405733' '#ff0000')
 t "ink is independent of the cap argument" "$ink" "$ink2"
 
-# ---- v4: endcap taper ----
-# near relationships stay vivid; far ones hit the muted floor
-t "taper mono vivid C"    0.115 (__tmux_lives_theme_taper 0    | sed -n 1p)
-t "taper mono vivid L"    0.66  (__tmux_lives_theme_taper 0    | sed -n 2p)
-# Ember used to sit EXACTLY on the warm knee, so max(0, dH-knee) was 0 and it escaped
-# muting entirely — the loudest scheme was the only one the taper skipped. Warm knee
-# dropped 72 -> 62 pulls it under: excess 10 -> capC .090 / capL .645, the values the
-# user picked by eye. amber/sage stay below their knees; coral/teal already clamp.
-t "taper ember muted C"   0.09  (__tmux_lives_theme_taper -72  | sed -n 1p)
-t "taper ember muted L"   0.645 (__tmux_lives_theme_taper -72  | sed -n 2p)
-t "taper amber still vivid C" 0.115 (__tmux_lives_theme_taper -40 | sed -n 1p)
-t "taper wheat vivid C"   0.115 (__tmux_lives_theme_taper -20  | sed -n 1p)
-t "taper mint vivid C"    0.115 (__tmux_lives_theme_taper 20   | sed -n 1p)
-t "taper sage vivid C"    0.115 (__tmux_lives_theme_taper 40   | sed -n 1p)   # cool knee 40: excess 0
-t "taper coral floor C"   0.055 (__tmux_lives_theme_taper -100 | sed -n 1p)   # warm excess 28 -> below floor -> clamp
-t "taper coral floor L"   0.62  (__tmux_lives_theme_taper -100 | sed -n 2p)
-t "taper teal floor C"    0.055 (__tmux_lives_theme_taper 72   | sed -n 1p)   # cool excess 32 -> floor
-t "taper tabsC follows"   1     (set -l l (__tmux_lives_theme_taper 72); set -l diff (math "abs($l[3] - $l[1]*0.62)"); test $diff -lt 0.0001; and echo 1; or echo 0)
-
-# ---- v4: curve (bar/tabs/cap) ----
+# ---- v5: curve — two large areas and a bridge ----
 function _oklch_of --argument-names hex   # -> "L C H"
     set -l r (__tmux_lives_hex_to_rgb01 $hex)
     __tmux_lives_rgb_to_oklch $r[1] $r[2] $r[3]
 end
-set -l seed '#5f772b'
-set -l so (_oklch_of $seed)          # 0.533 0.106 124.7
+function _dhue --argument-names a b       # circular |a-b| in degrees
+    set -l d (math "abs($a - $b)")
+    test $d -gt 180; and set d (math "360 - $d")
+    echo $d
+end
+set -l seed '#5f772b'          # L .533  C .106  H 124.7 -> family 20
+set -l so (_oklch_of $seed)
 set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
 t "curve returns 3" 3 (count $tri)
-t "curve bar is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[1]; and echo 1; or echo 0)
-t "curve cap is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[3]; and echo 1; or echo 0)
-# bar: dark olive family — near the seed hue, dark, modest chroma
-# (fish `test` does float -lt/-gt; compute abs into a var first — no `math` comparisons)
-set -l bo (_oklch_of $tri[1])
-t "curve bar dark"          1 (test $bo[1] -gt 0.37; and test $bo[1] -lt 0.46; and echo 1; or echo 0)
-set -l dh_bar (math "abs($bo[3] - $so[3])")
-t "curve bar near seed hue" 1 (test $dh_bar -lt 6; and echo 1; or echo 0)
-# ember cap: warm side (~72 deg toward gold), still vivid
-set -l co (_oklch_of $tri[3])
-set -l dh_cap (math "abs($co[3] - ($so[3] - 72))")
-t "curve ember cap warm"  1 (test $dh_cap -lt 8; and echo 1; or echo 0)
-t "curve ember cap vivid" 1 (test $co[2] -gt 0.10; and echo 1; or echo 0)
-# coral: tapered -> the cap is muted (lower chroma than a vivid cap)
-set -l cco (_oklch_of (__tmux_lives_theme_curve $seed coral bar derived 0)[3])
-t "curve coral cap muted" 1 (test $cco[2] -lt 0.09; and echo 1; or echo 0)
-# literal cap: the endcap renders the seed's EXACT hex
-set -l tril (__tmux_lives_theme_curve $seed ember cap literal 0)
-t "curve literal cap = seed" "#5f772b" $tril[3]
-# literal bar: the bar renders the seed's EXACT hex
-set -l trilb (__tmux_lives_theme_curve $seed ember bar literal 0)
-t "curve literal bar = seed" "#5f772b" $trilb[1]
+for i in 1 2 3
+    t "curve role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[$i]; and echo 1; or echo 0)
+end
+
+# ANCHOR INVARIANCE — the placed large area never moves between relationships.
+# This is the whole point of the rewrite: there is always something to defer to.
+set -l anchor_bar
+set -l anchor_tabs
+for r in mono wheat mint amber sage ember teal coral
+    set -l pb (__tmux_lives_theme_curve $seed $r bar derived 0)
+    set -l pt (__tmux_lives_theme_curve $seed $r tabs derived 0)
+    set -a anchor_bar $pb[1]
+    set -a anchor_tabs $pt[2]
+end
+t "anchor: the bar is invariant at place=bar"   1 (test (count (printf '%s\n' $anchor_bar | sort -u)) -eq 1; and echo 1; or echo 0)
+t "anchor: the tabs are invariant at place=tabs" 1 (test (count (printf '%s\n' $anchor_tabs | sort -u)) -eq 1; and echo 1; or echo 0)
+set -l abo (_oklch_of $anchor_bar[1])
+set -l dseed (_dhue $abo[3] $so[3])
+t "anchor: the bar holds the seed hue" 1 (test $dseed -lt 2; and echo 1; or echo 0)
+
+# TRAVEL — the OTHER large area sits |sd| away from the anchor.
+# Tolerance 2 deg: assertions run on RENDERED hexes, which quantise to 8-bit sRGB and
+# gamut-clamp. Measured worst error at this seed is 0.99 deg.
+set -l travbad 0
+for r in mono wheat mint amber sage ember teal coral
+    set -l sd (__tmux_lives_theme_reldef $r)
+    set -l p (__tmux_lives_theme_curve $seed $r bar derived 0)
+    set -l hb (_oklch_of $p[1])
+    set -l ht (_oklch_of $p[2])
+    set -l got (_dhue $ht[3] $hb[3])
+    set -l want (math "abs($sd)")
+    set -l err (math "abs($got - $want)")
+    test $err -lt 2; or set travbad (math $travbad + 1)
+end
+t "travel: the tab bar sits |sd| from the bar" 0 $travbad
+
+# BRIDGE — |Hcap - Hbar| == max(|sd|/2, family(Hbar)).
+# Deliberately NOT "the cap lies between the bar and the tabs": at low travel the family
+# floor dominates, so at mono the tabs sit at the bar's hue while the cap sits `family`
+# away from it. The floor is the guarantee the endcap never collapses into the bar.
+# Measured worst error at this seed is 0.93 deg.
+set -l bridgebad 0
+for pl in bar tabs
+    for r in mono wheat mint amber sage ember teal coral
+        set -l sd (__tmux_lives_theme_reldef $r)
+        set -l p (__tmux_lives_theme_curve $seed $r $pl derived 0)
+        set -l hb (_oklch_of $p[1])
+        set -l hc (_oklch_of $p[3])
+        set -l fam (__tmux_lives_theme_family $hb[3])
+        set -l want (math "max(abs($sd) / 2, $fam)")
+        set -l got (_dhue $hc[3] $hb[3])
+        set -l err (math "abs($got - $want)")
+        test $err -lt 2; or set bridgebad (math $bridgebad + 1)
+    end
+end
+t "bridge: the cap sits max(|sd|/2, family) from the bar" 0 $bridgebad
+set -l mp (__tmux_lives_theme_curve $seed mono bar derived 0)
+set -l mhb (_oklch_of $mp[1])
+set -l mhc (_oklch_of $mp[3])
+set -l mfloor (_dhue $mhc[3] $mhb[3])
+t "bridge: the cap never collapses into the bar at mono" 1 (test $mfloor -gt 15; and echo 1; or echo 0)
+
+# DEPTH — fixed per role, never moves. Hue differentiates, lightness coheres.
+set -l dp (__tmux_lives_theme_curve $seed teal bar derived 0)
+set -l dLb (_oklch_of $dp[1])
+set -l dLt (_oklch_of $dp[2])
+set -l dLc (_oklch_of $dp[3])
+t "depth: the bar is darker than the tab bar" 1 (test $dLb[1] -lt $dLt[1]; and echo 1; or echo 0)
+set -l capstep (math "abs($dLc[1] - $dLb[1])")
+t "depth: the cap is one 0.10 step off the bar" 1 (test $capstep -gt 0.08; and test $capstep -lt 0.12; and echo 1; or echo 0)
+
+# MONO IS UNCHANGED — the two large areas are byte-identical to the pre-rewrite engine.
+# The tab chroma constant 0.0713 is exactly what the deleted taper produced at zero
+# travel (capC 0.115 * 0.62), so mono's ramp did not move. Verified at three seeds.
+set -l m (__tmux_lives_theme_curve $seed mono bar derived 0)
+t "mono bar unchanged by the rewrite"  '#44502f' $m[1]
+t "mono tabs unchanged by the rewrite" '#5e7239' $m[2]
+
+# LITERAL — the placed role renders the seed's exact hex.
+set -l lb (__tmux_lives_theme_curve $seed coral bar literal 0)
+set -l lt (__tmux_lives_theme_curve $seed coral tabs literal 0)
+t "curve literal bar = seed"  '#5f772b' $lb[1]
+t "curve literal tabs = seed" '#5f772b' $lt[2]
+
 # bad inputs -> nothing
 t "curve bad seed empty" 0 (count (__tmux_lives_theme_curve 'notahex' ember bar derived 0))
 t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar derived 0))
+
+# the taper is gone — grep the SOURCE, not the runtime function table (a `functions -q`
+# check would falsely differ between plain fish, which loads the developer's live fisher
+# install, and `fish --no-config`, which does not).
+t "endcap taper gone" 0 (grep -c '__tmux_lives_theme_taper' $plugindir/conf.d/tmux-lives-install.fish)
 
 # ---- v4: accents + palette ----
 set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0 balanced arc linear auto)

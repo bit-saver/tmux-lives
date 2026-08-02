@@ -784,21 +784,7 @@ function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-ca
     end
 end
 
-function __tmux_lives_theme_taper --argument-names signeddrift --description 'v4 endcap taper (calibrated 2026-07-23; warm knee retuned 72->62 on 2026-07-29): past a direction-dependent knee (62 warm / 40 cool) the endcap chroma AND lightness ramp down to a floor so a far hue stops clashing with the muted dark bar -> "capC capL tabsC". Near relationships stay vivid. The warm knee is 62 NOT 72 deliberately: at 72 ember sat EXACTLY on it, so max(0,dH-knee) was 0 and the loudest relationship was the only one that escaped muting. 62 pulls ember under at capC .090 / capL .645 (user-picked by eye) and leaves amber/wheat/mint/sage below their knees and coral/teal already on the clamp floors — i.e. ember is the ONLY relationship this moves.'
-    set -l ad (math "abs($signeddrift)")
-    set -l knee 40
-    test $signeddrift -lt 0; and set knee 62
-    set -l excess (math "max(0, $ad - $knee)")
-    set -l capC (math "0.115 - 0.0025 * $excess")
-    test $capC -lt 0.055; and set capC 0.055
-    test $capC -gt 0.115; and set capC 0.115
-    set -l capL (math "0.66 - 0.0015 * $excess")
-    test $capL -lt 0.62; and set capL 0.62
-    test $capL -gt 0.66; and set capL 0.66
-    printf '%s\n' $capC $capL (math "$capC * 0.62")
-end
-
-function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v4 core: seed + relationship(signed travel) + placement + mode -> bar tabs cap (3 hexes). Derived: seed hue anchors the re-anchored curve, seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. Endcap tapered. Non-hex seed / unknown relationship -> nothing.'
+function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v5 core: TWO LARGE AREAS AND A BRIDGE. The seed anchors one large area (place = bar|tabs); the relationship signed travel separates the OTHER large area from it; the endcap bridges at half that travel, floored at the calibrated family separation so it never collapses into the bar. Depth is FIXED per role — hue differentiates, lightness coheres. Derived: seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. -> bar tabs cap (3 hexes). Non-hex seed / unknown relationship -> nothing.'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
     set -l sd (__tmux_lives_theme_reldef "$relationship")
     test -n "$sd"; or return
@@ -814,49 +800,61 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     set -l Cscale (math "0.5 * ($sC / 0.078 - 1) + 1")
     test $Cscale -lt 0.6; and set Cscale 0.6
     test $Cscale -gt 1.4; and set Cscale 1.4
-    set -l tp (__tmux_lives_theme_taper $sd)  # capC capL tabsC
-    # placement: re-anchor so the placed position carries the seed hue
-    set -l tplace 0
-    switch "$place"
-        case tabs; set tplace 0.42
-        case cap;  set tplace 1
-        case low;  set tplace 0.25; set mode derived
-        case high; set tplace 0.75; set mode derived
-        case '*';  set tplace 0
-    end
-    set -l H0 (math "$sH - $sd * $tplace")
-    # role L/C/H (derived)
+    # depth is FIXED per role: the bar is the dark ground, the tab bar one step lighter.
+    # 0.0713 is exactly what the deleted taper produced at zero travel (0.115 * 0.62),
+    # so mono's two large areas are byte-identical to the pre-rewrite engine.
     set -l Lbar (math "0.40 + $Ldamp")
     set -l Ltabs (math "0.51 + $Ldamp")
-    set -l Lcap (math "$tp[2] + $Ldamp")
     set -l Cbar (math "0.045 * $Cscale")
-    set -l Ctabs (math "$tp[3] * $Cscale")
-    set -l Ccap (math "$tp[1] * $Cscale")
-    set -l Hbar (__tmux_lives_norm360 (math "$H0 + $sd * 0 + $phase"))
-    set -l Htabs (__tmux_lives_norm360 (math "$H0 + $sd * 0.42 + $phase"))
-    set -l Hcap (__tmux_lives_norm360 (math "$H0 + $sd * 1 + $phase"))
-    # clamp the three L values (unrolled — avoids the $$var-indirection gotcha)
+    set -l Ctabs (math "0.0713 * $Cscale")
+    # signed bridge offset, measured FROM THE BAR: half the tab bar's travel. At
+    # place=tabs the bar is the one that travelled, so the tabs sit at -sd from it and
+    # the cap comes back toward them. Direction is the travel's, + when travel is zero.
+    set -l half (math "$sd / 2")
+    test "$place" = tabs; and set half (math "0 - $sd / 2")
+    set -l dir 1
+    test $half -lt 0; and set dir -1
+    # the seed anchors one large area; the OTHER travels by sd.
+    set -l Hbar $sH
+    set -l Htabs $sH
+    switch "$place"
+        case tabs
+            set Hbar (math "$sH + $sd")
+        case '*'
+            set Htabs (math "$sH + $sd")
+    end
+    set Hbar (__tmux_lives_norm360 (math "$Hbar + $phase"))
+    set Htabs (__tmux_lives_norm360 (math "$Htabs + $phase"))
+    # clamp the L values (unrolled — avoids the $$var-indirection gotcha)
     test $Lbar -lt 0.05; and set Lbar 0.05
     test $Lbar -gt 0.95; and set Lbar 0.95
     test $Ltabs -lt 0.05; and set Ltabs 0.05
     test $Ltabs -gt 0.95; and set Ltabs 0.95
-    test $Lcap -lt 0.05; and set Lcap 0.05
-    test $Lcap -gt 0.95; and set Lcap 0.95
     set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
     set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
-    set -l cap (__tmux_lives_oklch_hex $Lcap $Ccap $Hcap)
-    # literal: the placed role renders the seed's EXACT hex (verbatim, not a
-    # recompute — an OKLCH round-trip can drift a channel). The re-anchor above
-    # already lands that role's derived hue on the seed hue, so the ramp stays
-    # coherent; this just pins L and C to the seed too.
+    # literal: the placed role renders the seed's EXACT hex (verbatim, not a recompute —
+    # an OKLCH round-trip can drift a channel). The anchor already lands that role's
+    # derived hue on the seed hue; this pins its L and C to the seed too.
     if test "$mode" = literal
         set -l s (string lower -- $seedHex)
         switch "$place"
-            case bar;  set bar $s
             case tabs; set tabs $s
-            case cap;  set cap $s
+            case '*';  set bar $s
         end
     end
+    # endcap = quiet BRIDGE off the RENDERED bar (so `literal` is honoured): half the
+    # travel, floored at the calibrated family separation.
+    set -l brgb (__tmux_lives_hex_to_rgb01 $bar)
+    set -l bok (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
+    set -l Lcap (math "$bok[1] + 0.10")
+    test $bok[1] -ge 0.55; and set Lcap (math "$bok[1] - 0.10")
+    test $Lcap -lt 0.05; and set Lcap 0.05
+    test $Lcap -gt 0.95; and set Lcap 0.95
+    set -l mag (math "abs($half)")
+    set -l minsep (__tmux_lives_theme_family $bok[3])
+    test $mag -lt $minsep; and set mag $minsep
+    set -l Hcap (__tmux_lives_norm360 (math "$bok[3] + $dir * $mag"))
+    set -l cap (__tmux_lives_oklch_hex $Lcap $bok[2] $Hcap)
     printf '%s\n' $bar $tabs $cap
 end
 
