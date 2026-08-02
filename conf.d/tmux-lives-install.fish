@@ -727,24 +727,26 @@ function __tmux_lives_theme_relationships --description 'v4 relationship names (
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v4 gallery catalog: 37 schemes as name|relationship|place|mode|default (1 = in the curated default 14), ordered near-seed -> bold across tiers soft/glow/slate/chip/deep/core (bar, then tabs, then cap; derived before literal within each). chip = the seed verbatim on the TAB, the one slot it never occupied. NO ember at cap: there the BAR carries the full 72deg swing at a chroma the taper never reaches, so a green seed gives a near-miss teal that reads as a mistake (coral at 100deg survives — a swing that far reads as deliberate). Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 36 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) because both are first-class dominant placements: the seed anchors one, the relationship moves the other. cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
-        'mono soft|mono|bar|derived|1'   'wheat soft|wheat|bar|derived|1'  'mint soft|mint|bar|derived|1' \
-        'amber soft|amber|bar|derived|1'  'coral soft|coral|bar|derived|1' \
-        'ember soft|ember|bar|derived|0' 'sage soft|sage|bar|derived|0'    'teal soft|teal|bar|derived|0' \
-        'mono glow|mono|bar|literal|0'   'wheat glow|wheat|bar|literal|0'  'mint glow|mint|bar|literal|0' \
-        'amber glow|amber|bar|literal|0'  'ember glow|ember|bar|literal|1' \
-        'coral glow|coral|bar|literal|0' 'sage glow|sage|bar|literal|1'    'teal glow|teal|bar|literal|1' \
-        'amber slate|amber|tabs|derived|0' 'ember slate|ember|tabs|derived|1' 'coral slate|coral|tabs|derived|0' \
-        'sage slate|sage|tabs|derived|0'   'teal slate|teal|tabs|derived|0' \
-        'wheat chip|wheat|tabs|literal|0'  'amber chip|amber|tabs|literal|1' \
-        'sage chip|sage|tabs|literal|0' \
-        'wheat deep|wheat|cap|derived|0'  'mint deep|mint|cap|derived|0' \
+        'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
+        'mint soft|mint|bar|derived|1'    'amber soft|amber|bar|derived|1' \
+        'sage soft|sage|bar|derived|0'    'ember soft|ember|bar|derived|0' \
+        'teal soft|teal|bar|derived|0'    'coral soft|coral|bar|derived|1' \
+        'mono glow|mono|bar|literal|0'    'wheat glow|wheat|bar|literal|0' \
+        'mint glow|mint|bar|literal|0'    'amber glow|amber|bar|literal|0' \
+        'sage glow|sage|bar|literal|1'    'ember glow|ember|bar|literal|1' \
+        'teal glow|teal|bar|literal|1'    'coral glow|coral|bar|literal|0' \
+        'mono slate|mono|tabs|derived|0'  'wheat slate|wheat|tabs|derived|0' \
+        'mint slate|mint|tabs|derived|0'  'amber slate|amber|tabs|derived|0' \
+        'sage slate|sage|tabs|derived|0'  'ember slate|ember|tabs|derived|1' \
+        'teal slate|teal|tabs|derived|0'  'coral slate|coral|tabs|derived|0' \
+        'mono chip|mono|tabs|literal|0'   'wheat chip|wheat|tabs|literal|0' \
+        'mint chip|mint|tabs|literal|0'   'amber chip|amber|tabs|literal|1' \
+        'sage chip|sage|tabs|literal|0'   'ember chip|ember|tabs|literal|0' \
+        'teal chip|teal|tabs|literal|0'   'coral chip|coral|tabs|literal|0' \
         'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|1' \
-        'sage deep|sage|cap|derived|0'    'teal deep|teal|cap|derived|0' \
-        'mono core|mono|cap|literal|0'    'wheat core|wheat|cap|literal|0'  'mint core|mint|cap|literal|0' \
-        'amber core|amber|cap|literal|0' \
-        'coral core|coral|cap|literal|0'  'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
+        'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|1'
 end
 
 function __tmux_lives_theme_catalog_default --description 'the curated default set (14): catalog rows flagged default=1'

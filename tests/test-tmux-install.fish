@@ -911,7 +911,7 @@ t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember
 set -U tmux_lives_bar_color '#485b3c'
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
-t "catalog has 37 entries" 37 (count (__tmux_lives_theme_catalog))
+t "catalog has 36 entries" 36 (count (__tmux_lives_theme_catalog))
 t "catalog default is 14"  14 (count (__tmux_lives_theme_catalog_default))
 t "catalog entries are 5 fields" 5 (count (string split '|' (__tmux_lives_theme_catalog | head -1)))
 t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|1$')) -eq 14; and echo 1; or echo 0)
@@ -938,23 +938,32 @@ t "catalog: amber chip is a default" 1 (string match -q '*amber chip*' -- (__tmu
 t "catalog: ember deep cut" 0 (string match -q '*ember deep*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: ember core cut" 0 (string match -q '*ember core*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: no ember at cap placement at all" 0 (count (__tmux_lives_theme_catalog | string match -r '\|ember\|cap\|'))
-# The cut is ember-specific, not a purge of cap placement: 4 deep (amber/coral/sage/teal)
-# + 5 core (mono/amber/coral/sage/teal) = 9. Pinned EXACTLY — a >= bound passes on the
-# pre-cut catalog too and would let a future accidental removal slip through.
-t "catalog: cap placement holds exactly 13" 13 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
-# 20deg tier: user picked 10 of 12 placements, rejecting BOTH cool-20 at tabs — so wheat
-# gets 5 rows (no slate) and mint 4 (no slate, no chip).
-t "catalog: wheat has 5 rows" 5 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|'))
-t "catalog: mint has 4 rows"  4 (count (__tmux_lives_theme_catalog | string match -r '\|mint\|'))
-t "catalog: no mint at tabs (both rejected)" 0 (count (__tmux_lives_theme_catalog | string match -r '\|mint\|tabs\|'))
-t "catalog: no wheat at tabs derived" 0 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|derived\|'))
+# Tier composition, pinned EXACTLY. bar and tabs are symmetric (8 relationships x
+# derived/literal each) because both are now first-class dominant placements; cap
+# survives as a 4-row accent-led minority, ordered last.
+t "catalog: soft is 8 (bar derived)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|derived\|'))
+t "catalog: glow is 8 (bar literal)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|literal\|'))
+t "catalog: slate is 8 (tabs derived)" 8 (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|derived\|'))
+t "catalog: chip is 8 (tabs literal)"  8 (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|'))
+t "catalog: cap placement holds exactly 4" 4 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
+t "catalog: every relationship appears at both large placements" 0 (set -l bad 0; for r in mono wheat mint amber sage ember teal coral; for pl in bar tabs; test (count (__tmux_lives_theme_catalog | string match -r "\|$r\|$pl\|")) -eq 2; or set bad (math $bad + 1); end; end; echo $bad)
+# the cap rows are exactly the four that were already curated defaults
+t "catalog: amber deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^amber deep\|'))
+t "catalog: coral deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^coral deep\|'))
+t "catalog: sage core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^sage core\|'))
+t "catalog: teal core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^teal core\|'))
+t "catalog: all four cap rows are defaults" 4 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
+# cap rows sort LAST — the accent-led minority is at the bottom of the picker list
+t "catalog: the last 4 rows are the cap rows" 4 (count (__tmux_lives_theme_catalog | tail -4 | string match -r '\|cap\|'))
+# the 14 curated default NAMES are unchanged by the retiering
+t "catalog: default names unchanged" "amber chip amber deep amber soft coral deep coral soft ember glow ember slate mint soft mono soft sage core sage glow teal core teal glow wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
 t "catalog: wheat chip exists (tabs literal kept)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|literal\|'))
 t "catalog: wheat soft is a default" 1 (string match -q '*wheat soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
 t "catalog: mint soft is a default" 1 (string match -q '*mint soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
-t "theme list has 37 rows" 37 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 37 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+t "theme list has 36 rows" 36 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 36 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir
