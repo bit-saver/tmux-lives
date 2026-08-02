@@ -1800,9 +1800,9 @@ t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_r
 # `set -a lines` call sites. 2026-07-29: seed+phase moved from two stacked
 # kv pairs onto ONE space-between row pair, freeing 2 static rows, which
 # went to the WINDOW rather than shrinking the frame (the catalog had just
-# grown 28->37, later re-weeded to 36 — see the mono-slate dedup fix). So
-# the split is now 16 static (chrome/off/current-zsep/anchor/legend×3) +
-# WIN=10 scheme rows = 26 — SAME total, CONSTANT across the 14-vs-36
+# grown 28->37, later re-weeded to 35 — see the mono-slate dedup fix). So
+# the split is now 15 static (chrome/off/current-zsep/anchor/legend×3) +
+# WIN=11 scheme rows = 26 — SAME total, CONSTANT across the 14-vs-35
 # catalog size. The exact-height contract (rows 1..-2 with \n,
 # last without) demands -h == emitted; 27/24/22/20 are stale everywhere.
 t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
@@ -2374,8 +2374,8 @@ set -l PAL9 '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
 # active change-flash.
 t "frame: 26 rows — scheme list, window top, n=14"      26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" '')
 t "frame: 26 rows — scheme list, window bottom, n=14"   26 (__t9_frame_rows list  0 14 13 0 mono "$PAL9" '')
-t "frame: 26 rows — scheme list, mid, n=37 (expanded)"  26 (__t9_frame_rows list  0 37 20 0 mono "$PAL9" '')
-t "frame: 26 rows — scheme list, end, n=37 (expanded)"  26 (__t9_frame_rows list  0 37 36 0 mono "$PAL9" '')
+t "frame: 26 rows — scheme list, mid, n=37 (larger than the 35-row catalog)"  26 (__t9_frame_rows list  0 37 20 0 mono "$PAL9" '')
+t "frame: 26 rows — scheme list, end, n=37 (larger than the 35-row catalog)"  26 (__t9_frame_rows list  0 37 36 0 mono "$PAL9" '')
 t "frame: 26 rows — second list, current selected"      26 (__t9_frame_rows state 0 14 0  0 mono "$PAL9" '')
 t "frame: 26 rows — second list, off selected"          26 (__t9_frame_rows state 1 14 0  0 mono "$PAL9" '')
 t "frame: 26 rows — previewing a listed scheme (1)"     26 (__t9_frame_rows list  0 14 0  1 mono "$PAL9" '')

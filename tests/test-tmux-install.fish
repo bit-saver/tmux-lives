@@ -929,9 +929,11 @@ t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_liv
 # The seed was verbatim at bar (glow) and cap (core) but NEVER at tabs — 0 of the 28 rows
 # the catalog held at the time — so the "chip" tier exists to close that. (The ember-at-cap
 # cut this section used to argue from the deleted taper's chroma-clamp behavior; that
-# reasoning no longer applies to this engine, and the claim it was pinning — no ember cap
-# row — is already covered below by "cap placement holds exactly 4" plus the four named
-# cap-row presence assertions, which between them leave no room for a fifth relationship.)
+# reasoning no longer applies to this engine. What survives below — "cap placement holds
+# exactly 4" plus the four named cap-row presence assertions — pins the 4 cap-row NAMES
+# exactly, but matches by NAME (`^amber deep\|`, etc.), not by recipe, so it would not by
+# itself catch a row still named e.g. "amber deep" whose underlying relationship field had
+# been changed to ember.)
 t "catalog: tabs+literal tier exists (the chip tier)" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|')) -ge 1; and echo 1; or echo 0)
 t "catalog: amber chip present" 1 (string match -q '*amber chip|amber|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: sage chip present" 1 (string match -q '*sage chip|sage|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
@@ -1224,6 +1226,7 @@ function _sdhue --argument-names a b   # signed a-b folded to (-180, 180]
     end
     echo $d
 end
+t "_sdhue helper exists" 1 (functions -q _sdhue; and echo 1; or echo 0)
 set -l cb (__tmux_lives_theme_curve $seed coral bar derived 0)
 set -l cbb (_oklch_of $cb[1]); set -l cbc (_oklch_of $cb[3])
 t "bridge dir: coral bar sits toward the tabs (negative, sd<0)" 1 (test (_sdhue $cbc[3] $cbb[3]) -lt 0; and echo 1; or echo 0)
@@ -1260,12 +1263,17 @@ t "curve literal bar = seed"  '#5f772b' $lb[1]
 t "curve literal tabs = seed" '#5f772b' $lt[2]
 
 # PHASE — pin the ACTUAL contract, not the spec's earlier (disproven) claim that phase
-# rotates all three hues uniformly. The endcap is computed from the RENDERED bar (so
-# `literal` is honoured — see the bridge rule above), not handed `phase` directly. In
-# `literal` mode the rendered bar IS the seed hex, which carries no phase, so the cap is
-# FROZEN under `phase` there — a consequence of honouring `literal`, not a bug to "fix".
-# In `derived` mode the rendered bar is a curve sample that DOES move with `phase`, and
-# the family floor (looked up at that phase-rotated bar hue) can cross a family band, so
+# rotates all three hues uniformly. The freeze depends on which role is pinned to the
+# seed, not on `mode` alone: at `place=bar --mode literal` (exercised below) the endcap
+# bridges from the RENDERED bar, which IS the seed hex here, carrying no phase, so the
+# cap is FROZEN — a consequence of honouring `literal`, not a bug to "fix". That freeze
+# does NOT generalize to every `literal` combination: at `place=tabs --mode literal` the
+# tabs carry the seed instead, but the bar the endcap bridges from is still derived, so
+# the endcap follows `phase` normally (the entire `chip` tier); at `place=cap --mode
+# literal` the cap itself is the seed-pinned anchor (not something read off the bar) and
+# freezes the same way `place=bar --mode literal` does. In `derived` mode at any
+# placement the anchor role is computed rather than pinned, so it carries `phase` too,
+# and the family floor (looked up at that phase-rotated hue) can cross a family band, so
 # all three roles move. See docs/superpowers/specs/2026-08-01-theme-big-area-scheme-design.md.
 set -l pl0  (__tmux_lives_theme_curve $seed teal bar literal 0)
 set -l pl60 (__tmux_lives_theme_curve $seed teal bar literal 60)

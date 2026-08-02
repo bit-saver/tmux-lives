@@ -1581,7 +1581,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 36) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->36 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 36-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/second-list/legend rows + an 11-row scheme window, constant regardless of the 14-vs-36 catalog size).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. ←→ phase (5°/press, coalesced), b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus phase/vividness/shape/ease/contrast snapshot), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/second-list/legend rows + an 11-row scheme window, constant regardless of the 14-vs-35 catalog size).'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1662,7 +1662,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l recipes
     set -l cachekeys
     set -l cacheblobs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 36 all) + fgs, in-process; v4 engine results cached by knob-state key (seed/phase/expanded)'
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 35 all) + fgs, in-process; v5 engine results cached by knob-state key (seed/phase/expanded)'
         set toks; set pals; set fgs; set tabsfgs; set recipes
         set -l key "$seed|$phase|$expanded"
         set -l blob ''
@@ -1854,7 +1854,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '\e[2J'
     end
     __tcz_thp_reload
-    set -l n (count $toks)          # n = catalog rows (14/36); the scheme list is sel 0..n-1
+    set -l n (count $toks)          # n = catalog rows (14/35); the scheme list is sel 0..n-1
     # anchor snapshot: the persisted theme, frozen for this picker session
     set -l anch_seed $seed
     set -l anch_scheme $theme
@@ -2148,7 +2148,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             # reaches for is a knob that lies). The engine and CLI still accept
             # --phase; only the picker stops exposing it.
             case m
-                # expand/collapse the catalog: 14 curated rows <-> all 36.
+                # expand/collapse the catalog: 14 curated rows <-> all 35.
                 # Reload FIRST so $n reflects the NEW list length before the
                 # sel clamp below runs (an un-reloaded $n would clamp against
                 # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —

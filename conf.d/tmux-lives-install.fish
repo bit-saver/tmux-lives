@@ -25,7 +25,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
-    set -l theme $argv[13]        # v4 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
+    set -l theme $argv[13]        # v5 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
     set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap ('' = bar)
     set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
     set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
@@ -83,7 +83,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # Plain run-shell (no -b) is SYNCHRONOUS in tmux 3.3a — verified — so the value is in
     # place before the fragment finishes sourcing.
     set -a f "run-shell \"fish --no-config $cat status-right-install '$color'\""
-    # --- theme engine v4 (relationship curve): with a relationship in argv[13] the whole bar
+    # --- theme engine v5 (relationship curve): with a relationship in argv[13] the whole bar
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
     # __tmux_lives_theme_palette (seed + relationship/place/mode/knobs); otherwise the v2
     # path is unchanged.
@@ -727,7 +727,7 @@ function __tmux_lives_theme_relationships --description 'v5 relationship names (
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which appears ONLY at bar (mono|tabs|derived would be a byte-identical duplicate of mono|bar|derived: at zero travel, anchoring the bar and anchoring the tabs are the same operation, so there is no second mono row to place). cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which has no tabs|derived row — mono still appears at tabs via mono|tabs|literal (chip); mono|tabs|derived is omitted because at zero travel, anchoring the bar and anchoring the tabs are the same operation, so that row could only duplicate mono|bar|derived. cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
         'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
         'mint soft|mint|bar|derived|1'    'amber soft|amber|bar|derived|1' \
@@ -884,7 +884,7 @@ function __tmux_lives_theme_curve --argument-names seedHex relationship place mo
     printf '%s\n' $bar $tabs $cap
 end
 
-function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v4 relationship name'
+function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v5 relationship name'
     contains -- "$token" (__tmux_lives_theme_relationships)
 end
 
@@ -896,7 +896,7 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v4 theme (or legacy when off/seedless) to the live server. With exactly 8 args (relationship place mode phase viv shape ease contrast) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v5 theme (or legacy when off/seedless) to the live server. With exactly 8 args (relationship place mode phase viv shape ease contrast) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
     set -l theme; set -l place; set -l mode; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast
     if test (count $argv) -eq 8
         set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
@@ -969,7 +969,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap] [--mode literal|derived]: the v4 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap] [--mode literal|derived]: the v5 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
