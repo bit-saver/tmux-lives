@@ -1232,16 +1232,31 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
-function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + [current chevron +] name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 prefixes name with "❯ " in switcher yellow'
+
+function __tcz_thp_cells --argument-names hexes --description 'pure: the 7x2-col gradient strip (14 visible cols). Each cell is ▇ (U+2587, lower seven-eighths) drawn in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging into one block (2026-08-01). Non-hex cells degrade to blank gaps so the strip stays aligned.'
     set -l cells ''
     for hex in (string split ' ' -- "$hexes")
-        set -l bg (__tcz_thp_bg "$hex")
-        if test -n "$bg"
-            set cells "$cells$bg  "(printf '\e[0m')
+        set -l fg (__tcz_thp_fg "$hex")
+        if test -n "$fg"
+            set cells "$cells$fg▇▇"(printf '\e[0m')
         else
             set cells "$cells  "
         end
     end
+    printf '%s\n' "$cells"
+end
+
+function __tcz_thp_band --argument-names hex --description 'pure: a 14-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 14 blanks.'
+    set -l fg (__tcz_thp_fg "$hex")
+    if test -z "$fg"
+        printf '%s\n' '              '
+        return
+    end
+    printf '%s\n' "$fg"(string repeat -n 14 ▇)(printf '\e[0m')
+end
+
+function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + [current chevron +] name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 prefixes name with "❯ " in switcher yellow'
+    set -l cells (__tcz_thp_cells "$hexes")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1

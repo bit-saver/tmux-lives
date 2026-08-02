@@ -1365,6 +1365,28 @@ t "shellfish probe false via seam" 1 (__tcz_thp_shellfish; echo $status)
 set -e tmux_lives_fake_environ
 functions -e tmux
 
+# ---------------------------------------------------------------------
+# __tcz_thp_cells / __tcz_thp_band — swatches with a top gap
+# ---------------------------------------------------------------------
+# A terminal cannot shave pixels, but ▇ (U+2587, lower seven-eighths) drawn in the
+# role colour leaves one eighth of the cell clear at the TOP, so stacked strips
+# stop reading as one solid block. Foreground glyph, NOT a background fill.
+t "cells fn exists" 1 (functions -q __tcz_thp_cells; and echo 1; or echo 0)
+t "band fn exists"  1 (functions -q __tcz_thp_band; and echo 1; or echo 0)
+set -g CELLS (__tcz_thp_cells '#112233 #223344 #334455 #445566 #556677 #667788 #778899')
+t "cells is 14 visible cols" 14 (string length --visible -- "$CELLS")
+t "cells uses the seven-eighths block" 14 (count (string match -ra '▇' -- "$CELLS"))
+t "cells sets FOREGROUND, not background" 0 (count (string match -ra '48;2;' -- "$CELLS"))
+t "cells carries each role colour" 1 (string match -q '*38;2;17;34;51*' -- "$CELLS"; and echo 1; or echo 0)
+# a non-hex cell degrades to a blank gap, keeping the strip aligned
+t "cells degrades non-hex to blanks" 14 (string length --visible -- (__tcz_thp_cells '#112233 nope #334455 #445566 #556677 #667788 #778899'))
+set -g BAND (__tcz_thp_band '#5f772b')
+t "band is 14 visible cols" 14 (string length --visible -- "$BAND")
+t "band uses the same glyph"  14 (count (string match -ra '▇' -- "$BAND"))
+t "band degrades non-hex to blanks" 14 (string length --visible -- (__tcz_thp_band nope))
+# and the scheme row still measures the same as before
+t "row strip is still 14 cols inside the row" 1 (string match -q '*▇▇*' -- (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 0 0); and echo 1; or echo 0)
+
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 # Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
