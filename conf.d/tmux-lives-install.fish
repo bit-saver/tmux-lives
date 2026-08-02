@@ -605,11 +605,11 @@ function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> 
     if test $Lrel -gt 0.179; echo "#111111"; else; echo "#f5f5f5"; end
 end
 
-# --- theme engine v4: relationship-curve palette assembly ---------------------
+# --- theme engine v5: relationship-curve palette assembly ---------------------
 # bar/tabs/cap come from __tmux_lives_theme_curve (relationship travel, seed
-# placement, mode, endcap taper); sep/active/windows/text are lightness
+# placement, mode, the bridged endcap); sep/active/windows/text are lightness
 # tints/contrast off the bar, built here.
-function __tmux_lives_theme_accents --argument-names barHex capHex --description 'v4 accents: sep active windows text as lightness tints/contrast off the bar (uncalibrated, live-tunable via @options). -> sep active windows text (4 hexes).'
+function __tmux_lives_theme_accents --argument-names barHex capHex --description 'v5 accents: sep active windows text as lightness tints/contrast off the bar (uncalibrated, live-tunable via @options). -> sep active windows text (4 hexes).'
     string match -qr '^#[0-9a-fA-F]{6}$' -- "$barHex"; or return
     set -l brgb (__tmux_lives_hex_to_rgb01 $barHex)
     set -l bo (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
@@ -632,7 +632,7 @@ function __tmux_lives_theme_accents --argument-names barHex capHex --description
     printf '%s\n' $sep $active $windows $text
 end
 
-function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase vividness shape ease contrast --description 'v4: seed + relationship/place/mode/knobs -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, endcap taper); sep/active/windows/text = tints/contrast off the bar. Phase 1: only phase shapes the curve; vividness/shape/ease/contrast are accepted for signature stability. Non-hex seed / unknown relationship -> nothing.'
+function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase vividness shape ease contrast --description 'v5: seed + relationship/place/mode/knobs -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, the bridged endcap); sep/active/windows/text = tints/contrast off the bar. Phase 1: only phase shapes the curve; vividness/shape/ease/contrast are accepted for signature stability. Non-hex seed / unknown relationship -> nothing.'
     set -l tri (__tmux_lives_theme_curve "$seedHex" "$relationship" "$place" "$mode" "$phase")
     test (count $tri) -eq 3; or return
     set -l acc (__tmux_lives_theme_accents $tri[1] $tri[3])
@@ -723,7 +723,7 @@ function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per
     printf '%s\n' mono warm cool span wide aurora sunset fire complement full
 end
 
-function __tmux_lives_theme_relationships --description 'v4 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
+function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
@@ -756,7 +756,7 @@ function __tmux_lives_theme_catalog_default --description 'the curated default s
     __tmux_lives_theme_catalog | string match -re '\|1$'
 end
 
-function __tmux_lives_theme_reldef --argument-names name --description 'v4 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
+function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0
         case wheat; echo -20
@@ -769,7 +769,7 @@ function __tmux_lives_theme_reldef --argument-names name --description 'v4 relat
     end
 end
 
-function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-cap family table: OKLCH bar hue -> the minimum hue separation, in degrees, that the endcap keeps from the bar. Fitted in the 2026-07-20 calibration study (4 rounds, blind numbered tiles; ~84% of judgments explained, and the rule-generated validation batch scored 9/10 vs 5/10 pre-rule). Restored from the v3.3 kincap rule the v4 rewrite deleted, in the role it was actually fitted for: bar and endcap judged as a PAIR. Blue and red/pink are untested extrapolations — first suspects if a future seed misbehaves.'
+function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-cap family table: an OKLCH hue -> the minimum hue separation, in degrees, that the endcap keeps from the bar. Usually called at the BAR hue (place=bar|tabs); at place=cap the bar is what is being solved for, so the call site passes the SEED hue instead — a deliberate single-pass approximation, not an iteration (see the call site comment). Fitted in the 2026-07-20 calibration study (4 rounds, blind numbered tiles; ~84% of judgments explained, and the rule-generated validation batch scored 9/10 vs 5/10 pre-rule). Restored from the v3.3 kincap rule the v4 rewrite deleted, in the role it was actually fitted for: bar and endcap judged as a PAIR. Blue and red/pink are untested extrapolations — first suspects if a future seed misbehaves.'
     set -l h (__tmux_lives_norm360 $hue)
     if test $h -ge 40; and test $h -lt 90
         echo 40
@@ -1394,7 +1394,7 @@ function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: pre
     test $changed -eq 1; and echo "tmux-lives: theme migrated to v4 (relationships + placement); your seed color is preserved — see 'tmux-lives setup theme list'"
 end
 
-function __tmux_lives_migrate_v41 --description 'v4 -> v4.1 big-area migration: --place low|high meant "partway along the curve", and the big-area model has no curve to sit partway along — the seed anchors a large area (or the endcap). Rewrite a stored low/high to bar. Idempotent; runs on fisher update.'
+function __tmux_lives_migrate_v41 --description 'v4 -> v5 big-area migration: --place low|high meant "partway along the curve", and the big-area model has no curve to sit partway along — the seed anchors a large area (or the endcap). Rewrite a stored low/high to bar. Idempotent; runs on fisher update.'
     set -q tmux_lives_theme_place; or return 0
     contains -- "$tmux_lives_theme_place" low high; or return 0
     set -U tmux_lives_theme_place bar

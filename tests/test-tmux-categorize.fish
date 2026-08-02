@@ -1800,9 +1800,10 @@ t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_r
 # `set -a lines` call sites. 2026-07-29: seed+phase moved from two stacked
 # kv pairs onto ONE space-between row pair, freeing 2 static rows, which
 # went to the WINDOW rather than shrinking the frame (the catalog had just
-# grown 28->37). So the split is now 16 static (chrome/off/current-zsep/
-# anchor/legend×3) + WIN=10 scheme rows = 26 — SAME total, CONSTANT across
-# the 14-vs-37 catalog size. The exact-height contract (rows 1..-2 with \n,
+# grown 28->37, later re-weeded to 36 — see the mono-slate dedup fix). So
+# the split is now 16 static (chrome/off/current-zsep/anchor/legend×3) +
+# WIN=10 scheme rows = 26 — SAME total, CONSTANT across the 14-vs-36
+# catalog size. The exact-height contract (rows 1..-2 with \n,
 # last without) demands -h == emitted; 27/24/22/20 are stale everywhere.
 t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
