@@ -34,7 +34,7 @@ place = tabs    Htabs = sH              Hbar  = sH + sd
 place = cap     Hbar  = sH − capΔ       Htabs = Hbar + sd      (cap carries the seed)
 ```
 
-`sd` is the signed hue travel from `__tmux_lives_theme_reldef` (unchanged: `mono 0 · wheat −20 · mint +20 · amber −40 · sage +40 · ember −72 · teal +72 · coral −100`; negative is warm). `phase` is added uniformly to all three hues, preserving its existing meaning as a whole-palette rotation.
+`sd` is the signed hue travel from `__tmux_lives_theme_reldef` (unchanged: `mono 0 · wheat −20 · mint +20 · amber −40 · sage +40 · ember −72 · teal +72 · coral −100`; negative is warm). `phase` is added to the two large areas' hues (`Hbar`, `Htabs`) uniformly. **It does not reach the endcap directly.** The endcap is computed from the *rendered* bar (§3), so whether `phase` reaches it depends on `mode`: in `literal` mode the rendered bar is the seed hex verbatim, which carries no phase, so the endcap is frozen under `phase` regardless of how far it turns; in `derived` mode the rendered bar is a curve sample that does move with `phase`, and since the family floor (§2) is looked up at that phase-rotated bar hue, a large `phase` can cross a family band and change the bar↔cap separation by several degrees. This is a direct consequence of honouring `literal` (§3) — the bridge must read the bar's actual rendered hue, and in `literal` mode that hue is phase-blind by construction — not an oversight. It is documented here and pinned by test rather than special-cased in the code.
 
 **Depth is fixed per role and never moves.** The bar is the dark ground, the tab bar one step lighter, the endcap one step off the bar. Hue differentiates; lightness coheres. This is the monotonic-ramp result from `[[palette-design-findings]]` — 76% of surveyed palettes are monotonic lightness ramps.
 
@@ -59,7 +59,7 @@ capΔ  = dir · max(|half|, family(Hbar))
 Hcap  = Hbar + capΔ
 ```
 
-So the endcap always echoes the scheme — which matters on a terminal with no tab bar, where the status bar is the only surface — and never leads it.
+So the endcap always echoes the scheme — which matters on a terminal with no tab bar, where the status bar is the only surface — and never leads it. (See §1 for how `phase` interacts with this: the floor lookup uses `Hbar`, so in `derived` mode a phase rotation can move the floor itself.)
 
 `family(hue)` is the **kin-cap family table fitted in the 2026-07-20 calibration study** (four rounds, user as blind subject, ~84% of judgments explained; the rule-generated validation batch scored 9/10 against 5/10 pre-rule). It was deleted in the v4 rewrite; this restores it in the role it was actually fitted for — bar and endcap judged as a pair.
 
@@ -120,7 +120,8 @@ Property assertions over hex pins wherever the property is the point, so a retun
 **Engine (`tests/test-tmux-install.fish`):**
 - **Anchor invariance** — at `place=bar` the bar hex is identical across all eight relationships; at `place=tabs` the tabs hex is.
 - **Travel** — the tab-bar hue differs from the bar hue by the relationship's `|sd|` (within rounding), in the signed direction.
-- **Bridge** — for `place=bar` and `place=tabs`, `|Hcap − Hbar|` equals `max(|sd|/2, family(Hbar))` exactly, on the travel's side (the `+` side when travel is zero). Note this is deliberately *not* "the cap lies between the bar and the tabs": at low travel the family floor dominates, so at `mono` the tabs sit at the bar's hue while the cap sits `family` away from it. The floor is the guarantee that the endcap never collapses into the bar.
+- **Bridge** — for `place=bar` and `place=tabs`, `|Hcap − Hbar|` equals `max(|sd|/2, family(Hbar))` exactly, on the travel's side (the `+` side when travel is zero). Note this is deliberately *not* "the cap lies between the bar and the tabs": at low travel the family floor dominates, so at `mono` the tabs sit at the bar's hue while the cap sits `family` away from it. The floor is the guarantee that the endcap never collapses into the bar. This distance check is circular/unsigned, so it cannot by itself catch a sign inversion in `dir` — a separate signed assertion pins that the cap sits on the side of the bar *toward* the tabs (opposite, at `place=tabs`, since there the tabs sit at `−sd` from the bar).
+- **Phase** — at `place=bar --mode literal`, `phase` leaves the cap hex unchanged from its phase-0 value while the tabs hex still rotates (the frozen-endcap contract above); at `place=bar --mode derived`, `phase` moves all three roles.
 - **Depth ramp** — `Lbar < Ltabs`, and `|Lcap − Lbar| ≈ 0.10`.
 - **Literal** — the placed role equals the seed hex exactly, for each of the three placements.
 - **Cap placement** — the cap carries the seed; the bar sits `capΔ` back from it.
