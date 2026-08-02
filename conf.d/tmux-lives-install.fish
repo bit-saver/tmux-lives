@@ -727,7 +727,7 @@ function __tmux_lives_theme_relationships --description 'v4 relationship names (
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 36 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) because both are first-class dominant placements: the seed anchors one, the relationship moves the other. cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which appears ONLY at bar (mono|tabs|derived would be a byte-identical duplicate of mono|bar|derived: at zero travel, anchoring the bar and anchoring the tabs are the same operation, so there is no second mono row to place). cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
         'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
         'mint soft|mint|bar|derived|1'    'amber soft|amber|bar|derived|1' \
@@ -737,10 +737,10 @@ function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 36 scheme
         'mint glow|mint|bar|literal|0'    'amber glow|amber|bar|literal|0' \
         'sage glow|sage|bar|literal|1'    'ember glow|ember|bar|literal|1' \
         'teal glow|teal|bar|literal|1'    'coral glow|coral|bar|literal|0' \
-        'mono slate|mono|tabs|derived|0'  'wheat slate|wheat|tabs|derived|0' \
-        'mint slate|mint|tabs|derived|0'  'amber slate|amber|tabs|derived|0' \
-        'sage slate|sage|tabs|derived|0'  'ember slate|ember|tabs|derived|1' \
-        'teal slate|teal|tabs|derived|0'  'coral slate|coral|tabs|derived|0' \
+        'wheat slate|wheat|tabs|derived|0' 'mint slate|mint|tabs|derived|0' \
+        'amber slate|amber|tabs|derived|0' 'sage slate|sage|tabs|derived|0' \
+        'ember slate|ember|tabs|derived|1' 'teal slate|teal|tabs|derived|0' \
+        'coral slate|coral|tabs|derived|0' \
         'mono chip|mono|tabs|literal|0'   'wheat chip|wheat|tabs|literal|0' \
         'mint chip|mint|tabs|literal|0'   'amber chip|amber|tabs|literal|1' \
         'sage chip|sage|tabs|literal|0'   'ember chip|ember|tabs|literal|0' \
