@@ -1895,31 +1895,35 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     printf '\e[?25l\e[2J'
     set -l apply ''
     while true
-        # cursor row palette — LINEAR sel: 0..n-1 = scheme rows (1-indexed
-        # into $pals/$fgs/$tabsfgs, so capture sel+1 into a var FIRST — a
-        # math() expression written directly inside a quoted subscript is a
-        # fish "Invalid index value" ERROR, not a valid index), n = off
-        # (legacy colors), n+1 = anchor (the frozen snapshot). An anchor
-        # with an EMPTY anchpal (the persisted theme was off/no-seed) falls
-        # through to the SAME legacy branch as the off row.
+        # cursor row palette — two lists, two lookups. focus=list: sel is
+        # LINEAR 0..n-1 into $pals/$fgs/$tabsfgs (1-indexed, so capture sel+1
+        # into a var FIRST — a math() expression written directly inside a
+        # quoted subscript is a fish "Invalid index value" ERROR, not a valid
+        # index). focus=state: sel2 selects within the second list — 0 =
+        # current (the anchor snapshot; an EMPTY anchpal, e.g. the persisted
+        # theme was off/no-seed, falls through to the legacy branch), 1 = off
+        # (legacy colors).
         set -l curpal ''
         set -l curfg '#f5f5f5'
         set -l curtabsfg '#f5f5f5'
-        if test $sel -lt $n
+        if test $focus = state
+            # second list: sel2 0 = current (the anchor snapshot), 1 = off (legacy colors)
+            if test $sel2 -eq 0; and test -n "$anchpal"
+                set curpal $anchpal
+                set curfg $anchfg
+                set curtabsfg $anchtabsfg
+            else
+                set -l lb "$legacy"
+                test -n "$lb"; or set lb '#444444'
+                set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
+                set curfg '#f5f5f5'
+            end
+        else
             set -l pi (math $sel + 1)
             set curpal $pals[$pi]
             set -l cf $fgs[$pi]
             test -n "$cf"; and set curfg $cf
             set curtabsfg "$tabsfgs[$pi]"
-        else if test $sel -eq $n; or test -z "$anchpal"
-            set -l lb "$legacy"
-            test -n "$lb"; or set lb '#444444'
-            set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
-            set curfg '#f5f5f5'
-        else
-            set curpal $anchpal
-            set curfg $anchfg
-            set curtabsfg $anchtabsfg
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
@@ -2133,31 +2137,36 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $focus = list; and set focus state; or set focus list
                 set flashfield ''
             case a
-                if test $sel -eq (math $n + 1)
-                    fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
-                    set previewed 1
-                    set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
-                else
-                    set -l rel off
-                    set -l rplace bar
-                    set -l rmode derived
-                    if test $sel -lt $n
-                        set -l pi (math $sel + 1)
-                        set -l rc (string split '|' -- $recipes[$pi])
-                        set rel $rc[1]; set rplace $rc[2]; set rmode $rc[3]
+                if test $focus = state
+                    if test $sel2 -eq 0
+                        fish -c '__tmux_lives_theme_apply_live $argv' $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
+                        set previewed 1
+                        set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
+                    else
+                        fish -c '__tmux_lives_theme_apply_live $argv' off bar derived $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                        set previewed 1
+                        set note "● previewing off — ⏎ save · esc revert"
                     end
+                else
+                    set -l pi (math $sel + 1)
+                    set -l rc (string split '|' -- $recipes[$pi])
+                    set -l rel $rc[1]
+                    set -l rplace $rc[2]
+                    set -l rmode $rc[3]
                     fish -c '__tmux_lives_theme_apply_live $argv' $rel $rplace $rmode $phase $viv $shape $ease $contrast >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $rel — ⏎ save · esc revert"
                 end
             case enter
-                if test $sel -eq (math $n + 1)
-                    set apply $anch_scheme
-                    set phase $anch_phase
-                    set place $anch_place
-                    set mode $anch_mode
-                else if test $sel -eq $n
-                    set apply off
+                if test $focus = state
+                    if test $sel2 -eq 0
+                        set apply $anch_scheme
+                        set phase $anch_phase
+                        set place $anch_place
+                        set mode $anch_mode
+                    else
+                        set apply off
+                    end
                 else
                     set -l pi (math $sel + 1)
                     set -l rc (string split '|' -- $recipes[$pi])

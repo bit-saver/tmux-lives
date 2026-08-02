@@ -1530,8 +1530,12 @@ set -l pbody (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string col
 set -l rbody (string match -r '(?s)function __tcz_thp_reload.*?\n    end' -- "$pbody")
 t "guard: hot-path reload has no fish -c" 0 (string match -q '*fish -c*' -- "$rbody"; and echo 1; or echo 0)
 t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*' -- "$rbody"; and echo 1; or echo 0)
-t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
-# 8 = init + a-anchor + a-list + esc-revert + 2 seed applies + 2 saves (the case-a anchor/else split is 2 textual sites, still one subprocess per press)
+# picker-second-list Task 5 fix round: case a's second-list branch split
+# from one site (anchor-or-off, sharing a call) into two (a-current, a-off),
+# since off now needs its OWN apply_live call (`off bar derived`) rather than
+# falling out of the old sel-linear else branch. 8 -> 9 sites.
+t "guard: exactly 9 action-site subprocesses" 9 (count (string match -ar 'fish -c' -- "$pbody"))
+# 9 = init + a-current + a-off + a-list + esc-revert + 2 seed applies + 2 saves (case-a's 3 branches are 3 textual sites, still one subprocess per press)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
@@ -1845,7 +1849,12 @@ t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
 t "marker compares the full recipe, not the name" 1 (string match -q '*test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"*' -- "$pk"; and echo 1; or echo 0)
 t "marker no longer compares toks to anch_scheme" 0 (string match -q '*test "$toks[$idx]" = "$anch_scheme"*' -- "$pk"; and echo 1; or echo 0)
 t "preview indexes pals at the captured sel+1" 1 (string match -q '*set -l pi (math $sel + 1)*set curpal $pals[$pi]*' -- "$pk"; and echo 1; or echo 0)
-t "preview off row is the linear n (or empty anchor)" 1 (string match -q '*test $sel -eq $n; or test -z "$anchpal"*' -- "$pk"; and echo 1; or echo 0)
+# picker-second-list Task 5 fix round: the preview lookup's off/current branch
+# is no longer `test $sel -eq $n; or test -z "$anchpal"` (retired along with
+# every other consumer of the linear sel range) — it now branches on
+# `focus`/`sel2` like the rest of the second-list consumers (case a, case
+# enter). Empty anchpal still falls through to the same legacy/off palette.
+t "preview second-list branch checks sel2 and anchpal" 1 (string match -q '*test $sel2 -eq 0; and test -n "$anchpal"*' -- "$pk"; and echo 1; or echo 0)
 
 set -l catsrc3 (cat $catfile | string collect)
 # picker current-zone + legend-grid refinement, Task 3 (2026-07-25): 52x26 is
@@ -2077,6 +2086,40 @@ t "second list rule is untitled" 0 (string match -q "*__tcz_thp_zsep \$IW 'curre
 # no chevrons anywhere, and the retired switcher-yellow is gone with them
 t "no chevron in the picker"  0 (count (string match -ra '❯' -- "$PK2"))
 t "switcher-yellow retired"   0 (string match -q '*38;5;179*' -- "$PK2"; and echo 1; or echo 0)
+
+# ---------------------------------------------------------------------
+# fix round: the three consumers of the OLD linear sel range (preview
+# palette lookup, case a, case enter) are rewired to branch on `focus`/
+# `sel2` too — the movement rewiring alone left `sel == $n` and
+# `sel == (math $n + 1)` UNREACHABLE, silently dead-ending the second list's
+# preview/apply/save paths.
+# ---------------------------------------------------------------------
+set -g PK5 (functions __tcz_theme_picker | string collect)
+# Bounded, not whole-body: a plain '*case a*focus = state*' / '*case enter*
+# focus = state*' glob against the WHOLE $PK5 is VACUOUS — verified against
+# the pre-fix body, both read "ok" there. Two reasons: (1) "case enter" occurs
+# THREE times in this function's source — once in the real dispatch, twice
+# more in nested `function ... end` DEFINITIONS earlier in the body
+# (__tcz_thp_hexentry / __tcz_thp_sliders' seed-entry loops) — so a bare
+# substring search can latch onto the wrong one; (2) "focus = state" already
+# appears earlier in the body regardless of whether case a/enter were ever
+# fixed (the up/down dispatch and the second-list draw both have it). Bound
+# to the region between "case a" and "case cancel" — both occur EXACTLY ONCE
+# in this function (verified), so the region between them is unambiguously
+# the real case-a/case-enter dispatch arms and nothing else.
+set -l dispatch_tail (string match -r '(?s)case a\b.*?case cancel\b' -- "$PK5" | string collect)
+t "apply branches on focus" 1 (string match -qr '(?s)case a\b.*?focus = state.*?case enter\b' -- "$dispatch_tail"; and echo 1; or echo 0)
+t "save branches on focus"  1 (string match -qr '(?s)case enter\b.*?focus = state' -- "$dispatch_tail"; and echo 1; or echo 0)
+t "off is reachable from the second list" 1 (string match -q '*set apply off*' -- "$dispatch_tail"; and echo 1; or echo 0)
+# Same vacuity risk for the preview lookup: "curpal" and "focus = state" each
+# recur elsewhere in the body too. "curpal" only spans the cursor-row-palette
+# block itself — bound from its first assignment to the next statement after
+# the block (`set -l ptoks`, unique, immediately follows it) instead.
+set -l curpalblock (string match -r '(?s)set -l curpal .*?set -l ptoks' -- "$PK5" | string collect)
+t "preview palette branches on focus" 1 (string match -q '*focus = state*' -- "$curpalblock"; and echo 1; or echo 0)
+# no consumer may still read the retired sel range — this is the guard that would
+# have caught all three sites at once
+t "no surviving reads of the retired sel range" 0 (count (string match -ra 'sel -eq \$n|sel -eq \(math \$n \+ 1\)' -- "$PK5"))
 
 # Consolidated guards: case c retired (picker-second-list Task 5 — superseded
 # by tab); the retired axis keys/functions stay gone; the titled current zsep
