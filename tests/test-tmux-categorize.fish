@@ -1392,6 +1392,14 @@ t "staterow selected shows the marker" 1 (string match -q '*▐*' -- "$SRS"; and
 t "staterow selected is still w cols" 50 (string length --visible -- "$SRS")
 # width holds for a long name and a short label, and vice versa
 t "staterow long name still w cols" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'a-very-long-scheme-name-here' off 0 0))
+# review finding 7: the pad-floor-of-1 above meant nlen+llen > w-18 used to
+# push the printed row PAST w (__tcz_thp_ln, the caller's frame wrapper,
+# pads to w but never truncates) — which wraps in the fixed-height popup and
+# silently adds a physical row, exactly what the 26-row frame proof exists to
+# prevent and, being an element count rather than a display-column
+# measurement, cannot see. Unreachable with today's catalog (longest name is
+# 11 cols) but an absurdly long name must still measure exactly w.
+t "staterow absurdly long name still measures exactly w" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') (string repeat -n 40 x) current 0 0))
 # it accepts a full 7-role strip too — the current row shows its real palette
 t "staterow accepts a 7-role strip" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_cells '#112233 #223344 #334455 #445566 #556677 #667788 #778899') 'mono soft' current 0 1))
 # and the retired builder is gone (catfile isn't defined until further down
@@ -2104,7 +2112,21 @@ t "no scroll-count marks"     0 (string match -q '*▲*' -- "$PK2"; and echo 1; 
 t "second list rule is untitled" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$PK2"; and echo 1; or echo 0)
 # no chevrons anywhere, and the retired switcher-yellow is gone with them
 t "no chevron in the picker"  0 (count (string match -ra '❯' -- "$PK2"))
-t "switcher-yellow retired"   0 (string match -q '*38;5;179*' -- "$PK2"; and echo 1; or echo 0)
+# Scoped to $PK2 (the picker's own body) this was VACUOUS: 38;5;179 never
+# lived in __tcz_theme_picker at all — only in __tcz_thp_row/__tcz_thp_off_row
+# (the off_row builder is already gone, checked above) — so it read 0 at the
+# pre-branch commit too and could never have caught a regression. Re-scoped to
+# the WHOLE FILE, minus the two unrelated legitimate uses of the same accent
+# colour (__tcz_popup_list_lines' switcher pointer, __tcz_modal_legend's
+# launcher accent) via awk range-deletion, so a reintroduction anywhere in the
+# picker actually fails this.
+set -l without179 (awk '
+    /^function __tcz_popup_list_lines/ {skip=1}
+    /^function __tcz_modal_legend/ {skip=1}
+    skip && /^end$/ {skip=0; next}
+    !skip {print}
+' $plugindir/functions/tmux-categorize.fish | string collect)
+t "switcher-yellow retired (whole file, minus its two legitimate uses)" 0 (count (string match -ra '38;5;179' -- "$without179"))
 
 # ---------------------------------------------------------------------
 # fix round: the three consumers of the OLD linear sel range (preview
@@ -2234,6 +2256,20 @@ t "exactly one setup-color commit in the whole picker" 1 (count (string match -r
 t "the commit is guarded on a changed seed" 1 (string match -q '*"$seed" != "$anch_seed"*' -- "$SLB"; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
+# review finding 2: anchpal (the `current` row's own palette) was computed
+# ONCE, before the loop, from whatever seed the picker opened with. Every
+# SCHEME row already re-derives from $seed via __tcz_thp_reload; the current
+# row's band did not — its band, and the top preview/tab chip whenever the
+# cursor sat on it, kept rendering the OLD seed after a seed preview even
+# though `a`/`⏎` had already moved on to the new one. __tcz_thp_reanchor
+# factors this out so it can run again anywhere $seed changes.
+# ---------------------------------------------------------------------
+t "reanchor function exists" 1 (string match -q '*function __tcz_thp_reanchor*' -- "$SLB"; and echo 1; or echo 0)
+t "reanchor runs once at open, right after its own definition" 1 (string match -qr '(?s)function __tcz_thp_reanchor.*?\n    end\n    __tcz_thp_reanchor\n' -- "$SLB"; and echo 1; or echo 0)
+t "both seed screens reanchor immediately after reload" 2 (count (string match -ar '__tcz_thp_reload\n\s*__tcz_thp_reanchor' -- "$SEEDSCREENS"))
+t "reanchor is erased on exit like its seed-screen siblings" 1 (string match -q '*functions -e __tcz_thp_reanchor*' -- "$SLB"; and echo 1; or echo 0)
+
+# ---------------------------------------------------------------------
 # held ↑↓ rate-limits with DISCARD, it does not accumulate
 # ---------------------------------------------------------------------
 set -g DRAIN (string match -r '(?s)case up down pgup pgdn.*?case tab' -- (functions __tcz_theme_picker | string collect))
@@ -2345,6 +2381,106 @@ t "frame: 26 rows — previewing a listed scheme (1)"     26 (__t9_frame_rows li
 t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows state 0 14 0  2 mono "$PAL9" '')
 t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
 t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
+
+# ---------------------------------------------------------------------
+# review finding 3: `islive` ignored a previewed-but-uncommitted seed change,
+# and never credited previewing the off row when the persisted theme is
+# genuinely off. Driven through the REAL draw block via $DRAWTEXT9 (same
+# technique as the frame proof above, since `islive` is a `set -l` local to
+# that same loop and `eval` — not `source` — lets it survive for inspection)
+# rather than re-implementing the liveness logic to test against.
+# ---------------------------------------------------------------------
+function __t9_islive --argument-names focus sel2 n sel previewed anch_scheme seed anch_seed --description 'eval the REAL draw block against a given picker state; returns the $islive it produced.'
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    set -l WIN 11
+    set -l host somehost
+    set -l chiptitle ''
+    set -l note 'a note'
+    set -l seedfg '#f5f5f5'
+    set -l phase 0
+    set -l legacy '#444444'
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l anchpal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+    test "$anch_scheme" = off; and set anchpal ''
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    for i in (seq $n)
+        set -a toks "scheme$i"
+        set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+        set -a fgs '#f5f5f5'
+        set -a tabsfgs '#f5f5f5'
+        set -a recipes 'mono|bar|derived'
+    end
+    set -l flashfield ''
+    eval $DRAWTEXT9
+    echo $islive
+end
+t "islive: unchanged seed, no preview -> live"                     1 (__t9_islive list  0 14 0 0 mono '#111111' '#111111')
+t "islive: previewed seed change, no apply yet -> NOT live"        0 (__t9_islive list  0 14 0 0 mono '#111111' '#222222')
+t "islive: previewing a listed scheme -> not live"                 0 (__t9_islive list  0 14 0 1 mono '#111111' '#111111')
+t "islive: previewing the current row itself -> live"              1 (__t9_islive state 0 14 0 2 mono '#111111' '#111111')
+t "islive: previewing off while persisted is off -> live"          1 (__t9_islive state 1 14 0 1 off  '#111111' '#111111')
+t "islive: previewing off while persisted is a scheme -> not live" 0 (__t9_islive state 1 14 0 1 mono '#111111' '#111111')
+
+# ---------------------------------------------------------------------
+# review finding 4: the state row must name the CATALOG ENTRY whose recipe
+# matches the anchor (e.g. "mono soft"), not the bare relationship (e.g.
+# "mono") — several catalog rows share a relationship, so the row whose whole
+# job is "what do I have" would otherwise be ambiguous about place/mode.
+# Falls back to the bare relationship when no catalog row matches (e.g. a
+# CLI-only --place low|high config, which has no catalog row at all).
+# ---------------------------------------------------------------------
+function __t9_anchname --argument-names anch_scheme anch_place anch_mode --description 'eval the REAL draw block with a caller-controlled catalog (toks/recipes) and return the $anchname it resolved for the state row.'
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    set -l WIN 11
+    set -l host somehost
+    set -l chiptitle ''
+    set -l note 'a note'
+    set -l seed '#5f772b'
+    set -l seedfg '#f5f5f5'
+    set -l phase 0
+    set -l legacy '#444444'
+    set -l anch_phase 0
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l anchpal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+    test "$anch_scheme" = off; and set anchpal ''
+    set -l focus state
+    set -l sel2 0
+    set -l sel 0
+    set -l previewed 0
+    set -l toks catalogA catalogB
+    set -l pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6' '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+    set -l fgs '#f5f5f5' '#f5f5f5'
+    set -l tabsfgs '#f5f5f5' '#f5f5f5'
+    set -l recipes 'mono|bar|derived' 'sage|high|derived'
+    set -l n 2
+    set -l flashfield ''
+    eval $DRAWTEXT9
+    echo $anchname
+end
+t "current row names the catalog entry, not the bare relationship" catalogA (__t9_anchname mono bar derived)
+t "current row names a different catalog entry sharing no relationship" catalogB (__t9_anchname sage high derived)
+t "current row falls back to the relationship when no catalog row matches" sage (__t9_anchname sage low derived)
 
 rm -rf $shimdir
 if test $FAIL -eq 0

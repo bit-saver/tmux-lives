@@ -1286,8 +1286,19 @@ function __tcz_thp_staterow --argument-names w cells name label selected live --
         set labon (printf '\e[1m')
     end
     # marker(1) + cells(14) + space(1) + name + pad + label + trailing space(1)
-    set -l nlen (string length --visible -- "$name")
     set -l llen (string length --visible -- "$label")
+    # Truncate the NAME so the row is structurally incapable of overflowing
+    # <w>: __tcz_thp_ln (the caller's frame wrapper) pads to w but never
+    # truncates, and the old pad-floor-of-1 let a too-long name+label push the
+    # printed row past w — which wraps in a fixed-height popup and silently
+    # adds a physical row, exactly what the 26-row frame proof exists to catch
+    # (and, being an element count rather than a display-column measurement,
+    # cannot see). Unreachable with today's catalog (longest name is 11 cols)
+    # but made impossible rather than merely unlikely.
+    set -l maxnlen (math "$w - 18 - $llen")
+    test $maxnlen -lt 0; and set maxnlen 0
+    set -l nlen (string length --visible -- "$name")
+    test $nlen -gt $maxnlen; and set name (string sub -l $maxnlen -- "$name"); and set nlen $maxnlen
     set -l pad (math "$w - 17 - $nlen - $llen")
     test $pad -lt 1; and set pad 1
     # Capture the repeat into a var and interpolate it QUOTED: a zero-output command
@@ -1735,6 +1746,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                                 set seed $cand
                                 set seedfg (__tmux_lives_contrast_fg "$seed")
                                 __tcz_thp_reload
+                                __tcz_thp_reanchor
                                 set note "seed previewed: $seed"
                                 set flashfield seed
                             end
@@ -1831,6 +1843,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set seed (printf '#%02x%02x%02x' $r $g $b)
                     set seedfg (__tmux_lives_contrast_fg "$seed")
                     __tcz_thp_reload
+                    __tcz_thp_reanchor
                     set note "seed previewed: $seed"
                     set flashfield seed
                     set sliding 0
@@ -1861,17 +1874,32 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
-    if test "$anch_scheme" != off
-        set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast)
-        if test (count $ap) -eq 7
-            set -l apj (string join ' ' $ap)
-            set anchpal "$apj"
-            set -l af (__tmux_lives_contrast_fg "$ap[6]")
-            test -n "$af"; and set anchfg "$af"
-            set -l atf (__tmux_lives_contrast_fg "$ap[3]")
-            test -n "$atf"; and set anchtabsfg "$atf"
+    # Recomputes anchpal/anchfg/anchtabsfg for the CURRENT $seed against the
+    # frozen anchor recipe (anch_scheme/place/mode/phase/viv/shape/ease/
+    # contrast — these never change after the snapshot above). --no-scope-
+    # shadowing so it mutates the caller's vars directly, same as reload does
+    # for toks/pals/fgs/tabsfgs. Call once here AND again after any seed edit
+    # (hexentry/sliders' ⏎) — every OTHER row already re-derives from $seed
+    # via __tcz_thp_reload; without this, the `current` row's band, and the
+    # top preview/tab chip whenever the cursor sits on it, silently kept
+    # rendering the OLD seed while `a`/`⏎` had already moved on to the new one.
+    function __tcz_thp_reanchor --no-scope-shadowing
+        set anchpal ''
+        set anchfg '#f5f5f5'
+        set anchtabsfg '#f5f5f5'
+        if test "$anch_scheme" != off
+            set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast)
+            if test (count $ap) -eq 7
+                set -l apj (string join ' ' $ap)
+                set anchpal "$apj"
+                set -l af (__tmux_lives_contrast_fg "$ap[6]")
+                test -n "$af"; and set anchfg "$af"
+                set -l atf (__tmux_lives_contrast_fg "$ap[3]")
+                test -n "$atf"; and set anchtabsfg "$atf"
+            end
         end
     end
+    __tcz_thp_reanchor
     set -l sel 0
     set -l saved (stty -g)
     set -g __tcz_thp_saved $saved
@@ -1989,17 +2017,38 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         # ── second list: the current theme and off. Untitled: no word covers both,
         # and the user would rather have none than a bad one. ⇥ moves the cursor here.
-        # `current` is lit only while the persisted theme really is what is applied.
-        # Previewing the current row (previewed 2) still satisfies that; previewing a
-        # listed scheme (previewed 1) does not.
+        # `current` is lit only while the persisted theme really is what is applied
+        # (spec §6: no preview in effect, OR the preview in effect is the current
+        # row's own recipe).
         set -l islive 1
         test $previewed -eq 1; and set islive 0
+        # A previewed-but-uncommitted seed (b/hexentry, no `a` yet) also diverges
+        # from what's persisted, regardless of $previewed — the row it's drawn
+        # against (via __tcz_thp_reanchor) already tracks the new seed, so the
+        # label would otherwise claim live for a bar that is not actually saved.
+        test "$seed" != "$anch_seed"; and set islive 0
+        # Previewing the off row IS "the current row's own recipe" when the
+        # persisted theme really is off — off has no place/mode/phase to diverge
+        # on, so that preview and the current row render identically.
+        if test $previewed -eq 1; and test "$anch_scheme" = off; and test $focus = state; and test $sel2 -eq 1
+            set islive 1
+        end
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
         set -l curflag2 0
         test $focus = state; and test $sel2 -eq 0; and set curflag2 1
         set -l anchcells (__tcz_thp_band "$legacy")
         test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
-        set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anch_scheme" current $curflag2 $islive)
+        # The state row names the CATALOG ENTRY (e.g. "mono soft"), not the bare
+        # relationship (e.g. "mono") — several catalog rows share a relationship,
+        # so the row whose whole job is "what do I have" would otherwise be
+        # ambiguous about place/mode. Look up the entry whose recipe matches the
+        # anchor; fall back to the bare relationship when nothing matches (e.g. a
+        # CLI-only --place low|high config with no catalog row at all).
+        set -l anchname $anch_scheme
+        set -l anchrecipe "$anch_scheme|$anch_place|$anch_mode"
+        set -l ari (contains -i -- "$anchrecipe" $recipes)
+        test -n "$ari"; and set anchname $toks[$ari]
+        set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anchname" current $curflag2 $islive)
         if test $curflag2 -eq 1
             set currow (string replace -a -- "$RST" "$RST$SELBG" "$currow")
             set currow "$SELBG$currow$RST"
@@ -2215,6 +2264,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_cleanup
     functions -e __tcz_thp_init
     functions -e __tcz_thp_reload
+    functions -e __tcz_thp_reanchor
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_sliders
     set -e __tcz_thp_saved
