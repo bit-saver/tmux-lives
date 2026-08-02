@@ -2239,6 +2239,96 @@ t "pages still coalesce" 1 (string match -q '*case pgup;*steps*WIN*' -- "$DRAIN"
 t "drain re-asserts non-blocking inside the loop" 1 (string match -q '*while true*stty min 0 time $gap*' -- "$DRAIN"; and echo 1; or echo 0)
 t "drain restores blocking on exit" 1 (string match -q '*stty min 1 time 0*' -- "$DRAIN"; and echo 1; or echo 0)
 
+# ---------------------------------------------------------------------
+# Task 9 — prove the frame is exactly 26 rows, in every state, DIRECTLY.
+#
+# The brief's own Step 1 gave five grep-style assertions (WIN==11,
+# __tcz_thp_leg 3-col, "two untitled rules", popup height ==26, no stale
+# height). Checked each against the current tree before trusting it (the
+# coordinator flagged four earlier waves of defective assertions on this
+# branch). All five are individually CORRECT, but four of the five DUPLICATE
+# tests Tasks 4-6 already shipped: "scheme window is 11 rows" (WIN==11),
+# "picker legend is a single __tcz_thp_leg 3-col call" (the legend-cols
+# check), "second list gets its own untitled zsep" (the two-untitled-rules
+# count), and "picker popup is 52x26 (modal open site)" (the height check) —
+# all above in this file. Re-adding them under new names would be bloat with
+# no new discriminating power, so only the genuine strengthening is kept: a
+# single broad regex over stale heights 10-19/20-25/27-29, which the four
+# existing discrete 27/24/22/20 literals above do not cover (e.g. 21/23/25/
+# 28/29/10-19).
+set -l catsrc9 (cat $catfile | string collect)
+t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h (2[0-57-9]|1[0-9])' -- "$catsrc9"))
+
+# The actual Step-1 deliverable: a DIRECT count of what the draw loop emits,
+# not indirect evidence (a `set -a lines` site count, or reading the WIN
+# literal). Every __tcz_thp_* row builder the draw calls (ln/zsep/leg/row/
+# staterow/window/tabstrip/preview/seedrow/cells/band) is a TOP-LEVEL
+# function in this file, not nested inside __tcz_theme_picker — so the real
+# per-iteration draw block (from the cursor-row palette lookup through the
+# bottom border) can be extracted VERBATIM from the live file and evaluated
+# against real input state, with zero reimplementation of the row-building
+# logic. `eval`, not `source`: fish's `source` opens its OWN local scope (a
+# `set -l` inside a sourced file does not survive the source call returning
+# — verified against a minimal repro), so `set -l lines` inside the
+# extracted block would vanish before it could be counted; `eval` runs
+# inline in the calling scope, which is what lets $lines survive.
+set -g DRAWTEXT9 (awk '/set -l curpal/,/╰/' $catfile | string collect)
+t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 1; or echo 0)
+
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today.'
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    set -l WIN 11
+    set -l host somehost
+    set -l chiptitle ''
+    set -l note 'a note'
+    set -l seed '#5f772b'
+    set -l seedfg '#f5f5f5'
+    set -l phase 0
+    set -l legacy '#444444'
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    for i in (seq $n)
+        set -a toks "scheme$i"
+        set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+        set -a fgs '#f5f5f5'
+        set -a tabsfgs '#f5f5f5'
+        set -a recipes 'mono|bar|derived'
+    end
+    eval $DRAWTEXT9
+    count $lines
+end
+
+set -l PAL9 '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+# Every meaningfully distinct draw path: the window's top/bottom clamp at
+# both catalog sizes, which list has focus, which second-list row is
+# selected, all three `previewed` values, the persisted-theme-off edge case
+# (anchpal genuinely empty, exactly as the real init leaves it), and an
+# active change-flash.
+t "frame: 26 rows — scheme list, window top, n=14"      26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" '')
+t "frame: 26 rows — scheme list, window bottom, n=14"   26 (__t9_frame_rows list  0 14 13 0 mono "$PAL9" '')
+t "frame: 26 rows — scheme list, mid, n=37 (expanded)"  26 (__t9_frame_rows list  0 37 20 0 mono "$PAL9" '')
+t "frame: 26 rows — scheme list, end, n=37 (expanded)"  26 (__t9_frame_rows list  0 37 36 0 mono "$PAL9" '')
+t "frame: 26 rows — second list, current selected"      26 (__t9_frame_rows state 0 14 0  0 mono "$PAL9" '')
+t "frame: 26 rows — second list, off selected"          26 (__t9_frame_rows state 1 14 0  0 mono "$PAL9" '')
+t "frame: 26 rows — previewing a listed scheme (1)"     26 (__t9_frame_rows list  0 14 0  1 mono "$PAL9" '')
+t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows state 0 14 0  2 mono "$PAL9" '')
+t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
+t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
