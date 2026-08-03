@@ -26,6 +26,13 @@ t "fragment has update-environment" 1 (string match -q '*update-environment*LC_T
 t "fragment has commandeer hook" 1 (string match -q '*client-session-changed*' -- "$frag"; and echo 1; or echo 0)
 t "fragment has resurrect plugin" 1 (string match -q '*tmux-plugins/tmux-resurrect*' -- "$frag"; and echo 1; or echo 0)
 t "fragment status-interval" 1 (string match -q '*status-interval 15*' -- "$frag"; and echo 1; or echo 0)
+# Ported from tmux-sensible, which the user is dropping. It loads via TPM AFTER our
+# fragment, so it silently won every conflict (it was overriding our status-interval 15
+# with its own 5). Only these two are worth keeping; the rest of sensible was either
+# already set by the user's own config or is being let go deliberately.
+# escape-time is a SERVER option (-s), not a session option — -g would be wrong.
+t "fragment sets escape-time 0 on the server" 1 (string match -q '*set -s escape-time 0*' -- "$frag"; and echo 1; or echo 0)
+t "fragment sets focus-events on"             1 (string match -q '*set -g focus-events on*' -- "$frag"; and echo 1; or echo 0)
 t "fragment binds S via display-popup guard" 1 (string match -q '*if-shell*display-popup*' -- "$frag"; and echo 1; or echo 0)
 t "fragment binds S to popup subcommand"     1 (string match -q '*display-popup*popup*' -- "$frag"; and echo 1; or echo 0)
 t "fragment fallback uses menu"   1 (string match -q '*run-shell*menu*' -- "$frag"; and echo 1; or echo 0)

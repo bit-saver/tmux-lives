@@ -59,6 +59,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set -g @resurrect-capture-pane-contents 'on'"
     set -a f "set -g @continuum-save-interval '15'"
     set -a f "set -g status-interval 15"
+    # Ported from tmux-sensible so it can be dropped. TPM loads plugins AFTER this
+    # fragment, so sensible silently won every conflict — including overriding our
+    # status-interval 15 with its own 5. escape-time is a SERVER option (-s): at the
+    # default 500ms tmux swallows ESC long enough to lag vim and Claude's TUI.
+    set -a f "set -s escape-time 0"
+    set -a f "set -g focus-events on"
     # Pin a STEADY cursor so tmux's cstyle re-emission on redraw doesn't flicker the ShellFish
     # cursor (a steady style re-emitted is invisible). '' leaves tmux's default untouched.
     test -n "$cursorstyle"; and set -a f "set -g cursor-style $cursorstyle"
