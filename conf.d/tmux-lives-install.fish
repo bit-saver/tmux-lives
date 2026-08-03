@@ -65,6 +65,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # default 500ms tmux swallows ESC long enough to lag vim and Claude's TUI.
     set -a f "set -s escape-time 0"
     set -a f "set -g focus-events on"
+    # tmux's own default is 750ms, which flashes transient notices past unread —
+    # including the M-r resize-mode hint this plugin emits with display-message.
+    set -a f "set -g display-time 4000"
     # Pin a STEADY cursor so tmux's cstyle re-emission on redraw doesn't flicker the ShellFish
     # cursor (a steady style re-emitted is invisible). '' leaves tmux's default untouched.
     test -n "$cursorstyle"; and set -a f "set -g cursor-style $cursorstyle"

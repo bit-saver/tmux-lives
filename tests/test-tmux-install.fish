@@ -33,6 +33,7 @@ t "fragment status-interval" 1 (string match -q '*status-interval 15*' -- "$frag
 # escape-time is a SERVER option (-s), not a session option — -g would be wrong.
 t "fragment sets escape-time 0 on the server" 1 (string match -q '*set -s escape-time 0*' -- "$frag"; and echo 1; or echo 0)
 t "fragment sets focus-events on"             1 (string match -q '*set -g focus-events on*' -- "$frag"; and echo 1; or echo 0)
+t "fragment sets display-time 4000"           1 (string match -q '*set -g display-time 4000*' -- "$frag"; and echo 1; or echo 0)
 t "fragment binds S via display-popup guard" 1 (string match -q '*if-shell*display-popup*' -- "$frag"; and echo 1; or echo 0)
 t "fragment binds S to popup subcommand"     1 (string match -q '*display-popup*popup*' -- "$frag"; and echo 1; or echo 0)
 t "fragment fallback uses menu"   1 (string match -q '*run-shell*menu*' -- "$frag"; and echo 1; or echo 0)
