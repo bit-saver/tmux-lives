@@ -1141,6 +1141,79 @@ function __tmux_lives_state_path --description 'path to the machine-owned status
     set -q tmux_lives_state_file; and echo $tmux_lives_state_file; or echo "$HOME/.config/tmux/tmux-lives-state.conf"
 end
 
+function __tmux_lives_funcs_path --description 'path to the record of shipped function names, used to spot removals across an update (seam: tmux_lives_funcs_file)'
+    set -q tmux_lives_funcs_file; and echo $tmux_lives_funcs_file; or echo "$HOME/.config/tmux/tmux-lives-funcs"
+end
+
+function __tmux_lives_shipped_functions --argument-names dir --description 'names of the functions this plugin defines, read from its installed files. Defaults to $__fish_config_dir; takes a directory so tests can point it at the repo.'
+    test -n "$dir"; or set dir $__fish_config_dir
+    set -l names
+    for f in $dir/conf.d/tmux.fish $dir/conf.d/tmux-lives-install.fish $dir/functions/tmux-categorize.fish
+        test -f $f; or continue
+        # `function NAME --flags…` — the name is the first word after `function`
+        for line in (string match -r '^function\s+\S+' < $f)
+            set -a names (string split -f2 ' ' -- (string replace -r '\s+' ' ' -- $line))
+        end
+    end
+    test -n "$names[1]"; or return
+    printf '%s\n' $names | sort -u
+end
+
+function __tmux_lives_removed_functions --argument-names old new --description 'pure: names present in the OLD newline-separated set and absent from the NEW one. Sourcing an update cannot UNSET a function, so these linger in every already-running shell — including the one that ran the update.'
+    test -n "$old"; or return
+    set -l newset (string split \n -- $new | string trim)
+    for n in (string split \n -- $old | string trim)
+        test -n "$n"; or continue
+        contains -- $n $newset; or echo $n
+    end
+end
+
+function __tmux_lives_stale_shells --description 'pure: session names of tmux pane shells other than our own. Args: <own pane pid> then `list-panes` lines of "<pane_pid> <session> <cmd>". fisher sources an update into the shell that ran it, so only the OTHERS are stale.'
+    set -l own $argv[1]
+    for line in $argv[2..]
+        set -l f (string split ' ' -- $line)
+        test (count $f) -ge 2; or continue
+        test "$f[1]" = "$own"; and continue
+        echo $f[2]
+    end
+end
+
+function __tmux_lives_update_note --argument-names refreshed removed sessions --description 'pure: the post-update advice. `removed`/`sessions` are space-separated. exec fish is recommended HERE only when a function was removed (sourcing cannot unset one); other shells are named because exec fish does not reach them.'
+    if test "$refreshed" -eq 1
+        echo '✓ tmux-lives updated — tmux config refreshed + reloaded.'
+    else
+        echo '✓ tmux-lives updated.'
+    end
+    set -l rm (string split ' ' -- $removed | string match -v '')
+    set -l ss (string split ' ' -- $sessions | string match -v '')
+    if test -n "$rm[1]"
+        echo "  ⚠ removed: $rm — run `exec fish` here too (sourcing cannot unset a function)."
+    end
+    if test -n "$ss[1]"
+        set -l uniq (printf '%s\n' $ss | sort -u | string join ', ')
+        # Only claim this shell is current when nothing was removed — otherwise the two
+        # lines contradict each other.
+        if test -n "$rm[1]"
+            echo "  Other shells also run the old version: $uniq — run `exec fish` in each."
+        else
+            echo "  This shell is current. Other shells still run the old version: $uniq — run `exec fish` in each."
+        end
+    end
+end
+
+function __tmux_lives_stale_sessions --description 'session names of tmux pane shells other than this one — the shells an update did NOT reach. Empty outside tmux or when tmux is unreachable.'
+    set -l tm tmux
+    set -q tmux_lives_tmux_socket; and set tm "command tmux -L $tmux_lives_tmux_socket"
+    set -l lines ($tm list-panes -a -F '#{pane_pid} #{session_name} #{pane_current_command}' 2>/dev/null)
+    test -n "$lines[1]"; or return
+    # Ask tmux which pane we are in rather than assuming fish is the pane's own shell —
+    # it is not when this runs from a nested or non-login shell, and then our own session
+    # would be reported as stale. Fall back to $fish_pid outside tmux.
+    set -l own ($tm display-message -p '#{pane_pid}' 2>/dev/null)
+    test -n "$own"; or set own $fish_pid
+    __tmux_lives_stale_shells $own $lines
+end
+
 function __tmux_lives_baseline_template --description 'print the default ~/.tmux-lives.conf (status-bar polish + non-ShellFish baseline)'
     printf '%s\n' \
         '# ~/.tmux-lives.conf — your general tmux-lives config.' \
@@ -1310,7 +1383,10 @@ function __tmux_lives_update --description 'Update the tmux-lives plugin via fis
         echo 'tmux-lives: already up to date.'
     else
         cat $log                    # release fisher's output — something changed
-        echo 'tmux-lives: updated — run `exec fish` to load the new version.'
+        # The post-update handler already ran (fisher fired the event mid-`fisher update`)
+        # and recorded the new function set, so removals are reported from there. Here we
+        # only need to say which OTHER shells the update did not reach.
+        __tmux_lives_update_note 0 "" "$(__tmux_lives_stale_sessions)"
     end
     rm -f $log
 end
@@ -1424,10 +1500,23 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
         __tmux_lives_write_fragment
         set refreshed 1
     end
+    # Record which functions this version ships, so the NEXT update can spot removals.
+    # fisher sources the new files into this shell, so a removed name would otherwise
+    # linger here silently.
+    set -l removed (__tmux_lives_removed_functions (__tmux_lives_read_funcs) (__tmux_lives_shipped_functions | string join \n))
+    __tmux_lives_write_funcs
     set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
-    if test $refreshed -eq 1
-        printf '%s\n' '✓ tmux-lives updated — tmux config refreshed + reloaded; run `exec fish` for the new shell functions. '(__tmux_lives_help_hint)
-    else
-        printf '%s\n' '✓ tmux-lives updated — open a new shell (exec fish) to load it. '(__tmux_lives_help_hint)
-    end
+    __tmux_lives_update_note $refreshed "$removed" "$(__tmux_lives_stale_sessions)"
+    __tmux_lives_help_hint
+end
+
+function __tmux_lives_read_funcs --description 'the function-name record from the previous update, or empty on first run'
+    set -l p (__tmux_lives_funcs_path)
+    test -f $p; and cat $p
+end
+
+function __tmux_lives_write_funcs --description 'record the function names this version ships, for the next update to diff against'
+    set -l p (__tmux_lives_funcs_path)
+    mkdir -p (path dirname $p) 2>/dev/null
+    __tmux_lives_shipped_functions > $p 2>/dev/null
 end

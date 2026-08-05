@@ -1092,6 +1092,54 @@ t "reldef unknown empty"  ""   (__tmux_lives_theme_reldef nope)
 t "valid ember" 0 (__tmux_lives_theme_valid ember; echo $status)
 t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
 
+# ---- update staleness: which shells actually need `exec fish` ----
+# fisher sources the plugin's files into the shell that ran the update, so THAT shell is
+# already current. Every other running shell keeps its old definitions. And sourcing cannot
+# UNSET a function, so a removed/renamed one lingers even in the updating shell. Two
+# independent signals, so the post-update note can say which applies.
+
+# pure: tmux pane shells other than our own, from `list-panes` output
+set -l panes "111 Alpha fish" "222 Beta claude" "333 Gamma fish" "444 Alpha fish"
+t "stale shells: excludes our own pane pid" "Alpha Gamma Alpha" (__tmux_lives_stale_shells 222 $panes | string join ' ')
+t "stale shells: none when only our own"    ""                  (__tmux_lives_stale_shells 111 "111 Alpha fish" | string join ' ')
+t "stale shells: empty input is empty"      ""                  (__tmux_lives_stale_shells 111 | string join ' ')
+t "stale shells: a pane running claude still counts (its shell is stale too)" 1 (contains Beta (__tmux_lives_stale_shells 999 $panes); and echo 1; or echo 0)
+
+# pure: names present in the old set but gone from the new one
+t "removed: finds a dropped name" "__gone" (__tmux_lives_removed_functions "__a
+__gone
+__b" "__a
+__b" | string join ' ')
+t "removed: none when unchanged" "" (__tmux_lives_removed_functions "__a
+__b" "__a
+__b" | string join ' ')
+t "removed: additions are not removals" "" (__tmux_lives_removed_functions "__a" "__a
+__new" | string join ' ')
+t "removed: empty old set (first run) reports nothing" "" (__tmux_lives_removed_functions "" "__a" | string join ' ')
+
+# the shipped-function scan reads `function <name>` from the installed files
+t "shipped fns includes a known one" 1 (contains __tmux_lives_state_path (__tmux_lives_shipped_functions $plugindir); and echo 1; or echo 0)
+t "shipped fns are sorted+unique"    1 (set -l f (__tmux_lives_shipped_functions $plugindir); test (count $f) -eq (count (printf '%s\n' $f | sort -u)); and echo 1; or echo 0)
+t "shipped fns exist at all"         1 (test (count (__tmux_lives_shipped_functions $plugindir)) -gt 20; and echo 1; or echo 0)
+t "shipped fns picks up the categorizer too" 1 (contains __tcz_categorize (__tmux_lives_shipped_functions $plugindir); and echo 1; or echo 0)
+
+# state file, seam-overridable like the other state paths
+set -g tmux_lives_funcs_file /tmp/tl-funcs-$fish_pid
+t "funcs path honours the seam" /tmp/tl-funcs-$fish_pid (__tmux_lives_funcs_path)
+set -e tmux_lives_funcs_file
+t "funcs path default sits beside the other state" 1 (string match -q '*/.config/tmux/*' -- (__tmux_lives_funcs_path); and echo 1; or echo 0)
+
+# the note must never tell the updating shell to restart when nothing was removed
+# NB the note may still say "exec fish" here — for the OTHER shells. What it must not do is
+# tell the shell you are standing in to restart, which is the "here too" advice.
+t "note: does not tell THIS shell to restart when nothing was removed" 0 (string match -q '*here too*' -- (__tmux_lives_update_note 1 "" "Alpha Beta" | string collect); and echo 1; or echo 0)
+t "note: DOES tell this shell to restart when something was removed" 1 (string match -q '*here too*' -- (__tmux_lives_update_note 1 "__gone" "" | string collect); and echo 1; or echo 0)
+t "note: names the other stale sessions" 1 (string match -q '*Alpha*' -- (__tmux_lives_update_note 1 "" "Alpha Beta" | string collect); and echo 1; or echo 0)
+t "note: flags exec fish HERE when a function was removed" 1 (string match -q '*exec fish*' -- (__tmux_lives_update_note 1 "__gone" "" | string collect); and echo 1; or echo 0)
+t "note: names the removed function" 1 (string match -q '*__gone*' -- (__tmux_lives_update_note 1 "__gone" "" | string collect); and echo 1; or echo 0)
+t "note: says nothing about other shells when there are none" 0 (string match -q '*other*' -- (__tmux_lives_update_note 1 "" "" | string collect); and echo 1; or echo 0)
+t "note: uses `exec fish`, never a personal alias" 0 (string match -q '*exf*' -- (__tmux_lives_update_note 1 "__gone" "Alpha" | string collect); and echo 1; or echo 0)
+
 # ---- v5: kin-cap family table ----
 # Fitted in the 2026-07-20 calibration study (4 rounds, user as blind subject, ~84% of
 # judgments explained; the rule-generated validation batch scored 9/10 vs 5/10 pre-rule).
