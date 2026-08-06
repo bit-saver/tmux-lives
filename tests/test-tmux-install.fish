@@ -20,6 +20,31 @@ source $plugindir/conf.d/tmux-lives-install.fish
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
 
+# Start a private, config-free server; optionally source $conf into it; attach a real pty
+# client; report whether tmux granted that client the Sync capability. Capabilities are
+# resolved at ATTACH and never revisited, so the config MUST be sourced before attaching —
+# getting that order wrong silently measures nothing. Polls for the client rather than
+# sleeping a fixed interval.
+function __tls_client_sync --argument-names sock conf
+    command tmux -L $sock -f /dev/null new-session -d 'sleep 20' 2>/dev/null
+    test -n "$conf"; and command tmux -L $sock source-file $conf 2>/dev/null
+    env TERM=xterm-256color script -qec "tmux -L $sock attach" /dev/null >/dev/null 2>&1 &
+    set -l n 0
+    while test $n -lt 25; and test (command tmux -L $sock list-clients 2>/dev/null | count) -eq 0
+        sleep 0.2
+        set n (math $n + 1)
+    end
+    set -l line (command tmux -L $sock info 2>/dev/null | string match -r '.*Sync:.*')
+    command tmux -L $sock kill-server 2>/dev/null
+    if test -z "$line[1]"
+        echo unknown
+    else if string match -q '*missing*' -- "$line[1]"
+        echo missing
+    else
+        echo present
+    end
+end
+
 set -l frag (__tmux_lives_render_fragment /X/cat.fish S M-s | string collect)
 t "fragment has categorizer path" 1 (string match -q '*/X/cat.fish*' -- "$frag"; and echo 1; or echo 0)
 t "fragment has update-environment" 1 (string match -q '*update-environment*LC_TERMINAL*' -- "$frag"; and echo 1; or echo 0)
@@ -166,6 +191,70 @@ set -g FRAGCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r 
 t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-style block*' -- "$FRAGCUR"; and echo yes; or echo no)
 set -g FRAGNOCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s '' | string collect)
 t "fragment omits cursor-style when unset" yes (string match -q '*cursor-style*' -- "$FRAGNOCUR"; and echo no; or echo yes)
+
+# --- sync terminal-feature (arg 21) ------------------------------------------------
+# tmux decides PER CLIENT, at attach, whether a terminal can buffer synchronized output,
+# and it decides from its own terminal identification — it never asks the client. It
+# recognises Ghostty but not ShellFish, so it wrote every Claude frame unwrapped and
+# ShellFish painted ~21 cursor hide/show pairs a second (the 2026-08-06 strobing).
+# Telling tmux the terminal can sync is the fix. GATED to tmux >= 3.7: only there does
+# the capability map to DECSET 2026 (3.3a emits the older iTerm2 DCS form), and only
+# there can the bug occur — 3.3a never answers the DECRQM query, so Claude never turns
+# sync on. See [[shellfish-cursor-flicker]].
+set -g SYNCBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 balanced arc linear auto
+set -g FRAGSYNC (__tmux_lives_render_fragment $SYNCBASE 'xterm*' | string collect)
+set -g FRAGNOSYNC (__tmux_lives_render_fragment $SYNCBASE '' | string collect)
+t "fragment emits the sync terminal-feature when set" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAGSYNC"; and echo yes; or echo no)
+t "fragment gates the sync feature behind a tmux version check" yes (string match -q '*if-shell*sort -V*terminal-features*' -- "$FRAGSYNC"; and echo yes; or echo no)
+t "fragment omits the sync feature when unset" yes (string match -q '*:sync*' -- "$FRAGNOSYNC"; and echo no; or echo yes)
+
+# The version gate must ENABLE at >=3.7 and SKIP below it. A silently-wrong gate would
+# disable the fix with no visible symptom, which is precisely how this bug hid before —
+# so drive the REAL probe extracted from the fragment against stubbed `tmux -V` output.
+set -g SYNCGATE (string match -r "if-shell '([^']*)' \"set -as terminal-features" -- "$FRAGSYNC")
+t "sync gate probe is extractable from the fragment" yes (test (count $SYNCGATE) -ge 2; and test -n "$SYNCGATE[2]"; and echo yes; or echo no)
+set -g gatedir /tmp/tli-gate-$fish_pid
+mkdir -p $gatedir
+for ver in 3.3a 3.6a 3.7 3.7b 3.10 4.0
+    printf '#!/bin/sh\necho "tmux %s"\n' $ver > $gatedir/tmux
+    chmod +x $gatedir/tmux
+    set -l want skip
+    contains -- $ver 3.7 3.7b 3.10 4.0; and set want enable
+    t "sync gate on tmux $ver" $want (env PATH="$gatedir:$PATH" sh -c "$SYNCGATE[2]" >/dev/null 2>&1; and echo enable; or echo skip)
+end
+rm -rf $gatedir
+
+# DIRECT proof the emitted command actually grants the capability. A string match alone
+# is not enough: tmux stores an unknown feature name silently (verified — a deliberately
+# bogus `xterm*:notafeature` is accepted without error), so a typo would pass a grep and
+# ship a dead fix. Source the real emitted command onto a private server, attach a pty
+# client, and read the capability back — with a control proving the assertion can fail.
+if command -q script
+    set -g SYNCCMD (string match -r 'set -as terminal-features [^"]*' -- "$FRAGSYNC")
+    set -g syncconf /tmp/tli-sync-$fish_pid.conf
+    printf '%s\n' "$SYNCCMD[1]" > $syncconf
+    t "attached client has no Sync capability by default (control)" missing (__tls_client_sync tli-sync0-$fish_pid '')
+    t "the emitted command grants an attached client the Sync capability" present (__tls_client_sync tli-sync1-$fish_pid $syncconf)
+    rm -f $syncconf
+else
+    echo "SKIP: util-linux `script` unavailable — sync capability behaviour untested"
+end
+
+# The sync line nests single quotes inside double quotes inside a tmux command, and the
+# shell probe carries $(...) and its own double quotes. A `source-file rc0` check CANNOT
+# police that: tmux returns 0 and writes NOTHING to stderr for a malformed line (verified
+# against a deliberately broken variant). So assert the EFFECT instead — source the real
+# emitted line with only the version predicate swapped for `true`, and read the option
+# back. This host is 3.3a, where the real gate is false, hence the swap.
+set -g syncfrag /tmp/tli-syncfrag-$fish_pid.conf
+set -g syncsock tli-syncparse-$fish_pid
+set -g SYNCLINE (string match -r "if-shell '[^']*' .*terminal-features.*" -- "$FRAGSYNC")
+printf '%s\n' (string replace -r "if-shell '[^']*'" "if-shell 'true'" -- "$SYNCLINE[1]") > $syncfrag
+command tmux -L $syncsock -f /dev/null new-session -d 2>/dev/null
+command tmux -L $syncsock source-file $syncfrag 2>/dev/null
+t "emitted sync line, gate forced true, really sets the feature" yes (command tmux -L $syncsock show -gv terminal-features | string match -q '*:sync*'; and echo yes; or echo no)
+command tmux -L $syncsock kill-server 2>/dev/null; rm -f $syncfrag
+
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
 command tmux -L $sfsock new-session -d 2>/dev/null

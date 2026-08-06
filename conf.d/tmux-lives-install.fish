@@ -33,6 +33,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l themeshape $argv[18]   #   18 themeshape  arc|flat ('' = arc)
     set -l themeease $argv[19]    #   19 themeease   linear|cubic ('' = linear)
     set -l themecontrast $argv[20]   #   20 themecontrast  companion side auto|lighter|darker ('' = auto)
+    set -l syncterm $argv[21]     #   21 syncterm    TERM glob told to use synchronized output ('' = off)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -71,6 +72,18 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # Pin a STEADY cursor so tmux's cstyle re-emission on redraw doesn't flicker the ShellFish
     # cursor (a steady style re-emitted is invisible). '' leaves tmux's default untouched.
     test -n "$cursorstyle"; and set -a f "set -g cursor-style $cursorstyle"
+    # The OTHER ShellFish cursor fix. tmux picks, per client and only at attach, whether a
+    # terminal can buffer synchronized output — from its own terminal identification, never
+    # by asking the client. It knows Ghostty; it does not know ShellFish. So it wrote each
+    # of Claude's frames unwrapped and ShellFish painted every intermediate state, ~21 cursor
+    # hide/show pairs a second. ShellFish DOES implement DECSET 2026 — tmux simply never
+    # finds out — so we tell it. Gated to tmux >= 3.7 for two independent reasons: only there
+    # does this capability map to DECSET 2026 (3.3a emits the older iTerm2 DCS form, which we
+    # have no evidence ShellFish reads), and only there can the bug exist at all, since older
+    # tmux never answers the DECRQM query so Claude never enables sync. sort -V keeps 3.10 >
+    # 3.7, which a numeric compare would get wrong. See [[shellfish-cursor-flicker]].
+    set -l syncgate 'v=$(tmux -V | tr -dc 0-9.); test $(echo $v 3.7 | tr " " "\n" | sort -V | head -n1) = 3.7'
+    test -n "$syncterm"; and set -a f "if-shell '$syncgate' \"set -as terminal-features '$syncterm:sync'\""
     set -a f "# macOS reports claude's version-named binary (versions/X.Y.Z) as the window"
     set -a f "# command; show 'claude' for a version-like name, pass everything else through."
     set -a f "set -g automatic-rename-format '#{?pane_in_mode,[tmux],#{?#{m:*.*.*,#{pane_current_command}},claude,#{pane_current_command}}}#{?pane_dead,[dead],}'"
@@ -282,7 +295,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end

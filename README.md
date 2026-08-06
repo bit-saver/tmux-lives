@@ -60,6 +60,23 @@ tmux-lives setup conf reset                 # restore defaults (backs up to .bak
 
 `~/.tmux-lives.conf` is the general tmux-lives config — sourced by the managed fragment at load (every client) and re-applied on every attach from a client that isn't ShellFish or iTerm2. It is seeded once with active status-bar polish: `❯ #{session_name}` on the left, longer name lengths, a 12-hour month-first clock in `@tmux_lives_status_right`, and bold current window. Edit it freely; `tmux-lives setup conf reset` backs up your version to `.bak` and restores the defaults. The `client-attached` hook lives in the managed fragment, so it reaches a host when `tmux-lives setup install` (re)renders it — setting a color via `tmux-lives setup color …` re-renders automatically.
 
+### Cursor flicker inside tmux
+
+Two unrelated things make a terminal's cursor strobe inside tmux, and the managed fragment handles both.
+
+The first is tmux re-emitting the cursor *style* on every redraw, which some terminals repaint on each time. Pinning a **steady** style makes the re-emission invisible; the fragment sets `cursor-style` from `tmux_lives_cursor_style` (default `block`; `''` leaves tmux's own default alone).
+
+The second only shows up with a full-screen TUI doing continuous work. tmux decides, per client and only at attach time, whether a terminal can buffer **synchronized output** — and it decides from its own terminal identification, never by asking the client. Terminals it doesn't recognise get every frame written unwrapped, so each intermediate state is painted, including the cursor hide/show pair in every frame. The fragment tells tmux the terminal can sync, via `tmux_lives_sync_terminals` (default `xterm*`; `''` disables):
+
+```fish
+set -U tmux_lives_sync_terminals ''        # disable
+set -U tmux_lives_sync_terminals 'xterm*'  # default
+```
+
+This is **gated to tmux 3.7 and newer** for two reasons: only there does the capability map to DECSET 2026 (older tmux emits an iTerm2-specific DCS form instead), and only there can the problem occur at all — older tmux never reports mode 2026 as available, so applications never turn synchronized output on in the first place. On tmux 3.3a the line is present but inert.
+
+Both settings apply to clients that attach *after* the fragment loads. tmux never revisits a client's capabilities once it has attached, so an already-open terminal keeps its old behaviour until it reconnects.
+
 ### Theming (gradient map)
 
 The status bar is themed by a gradient map, and each **scheme** now varies more than trim: it places the bar itself at a different hue on your seed's own depth (lightness) — so schemes give you genuinely different bar colors, not just variations dressed around one fixed bar. The endcaps and the ShellFish/iTerm2 tab strip now read as one harmonious trio with the bar: the cap is derived from wherever the bar lands (a calibrated pairing rule tuned so the pair always reads well together), and the tabs sit kin to that bar/cap pair — hue halfway between them, one lightness step away from the bar (lighter when the bar's dark, darker when it's already light), the cap's chroma — in every scheme, including `mono`. Your seed's home base is the ✦ mark: it always shows up there verbatim, plus in `mono`, where the bar IS the seed, untouched (the one scheme that never resamples), and in the picker's anchor row, which freezes your saved theme's seed for comparison. The remaining accents — separators · active · windows — come from a ring of arc samples around your seed, and they're the only roles `o` rotate shuffles; text stays contrast-safe automatically, computed straight off the actual bar color rather than the seed. Default scheme: `mono`.
