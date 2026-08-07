@@ -29,11 +29,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap ('' = bar)
     set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
     set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
-    set -l themeviv $argv[17]     #   17 themeviv    soft|balanced|vivid ('' = balanced)
-    set -l themeshape $argv[18]   #   18 themeshape  arc|flat ('' = arc)
-    set -l themeease $argv[19]    #   19 themeease   linear|cubic ('' = linear)
-    set -l themecontrast $argv[20]   #   20 themecontrast  companion side auto|lighter|darker ('' = auto)
-    set -l syncterm $argv[21]     #   21 syncterm    TERM glob told to use synchronized output ('' = off)
+    set -l syncterm $argv[17]     #   17 syncterm    TERM glob told to use synchronized output ('' = off)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -116,7 +112,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l seedhex
     if test -n "$theme"
         set seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$place" "$mode" "$themephase" "$themeviv" "$themeshape" "$themeease" "$themecontrast")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$place" "$mode" "$themephase")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -295,7 +291,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_theme_vividness balanced) (__tmux_lives_key tmux_lives_theme_shape arc) (__tmux_lives_key tmux_lives_theme_ease linear) (__tmux_lives_key tmux_lives_theme_contrast auto) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -654,7 +650,7 @@ function __tmux_lives_theme_accents --argument-names barHex capHex --description
     printf '%s\n' $sep $active $windows $text
 end
 
-function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase vividness shape ease contrast --description 'v5: seed + relationship/place/mode/knobs -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, the bridged endcap); sep/active/windows/text = tints/contrast off the bar. Phase 1: only phase shapes the curve; vividness/shape/ease/contrast are accepted for signature stability. Non-hex seed / unknown relationship -> nothing.'
+function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase --description 'v5: seed + relationship/place/mode/phase -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, the bridged endcap); sep/active/windows/text = tints/contrast off the bar. Non-hex seed / unknown relationship -> nothing.'
     set -l tri (__tmux_lives_theme_curve "$seedHex" "$relationship" "$place" "$mode" "$phase")
     test (count $tri) -eq 3; or return
     set -l acc (__tmux_lives_theme_accents $tri[1] $tri[3])
@@ -918,25 +914,20 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v5 theme (or legacy when off/seedless) to the live server. With exactly 8 args (relationship place mode phase viv shape ease contrast) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
-    set -l theme; set -l place; set -l mode; set -l phase; set -l viv; set -l shape; set -l ease; set -l contrast
-    if test (count $argv) -eq 8
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v5 theme (or legacy when off/seedless) to the live server. With exactly 4 args (relationship place mode phase) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l place; set -l mode; set -l phase
+    if test (count $argv) -eq 4
         set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
-        set viv $argv[5]; set shape $argv[6]; set ease $argv[7]; set contrast $argv[8]
     else
         set theme (__tmux_lives_key tmux_lives_theme mono)
         set place (__tmux_lives_key tmux_lives_theme_place bar)
         set mode (__tmux_lives_key tmux_lives_theme_mode derived)
         set phase (__tmux_lives_key tmux_lives_theme_phase 0)
-        set viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
-        set shape (__tmux_lives_key tmux_lives_theme_shape arc)
-        set ease (__tmux_lives_key tmux_lives_theme_ease linear)
-        set contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
     end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase $viv $shape $ease $contrast)
+        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase)
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -969,17 +960,13 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
-    set -l viv (__tmux_lives_key tmux_lives_theme_vividness balanced)
-    set -l shape (__tmux_lives_key tmux_lives_theme_shape arc)
-    set -l ease (__tmux_lives_key tmux_lives_theme_ease linear)
-    set -l contrast (__tmux_lives_key tmux_lives_theme_contrast auto)
     for entry in (__tmux_lives_theme_catalog)
         set -l f (string split '|' $entry)
         set -l name $f[1]
         set -l rel $f[2]
         set -l place $f[3]
         set -l mode $f[4]
-        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase $viv $shape $ease $contrast)
+        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase)
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal

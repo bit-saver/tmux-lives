@@ -201,7 +201,7 @@ t "fragment omits cursor-style when unset" yes (string match -q '*cursor-style*'
 # the capability map to DECSET 2026 (3.3a emits the older iTerm2 DCS form), and only
 # there can the bug occur — 3.3a never answers the DECRQM query, so Claude never turns
 # sync on. See [[shellfish-cursor-flicker]].
-set -g SYNCBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 balanced arc linear auto
+set -g SYNCBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0
 set -g FRAGSYNC (__tmux_lives_render_fragment $SYNCBASE 'xterm*' | string collect)
 set -g FRAGNOSYNC (__tmux_lives_render_fragment $SYNCBASE '' | string collect)
 t "fragment emits the sync terminal-feature when set" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAGSYNC"; and echo yes; or echo no)
@@ -254,6 +254,22 @@ command tmux -L $syncsock -f /dev/null new-session -d 2>/dev/null
 command tmux -L $syncsock source-file $syncfrag 2>/dev/null
 t "emitted sync line, gate forced true, really sets the feature" yes (command tmux -L $syncsock show -gv terminal-features | string match -q '*:sync*'; and echo yes; or echo no)
 command tmux -L $syncsock kill-server 2>/dev/null; rm -f $syncfrag
+
+# --- Task 1: knobs removed, sync arg renumbered 21 -> 17 -------------------------
+# The four knobs are gone, so syncterm is positional 17. Pre-change, position 17 is
+# themeviv and syncterm is empty, so NO sync line is emitted — that is the failure
+# this pins. A silently-disabled sync feature has no rc and no visible symptom.
+set -g FRAG17 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 'xterm*' | string collect)
+t "sync is positional 17 after the knobs are removed" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAG17"; and echo yes; or echo no)
+
+# The engine must produce the SAME colours as before — this is a refactor, not a
+# derivation change. Pinned as literal hexes so it cannot drift silently.
+set -g P5 (__tmux_lives_theme_palette '#5f772b' amber bar derived 0)
+t "palette still returns 7 roles from 5 args" 7 (count $P5)
+t "palette bar unchanged by the refactor" '#44502f' $P5[1]
+
+# apply_live's explicit form is now exactly 4 args.
+t "apply_live explicit form documents 4 args" yes (string match -q '*4 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
 
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
@@ -897,8 +913,8 @@ t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_f
 t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
 # theme ON: every role @option carries its gradient sample
-set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived '' '' '' '' '' | string collect)
-set -g TONPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 0 balanced arc linear auto)
+set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived '' | string collect)
+set -g TONPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 0)
 t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
 t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
@@ -910,10 +926,11 @@ t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '
 t "on: mark_fg is the seed verbatim" yes (string match -q "*set -g @tmux_lives_mark_fg '#485b3c'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
 t "on: no claude_color anywhere" no (string match -q '*claude_color*' -- "$TON"; and echo yes; or echo no)
-# knobs flow through argv 16-20 (phase/vividness/shape/ease/contrast); place/mode are argv 14-15
-set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 vivid flat cubic darker | string collect)
-set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 90 vivid flat cubic darker)
-t "on: knobs reach the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
+# the four knobs are gone; phase is argv 16 (place/mode are argv 14-15) and is the
+# one remaining value that moves the curve.
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 | string collect)
+set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 90)
+t "on: phase reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
 set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k ember | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
@@ -924,7 +941,6 @@ t "off token renders legacy status-style" yes (string match -q '*set -g status-s
 t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-t "write_fragment passes theme_contrast" yes (string match -q '*tmux_lives_theme_contrast auto*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_place" yes (string match -q '*tmux_lives_theme_place bar*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_mode" yes (string match -q '*tmux_lives_theme_mode derived*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment has no rotate arg leakage" no (string match -q '*theme_rotate*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
@@ -1016,7 +1032,7 @@ t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | s
 set -l bad 0
 for e in (__tmux_lives_theme_catalog)
     set -l f (string split '|' $e)
-    set -l p (__tmux_lives_theme_palette '#5f772b' $f[2] $f[3] $f[4] 0 balanced arc linear auto)
+    set -l p (__tmux_lives_theme_palette '#5f772b' $f[2] $f[3] $f[4] 0)
     test (count $p) -eq 7; or set bad (math $bad + 1)
 end
 t "every catalog recipe yields 7 hexes" 0 $bad
@@ -1117,21 +1133,20 @@ set -e tmux_lives_theme_mode
 set -e tmux_lives_theme_phase
 set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
-set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono bar derived 0 balanced arc linear auto)
+set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono bar derived 0)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-# Task 6 controller scope: the 8-arg apply-live path (the picker's `a`-preview and
+# Task 6 controller scope: the 4-arg apply-live path (the picker's `a`-preview and
 # esc-revert path) writes no state — direct-call it twice with only phase flipped
-# and confirm a derived color actually moves (same seed/relationship/place/mode/etc).
-# v4 Phase 1 only threads phase through the curve — vividness/shape/ease/contrast are
-# accepted for signature stability but not yet consumed (see __tmux_lives_theme_palette's
-# own description), so phase is the one knob guaranteed to move a role color here.
-__tmux_lives_theme_apply_live sage bar derived 0 balanced arc linear auto
+# and confirm a derived color actually moves (same seed/relationship/place/mode).
+# Task 1 removed vividness/shape/ease/contrast entirely (they were accepted-but-inert),
+# so phase is the only knob left that moves a role color here.
+__tmux_lives_theme_apply_live sage bar derived 0
 set -g THEME_CAP_A (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-__tmux_lives_theme_apply_live sage bar derived 180 balanced arc linear auto
+__tmux_lives_theme_apply_live sage bar derived 180
 set -g THEME_CAP_B (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "apply-live 8-arg phase-0 cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
-t "apply-live 8-arg phase-180 cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
-t "apply-live 8-arg phase 0 vs 180 differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 4-arg phase-0 cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
+t "apply-live 4-arg phase-180 cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 4-arg phase 0 vs 180 differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd
@@ -1142,7 +1157,7 @@ functions -e __tmux_lives_write_fragment; functions -c __wfth_bak __tmux_lives_w
 # in-process 10-scheme batch must complete well under a second.
 set -l _pt0 (date +%s%N)
 for _tok in (__tmux_lives_theme_relationships)
-    __tmux_lives_theme_palette '#485b3c' $_tok bar derived 0 balanced arc linear auto >/dev/null
+    __tmux_lives_theme_palette '#485b3c' $_tok bar derived 0 >/dev/null
 end
 set -l _pt1 (date +%s%N)
 set -l _ptms (math "($_pt1 - $_pt0) / 1000000")
@@ -1478,7 +1493,7 @@ end
 t "cap placement: the large areas still sit |sd| apart" 0 $cptrav
 
 # ---- v4: accents + palette ----
-set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0 balanced arc linear auto)
+set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0)
 t "palette returns 7" 7 (count $pal)
 for i in 1 2 3 4 5 6 7
     t "palette role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $pal[$i]; and echo 1; or echo 0)
@@ -1491,7 +1506,7 @@ t "palette cap = curve cap"   $tri[3] $pal[6]
 # windows (status-style fg, on the dark bar) must be light for contrast
 set -l wok (_oklch_of $pal[5])
 t "palette windows is light" 1 (test $wok[1] -gt 0.60; and echo 1; or echo 0)
-t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0 balanced arc linear auto))
+t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0))
 # the retired v3 builders are gone — grep the SOURCE file, not the runtime
 # function table. A `functions -q` check would falsely fail under plain `fish`
 # (which loads the developer's LIVE fisher install of the old code, distinct
@@ -1561,20 +1576,19 @@ for i in (seq (count $_mig_names))
     test $_mig_had[$i] -eq 1; and set -U $_mig_names[$i] $_mig_saved[$i]
 end
 
-# --- v4 fragment argv: 13 theme(relationship) 14 place 15 mode 16 phase
-# 17 vividness 18 shape 19 ease 20 contrast (rotate retired — see
-# [[theme-engine-v3-gradient-map]]).
-set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 0 balanced arc linear auto | string collect)
-# Phase 1: contrast is accepted-but-unused by the palette; phase DOES move the
-# curve (bar/tabs/cap hues), so it moves the cap role too.
-set -l frp (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 balanced arc linear auto | string collect)
+# --- v5 fragment argv: 13 theme(relationship) 14 place 15 mode 16 phase
+# (the four knobs — vividness/shape/ease/contrast — are retired as of Task 1;
+# see [[theme-engine-v3-gradient-map]]).
+set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 0 | string collect)
+# phase DOES move the curve (bar/tabs/cap hues), so it moves the cap role too.
+set -l frp (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 | string collect)
 set -l cap0 (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$fr0")
 set -l capp (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$frp")
 t "fragment phase changes the cap" 0 (test "$cap0" = "$capp"; and echo 1; or echo 0)
 # the bar is not the seed verbatim for non-mono relationships in 'derived' mode
 # (it's a curve sample) — assert the fragment's status-style bg matches whatever
 # the palette actually derives for ember, not the raw seed.
-set -l fr0pal (__tmux_lives_theme_palette '#485B3C' ember bar derived 0 balanced arc linear auto)
+set -l fr0pal (__tmux_lives_theme_palette '#485B3C' ember bar derived 0)
 t "fragment bar bg matches the derived bar" 1 (string match -q "*status-style bg=$fr0pal[1]*" -- "$fr0"; and echo 1; or echo 0)
 # post_update runs the v3.1 shim right after the v2 shim
 t "post_update calls the v31 shim" yes (string match -q '*__tmux_lives_migrate_v31*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
