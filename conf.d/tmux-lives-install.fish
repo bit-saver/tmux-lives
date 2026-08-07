@@ -1386,11 +1386,6 @@ end
 function __tmux_lives_migrate_v2 --description 'one-time v2 cap -> v3 theme universal migration (idempotent; runs on fisher update). Reset-to-mono policy: geometric schemes have no arc equivalent.'
     set -l oldscheme ''
     set -q tmux_lives_cap; and set oldscheme $tmux_lives_cap
-    if set -q tmux_lives_cap_vividness; and not set -q tmux_lives_theme_vividness
-        set -l v $tmux_lives_cap_vividness
-        test "$v" = subtle; and set v soft
-        contains -- $v soft balanced vivid; and set -U tmux_lives_theme_vividness $v
-    end
     if set -q tmux_lives_cap_key; and not set -q tmux_lives_theme_key
         set -U tmux_lives_theme_key $tmux_lives_cap_key
     end

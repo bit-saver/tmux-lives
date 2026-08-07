@@ -1688,17 +1688,29 @@ t "migrate: cap scheme erased" 0 (set -q tmux_lives_cap; and echo 1; or echo 0)
 t "migrate: wheel erased" 0 (set -q tmux_lives_cap_wheel; and echo 1; or echo 0)
 t "migrate: role erased" 0 (set -q tmux_lives_cap_role; and echo 1; or echo 0)
 t "migrate: cap_key erased" 0 (set -q tmux_lives_cap_key; and echo 1; or echo 0)
-t "migrate: vividness subtle -> soft" soft "$tmux_lives_theme_vividness"
 t "migrate: cap_key -> theme_key" M-j "$tmux_lives_theme_key"
 t "migrate: one notice naming the old scheme" yes (string match -q "*cap scheme 'square' has no v3 equivalent*" -- "$MIGOUT"; and echo yes; or echo no)
+# v2 no longer writes theme_vividness at all — it is a retired universal (erased,
+# not carried, by migrate_v51 if anything ever sets it). A legacy cap_vividness
+# must not resurrect it, even transiently within a single migrate_v2 call.
+t "migrate: does not resurrect theme_vividness" 0 (set -q tmux_lives_theme_vividness; and echo 1; or echo 0)
 # idempotent: a second run is silent and changes nothing
 t "migrate: second run silent" 0 (count (__tmux_lives_migrate_v2))
-t "migrate: theme_vividness survives rerun" soft "$tmux_lives_theme_vividness"
-# never clobbers an existing v3 value
+t "migrate: still no theme_vividness after rerun" 0 (set -q tmux_lives_theme_vividness; and echo 1; or echo 0)
+# Simulate a legacy install hitting the FULL post-update migration chain (not just
+# v2 in isolation): a fresh cap_vividness must never resurrect theme_vividness
+# anywhere along v2..v51, and the still-live cap_key -> theme_key carryover must
+# keep working alongside it.
+set -e tmux_lives_theme_key
 set -U tmux_lives_cap_vividness vivid
-set -U tmux_lives_theme_vividness balanced
+set -U tmux_lives_cap_key M-j
 __tmux_lives_migrate_v2 >/dev/null
-t "migrate: existing theme_vividness wins" balanced "$tmux_lives_theme_vividness"
+__tmux_lives_migrate_v31 >/dev/null
+__tmux_lives_migrate_v4 >/dev/null
+__tmux_lives_migrate_v41 >/dev/null
+__tmux_lives_migrate_v51 >/dev/null
+t "migrate chain: legacy cap_vividness never resurrects theme_vividness" 0 (set -q tmux_lives_theme_vividness; and echo 1; or echo 0)
+t "migrate chain: cap_key -> theme_key carryover still works" M-j "$tmux_lives_theme_key"
 # post_update runs the shim before the re-render
 t "post_update calls the shim first" yes (string match -q '*__tmux_lives_migrate_v2*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 for i in (seq (count $_mig_names))
