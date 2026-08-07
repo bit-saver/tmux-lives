@@ -2766,7 +2766,185 @@ t "edit-esc arm does not break the loop" 0 (string match -ra '\bbreak\b' -- "$ES
 set -g DR4 (string match -ra 'stty min 0 time' -- "$PB4" | count)
 t "drain loops re-assert non-blocking mode" yes (test $DR4 -ge 2; and echo yes; or echo no)
 
-rm -rf $shimdir
+# --- Task 4 review fix: behavioural coverage for the arrow/toggle/esc dispatch ----
+# Review finding: every assertion above is a SOURCE-TEXT GREP over $PB4 — none of
+# them RUN the dispatch. The reviewer mutation-proved all 9 stay green under 5 real
+# breakages (deleting the editing branch from case up/down/pgup/pgdn, deleting case
+# left/right's editing guard, breaking the 255 clamp, swapping `set seed $editseed`
+# for `set seed $anch_seed` in the esc arm, and unbinding the toggle from case b) —
+# because e.g. the literal text `test "$editing" = 1` still occurs elsewhere even
+# after the branch that matters is deleted. Same technique as $RB7/$CASEM9/$DRAWTEXT9
+# above: extract the real arms by content-bounded awk range, assert each extraction
+# is non-empty FIRST (an empty range makes every guard built on it vacuous — the
+# same reasoning the BEGIN/END edit-esc markers exist for), stub
+# __tcz_popup_readkey from a scripted token queue plus a no-op stty, and eval the
+# wrapped arm for real against seeded locals. eval, not source: source opens its own
+# local scope, so a `set -l` inside would not survive the call returning — these
+# arms mutate the CALLER's locals (chan/seedr/seedg/seedb/seed/sel/sel2), which only
+# works through eval running inline in the harness function's own scope.
+#
+# Extraction variables that a later-defined harness function references via `eval`
+# MUST be `-g` (global) — a top-level `set -l` is invisible inside a function
+# defined afterward (no dynamic scoping in fish). This bit during development: an
+# early draft declared one extraction `-l`, and `eval` of an unset variable is a
+# silent no-op (zero arguments) — no error, no crash, just the arm never running at
+# all. Caught only by printing the "before"/"after" value and seeing them identical.
+set -g ARROWUD9 (awk '/^            case left right$/{exit} /^            case up down pgup pgdn$/{f=1} f{print}' $catfile | string collect)
+t "up/down arm extraction is non-empty" 1 (test -n "$ARROWUD9"; and echo 1; or echo 0)
+set -g ARROWLR9 (awk '/^            case m$/{exit} /^            case left right$/{f=1} f{print}' $catfile | string collect)
+t "left/right arm extraction is non-empty" 1 (test -n "$ARROWLR9"; and echo 1; or echo 0)
+# `case` is switch-only (same constraint CASEM9WRAP documents above): the two arms
+# extracted separately have to be spliced into ONE literal `switch $tok ... end`
+# string and eval'd together, mirroring their real adjacency in the file — a real
+# switch wrapping the eval CALL does not splice into it, since a switch's direct
+# child must be a literal `case` at parse time and the body is only known at
+# runtime. `\$tok` stays UNexpanded here (backslash-escaped) so it re-resolves at
+# eval time against whichever `$tok` the calling harness function set that call —
+# unlike $CASEM9WRAP's hardcoded "switch m", this wrapper is reused across many
+# different token scenarios.
+set -g ARROW9WRAP "switch \$tok
+$ARROWUD9
+$ARROWLR9
+end"
+
+set -g __t9_real_readkey (functions __tcz_popup_readkey | string collect)
+function __tcz_popup_readkey --description 'test stub, temporarily REPLACING the real __tcz_popup_readkey (restored from $__t9_real_readkey below): pops the next token off the global $__t9_rkq queue each call (simulating a drain loop''s buffered reads); returns "other" once exhausted — a safe, deterministic drain terminator regardless of how many tokens a scenario actually queued.'
+    if test (count $__t9_rkq) -gt 0
+        echo $__t9_rkq[1]
+        set -g __t9_rkq $__t9_rkq[2..-1]
+    else
+        echo other
+    end
+end
+function stty
+    # no-op: the real stty targets the actual terminal device, which has no
+    # meaningful state to assert on here and may not even be present under the
+    # test harness. The extracted arms call it only to toggle blocking mode
+    # around a scripted read, which the stub queue above makes irrelevant.
+end
+
+function __t9_arrow --argument-names tok editing chan seedhex focus sel sel2 --description 'eval the REAL up/down/pgup/pgdn + left/right dispatch arms (via $ARROW9WRAP) against a throwaway scope that declares every local either arm reads or writes. Trailing argv (argv[8..]) seeds the readkey queue a drain loop consumes AFTER the initial keypress — e.g. two more "right" tokens simulates a 3-press held burst. Prints "<chan>\n<seedr>\n<seedg>\n<seedb>\n<seed>\n<sel>\n<sel2>" (one per line, so a caller can index a single field OR quote the whole capture for a space-joined equality check — both are used by the assertions below).'
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $seedhex)
+    if test (count $m) -eq 3
+        set seedr (math "0x$m[1]")
+        set seedg (math "0x$m[2]")
+        set seedb (math "0x$m[3]")
+    end
+    set -l seed $seedhex
+    set -l WIN 5
+    set -l n 5
+    set -g __t9_rkq $argv[8..-1]
+    eval $ARROW9WRAP
+    printf '%s\n' $chan $seedr $seedg $seedb $seed $sel $sel2
+end
+
+# Mode gate, both directions, for ↑↓ (item 1a/1b): active at editing=1 (chan moves,
+# nothing else does), inert at editing=0 (chan is untouched, the pre-existing
+# scheme-cursor logic runs exactly as before — proving the gate doesn't regress the
+# code it wraps, not just that it exists).
+set -g R_UD_UP1 (__t9_arrow up 1 2 '#5f772b' list 0 0)
+t "editing=1: up moves chan down by one"        "1 95 119 43 #5f772b 0 0" "$R_UD_UP1"
+set -g R_UD_DOWN1 (__t9_arrow down 1 2 '#5f772b' list 0 0)
+t "editing=1: down moves chan up by one"        "3 95 119 43 #5f772b 0 0" "$R_UD_DOWN1"
+set -g R_UD_DOWN0 (__t9_arrow down 0 2 '#5f772b' list 0 0)
+t "editing=0: down leaves chan untouched, sel still moves" "2 95 119 43 #5f772b 1 0" "$R_UD_DOWN0"
+
+# chan floor/ceiling at 1..3 (item: floor/ceiling), still under the active gate.
+set -g R_CHFLOOR (__t9_arrow up 1 1 '#5f772b' list 0 0)
+t "editing=1: chan floors at 1 (up from 1 stays 1)"   "1 95 119 43 #5f772b 0 0" "$R_CHFLOOR"
+set -g R_CHCEIL (__t9_arrow down 1 3 '#5f772b' list 0 0)
+t "editing=1: chan ceilings at 3 (down from 3 stays 3)" "3 95 119 43 #5f772b 0 0" "$R_CHCEIL"
+
+# pgup/pgdn are no-ops while editing (item: pgup/pgdn no-ops) — there is no list to
+# page; chan, seed, and sel/sel2 must all be exactly what they were.
+set -g R_PGUP (__t9_arrow pgup 1 2 '#5f772b' list 0 0)
+t "editing=1: pgup is a no-op"   "2 95 119 43 #5f772b 0 0" "$R_PGUP"
+set -g R_PGDN (__t9_arrow pgdn 1 2 '#5f772b' list 0 0)
+t "editing=1: pgdn is a no-op"   "2 95 119 43 #5f772b 0 0" "$R_PGDN"
+
+# Mode gate, both directions, for ←→ (item 1c/1d): active at editing=1 (the seed
+# channel moves), inert at editing=0 (the whole arm is a no-op — nothing moves).
+set -g R_LR_RIGHT1 (__t9_arrow right 1 1 '#000000' list 0 0)
+t "editing=1: right moves the R channel by +8" "1 8 0 0 #080000 0 0" "$R_LR_RIGHT1"
+set -g R_LR_LEFT1 (__t9_arrow left 1 1 '#080000' list 0 0)
+t "editing=1: left moves the R channel by -8"  "1 0 0 0 #000000 0 0" "$R_LR_LEFT1"
+set -g R_LR_RIGHT0 (__t9_arrow right 0 1 '#000000' list 0 0)
+t "editing=0: right is a no-op — seed unchanged" "1 0 0 0 #000000 0 0" "$R_LR_RIGHT0"
+
+# ±8 per press (item) is the single-press cases directly above (8 and -8). The
+# coalescing sum (item): a held key queues more of the same token, which the drain
+# swallows into ONE net delta rather than moving once per queued token individually
+# — three "right" presses (the initial one plus two queued) sum to +24, not three
+# separate +8 redraws.
+set -g R_LR_COALESCE (__t9_arrow right 1 1 '#000000' list 0 0 right right)
+t "editing=1: three coalesced right presses sum to +24, not three separate +8s" "1 24 0 0 #180000 0 0" "$R_LR_COALESCE"
+
+# Both clamps (item), plus hex well-formedness after each (item) — this is the
+# direct discriminator for the reviewer's mutation 3 (255 -> 9999): an unclamped
+# 258 prints as 3 hex digits ("102"), so $seed stops matching ^#[0-9a-f]{6}$ even
+# before the numeric channel-value assertion catches the wrong number.
+set -g R_LR_CLAMPHI (__t9_arrow right 1 1 '#fa0000' list 0 0)
+t "editing=1: R channel clamps at the 255 ceiling (250+8)" "1 255 0 0 #ff0000 0 0" "$R_LR_CLAMPHI"
+t "editing=1: seed stays a well-formed 6-hex-digit colour after the 255 clamp" yes (string match -qr '^#[0-9a-fA-F]{6}$' -- $R_LR_CLAMPHI[5]; and echo yes; or echo no)
+set -g R_LR_CLAMPLO (__t9_arrow left 1 1 '#050000' list 0 0)
+t "editing=1: R channel clamps at the 0 floor (5-8)" "1 0 0 0 #000000 0 0" "$R_LR_CLAMPLO"
+t "editing=1: seed stays a well-formed 6-hex-digit colour after the 0 clamp" yes (string match -qr '^#[0-9a-fA-F]{6}$' -- $R_LR_CLAMPLO[5]; and echo yes; or echo no)
+
+eval $__t9_real_readkey
+functions -e stty
+
+# case b (the toggle) and the edit-esc arm (esc's revert), run for real. The
+# extraction's own existence is the discriminator for the reviewer's mutation 5
+# (moving the toggle off case b onto some other key): if `case b` no longer appears
+# literally at this indentation, the awk range below finds nothing and the
+# non-empty assertion fails — the same mechanism that makes an empty range
+# dangerous elsewhere is what catches this mutation.
+set -g CASEB9 (awk '/^            case z$/{exit} /^            case b$/{f=1} f{print}' $catfile | string collect)
+t "case-b body extraction is non-empty" 1 (test -n "$CASEB9"; and echo 1; or echo 0)
+set -g CASEB9WRAP "switch \$tok
+$CASEB9
+end"
+function __t9_caseb --argument-names focus editing seed --description 'eval the REAL case-b toggle body against seeded locals (chan/editseed start at sentinel values so an untouched-vs-touched distinction is visible). Prints "<editing> <chan> <editseed>".'
+    set -l tok b
+    set -l chan 9
+    set -l editseed START
+    eval $CASEB9WRAP
+    printf '%s %s %s\n' $editing $chan $editseed
+end
+set -g R_B_ENTER (__t9_caseb list 0 '#123456')
+t "case b: entering sets editing=1, resets chan to 1, captures editseed from seed" "1 1 #123456" "$R_B_ENTER"
+set -g R_B_LEAVE (__t9_caseb list 1 '#123456')
+t "case b: a second press while editing clears editing, leaves chan/editseed untouched" "0 9 START" "$R_B_LEAVE"
+set -g R_B_STATE (__t9_caseb state 0 '#123456')
+t "case b: ignored entirely while focus is on the second list" "0 9 START" "$R_B_STATE"
+
+# The esc arm's own extraction, but eval-safe rather than grep-safe: $ESCARM4 above
+# (unquoted `string match -r`) is a 10-element LIST — command substitution splits a
+# multi-line match into one element per line — which is fine for a substring grep
+# (quoting it re-joins with SPACES, and word boundaries survive that) but wrong for
+# eval (space-joining would fold every comment into the code that follows it on the
+# same "line"). `string collect` re-joins with real newlines instead, matching every
+# other eval'd extraction on this file. The pattern also has to include the leading
+# "# " — matching bare "BEGIN edit-esc" (skipping the comment marker, which
+# $ESCARM4's pattern does) makes the FIRST eval'd line a bogus command invocation
+# ("Unknown command: BEGIN") that still happens to leave the rest of the arm
+# runnable, but prints an ugly trace on every green run for no reason.
+set -g ESCBODY9 (string match -r '# BEGIN edit-esc(.|\n)*?# END edit-esc' -- "$PB4" | string collect)
+t "edit-esc arm extraction (eval-safe) is non-empty" 1 (test -n "$ESCBODY9"; and echo 1; or echo 0)
+function __t9_esc --argument-names seed editseed anch_seed --description 'eval the REAL edit-esc arm against seeded locals where editseed and anch_seed deliberately differ, so a swap between them is visible. Prints the resulting $seed.'
+    set -l editing 1
+    eval $ESCBODY9
+    echo $seed
+end
+# This is the direct discriminator for the reviewer's mutation 4 (swapping
+# `set seed $editseed` for `set seed $anch_seed`): editseed and anch_seed are
+# deliberately different values below, so a swap changes the printed result.
+t "esc restores from editseed, not anch_seed" '#111111' (__t9_esc '#999999' '#111111' '#222222')
+
+
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
 else
