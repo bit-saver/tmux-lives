@@ -1565,6 +1565,12 @@ t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -
 # 8 = init + a-current + a-off + a-list + esc-revert + seed-commit-on-save + 2 saves (case-a's 3 branches are 3 textual sites, still one subprocess per press)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
+# --- Task 7: the reload composes, it does not swap the row source ----------------
+set -g RB7 (awk '/function __tcz_thp_reload/,/^    end$/' $catfile | string collect)
+t "reload body extraction is non-empty" 1 (test -n "$RB7"; and echo 1; or echo 0)
+t "reload composes with catalog_rest" yes (string match -q '*__tmux_lives_theme_catalog_rest*' -- "$RB7"; and echo yes; or echo no)
+t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 'set rows \(__tmux_lives_theme_catalog\)' -- "$RB7" | count)
+
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
 # _reload/_init must consume the v4 engine (the 9-arg __tmux_lives_theme_palette)
 # instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the

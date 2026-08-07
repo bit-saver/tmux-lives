@@ -1669,8 +1669,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set blob $cacheblobs[$ci]
         else
             set -l lines
+            # Expanding APPENDS the rest under a header rather than swapping the
+            # row source: the full catalog is in tier order, so a wholesale swap
+            # scatters the curated rows and you lose track of what you have seen.
             set -l rows (__tmux_lives_theme_catalog_default)
-            test "$expanded" = 1; and set rows (__tmux_lives_theme_catalog)
+            test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_rest)
             for e in $rows
                 set -l f (string split '|' -- $e)
                 set -l p (__tmux_lives_theme_palette $seed $f[2] $f[3] $f[4] $phase)

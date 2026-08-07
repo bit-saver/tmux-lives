@@ -1153,6 +1153,18 @@ t "catalog_rest + default = the whole catalog" (__tmux_lives_theme_catalog | cou
 t "catalog_rest and default do not overlap" 0 (comm -12 (printf '%s\n' $CR5 | sort | psub) (__tmux_lives_theme_catalog_default | sort | psub) | count)
 t "catalog_rest preserves catalog order" yes (test "$CR5[1]" = (__tmux_lives_theme_catalog | string match -rv '\|1$' | head -1); and echo yes; or echo no)
 
+# --- Task 7: expanding APPENDS, it does not reshuffle ----------------------------
+# The full catalog is in TIER order, so the curated rows are scattered through it;
+# swapping the row source wholesale is what made expanding "completely rewrite the
+# entire list". Composing default-then-rest keeps the first 14 exactly where they
+# were, which is the actual fix — preserving the cursor by name treated a symptom.
+set -g ORD7 (__tmux_lives_theme_catalog_default) (__tmux_lives_theme_catalog_rest)
+t "composed list is the whole catalog" 35 (count $ORD7)
+t "composed list has no duplicates" 35 (printf '%s\n' $ORD7 | sort -u | count)
+set -g CDN7 (__tmux_lives_theme_catalog_default | awk -F'|' '{print $1}' | string join ',')
+set -g ORDN7 (printf '%s\n' $ORD7[1..14] | awk -F'|' '{print $1}' | string join ',')
+t "first 14 of the composed list are the curated 14, in order" "$CDN7" "$ORDN7"
+
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))
 t "theme list rows carry truecolor swatches" 35 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
