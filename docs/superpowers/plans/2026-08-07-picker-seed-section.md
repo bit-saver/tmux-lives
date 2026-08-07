@@ -24,7 +24,7 @@
 - The picker runs under `fish --no-config`, which neither reads nor writes universals. Keep universal access to config-loaded `fish -c` children at action sites only — never in the per-keypress path.
 - Do NOT deploy: never modify `~/.config/fish/`, `~/.tmux.conf`, or `~/.config/tmux/tmux-lives.conf`.
 - No new file in `conf.d/` or `functions/`.
-- **Popup geometry: `-w 52 -h 85%`.** Width stays 52 everywhere. `STATIC = 22` once the seed section exists (15 today − 1 replaced seed row + 8).
+- **Popup geometry: `-w 52 -h 85%`.** Width stays 52 everywhere. `STATIC` becomes **21** once the seed section exists — see Task 3, which recounts it. (An earlier draft said 22 by counting only the SEED row as replaced; the zone also absorbs the `configuration` separator, so two rows go, not one.) **The frame proof is the authority, not this number:** it asserts the draw emits exactly `rows` lines, so a wrong `STATIC` shows up immediately as an off-by-one at every size. Count the real static rows, make `STATIC` match, and report the value you arrived at.
 
 ## File Structure
 
@@ -203,7 +203,11 @@ git commit -m "fix(picker): emit the tab colour on preview and cancel instead of
 
 **Interfaces:**
 - Produces: `__tcz_thp_seedzone <w> <hex> <hue> <L> <C> <editing> <chan> <r> <g> <b>` → exactly 8 lines, each exactly **`w` + 2** visible columns. `editing` = 0 renders three readout rows; `editing` = 1 renders three R/G/B bars (Task 4 uses that path).
-- `STATIC` becomes **22**.
+- `STATIC` becomes **21**.
+
+**The `STATIC` arithmetic, recounted — an earlier draft of this plan said 22 and was wrong by one.** The current 15 static rows are: top border · tab chip · preview bar · `configuration` zsep · SEED row · `schemes` zsep · second-list zsep · current · off · blank zsep · legend ×3 · note · bottom border. The 8-row zone begins with its **own** separator (row 1, labelled `seed`), so it replaces the `configuration` zsep **and** the SEED row — **two** rows, not one. `15 − 2 + 8 = 21`.
+
+Do not take 21 on faith either. The frame proof asserts the draw emits exactly `rows` lines, so a wrong `STATIC` surfaces as a uniform off-by-one at every size. Count the static rows in the draw block yourself, set `STATIC` to what you count, and state the number you arrived at in your report.
 
 **Why `w` + 2 and not `w`:** every row of this frame carries its own border glyphs. `__tcz_thp_zsep` prints `├` + `w` cols + `┤`, and `__tcz_thp_ln` prints `│` + content padded to `w` + `│` — both `w + 2` visible columns. So the seed zone returns **fully-framed** rows: row 1 is a `__tcz_thp_zsep`, rows 2–8 are content wrapped in `__tcz_thp_ln` inside the builder. The draw then appends all 8 verbatim with no further wrapping, and the existing `configuration` zsep at ~1982 is what row 1 replaces. Measure at `w` = 50 and expect **52**.
 
@@ -254,11 +258,15 @@ Measure with `string length --visible`, which discounts SGR escapes — a plain 
 
 - [ ] **Step 4: Wire it into the draw and raise STATIC**
 
-Replace the single `__tcz_thp_seedrow` call in the draw with the 8-row zone, and change `set -l STATIC 15` to `set -l STATIC 22`.
+Replace **both** the `configuration` zsep line and the `__tcz_thp_seedrow` line in the draw with the 8-row zone (appended verbatim — the rows arrive already framed, so do not wrap them in `__tcz_thp_ln` again), and change `set -l STATIC 15` to `set -l STATIC 21`.
+
+`__tcz_thp_seedrow` becomes unused once the zone replaces it. Leave it defined — Task 4 and Task 6 do not need it, but deleting a builder is out of scope here and a later task may still want the one-row form. Note it in your report as now-unreferenced so the final review can decide.
 
 - [ ] **Step 5: Extend the frame proof for the new static count**
 
-The frame proof asserts the draw emits exactly `rows`. With STATIC now 22 that still holds, but the harness's own `WIN` derivation must move from `rows - 15` to `rows - 22`, and the floor case changes from 18 to 25. Update both, re-run at 26/39/52/25, and re-inject the extra row to confirm sensitivity at each.
+The frame proof asserts the draw emits exactly `rows`. With `STATIC` now 21 that still holds, but the harness's own `WIN` derivation must move from `rows - 15` to `rows - 21`, and the floor case moves from 18 to **24** (`STATIC + 3`). Update both, re-run at 26/39/52/24, and re-inject the extra row to confirm sensitivity at each size.
+
+⚠️ **The harness's `WIN` derivation and the picker's `STATIC` must be changed together.** They are two independent copies of the same number, and if they disagree the frame proof fails uniformly by the difference at every size — which is the symptom to expect if you get `STATIC` wrong. That is the proof doing its job, not a broken test: recount the static rows rather than adjusting the harness to match a wrong `STATIC`.
 
 - [ ] **Step 6: Run the full gate and commit**
 
