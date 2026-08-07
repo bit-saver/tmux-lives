@@ -978,7 +978,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--vividness soft|balanced|vivid] [--shape arc|flat] [--ease linear|cubic] [--contrast auto|lighter|darker] [--place bar|tabs|cap] [--mode literal|derived]: the v5 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--place bar|tabs|cap] [--mode literal|derived]: the v5 gradient-map bar theme'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -993,21 +993,13 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
         set -l cur (__tmux_lives_key tmux_lives_theme mono)
         test "$cur" = off; and echo "theme: off (legacy bar colors)"; or echo "theme: $cur"
         set -l tphase (__tmux_lives_key tmux_lives_theme_phase 0)
-        set -l tviv (__tmux_lives_key tmux_lives_theme_vividness balanced)
-        set -l tshape (__tmux_lives_key tmux_lives_theme_shape arc)
-        set -l tease (__tmux_lives_key tmux_lives_theme_ease linear)
-        set -l tcon (__tmux_lives_key tmux_lives_theme_contrast auto)
         set -l tplace (__tmux_lives_key tmux_lives_theme_place bar)
         set -l tmode (__tmux_lives_key tmux_lives_theme_mode derived)
-        echo "  phase: $tphase   vividness: $tviv   shape: $tshape   ease: $tease   contrast: $tcon   place: $tplace   mode: $tmode"
+        echo "  phase: $tphase   place: $tplace   mode: $tmode"
         return 0
     end
     set -l scheme; set -l have_scheme 0
     set -l phase; set -l have_phase 0
-    set -l viv; set -l have_viv 0
-    set -l shape; set -l have_shape 0
-    set -l ease; set -l have_ease 0
-    set -l con; set -l have_con 0
     set -l place; set -l have_place 0
     set -l mode; set -l have_mode 0
     set -l i 1
@@ -1024,14 +1016,9 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
                 return 0
             case --phase
                 set i (math $i + 1); set phase $argv[$i]; set have_phase 1
-            case --vividness
-                set i (math $i + 1); set viv $argv[$i]; set have_viv 1
-            case --shape
-                set i (math $i + 1); set shape $argv[$i]; set have_shape 1
-            case --ease
-                set i (math $i + 1); set ease $argv[$i]; set have_ease 1
-            case --contrast
-                set i (math $i + 1); set con $argv[$i]; set have_con 1
+            case --vividness --shape --ease --contrast
+                echo "tmux-lives setup theme: $argv[$i] was removed in v5.1 — it never affected the output" >&2
+                return 1
             case --place
                 set i (math $i + 1); set place $argv[$i]; set have_place 1
             case --mode
@@ -1054,38 +1041,6 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
         return 1
     end
     test $have_phase -eq 1; and set phase (math "$phase % 360")
-    if test $have_viv -eq 1
-        switch "$viv"
-            case soft balanced vivid
-            case '*'
-                echo "tmux-lives setup theme: invalid vividness '$viv' — valid: soft, balanced, vivid" >&2
-                return 1
-        end
-    end
-    if test $have_shape -eq 1
-        switch "$shape"
-            case arc flat
-            case '*'
-                echo "tmux-lives setup theme: invalid shape '$shape' — valid: arc, flat" >&2
-                return 1
-        end
-    end
-    if test $have_ease -eq 1
-        switch "$ease"
-            case linear cubic
-            case '*'
-                echo "tmux-lives setup theme: invalid ease '$ease' — valid: linear, cubic" >&2
-                return 1
-        end
-    end
-    if test $have_con -eq 1
-        switch "$con"
-            case auto lighter darker
-            case '*'
-                echo "tmux-lives setup theme: invalid contrast '$con' — valid: auto, lighter, darker" >&2
-                return 1
-        end
-    end
     if test $have_place -eq 1
         switch "$place"
             case bar tabs cap
@@ -1110,10 +1065,6 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
         end
     end
     test $have_phase -eq 1; and set -U tmux_lives_theme_phase $phase
-    test $have_viv -eq 1; and set -U tmux_lives_theme_vividness $viv
-    test $have_shape -eq 1; and set -U tmux_lives_theme_shape $shape
-    test $have_ease -eq 1; and set -U tmux_lives_theme_ease $ease
-    test $have_con -eq 1; and set -U tmux_lives_theme_contrast $con
     test $have_place -eq 1; and set -U tmux_lives_theme_place $place
     test $have_mode -eq 1; and set -U tmux_lives_theme_mode $mode
     test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
@@ -1123,10 +1074,6 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
     __tmux_lives_theme_apply_live
     test $have_scheme -eq 1; and echo "tmux-lives: theme set to $scheme"
     test $have_phase -eq 1; and echo "tmux-lives: theme phase set to $phase"
-    test $have_viv -eq 1; and echo "tmux-lives: theme vividness set to $viv"
-    test $have_shape -eq 1; and echo "tmux-lives: theme shape set to $shape"
-    test $have_ease -eq 1; and echo "tmux-lives: theme ease set to $ease"
-    test $have_con -eq 1; and echo "tmux-lives: theme contrast set to $con"
     test $have_place -eq 1; and echo "tmux-lives: theme place set to $place"
     test $have_mode -eq 1; and echo "tmux-lives: theme mode set to $mode"
 end
@@ -1311,10 +1258,6 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --place <p>           bar|tabs|cap (default: bar)" \
         "      --mode <m>            literal|derived (default: derived)" \
         "      --phase <deg>         rotate the hue arc (default: 0)" \
-        "      --vividness <v>       soft|balanced|vivid (default: balanced)" \
-        "      --shape <s>           chroma arc|flat (default: arc)" \
-        "      --ease <e>            hue easing linear|cubic (default: linear)" \
-        "      --contrast <c>        companions auto|lighter|darker (default: auto)" \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
@@ -1487,6 +1430,23 @@ function __tmux_lives_migrate_v41 --description 'v4 -> v5 big-area migration: --
     return 0
 end
 
+function __tmux_lives_migrate_v51 --description 'v5 -> v5.1: vividness/shape/ease/contrast were accepted, stored and displayed but never reached the curve — verified byte-identical output across all 35 catalog rows at every value. Erase them; there is no value worth carrying because no value ever meant anything. Idempotent; runs on fisher update.'
+    set -l had 0
+    for v in tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_contrast
+        if set -q $v
+            # NOT `set -e -U`: under `fish --no-config` that silently fails to erase (the
+            # universal store isn't live there) while the variable stays visibly set —
+            # reproduced directly, and the sibling migrations (v2/v31/v4) already erase
+            # scope-less for the same reason. A scope-less `set -e` erases whichever scope
+            # the name is found in and works in both modes.
+            set -e $v
+            set had 1
+        end
+    end
+    test $had -eq 1; and echo "tmux-lives: theme vividness/shape/ease/contrast retired — they never affected the output"
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -1495,6 +1455,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     __tmux_lives_migrate_v31
     __tmux_lives_migrate_v4
     __tmux_lives_migrate_v41
+    __tmux_lives_migrate_v51
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment

@@ -370,8 +370,9 @@ set -e tmux_lives_theme_key
 t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
-t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; and string match -q '*--vividness*soft|balanced|vivid*' -- $h; and string match -q '*--shape*arc|flat*' -- $h; and string match -q '*--ease*linear|cubic*' -- $h; and string match -q '*--contrast*auto|lighter|darker*' -- $h; end; and echo yes; or echo no)
+t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; end; and echo yes; or echo no)
 t "setup help: --rotate retired from theme row" no (string match -q '*--rotate*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+t "setup help: the four inert theme knobs are gone" no (string match -qr -- '--(vividness|shape|ease|contrast)' (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
 
 set -l fragbc (__tmux_lives_render_fragment /X/cat.fish S M-s "#1f6feb" | string collect)
@@ -1019,6 +1020,41 @@ t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
 t "theme: --rotate is gone" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>/dev/null; echo $status)
 t "theme: --rotate error mentions --place" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
+
+# --- Task 2: the four inert knobs are rejected, not silently accepted ------------
+# Verified inert before removal: swinging all four to their extremes produced
+# byte-identical palettes on all 35 catalog rows. Accepting a flag that does
+# nothing is exactly the state being cleaned up, so these must ERROR.
+t "theme: --vividness is gone" 1 (__tmux_lives_theme_cmd ember --vividness vivid 2>/dev/null; echo $status)
+t "theme: --shape is gone"     1 (__tmux_lives_theme_cmd ember --shape flat 2>/dev/null; echo $status)
+t "theme: --ease is gone"      1 (__tmux_lives_theme_cmd ember --ease cubic 2>/dev/null; echo $status)
+t "theme: --contrast is gone"  1 (__tmux_lives_theme_cmd ember --contrast darker 2>/dev/null; echo $status)
+t "theme: --vividness error says it never did anything" 1 (__tmux_lives_theme_cmd ember --vividness vivid 2>&1 | string match -q '*never affected*'; and echo 1; or echo 0)
+
+# Existence first: an undefined function inside a `t` substitution aborts the
+# statement silently and the suite still reports ALL PASS.
+t "migrate_v51 exists" 0 (functions -q __tmux_lives_migrate_v51; echo $status)
+set -U tmux_lives_theme_vividness vivid
+set -U tmux_lives_theme_shape flat
+set -U tmux_lives_theme_ease cubic
+set -U tmux_lives_theme_contrast darker
+__tmux_lives_migrate_v51 >/dev/null 2>&1
+t "migrate_v51 erases vividness" 0 (set -q tmux_lives_theme_vividness; and echo 1; or echo 0)
+t "migrate_v51 erases shape"     0 (set -q tmux_lives_theme_shape; and echo 1; or echo 0)
+t "migrate_v51 erases ease"      0 (set -q tmux_lives_theme_ease; and echo 1; or echo 0)
+t "migrate_v51 erases contrast"  0 (set -q tmux_lives_theme_contrast; and echo 1; or echo 0)
+# Guarded by `functions -q`, not a bare call: an undefined function inside a command
+# substitution aborts the assignment silently, leaving $_m51 UNSET — and an unset var
+# expands to '' in double quotes, which spuriously equals the expected '' below and
+# passes for the wrong reason. The guard forces a real, visible failure pre-implementation.
+if functions -q __tmux_lives_migrate_v51
+    set -g _m51 (__tmux_lives_migrate_v51 2>&1 | string collect)
+else
+    set -g _m51 __migrate_v51_missing__
+end
+t "migrate_v51 is silent when there is nothing to erase" '' "$_m51"
+t "post_update chains migrate_v51" yes (string match -q '*__tmux_lives_migrate_v51*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
+
 set -e tmux_lives_bar_color
 t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
@@ -1097,13 +1133,12 @@ set -g __fish_config_dir /tmp/th-noconf-$fish_pid
 set -g thsock tlt-$fish_pid
 command tmux -L $thsock new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
-__tmux_lives_theme_cmd ember --place cap --mode literal --phase 30 --vividness vivid >/dev/null
+__tmux_lives_theme_cmd ember --place cap --mode literal --phase 30 >/dev/null
 t "theme cmd persists relationship" ember "$tmux_lives_theme"
 t "theme cmd persists place" cap "$tmux_lives_theme_place"
 t "theme cmd persists mode" literal "$tmux_lives_theme_mode"
 t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
-t "theme cmd persists vividness" vivid "$tmux_lives_theme_vividness"
-set -g THP (__tmux_lives_theme_palette '#485b3c' ember cap literal 30 vivid arc linear auto)
+set -g THP (__tmux_lives_theme_palette '#485b3c' ember cap literal 30)
 t "theme live-applies bar_bg" "$THP[1]" (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
 t "theme live-applies sep_fg" "$THP[2]" (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
 t "theme live-applies tabs_color" "$THP[3]" (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
