@@ -774,6 +774,11 @@ function __tmux_lives_theme_catalog_default --description 'the curated default s
     __tmux_lives_theme_catalog | string match -re '\|1$'
 end
 
+function __tmux_lives_theme_catalog_rest --description 'the non-curated catalog rows (21): everything NOT flagged default=1, in catalog order. The picker appends these under the More Schemes header when expanded, so the curated 14 keep their positions instead of being reshuffled into tier order.'
+    # -v inverts; --entire is not needed with -v (it emits whole non-matching lines).
+    __tmux_lives_theme_catalog | string match -rv '\|1$'
+end
+
 function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0

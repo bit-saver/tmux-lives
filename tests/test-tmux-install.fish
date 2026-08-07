@@ -1142,6 +1142,14 @@ for r in mono wheat mint amber ember coral sage teal
     t "curated covers $r" yes (test $hits -ge 1; and echo yes; or echo no)
 end
 
+# --- Task 5: the non-default rows, as their own list ----------------------------
+t "catalog_rest exists" 0 (functions -q __tmux_lives_theme_catalog_rest; echo $status)
+set -g CR5 (__tmux_lives_theme_catalog_rest)
+t "catalog_rest returns the other 21" 21 (count $CR5)
+t "catalog_rest + default = the whole catalog" (__tmux_lives_theme_catalog | count) (math (count $CR5) + (__tmux_lives_theme_catalog_default | count))
+t "catalog_rest and default do not overlap" 0 (comm -12 (printf '%s\n' $CR5 | sort | psub) (__tmux_lives_theme_catalog_default | sort | psub) | count)
+t "catalog_rest preserves catalog order" yes (test "$CR5[1]" = (__tmux_lives_theme_catalog | string match -rv '\|1$' | head -1); and echo yes; or echo no)
+
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))
 t "theme list rows carry truecolor swatches" 35 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
