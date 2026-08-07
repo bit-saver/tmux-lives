@@ -1109,7 +1109,9 @@ t "catalog: every relationship appears at both large placements (mono exempt)" 0
 t "catalog: mono absent from tabs-derived (would dup mono soft)" 0 (count (__tmux_lives_theme_catalog | string match -r '\|mono\|tabs\|derived\|'))
 t "catalog: mono still present at tabs-literal (chip; legitimately distinct)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|mono\|tabs\|literal\|'))
 t "catalog: mono slate removed (was a byte-identical dup of mono soft)" 0 (string match -q '*mono slate*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
-# the cap rows are exactly the four that were already curated defaults
+# all four cap rows exist in the catalog, but only 2 of the 4 (amber deep,
+# sage core — see "curated cap rows" below) are curated defaults; coral deep
+# and teal core are catalog-only, reachable via `m`/More Schemes.
 t "catalog: amber deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^amber deep\|'))
 t "catalog: coral deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^coral deep\|'))
 t "catalog: sage core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^sage core\|'))
@@ -1117,8 +1119,10 @@ t "catalog: teal core present"  1 (count (__tmux_lives_theme_catalog | string ma
 t "catalog: cap rows in defaults" 2 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
 # cap rows sort LAST — the accent-led minority is at the bottom of the picker list
 t "catalog: the last 4 rows are the cap rows" 4 (count (__tmux_lives_theme_catalog | tail -4 | string match -r '\|cap\|'))
-# the 14 curated default NAMES after Task 4 rebalance toward tabs
-t "catalog: default names unchanged" "amber deep amber slate amber soft coral chip ember slate mint chip mono soft sage chip sage core sage glow teal glow teal slate wheat slate wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
+# the 14 curated default NAMES after Task 4 rebalance toward tabs — this
+# label used to say "unchanged", which was already wrong when written: it
+# pins the rebalanced set, not a pre-rebalance baseline.
+t "catalog: default names after the tabs rebalance" "amber deep amber slate amber soft coral chip ember slate mint chip mono soft sage chip sage core sage glow teal glow teal slate wheat slate wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
 t "catalog: wheat chip exists (tabs literal kept)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|literal\|'))
 t "catalog: wheat soft is a default" 1 (string match -q '*wheat soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
 t "catalog: mint chip is a default" 1 (string match -q '*mint chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
