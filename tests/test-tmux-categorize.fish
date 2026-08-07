@@ -1755,9 +1755,18 @@ t "adjustments label drops 'apply to all schemes'" 0 (string match -q '*apply to
 # __tcz_thp_kv and __tcz_thp_litkv are GONE: when phase was hidden, the zone
 # (initially with 3 rows: zsep + label row + value row) collapsed to 2 rows
 # (zsep + one horizontal row), and the kv builder was no longer needed.
-# The zone now renders seed label and value inline rather than stacked.
 t "picker has no lit-first repaint" 0 (string match -q '*__tcz_thp_litkv*' -- "$pbody"; and echo 1; or echo 0)
-t "configuration zone renders seed inline" 1 (string match -q '*configuration*' -- "$pbody"; and string match -q '*SEED*' -- "$pbody"; and echo 1; or echo 0)
+# The "zone renders seed label and value inline" check that used to live here
+# (a grep of $pbody for the literal tokens 'configuration' and 'SEED')
+# stopped tracking the render the moment picker-seed-section Task 3 replaced
+# the single inline row with the fixed 8-row __tcz_thp_seedzone: the zsep
+# label is now lowercase 'seed' and the readout row is a bare bold hex with
+# no label, but both old literals still survive elsewhere in this function's
+# own docstring/comments, so the grep kept reporting ok against a render it
+# no longer described. Replaced with a real content check against the
+# eval'd draw block (__t9_frame_text) — see "seed zone separator renders" /
+# "seed hex renders in the zone" near that harness's own definition further
+# down this file (the harness isn't defined yet at this point in the script).
 
 # --- Gallery picker rewrite, Task 4: key dispatch — recipe-based
 # apply/save (place+mode come from the SELECTED catalog entry's recipe, not
@@ -2166,12 +2175,17 @@ t "seedrow flash is width-neutral" (string length --visible -- "$SRN") (string l
 t "seedrow shows the value" 1 (string match -q '*CHIP*' -- "$SRN"; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
-# layout: horizontal SEED, `configuration`, an 11-row window
+# layout history: this section once checked a horizontal SEED-label+value
+# row via source-text greps for 'configuration'/'SEED' — superseded by
+# picker-seed-section Task 3's fixed 8-row __tcz_thp_seedzone (lowercase
+# 'seed' separator, no label on the readout row). Those two checks moved to
+# real content assertions against __t9_frame_text ("seed zone separator
+# renders" / "seed hex renders in the zone", near that harness's own
+# definition further down this file — see the note at the old inline-row
+# site above for why they couldn't just be fixed in place).
 # ---------------------------------------------------------------------
 set -g PK (functions __tcz_theme_picker | string collect)
-t "zone is titled configuration" 1 (string match -q '*configuration*' -- "$PK"; and echo 1; or echo 0)
 t "the old adjustments title is gone" 0 (string match -q '*adjustments*' -- "$PK"; and echo 1; or echo 0)
-t "SEED label and value share one row" 1 (string match -q '*SEED*' -- "$PK"; and echo 1; or echo 0)
 t "the two-row kv builder is gone"     0 (grep -c '__tcz_thp_kv' $catfile)
 t "the spread builder is gone"         0 (grep -c '__tcz_thp_spread' $catfile)
 # picker-seed-section Task 1: WIN is derived from the popup's own reported
@@ -2481,6 +2495,28 @@ function __t9_frame_text --description 'same eval as __t9_frame_rows, but return
 end
 
 set -l PAL9 '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+
+# --- picker-seed-section Task 3 (review fix): the seed zone's RENDERED content --
+# Two source-text greps further up this file used to stand in for this (the
+# "zone renders seed inline" / "zone is titled configuration" / "SEED label
+# and value share one row" checks) by matching the picker's SOURCE for the
+# literal tokens 'configuration' and 'SEED'. That genuinely tracked the
+# render before this task: the zone separator's label WAS 'configuration'
+# and __tcz_thp_seedrow DID print a SEED label. picker-seed-section Task 3's
+# __tcz_thp_seedzone wiring renders neither any more — the separator label
+# is lowercase 'seed' and the readout row is a bare bold hex with no label —
+# but both old literals happen to survive elsewhere in this function's own
+# docstring/comments, so the old greps kept reporting ok against a render
+# they no longer described. These assert the REAL draw block output
+# (__t9_frame_text, the same eval-based harness the frame proof below uses)
+# instead, and had to move here because that harness isn't defined until
+# this point in the file. Seed value matches __t9_frame_rows's own fixed
+# harness state ('#5f772b').
+set -l seedframe (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9" ''))
+set -l seedframev (__tcz_strip_sgr "$seedframe")
+t "seed zone separator renders" yes (string match -q '*├─ seed*' -- "$seedframev"; and echo yes; or echo no)
+t "seed hex renders in the zone" yes (string match -q '*#5f772b*' -- "$seedframev"; and echo yes; or echo no)
+
 # Every meaningfully distinct draw path: the window's top/bottom clamp at
 # both catalog sizes, which list has focus, which second-list row is
 # selected, all three `previewed` values, the persisted-theme-off edge case
@@ -2527,6 +2563,17 @@ t "frame: emits exactly its height — 26 rows (today's size)" 26 (__t9_frame_ro
 t "frame: emits exactly its height — 39 rows"                39 (__t9_frame_rows list 0 35 0 1 mono "$PAL9" '' 1 14 39)
 t "frame: emits exactly its height — 52 rows"                52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52)
 t "frame: emits exactly its height — 24 rows (the floor)"    24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24)
+
+# --- picker-seed-section Task 3 (review fix): restore coverage for the padding branch --
+# None of the four sizes above satisfies vtotal <= WIN any more (raising STATIC
+# 15->21 shrank WIN at every one of them below the collapsed n=14 catalog's virtual
+# total), so Task 1's blank-row padding block (__tcz_theme_picker, the winpad loop
+# right after the scheme window) had lost ALL coverage — deleting it outright still
+# left every assertion above green. This closes that gap directly: n=14 unexpanded
+# (vtotal=14) at rows=40 gives WIN=19, which DOES exceed vtotal, so the window loop
+# draws all 14 real rows and the padding branch must fill the remaining 5 with blank
+# framed rows for the total to reach 40 at all.
+t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=19 > n=14)" 40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.
