@@ -2500,6 +2500,20 @@ t "current row names the catalog entry, not the bare relationship" catalogA (__t
 t "current row names a different catalog entry sharing no relationship" catalogB (__t9_anchname sage high derived)
 t "current row falls back to the relationship when no catalog row matches" sage (__t9_anchname sage low derived)
 
+# --- Task 6: the More Schemes group header --------------------------------------
+# A row INSIDE the list, not a frame element: the user rejected the section-border
+# form because it "would make it look far too separate" and broke the single-list
+# feel. So no border connectors, and it must measure like any other list row.
+t "grouphdr exists" 0 (functions -q __tcz_thp_grouphdr; echo $status)
+set -g GH6 (__tcz_thp_grouphdr 50 'More Schemes')
+set -g GH6V (string replace -ra '\x1b\[[0-9;]*m' '' -- "$GH6")
+t "grouphdr is exactly 50 visible cols" 50 (string length --visible -- "$GH6V")
+t "grouphdr carries the label" yes (string match -q '*More Schemes*' -- "$GH6V"; and echo yes; or echo no)
+t "grouphdr leaves col 1 blank (never selectable)" ' ' (string sub -s 1 -l 1 -- "$GH6V")
+t "grouphdr has no border connectors" 0 (string match -ra '[├┤]' -- "$GH6V" | count)
+t "grouphdr keeps a blank column before the right edge" ' ' (string sub -s 50 -l 1 -- "$GH6V")
+t "grouphdr is one line" 1 (count $GH6)
+
 rm -rf $shimdir
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

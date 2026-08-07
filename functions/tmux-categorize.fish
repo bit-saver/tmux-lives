@@ -1370,6 +1370,17 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
+function __tcz_thp_grouphdr --argument-names w label --description 'pure: an in-list group header, exactly <w> visible cols — col 1 blank (a scheme row carries its selection marker there; this row is never selectable), then ──, the BOLD label in the title role, then ─ fill stopping one column short of w so a blank column separates the rule from the right border. Deliberately NOT __tcz_thp_zsep: that form connects to the frame with ├ ┤ and reads as a separate section, which the user rejected.'
+    set -l TIT (__tcz_theme title)
+    set -l MUT (__tcz_theme muted)
+    set -l RST (__tcz_theme reset)
+    set -l len (string length --visible -- "$label")
+    # 1 blank + 2 dashes + 1 space + label + 1 space + fill + 1 trailing blank = w
+    set -l fill (math "$w - 6 - $len")
+    test $fill -lt 0; and set fill 0
+    set -l fillstr (string repeat -n $fill ─)
+    printf ' %s──%s \e[1m%s%s\e[22m%s %s%s %s' $MUT $RST $TIT "$label" $RST $MUT "$fillstr" $RST
+end
 function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
     set -l bg (__tcz_thp_bg "$tabshex")
     test -n "$bg"; or return
