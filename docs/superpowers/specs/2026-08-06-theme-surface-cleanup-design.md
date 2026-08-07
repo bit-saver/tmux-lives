@@ -58,7 +58,7 @@ Still 14 rows, moving from 8 bar / 2 tabs / 4 cap to **5 bar / 7 tabs / 2 cap**,
 | `slate` / `chip` | tabs | `mint chip`, `coral chip`, `wheat slate`, `amber slate`, `ember slate`, `sage chip`, `teal slate` |
 | `deep` / `core` | cap | `amber deep`, `sage core` |
 
-Relationship coverage: mono 1, wheat 2, mint 1, amber 3, ember 1, sage 3, teal 3, coral 1.
+Relationship coverage: mono 1, wheat 2, mint 1, amber 3, ember 1, sage 3, teal 2, coral 1.
 
 This is one `default` flag per catalog row — no engine change, no new function. It is a taste call and is expected to be adjusted by eye later; the value here is that the opening view stops under-representing tabs.
 

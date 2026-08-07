@@ -103,7 +103,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "run-shell \"fish --no-config $cat status-right-install '$color'\""
     # --- theme engine v5 (relationship curve): with a relationship in argv[13] the whole bar
     # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
-    # __tmux_lives_theme_palette (seed + relationship/place/mode/knobs); otherwise the v2
+    # __tmux_lives_theme_palette (seed + relationship/place/mode/phase); otherwise the v2
     # path is unchanged.
     set -l tpal
     # declared OUTSIDE the if: fish's `set -l` scopes to the enclosing BLOCK (if/for/while),
@@ -961,7 +961,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every catalog scheme + a 7-role gradient strip at the current seed/knobs'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every catalog scheme + a 7-role gradient strip at the current seed/phase'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)

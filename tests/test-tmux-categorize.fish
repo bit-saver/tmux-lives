@@ -1608,8 +1608,10 @@ t "reload composed: exactly 14 curated names in catalog_default" 14 (count $DEFN
 t "reload composed: curated 14 come first, in catalog-default order" (string join \x1e -- $DEFNAMES7) (string join \x1e -- $TOKS7[1..14])
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
-# _reload/_init must consume the v4 engine (the 9-arg __tmux_lives_theme_palette)
-# instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the
+# _reload/_init must consume the v4 engine (__tmux_lives_theme_palette — 9-arg
+# when this task shipped; theme-surface-cleanup Task 3 later dropped the four
+# inert vividness/shape/ease/contrast trailers, so it's 5-arg now, see the Task 5
+# arity guard below) instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the
 # rotate universal). $pbody is the already-extracted __tcz_theme_picker
 # function body from the guard block above. NB the relationship-list-iteration
 # part of this contract is itself superseded by the Gallery picker rewrite's
@@ -2262,9 +2264,8 @@ t "the islive placeholder is gone" 0 (string match -qr 'set -l islive 1\s*\n\s*s
 # by tab); the retired axis keys/functions stay gone; the titled current zsep
 # is retired along with it (superseded by the second list's own untitled
 # zsep + __tcz_thp_leg wiring, both in place); vismap never hands back n (off
-# left the walk entirely, not just n+1); both engine palette calls are still
-# the 5-arg v5 signature (exactly 2 call sites, matching the earlier per-call
-# arg-count loop at ~line 1338).
+# left the walk entirely, not just n+1); the palette call-site count is still
+# 2 (arity is pinned separately by the per-call arg-count loop at ~line 1654).
 t "consolidated guard: case c retired (superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
@@ -2273,7 +2274,7 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-t "consolidated guard: exactly 2 palette call sites, all 5-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+t "consolidated guard: exactly 2 palette call sites" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
