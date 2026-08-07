@@ -945,6 +945,55 @@ t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key 
 t "write_fragment passes theme_place" yes (string match -q '*tmux_lives_theme_place bar*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_mode" yes (string match -q '*tmux_lives_theme_mode derived*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment has no rotate arg leakage" no (string match -q '*theme_rotate*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+
+# --- write_fragment's call-site ARGUMENT ORDER must match render_fragment's
+# positional reads. The existence-only checks just above (943-947) only prove each
+# lookup is PRESENT somewhere in the source — they cannot see a shift. Proven by
+# mutation: re-inserting a single extra (__tmux_lives_key ...) lookup ahead of the
+# tmux_lives_sync_terminals one shifts syncterm from position 17 to 18; the
+# fragment then emits `set -as terminal-features 'auto:sync'` (a glob matching no
+# real TERM), and tmux accepts an unknown terminal-feature name with NO error and
+# NO exit code — synchronized output silently dies, no symptom until a user's
+# cursor starts strobing.
+#
+# HAZARD: the REAL __tmux_lives_write_fragment writes to the LIVE
+# $HOME/.config/tmux/tmux-lives.conf, rewires the live ~/.tmux.conf, and (via
+# __tmux_lives_reload) talks to whatever tmux server sits on the default socket —
+# none of which this suite's XDG_CONFIG_HOME isolation touches. So the real
+# function is never invoked here. Instead the exact render_fragment call-site LINE
+# is extracted from the function's own live source text and eval'd in isolation
+# under stubs, with disposable local $cat/$fragment — proving the real call
+# site's argument order without any of the writer's side effects.
+set -g wf17src (functions __tmux_lives_write_fragment)
+set -g wf17line
+for _wf17_l in $wf17src
+    string match -q -- '*__tmux_lives_render_fragment $cat*> $fragment*' -- $_wf17_l
+    and set -a wf17line $_wf17_l
+end
+set -e _wf17_l
+t "write_fragment's render_fragment call site is extractable" 1 (count $wf17line)
+
+functions -c __tmux_lives_render_fragment __wf17_rf_bak
+functions -c __tmux_lives_key __wf17_key_bak
+function __tmux_lives_render_fragment
+    set -g _WF17_ARGV $argv
+end
+function __tmux_lives_key
+    echo $argv[1]
+end
+set -l cat /nonexistent-wf17-cat
+set -l fragment /tmp/tli-wf17-$fish_pid.conf
+set -g _WF17_ARGV
+eval $wf17line
+functions -e __tmux_lives_render_fragment; functions -c __wf17_rf_bak __tmux_lives_render_fragment; functions -e __wf17_rf_bak
+functions -e __tmux_lives_key; functions -c __wf17_key_bak __tmux_lives_key; functions -e __wf17_key_bak
+rm -f $fragment
+set -e wf17src; set -e wf17line
+
+t "write_fragment's call site passes exactly 17 args to render_fragment" 17 (count $_WF17_ARGV)
+t "write_fragment's call site: arg 17 is tmux_lives_sync_terminals" tmux_lives_sync_terminals "$_WF17_ARGV[17]"
+set -e _WF17_ARGV
+
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
 command tmux -L $thfsock new-session -d 2>/dev/null
