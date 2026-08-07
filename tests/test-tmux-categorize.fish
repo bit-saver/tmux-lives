@@ -1883,6 +1883,23 @@ t "picker body extraction is non-empty" 1 (test -n "$PB2"; and echo 1; or echo 0
 t "picker emits the tab colour on preview/cancel" yes (string match -qr '__tcz_recolor' -- "$PB2"; and echo yes; or echo no)
 t "picker's recolor calls are force, not dedup" 0 (string match -ra '__tcz_recolor[^\n]*dedup' -- "$PB2" | count)
 
+# --- picker-seed-section Task 3: the seed zone ------------------------------------
+# FIXED height whether idle or editing, so toggling edit mode never makes the
+# scheme list jump. Idle shows readouts in the three rows that become sliders.
+t "seedzone exists" 0 (functions -q __tcz_thp_seedzone; echo $status)
+set -g SZ (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 0 1 95 119 43)
+t "seedzone is exactly 8 rows" 8 (count $SZ)
+for i in (seq 8)
+    set -l v (string replace -ra '\x1b\[[0-9;]*m' '' -- "$SZ[$i]")
+    # w + 2: the border glyphs are part of every row in this frame.
+    t "seedzone row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
+end
+t "seedzone shows the hex when idle" yes (string match -q '*5f772b*' -- (string join ' ' $SZ); and echo yes; or echo no)
+# The anti-jump property: editing must not change the row count.
+set -g SZE (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 1 1 95 119 43)
+t "seedzone is 8 rows while editing too" 8 (count $SZE)
+t "editing renders bars, idle does not" yes (test "$SZ[6]" != "$SZE[6]"; and echo yes; or echo no)
+
 # --- Task 3: the retired knobs are gone from the picker -------------------------
 # Bounded to the picker body: these names legitimately survive nowhere else in
 # this file, but an unbounded grep would also match unrelated prose.
@@ -2419,7 +2436,7 @@ t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h
 set -g DRAWTEXT9 (awk '/set -l curpal/,/╰/' $catfile | string collect)
 t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 1; or echo 0)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - 15, matching the real function); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - 21, matching the real function — picker-seed-section Task 3 raised STATIC 15->21 when the seed became a fixed 8-row zone, and this copy was updated to match); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2428,7 +2445,7 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     set -l RST (__tcz_theme reset)
     set -l IW 50
     test -n "$rows"; or set rows 26
-    set -l WIN (math "$rows - 15")
+    set -l WIN (math "$rows - 21")
     set -l host somehost
     set -l chiptitle ''
     set -l note 'a note'
@@ -2495,17 +2512,21 @@ t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0
 
 # --- picker-seed-section Task 1: WIN is derived from the popup height, not fixed --
 # The real function reads its own popup height via `stty size` and sets
-# WIN = rows - 15; __t9_frame_rows now takes that same rows value and derives WIN
+# WIN = rows - 21; __t9_frame_rows now takes that same rows value and derives WIN
 # identically, so these prove the frame still emits EXACTLY its height at sizes
-# other than todays fixed 26 — including a window (52 rows -> WIN=37) LARGER than
-# the 35-row catalog (expanded, so the virtual list is 36 rows: 35 schemes + the
-# More Schemes header), which is only correct because of the Step 4b padding:
-# without it the frame would stop 1 row short (36 virtual rows + 15 static = 51,
-# not 52 — verified directly by reverting the padding and re-running this test).
+# other than todays fixed 26. picker-seed-section Task 3 raised STATIC 15->21 (the
+# seed became a fixed 8-row zone) and this harness's own WIN formula + the floor
+# below were updated to match — the two are independent copies of the same
+# number, and letting them disagree is exactly what made every one of these
+# fail uniformly by 6 (the STATIC delta) until this edit landed. NB the "52 rows"
+# case no longer also demonstrates the Step-4b padding branch the way it did
+# pre-Task-3 (WIN shrank 37->31, now below the 36-row expanded virtual list it
+# used to exceed) — padding is still exercised structurally by the window loop
+# (it always fills to WIN, real rows or blanks), just not by this particular size.
 t "frame: emits exactly its height — 26 rows (today's size)" 26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26)
 t "frame: emits exactly its height — 39 rows"                39 (__t9_frame_rows list 0 35 0 1 mono "$PAL9" '' 1 14 39)
 t "frame: emits exactly its height — 52 rows"                52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52)
-t "frame: emits exactly its height — 18 rows (the floor)"    18 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 18)
+t "frame: emits exactly its height — 24 rows (the floor)"    24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.

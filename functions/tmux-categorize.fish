@@ -1493,6 +1493,37 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
+function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — a FIXED 8-row, fully-framed section (a zone separator labelled seed + the 4-row __tcz_thp_swatch band + 3 rows that read out hex/hue·L/chroma while editing=0, or three __tcz_thp_slider R/G/B bars — the one at <chan> marked selected — while editing=1). Every row is exactly w+2 visible cols, border glyphs included (like __tcz_thp_zsep/__tcz_thp_ln); rows 1-5 are IDENTICAL in both states, so toggling edit mode never resizes the scheme window below it — only rows 6-8 change. Reuses __tcz_thp_swatch/__tcz_thp_slider rather than re-deriving them; each row is wrapped in __tcz_thp_ln, which pads short content to w itself. Callers append the 8-line result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
+    set -l BORDER (__tcz_theme border)
+    set -l RST (__tcz_theme reset)
+    set -l lines
+    set -a lines (__tcz_thp_zsep $w seed $BORDER $RST)
+    for row in (__tcz_thp_swatch "$hex" "$hue" "$L" "$C")
+        set -a lines (__tcz_thp_ln "$row" $w $BORDER $RST)
+    end
+    if test "$editing" = 1
+        set -l s1 0
+        set -l s2 0
+        set -l s3 0
+        test "$chan" = 1; and set s1 1
+        test "$chan" = 2; and set s2 1
+        test "$chan" = 3; and set s3 1
+        set -l row1 (__tcz_thp_slider R $r $s1)
+        set -l row2 (__tcz_thp_slider G $g $s2)
+        set -l row3 (__tcz_thp_slider B $b $s3)
+        set -a lines (__tcz_thp_ln "$row1" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$row2" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$row3" $w $BORDER $RST)
+    else
+        set -l MUT (__tcz_theme muted)
+        set -l RS (__tcz_theme reset)
+        set -l hexbold (printf '\e[1m%s\e[22m' "$hex")
+        set -a lines (__tcz_thp_ln "$hexbold" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$MUT""hue $hue° · L $L$RS" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$MUT""chroma $C$RS" $w $BORDER $RST)
+    end
+    printf '%s\n' $lines
+end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
@@ -1592,7 +1623,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 15 static chrome/second-list/legend rows + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - 15, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 21 static chrome/seed-zone/second-list/legend rows + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - 21, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1916,7 +1947,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # height in advance and must ask. `stty size` reports the popup's real dimensions
     # ($LINES/$COLUMNS are not exported into a popup). One derived quantity; every
     # other measurement in this function stays fixed.
-    set -l STATIC 15
+    # picker-seed-section Task 3: the seed became a fixed 8-row section (was 1
+    # row behind its own zsep, sharing the 'configuration' zsep before it) —
+    # net +6 static rows: top border · tab chip · preview bar · [seed zone:
+    # zsep + 4-row swatch + 3 readout/slider rows] · schemes zsep ·
+    # second-list zsep · current · off · blank zsep · legend×3 · note ·
+    # bottom border = 21.
+    set -l STATIC 21
     set -l dims (stty size 2>/dev/null | string split ' ')
     set -l rows 26
     test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
@@ -1980,7 +2017,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
-        set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -1995,19 +2031,37 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'configuration' $BORDER $RST)
-        # ONE horizontal row: label and value side by side. The zone holds a single
-        # field now that phase is hidden, so the stacked label-row/value-row form was
-        # pure overhead — and the row it frees goes to the scheme window below.
-        set -l seedrow (__tcz_thp_seedrow "$flashfield" "$seedchip")
-        set -a lines (__tcz_thp_ln "$seedrow" $IW $BORDER $RST)
+        # picker-seed-section Task 3: the seed is a FIXED 8-row section (zsep +
+        # 4-row swatch + 3 readout/slider rows), not the old single zsep+row —
+        # see __tcz_thp_seedzone. editing stays 0 here; a later task wires the
+        # real in-place edit-mode toggle. hue/L/C and r/g/b are recomputed from
+        # $seed every redraw (in-process fish math, no subprocess spawn) so
+        # that later flip needs no extra plumbing at this call site. The zone
+        # arrives already framed (zsep + __tcz_thp_ln rows), so it is appended
+        # to lines verbatim — wrapping it in __tcz_thp_ln again would double
+        # the border.
+        set -l seedm (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$seed")
+        set -l seedr 0
+        set -l seedg 0
+        set -l seedb 0
+        if test (count $seedm) -eq 3
+            set seedr (math "0x$seedm[1]")
+            set seedg (math "0x$seedm[2]")
+            set seedb (math "0x$seedm[3]")
+        end
+        set -l seedrgb01 (__tmux_lives_hex_to_rgb01 $seed)
+        set -l seedoklch (__tmux_lives_rgb_to_oklch $seedrgb01[1] $seedrgb01[2] $seedrgb01[3])
+        set -l seedro (printf '%.0f %.2f %.3f' $seedoklch[3] $seedoklch[1] $seedoklch[2])
+        set -l seedrop (string split ' ' -- "$seedro")
+        set -a lines (__tcz_thp_seedzone $IW "$seed" "$seedrop[1]" "$seedrop[2]" "$seedrop[3]" 0 1 $seedr $seedg $seedb)
         # Windowed scrolling list: only the SCHEME rows scroll; the second list
         # (current + off) is pinned below, always drawn. sel can never exceed
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
         # clamp for an off/anchor cursor position — that clamp is dead, removed.
-        # WIN=11: the frame is 15 static rows (border/chip/preview/configuration-
-        # zsep/seed/schemes-zsep/second-list-zsep/current/off/blank-zsep/
-        # legend×3/note/bottom-border) + WIN scheme rows = 26
+        # The frame is 21 static rows (border/chip/preview/seed-zone[zsep+
+        # swatch×4+3 readout-or-slider rows]/schemes-zsep/second-list-zsep/
+        # current/off/blank-zsep/legend×3/note/bottom-border) + WIN scheme
+        # rows = rows (the popup's own reported height, see STATIC above).
         # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
         # SCHEMES only, so it can never land on the header and vismap needs no change:
         # stepping over it falls out of the model instead of being a special case that
