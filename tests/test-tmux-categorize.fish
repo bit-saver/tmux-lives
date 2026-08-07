@@ -1600,35 +1600,38 @@ t "rotpal function fully removed" 0 (functions -q __tcz_thp_rotpal; and echo 1; 
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
 # Task 5: every __tmux_lives_theme_palette call in the picker body must carry
-# the full 9-arg v4 signature (seed relationship place mode phase vividness
-# shape ease contrast) — a regression to the old 8-arg v3.1-era call (no
-# place/mode) would silently drop a param and desync the preview from what
-# the engine actually renders. Extract each call's argument text (everything
-# between the function name and the closing paren of its command
-# substitution) and count space-separated tokens, rather than a substring
-# match, so this guard actually goes red if either call loses an arg.
+# the full v4 signature (seed relationship place mode phase) — a regression
+# to a shorter call would silently drop a param and desync the preview from
+# what the engine actually renders. theme-surface-cleanup Task 3 (2026-08-06)
+# dropped the four inert vividness/shape/ease/contrast trailers the engine
+# never read, so the honest contract is 5 args, not the old 9. Extract each
+# call's argument text (everything between the function name and the closing
+# paren of its command substitution) and count space-separated tokens, rather
+# than a substring match, so this guard actually goes red if either call
+# loses an arg.
 set -l palcalls (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pbody"))
 t "picker has exactly 2 palette calls" 2 (count $palcalls)
 for pc in $palcalls
     set -l argtail (string replace -r '.*__tmux_lives_theme_palette ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
     set -l nargs (count (string split ' ' -- $argstr))
-    t "palette call is 9-arg: $argstr" 9 $nargs
+    t "palette call is 5-arg: $argstr" 5 $nargs
 end
 
 # --- Gallery picker rewrite, Task 2: _reload/_init consume the catalog ------
 # Supersedes the "Task 1" engine-wiring section above (relationship-axis v4
 # picker): the picker no longer treats place/mode as top-level knobs — they
 # are now per-catalog-entry fields, read out of __tmux_lives_theme_catalog /
-# __tmux_lives_theme_catalog_default rows in _reload. The 9-arg palette
-# signature itself is unchanged (still relationship/place/mode positionally,
-# just sourced from a catalog row instead of picker vars).
+# __tmux_lives_theme_catalog_default rows in _reload. The palette signature
+# itself is unchanged in shape (still relationship/place/mode positionally,
+# just sourced from a catalog row instead of picker vars) — theme-surface-
+# cleanup Task 3 shortened it 9->5 args, dropping the inert trailers.
 t "picker uses catalog"             1 (string match -q '*__tmux_lives_theme_catalog*' -- "$pbody"; and echo 1; or echo 0)
 t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_catalog_default*' -- "$pbody"; and echo 1; or echo 0)
 t "picker drops relationships iter" 0 (string match -q '*for tok in (__tmux_lives_theme_relationships)*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has expanded state"       1 (string match -q '*expanded*' -- "$pbody"; and echo 1; or echo 0)
-t "picker still 9-arg palette"      1 (string match -q '*__tmux_lives_theme_palette $seed *$phase $viv $shape $ease $contrast*' -- "$pbody"; and echo 1; or echo 0)
+t "picker still 5-arg palette"      1 (string match -q '*__tmux_lives_theme_palette $seed *$phase)*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 3: windowed scrolling list + linear nav ---
 # __tcz_thp_window <sel> <total> <winsize> -> "<start> <count>", the 0-based
@@ -1762,11 +1765,12 @@ set -l anchsnap (awk '/anchor snapshot: the persisted theme/,/set -l anchpal/' $
 t "anchor snapshots place" 1 (string match -q '*set -l anch_place*' -- "$anchsnap"; and echo 1; or echo 0)
 t "anchor snapshots mode"  1 (string match -q '*set -l anch_mode*'  -- "$anchsnap"; and echo 1; or echo 0)
 t "anchor drops rotate"    0 (string match -q '*anch_rotate*' -- "$anchsnap"; and echo 1; or echo 0)
-# the anchor's OWN palette-build call must also move to the 9-arg v4
-# signature (seed relationship place mode phase vividness shape ease
-# contrast) — the same v3-breakage Task 1 fixed for the main list. Checked
-# against the full $pbody since this exact call text is unique to this site.
-t "anchor palette call is 9-arg (place+mode, drops rotate)" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pbody"; and echo 1; or echo 0)
+# the anchor's OWN palette-build call must also carry the v4 signature (seed
+# relationship place mode phase) — the same v3-breakage Task 1 fixed for the
+# main list. theme-surface-cleanup Task 3 shortened this 9->5 args, dropping
+# the inert vividness/shape/ease/contrast trailers. Checked against the full
+# $pbody since this exact call text is unique to this site.
+t "anchor palette call is 5-arg (place+mode, drops rotate)" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase)*' -- "$pbody"; and echo 1; or echo 0)
 
 # picker current-zone + legend-grid refinement, Task 1: the two fixed-pitch
 # __tcz_legend_row calls (was 2, itself "was 3" before the gallery rewrite)
@@ -1812,6 +1816,19 @@ t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- 
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker draw loop: WIN is 11" 1 (string match -q '*set -l WIN 11*' -- "$catsrc"; and echo 1; or echo 0)
 
+# --- Task 3: the retired knobs are gone from the picker -------------------------
+# Bounded to the picker body: these names legitimately survive nowhere else in
+# this file, but an unbounded grep would also match unrelated prose.
+set -g PBODY3 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "picker: no vividness local"  0 (string match -ra 'set -l viv ' -- "$PBODY3" | count)
+t "picker: no shape local"      0 (string match -ra 'set -l shape ' -- "$PBODY3" | count)
+t "picker: no ease local"       0 (string match -ra 'set -l ease ' -- "$PBODY3" | count)
+t "picker: no contrast local"   0 (string match -ra 'set -l contrast ' -- "$PBODY3" | count)
+t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | count)
+# Positive counterpart: the palette calls must still EXIST, so the guards above
+# cannot be satisfied by deleting the calls outright.
+t "picker: still has exactly 2 palette calls" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
+
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
 t "swatch emits 4 lines" 4 (count $sw)
@@ -1830,11 +1847,11 @@ t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_sche
 t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the top scheme (sel 0)" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
-# v4 (Task 3): the 8-arg apply_live preview form is relationship place mode
-# phase viv shape ease contrast — anch_place/anch_mode are Task 4's forward
-# reference (the anchor snapshot capture itself is Task 4 scope, untouched
-# here; the vars are empty until Task 4 lands, by design).
-t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast*' -- "$pk"; and echo 1; or echo 0)
+# the apply_live preview form is relationship place mode phase —
+# anch_place/anch_mode read the anchor's own persisted place/mode.
+# theme-surface-cleanup Task 3 (2026-08-06) dropped the inert trailing
+# viv/shape/ease/contrast args this call used to carry.
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_place $anch_mode $anch_phase*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 # picker-second-list Task 5: off and the current/anchor row moved into a
 # SECOND list at the bottom (its own cursor, sel2, reached with ⇥ — see the
@@ -2204,8 +2221,8 @@ t "the islive placeholder is gone" 0 (string match -qr 'set -l islive 1\s*\n\s*s
 # is retired along with it (superseded by the second list's own untitled
 # zsep + __tcz_thp_leg wiring, both in place); vismap never hands back n (off
 # left the walk entirely, not just n+1); both engine palette calls are still
-# 9-arg (exactly 2 call sites, matching the earlier per-call arg-count loop
-# at ~line 1338).
+# the 5-arg v5 signature (exactly 2 call sites, matching the earlier per-call
+# arg-count loop at ~line 1338).
 t "consolidated guard: case c retired (superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
@@ -2214,7 +2231,7 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-t "consolidated guard: exactly 2 palette call sites, all 9-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+t "consolidated guard: exactly 2 palette call sites, all 5-arg" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits

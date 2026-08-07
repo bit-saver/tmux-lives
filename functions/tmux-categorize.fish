@@ -1599,10 +1599,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # phase is kept separately so the `current` row can still snapshot what you
     # actually have — otherwise confirming your own theme would silently zero it.
     set -l persisted_phase 0
-    set -l viv balanced
-    set -l shape arc
-    set -l ease linear
-    set -l contrast auto
     set -l expanded 0
     set -l legacy ''
     set -l seedfg '#f5f5f5'
@@ -1623,10 +1619,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
             echo (__tmux_lives_key tmux_lives_theme mono)
             echo (__tmux_lives_key tmux_lives_theme_phase 0)
-            echo (__tmux_lives_key tmux_lives_theme_vividness balanced)
-            echo (__tmux_lives_key tmux_lives_theme_shape arc)
-            echo (__tmux_lives_key tmux_lives_theme_ease linear)
-            echo (__tmux_lives_key tmux_lives_theme_contrast auto)
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
             echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))
             echo (__tmux_lives_key tmux_lives_theme_place bar)
@@ -1639,19 +1631,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # captured separately for the anchor snapshot so the `current` row still
         # means "exactly what you have now" rather than silently zeroing it.
         test (count $init) -ge 3; and test -n "$init[3]"; and set persisted_phase $init[3]
-        test (count $init) -ge 4; and test -n "$init[4]"; and set viv $init[4]
-        test (count $init) -ge 5; and test -n "$init[5]"; and set shape $init[5]
-        test (count $init) -ge 6; and test -n "$init[6]"; and set ease $init[6]
-        test (count $init) -ge 7; and test -n "$init[7]"; and set contrast $init[7]
         set legacy ''
-        test (count $init) -ge 8; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[8]")
+        test (count $init) -ge 4; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[4]")
         set seedfg '#f5f5f5'
-        test (count $init) -ge 9; and test -n "$init[9]"; and set seedfg $init[9]
+        test (count $init) -ge 5; and test -n "$init[5]"; and set seedfg $init[5]
         # place/mode: read for the anchor snapshot ONLY (see the top-level
-        # comment on the `place`/`mode` decls) — appended here rather than
-        # inserted so the seed..seedfg indices above stay 1..9 unchanged.
-        test (count $init) -ge 10; and test -n "$init[10]"; and set place $init[10]
-        test (count $init) -ge 11; and test -n "$init[11]"; and set mode $init[11]
+        # comment on the `place`/`mode` decls).
+        test (count $init) -ge 6; and test -n "$init[6]"; and set place $init[6]
+        test (count $init) -ge 7; and test -n "$init[7]"; and set mode $init[7]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1675,7 +1662,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             test "$expanded" = 1; and set rows (__tmux_lives_theme_catalog)
             for e in $rows
                 set -l f (string split '|' -- $e)
-                set -l p (__tmux_lives_theme_palette $seed $f[2] $f[3] $f[4] $phase $viv $shape $ease $contrast)
+                set -l p (__tmux_lives_theme_palette $seed $f[2] $f[3] $f[4] $phase)
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # cap/tabs are pinned (fields 6/3 of pal) -> compute their fgs once
                 set -l capfg (__tmux_lives_contrast_fg "$p[6]")
@@ -1859,10 +1846,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anch_seed $seed
     set -l anch_scheme $theme
     set -l anch_phase $persisted_phase
-    set -l anch_viv $viv
-    set -l anch_shape $shape
-    set -l anch_ease $ease
-    set -l anch_contrast $contrast
     set -l anch_place $place
     set -l anch_mode $mode
     # Two-list model. The scheme list owns `sel` (0..n-1); the second list — the
@@ -1875,9 +1858,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     # Recomputes anchpal/anchfg/anchtabsfg for the CURRENT $seed against the
-    # frozen anchor recipe (anch_scheme/place/mode/phase/viv/shape/ease/
-    # contrast — these never change after the snapshot above). --no-scope-
-    # shadowing so it mutates the caller's vars directly, same as reload does
+    # frozen anchor recipe (anch_scheme/place/mode/phase — these never change
+    # after the snapshot above). --no-scope-shadowing so it mutates the
+    # caller's vars directly, same as reload does
     # for toks/pals/fgs/tabsfgs. Call once here AND again after any seed edit
     # (hexentry/sliders' ⏎) — every OTHER row already re-derives from $seed
     # via __tcz_thp_reload; without this, the `current` row's band, and the
@@ -1888,7 +1871,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set anchfg '#f5f5f5'
         set anchtabsfg '#f5f5f5'
         if test "$anch_scheme" != off
-            set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast)
+            set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase)
             if test (count $ap) -eq 7
                 set -l apj (string join ' ' $ap)
                 set anchpal "$apj"
@@ -2217,11 +2200,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case a
                 if test $focus = state
                     if test $sel2 -eq 0
-                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase $anch_viv $anch_shape $anch_ease $anch_contrast >/dev/null 2>&1
+                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
                         set previewed 2
                         set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                     else
-                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
                         set previewed 1
                         set note "● previewing off — ⏎ save · esc revert"
                     end
@@ -2231,7 +2214,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -l rel $rc[1]
                     set -l rplace $rc[2]
                     set -l rmode $rc[3]
-                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase $viv $shape $ease $contrast >/dev/null 2>&1
+                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
                     set previewed 1
                     set note "● previewing $rel — ⏎ save · esc revert"
                 end
