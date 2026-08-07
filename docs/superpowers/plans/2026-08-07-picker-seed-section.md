@@ -374,6 +374,10 @@ Draw the same `╭─╯` frame the main picker uses, at the same width, around 
 
 On `⏎` or `esc`, return to the picker with `editing` still 1, so `t` reads as a detour within edit mode rather than a separate destination.
 
+- [ ] **Step 4b: Gate `tab` while editing (one line, folded in from the Task 4 review)**
+
+`case tab` is not gated by `editing`, so pressing Tab mid-edit leaves `focus=state` while `editing=1` still owns the arrows: the second-list cursor draws as selected but `↑↓` move the colour channel, `⏎` exits edit mode instead of acting on the state row, and `b` can no longer exit edit mode because it is itself focus-gated. It is recoverable in one keypress, which is why the Task 4 review classed it Minor — but the fix is one line and this task is already editing the same dispatch. Ignore Tab while editing, consistent with `b`'s own gate and with how pgup/pgdn are handled. Add a behavioural assertion that Tab cannot change `focus` while `editing` is 1.
+
 - [ ] **Step 5: Run the full gate and commit**
 
 ```bash
@@ -427,6 +431,17 @@ In the edit-mode channel handler, after updating the channel value: recompute th
 - [ ] **Step 4: Batch-reload on settle**
 
 Reuse the existing drain loop's timeout: when a drain iteration times out (input has settled), call `__tcz_thp_reload` once so the remaining strips catch up. The reload cache is keyed on the seed, so a changed seed correctly misses and recomputes.
+
+⚠️ **You must call `__tcz_thp_reanchor` here too, and the original draft of this step omitted it** (found by the Task 4 review). Two facts make it necessary:
+
+- `__tcz_thp_reload`'s cache is a **memo, not an invalidator** — nothing in the draw loop consults it, so `$pals` / `$fgs` / `$tabsfgs` stay at the pre-edit seed until something explicitly calls the reload.
+- `__tcz_thp_reanchor` exists precisely so the `current` row's band tracks a changed seed; its own comment says so. Without it the `current` row renders the OLD seed's palette after a seed edit.
+
+The retired `__tcz_thp_sliders` / `__tcz_thp_hexentry` commit arms called **both** functions. The Task 4 edit path calls neither, so this step is where both come back. Assert the `current` row's rendered band actually changes after a seed edit — a behavioural check against the frame text, not a grep for the call.
+
+- [ ] **Step 4b: Strengthen the drain invariant while you are in here**
+
+The suite pins the number of drain loops by exact count, which cannot see a NEW drain that omits the mandatory in-loop `stty min 0 time` re-assertion. A stronger form is available and currently true: the picker has 4 `while true` loops, 3 of which are followed by an in-loop `stty min 0 time`, the exception being the main event loop. Assert `count(while true) − count(while true followed by an in-loop stty) == 1`. This task adds work to a drain, so it is the right moment.
 
 - [ ] **Step 5: Confirm it does not regress held-arrow behaviour**
 
