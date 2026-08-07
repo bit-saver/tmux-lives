@@ -790,7 +790,7 @@ t "main dispatches scratch" yes (string match -q '*case scratch*' -- "$MAINSRC";
 t "modal action k -> theme" theme (__tcz_modal_action k)
 t "modal readkey byte 6b (k) -> k" k (printf 'k' | __tcz_modal_readkey)
 t "modal k opens the theme picker (deferred, own popup)" yes \
-    (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
+    (string match -q '*display-popup -B -E -w 52 -h 85%*theme-picker*' -- (functions __tcz_modal_run | string collect); and echo yes; or echo no)
 set -g LEGEND (__tcz_modal_legend 0 M-m M-t M-r M-s | string collect)
 t "modal legend names the theme" yes (string match -q '*k theme*' -- "$LEGEND"; and echo yes; or echo no)
 # display-menu is the no-display-popup fallback for tmux builds WITHOUT
@@ -1849,16 +1849,30 @@ t "guard: no theme_range in categorizer" 0 (string match -q '*tmux_lives_theme_r
 # kv pairs onto ONE space-between row pair, freeing 2 static rows, which
 # went to the WINDOW rather than shrinking the frame (the catalog had just
 # grown 28->37, later re-weeded to 35 — see the mono-slate dedup fix). So
-# the split is now 15 static (chrome/off/current-zsep/anchor/legend×3) +
+# the split was 15 static (chrome/off/current-zsep/anchor/legend×3) +
 # WIN=11 scheme rows = 26 — SAME total, CONSTANT across the 14-vs-35
 # catalog size. The exact-height contract (rows 1..-2 with \n,
 # last without) demands -h == emitted; 27/24/22/20 are stale everywhere.
-t "picker popup is 52x26 (modal open site)" 1 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
+# picker-seed-section Task 1 (2026-08-07): 26 was a FIXED number, which
+# cannot survive a shorter client (a popup taller than the client refuses to
+# open on 3.3a). -h is now a percentage and WIN is derived from the popup's
+# own reported size at open time — see the WINSRC block below, which pins
+# the discriminators for that change. 26/27/24/22/20 are now ALL stale.
+t "picker popup: no stale 52x26 anywhere" 0 (string match -q '*-w 52 -h 26*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x27 anywhere" 0 (string match -q '*-w 52 -h 27*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x24 anywhere" 0 (string match -q '*-w 52 -h 24*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x22 anywhere" 0 (string match -q '*-w 52 -h 22*' -- "$catsrc"; and echo 1; or echo 0)
 t "picker popup: no stale 52x20 anywhere" 0 (string match -q '*-w 52 -h 20*' -- "$catsrc"; and echo 1; or echo 0)
-t "picker draw loop: WIN is 11" 1 (string match -q '*set -l WIN 11*' -- "$catsrc"; and echo 1; or echo 0)
+# "picker draw loop: WIN is 11" is retired here, not merely renamed: it pinned
+# the OLD hardcoded literal as the CORRECT state, which is now the exact thing
+# being removed. The WINSRC block immediately below is its replacement.
+
+# --- Task 1: WIN is derived from the popup height ------------------------------
+set -g WINSRC (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "picker body extraction is non-empty" 1 (test -n "$WINSRC"; and echo 1; or echo 0)
+t "picker no longer hardcodes a window size" 0 (string match -ra 'set -l WIN 11' -- "$WINSRC" | count)
+t "picker reads its own popup size" 1 (string match -qr 'stty size' -- "$WINSRC"; and echo 1; or echo 0)
+t "no open site still pins 26 rows" 0 (grep -c -- '-w 52 -h 26' $catfile)
 
 # --- Task 3: the retired knobs are gone from the picker -------------------------
 # Bounded to the picker body: these names legitimately survive nowhere else in
@@ -2134,7 +2148,11 @@ t "the old adjustments title is gone" 0 (string match -q '*adjustments*' -- "$PK
 t "SEED label and value share one row" 1 (string match -q '*SEED*' -- "$PK"; and echo 1; or echo 0)
 t "the two-row kv builder is gone"     0 (grep -c '__tcz_thp_kv' $catfile)
 t "the spread builder is gone"         0 (grep -c '__tcz_thp_spread' $catfile)
-t "scheme window is 11 rows"           1 (string match -q '*set -l WIN 11*' -- "$PK"; and echo 1; or echo 0)
+# picker-seed-section Task 1: WIN is derived from the popup's own reported
+# height, not a hardcoded literal — "scheme window is 11 rows" retired above
+# (WINSRC block) in favor of this same fact, checked here via the $PK
+# extraction mechanism instead of raw source text.
+t "scheme window is no longer a hardcoded literal" 0 (string match -ra 'set -l WIN 11' -- "$PK" | count)
 t "WIN is defined exactly once"        1 (count (string match -ra 'set -l WIN ' -- "$PK"))
 t "no stale WIN 10"                    0 (string match -q '*set -l WIN 10*' -- "$PK"; and echo 1; or echo 0)
 
@@ -2370,8 +2388,11 @@ t "drain restores blocking on exit" 1 (string match -q '*stty min 1 time 0*' -- 
 # single broad regex over stale heights 10-19/20-25/27-29, which the four
 # existing discrete 27/24/22/20 literals above do not cover (e.g. 21/23/25/
 # 28/29/10-19).
+# picker-seed-section Task 1: -h is now a percentage everywhere, so EVERY
+# fixed 2-digit -h literal 10-29 is stale, including 26 (deliberately
+# excluded from the range above at the time it was still current).
 set -l catsrc9 (cat $catfile | string collect)
-t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h (2[0-57-9]|1[0-9])' -- "$catsrc9"))
+t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h (2[0-9]|1[0-9])' -- "$catsrc9"))
 
 # The actual Step-1 deliverable: a DIRECT count of what the draw loop emits,
 # not indirect evidence (a `set -a lines` site count, or reading the WIN
@@ -2389,7 +2410,7 @@ t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h
 set -g DRAWTEXT9 (awk '/set -l curpal/,/╰/' $catfile | string collect)
 t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 1; or echo 0)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - 15, matching the real function); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2397,7 +2418,8 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     set -l SELBG (__tcz_theme sel-bg)
     set -l RST (__tcz_theme reset)
     set -l IW 50
-    set -l WIN 11
+    test -n "$rows"; or set rows 26
+    set -l WIN (math "$rows - 15")
     set -l host somehost
     set -l chiptitle ''
     set -l note 'a note'
@@ -2461,6 +2483,20 @@ t "frame: 26 rows — expanded, top of list"          26 (__t9_frame_rows list 0
 # exactly here, not at the mid-list states above.
 t "frame: 26 rows — expanded, very bottom"          26 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14)
 t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0 14 0  0 mono "$PAL9" '' 0 14)
+
+# --- picker-seed-section Task 1: WIN is derived from the popup height, not fixed --
+# The real function reads its own popup height via `stty size` and sets
+# WIN = rows - 15; __t9_frame_rows now takes that same rows value and derives WIN
+# identically, so these prove the frame still emits EXACTLY its height at sizes
+# other than todays fixed 26 — including a window (52 rows -> WIN=37) LARGER than
+# the 35-row catalog (expanded, so the virtual list is 36 rows: 35 schemes + the
+# More Schemes header), which is only correct because of the Step 4b padding:
+# without it the frame would stop 1 row short (36 virtual rows + 15 static = 51,
+# not 52 — verified directly by reverting the padding and re-running this test).
+t "frame: emits exactly its height — 26 rows (today's size)" 26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26)
+t "frame: emits exactly its height — 39 rows"                39 (__t9_frame_rows list 0 35 0 1 mono "$PAL9" '' 1 14 39)
+t "frame: emits exactly its height — 52 rows"                52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52)
+t "frame: emits exactly its height — 18 rows (the floor)"    18 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 18)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.

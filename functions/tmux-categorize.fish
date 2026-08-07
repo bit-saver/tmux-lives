@@ -1082,7 +1082,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open the theme picker in its OWN popup
             # (the theme-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here).
-            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 26 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 85% -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear
@@ -1592,7 +1592,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/second-list/legend rows + an 11-row scheme window, constant regardless of the 14-vs-35 catalog size — the window holds 11 virtual rows, and when expanded one of them is spent on the More Schemes group header rather than a scheme).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 15 static chrome/second-list/legend rows + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - 15, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1911,7 +1911,23 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l IW 50
     # Window size lives out here so BOTH the draw loop and the key dispatch (which
     # pages by it) see one value — a second literal would drift.
-    set -l WIN 11
+    # The popup opens at a PERCENTAGE height, because a popup taller than the client
+    # does not clamp on tmux 3.3a — it refuses to open. So the picker cannot know its
+    # height in advance and must ask. `stty size` reports the popup's real dimensions
+    # ($LINES/$COLUMNS are not exported into a popup). One derived quantity; every
+    # other measurement in this function stays fixed.
+    set -l STATIC 15
+    set -l dims (stty size 2>/dev/null | string split ' ')
+    set -l rows 26
+    test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
+    set -l WIN (math "$rows - $STATIC")
+    if test $WIN -lt 3
+        # Too short to draw a usable list. Say so plainly rather than rendering a
+        # frame that overflows and scrolls its own top border away.
+        printf '\e[2J\e[H tmux-lives: window too short for the theme picker\n (needs %s rows, has %s)\n' (math "$STATIC + 3") $rows
+        stty $saved 2>/dev/null
+        return 0
+    end
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2031,6 +2047,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set row "$SELBG$row$RST"
                 end
                 set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
+            end
+        end
+        # WIN is now derived from the popup's own height (see STATIC/rows above), so
+        # it routinely exceeds the list — __tcz_thp_window returns "0 <total>" (fewer
+        # than WIN rows) whenever total <= WIN, and the loop above then draws fewer
+        # than WIN rows with nothing to fill the rest. Pad with blank framed rows so
+        # the frame always ends exactly at the popup's bottom, not short of it.
+        set -l winpad (math "$WIN - $count")
+        if test $winpad -gt 0
+            for i in (seq 1 $winpad)
+                set -a lines (__tcz_thp_ln '' $IW $BORDER $RST)
             end
         end
         # ── second list: the current theme and off. Untitled: no word covers both,
