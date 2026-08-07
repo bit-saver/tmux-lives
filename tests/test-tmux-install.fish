@@ -1086,7 +1086,7 @@ t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_liv
 t "catalog: tabs+literal tier exists (the chip tier)" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|')) -ge 1; and echo 1; or echo 0)
 t "catalog: amber chip present" 1 (string match -q '*amber chip|amber|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
 t "catalog: sage chip present" 1 (string match -q '*sage chip|sage|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
-t "catalog: amber chip is a default" 1 (string match -q '*amber chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
+t "catalog: coral chip is a default" 1 (string match -q '*coral chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
 # Tier composition, pinned EXACTLY. bar and tabs are symmetric (8 relationships x
 # derived/literal each) because both are now first-class dominant placements — EXCEPT
 # mono, which has no tabs row (see below); cap survives as a 4-row accent-led minority,
@@ -1114,14 +1114,33 @@ t "catalog: amber deep present" 1 (count (__tmux_lives_theme_catalog | string ma
 t "catalog: coral deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^coral deep\|'))
 t "catalog: sage core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^sage core\|'))
 t "catalog: teal core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^teal core\|'))
-t "catalog: all four cap rows are defaults" 4 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
+t "catalog: cap rows in defaults" 2 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
 # cap rows sort LAST — the accent-led minority is at the bottom of the picker list
 t "catalog: the last 4 rows are the cap rows" 4 (count (__tmux_lives_theme_catalog | tail -4 | string match -r '\|cap\|'))
-# the 14 curated default NAMES are unchanged by the retiering
-t "catalog: default names unchanged" "amber chip amber deep amber soft coral deep coral soft ember glow ember slate mint soft mono soft sage core sage glow teal core teal glow wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
+# the 14 curated default NAMES after Task 4 rebalance toward tabs
+t "catalog: default names unchanged" "amber deep amber slate amber soft coral chip ember slate mint chip mono soft sage chip sage core sage glow teal glow teal slate wheat slate wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
 t "catalog: wheat chip exists (tabs literal kept)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|literal\|'))
 t "catalog: wheat soft is a default" 1 (string match -q '*wheat soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
-t "catalog: mint soft is a default" 1 (string match -q '*mint soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
+t "catalog: mint chip is a default" 1 (string match -q '*mint chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
+
+# --- Task 4: curated 14 rebalanced toward tabs ----------------------------------
+# The tab bar is the dominant surface on screen; tabs placement is where a scheme
+# reaches it, and it was 2 of the 14 rows shown on open. Pin the composition
+# EXACTLY — a `>=` bound passed against the pre-cut catalog during the 2026-07-28
+# weeding pass and hid a real composition change.
+set -g CD4 (__tmux_lives_theme_catalog_default)
+t "curated set is still 14" 14 (count $CD4)
+t "curated bar rows"  5 (printf '%s\n' $CD4 | awk -F'|' '$3=="bar"'  | count)
+t "curated tabs rows" 7 (printf '%s\n' $CD4 | awk -F'|' '$3=="tabs"' | count)
+t "curated cap rows"  2 (printf '%s\n' $CD4 | awk -F'|' '$3=="cap"'  | count)
+# Counts alone cannot see a swap — pin the names too.
+set -g CD4N (printf '%s\n' $CD4 | awk -F'|' '{print $1}' | sort | string join ',')
+t "curated names" 'amber deep,amber slate,amber soft,coral chip,ember slate,mint chip,mono soft,sage chip,sage core,sage glow,teal glow,teal slate,wheat slate,wheat soft' "$CD4N"
+# Every relationship must still be reachable from the opening view.
+for r in mono wheat mint amber ember coral sage teal
+    set -l hits (printf '%s\n' $CD4 | awk -F'|' -v r=$r '$2==r' | count)
+    t "curated covers $r" yes (test $hits -ge 1; and echo yes; or echo no)
+end
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))
