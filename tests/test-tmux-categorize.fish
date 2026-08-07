@@ -1874,6 +1874,15 @@ t "picker no longer hardcodes a window size" 0 (string match -ra 'set -l WIN 11'
 t "picker reads its own popup size" 1 (string match -qr 'stty size' -- "$WINSRC"; and echo 1; or echo 0)
 t "no open site still pins 26 rows" 0 (grep -c -- '-w 52 -h 26' $catfile)
 
+# --- picker-seed-section Task 2: preview and cancel emit the tab OSC directly ---
+# Without this the tab lags the status bar by up to one status-interval (15s) in
+# BOTH directions, so ESC appears not to restore. Force mode, not dedup: the dedup
+# cache would suppress a restore that returns to an already-emitted value.
+set -g PB2 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "picker body extraction is non-empty" 1 (test -n "$PB2"; and echo 1; or echo 0)
+t "picker emits the tab colour on preview/cancel" yes (string match -qr '__tcz_recolor' -- "$PB2"; and echo yes; or echo no)
+t "picker's recolor calls are force, not dedup" 0 (string match -ra '__tcz_recolor[^\n]*dedup' -- "$PB2" | count)
+
 # --- Task 3: the retired knobs are gone from the picker -------------------------
 # Bounded to the picker body: these names legitimately survive nowhere else in
 # this file, but an unbounded grep would also match unrelated prose.

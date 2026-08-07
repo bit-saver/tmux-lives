@@ -2263,10 +2263,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 if test $focus = state
                     if test $sel2 -eq 0
                         fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
+                        set -l tabhex (__tcz_tab_color '')
+                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
                         set previewed 2
                         set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                     else
                         fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
+                        set -l tabhex (__tcz_tab_color '')
+                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
                         set previewed 1
                         set note "● previewing off — ⏎ save · esc revert"
                     end
@@ -2277,6 +2281,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -l rplace $rc[2]
                     set -l rmode $rc[3]
                     fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
+                    set -l tabhex (__tcz_tab_color '')
+                    test -n "$tabhex"; and __tcz_recolor "$tabhex"
                     set previewed 1
                     set note "● previewing $rel — ⏎ save · esc revert"
                 end
@@ -2304,6 +2310,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # rendered against a changed seed still is not what you started with.
                 if test $previewed -ne 0; or test "$seed" != "$anch_seed"
                     fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live' "$anch_seed" >/dev/null 2>&1
+                    set -l tabhex (__tcz_tab_color '')
+                    test -n "$tabhex"; and __tcz_recolor "$tabhex"
                 end
                 break
         end
