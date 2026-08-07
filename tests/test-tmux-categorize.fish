@@ -1662,9 +1662,11 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # call's argument text (everything between the function name and the closing
 # paren of its command substitution) and count space-separated tokens, rather
 # than a substring match, so this guard actually goes red if either call
-# loses an arg.
+# loses an arg. picker-seed-section Task 6 added a third call (a direct
+# per-keystroke recompute in case left/right) alongside the batch reload and
+# the anchor, so the count below is 3, not the original 2.
 set -l palcalls (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pbody"))
-t "picker has exactly 2 palette calls" 2 (count $palcalls)
+t "picker has exactly 3 palette calls" 3 (count $palcalls)
 for pc in $palcalls
     set -l argtail (string replace -r '.*__tmux_lives_theme_palette ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
@@ -1929,8 +1931,9 @@ t "picker: no ease local"       0 (string match -ra 'set -l ease ' -- "$PBODY3" 
 t "picker: no contrast local"   0 (string match -ra 'set -l contrast ' -- "$PBODY3" | count)
 t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | count)
 # Positive counterpart: the palette calls must still EXIST, so the guards above
-# cannot be satisfied by deleting the calls outright.
-t "picker: still has exactly 2 palette calls" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
+# cannot be satisfied by deleting the calls outright. picker-seed-section
+# Task 6 added a third (case left/right's direct per-keystroke recompute).
+t "picker: still has exactly 3 palette calls" 3 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -2332,8 +2335,10 @@ t "the islive placeholder is gone" 0 (string match -qr 'set -l islive 1\s*\n\s*s
 # by tab); the retired axis keys/functions stay gone; the titled current zsep
 # is retired along with it (superseded by the second list's own untitled
 # zsep + __tcz_thp_leg wiring, both in place); vismap never hands back n (off
-# left the walk entirely, not just n+1); the palette call-site count is still
-# 2 (arity is pinned separately by the per-call arg-count loop at ~line 1654).
+# left the walk entirely, not just n+1); the palette call-site count is now
+# 3 (picker-seed-section Task 6 added a direct per-keystroke call in case
+# left/right, alongside the batch reload and the anchor; arity is pinned
+# separately by the per-call arg-count loop at ~line 1654).
 t "consolidated guard: case c retired (superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
@@ -2342,7 +2347,7 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-t "consolidated guard: exactly 2 palette call sites" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+t "consolidated guard: exactly 3 palette call sites" 3 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -3128,6 +3133,256 @@ t "case tab: editing=1 cannot change focus away from list" list (__t9_casetab 1 
 t "case tab: editing=1 cannot change focus away from state" state (__t9_casetab 1 state)
 t "case tab: editing=0 still toggles list->state (non-regression)" state (__t9_casetab 0 list)
 t "case tab: editing=0 still toggles state->list (non-regression)" list (__t9_casetab 0 state)
+
+# =====================================================================
+# picker-seed-section Task 6: live regeneration — the cursor's own scheme
+# recomputes as the seed moves; the remaining strips catch up once input
+# settles. Measured costs driving the split: one palette ~40ms; the 14-row
+# curated batch 310-400ms; all 35 rows 700-800ms — per-keystroke full
+# regeneration is not affordable, so only the cursor's own row may be
+# recomputed inline; everything else waits for a pause in input.
+# =====================================================================
+set -l catfile $plugindir/functions/tmux-categorize.fish
+
+# --- Step 1: live regeneration is scoped to one palette --------------------------
+# A full batch is 310-800ms; one palette is ~40ms. The per-keystroke path must
+# compute ONE palette, not call the batch reload.
+set -g EB6 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0)
+# Count call sites rather than pattern-matching across lines. A multiline regex over
+# a 700-line body is fragile and hard to prove non-vacuous; a count is neither. The
+# picker had exactly 2 palette calls (the batch reload and the anchor); the live
+# channel path adds a third, and it must be a DIRECT call, not another reload.
+t "picker now has exactly 3 palette call sites" 3 (string match -ra '__tmux_lives_theme_palette ' -- "$EB6" | count)
+# Perf fence: one palette must stay well under a redraw budget.
+set -g T6A (date +%s%N)
+__tmux_lives_theme_palette '#5f772b' amber bar derived 0 >/dev/null
+set -g T6B (date +%s%N)
+t "one palette is under 150ms" yes (test (math "($T6B - $T6A) / 1000000") -lt 150; and echo yes; or echo no)
+
+# --- Step 4b: strengthen the drain invariant --------------------------------------
+# The suite pins the drain-loop count by exact literal pattern (2 with a literal
+# `time 0`, 1 with `time $gap` — see :1448/:1456 above), which cannot see a NEW
+# drain that omits the mandatory in-loop stty reassertion under some OTHER
+# pattern (e.g. a literal `time 1`). A relative invariant closes that class: of
+# the picker's 4 `while true` loops, exactly 3 are immediately followed, on
+# their own next line, by SOME in-loop `stty min 0 time ...` reassertion — the
+# exception is the main event loop, which does its own timed read further down
+# its body, not on the line right after `while true`.
+set -l wt_total (count (string match -ar 'while true' -- (string split \n -- "$EB6")))
+set -l wt_safe (string match -a -r 'while true(?=\n\s+stty min 0 time )' -- "$EB6" | count)
+t "drain invariant: exactly one while-true loop (the main event loop) lacks an immediate in-loop stty reassertion" 1 (math "$wt_total - $wt_safe")
+
+# --- Step 3 + 4: extract the (Task-6-updated) left/right arm and the flashfield-
+# timeout settle block, and drive both for real via eval against a throwaway
+# scope. eval, not source: source opens its own local scope, so a `set -l`
+# inside would not survive the call returning (same rationale as $ARROW9WRAP
+# above). Both extractions are content-anchored, not line-numbered, so later
+# tasks' line drift is safe.
+set -g ARROWLR6 (awk '/^            case m$/{exit} /^            case left right$/{f=1} f{print}' $catfile | string collect)
+t "left/right arm extraction is non-empty (task 6)" 1 (test -n "$ARROWLR6"; and echo 1; or echo 0)
+set -g ARROWLR6WRAP "switch \$tok
+$ARROWLR6
+end"
+# The flashfield-timeout block ("has input settled?") sits between the frame
+# draw and the main switch; `set -l tok` through the line before `switch $tok`
+# is unique in the file at this indentation.
+set -g SETTLE6 (awk '/^        set -l tok$/{f=1} /^        switch \$tok$/{exit} f{print}' $catfile | string collect)
+t "settle-block extraction is non-empty (task 6)" 1 (test -n "$SETTLE6"; and echo 1; or echo 0)
+
+# Stub __tcz_popup_readkey (queue-based, same convention as $ARROW9WRAP's own
+# harness above) and stty (no-op — no real tty to assert on under the
+# harness) for the duration of these two arms' tests; both are restored below.
+set -g __t6_real_readkey (functions __tcz_popup_readkey | string collect)
+function __tcz_popup_readkey --description 'test stub (picker-seed-section Task 6): pops the next token off $__t6_rkq each call, "other" once exhausted.'
+    if test (count $__t6_rkq) -gt 0
+        echo $__t6_rkq[1]
+        set -g __t6_rkq $__t6_rkq[2..-1]
+    else
+        echo other
+    end
+end
+function stty
+    # no-op: same rationale as the $ARROW9WRAP harness above — the extracted
+    # arms toggle blocking mode around a scripted read, irrelevant here.
+end
+# __tcz_thp_reload stubbed as a call counter — the Step 3 discriminator IS
+# that the per-keystroke path must NOT call it (a mistaken implementation
+# that called the batch every keystroke would still move the cursor row
+# correctly, so only a call-count assertion catches that class).
+set -g __t6_reload_calls 0
+function __tcz_thp_reload --description 'test stub (picker-seed-section Task 6): counts calls instead of recomputing the batch.'
+    set -g __t6_reload_calls (math $__t6_reload_calls + 1)
+end
+
+function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-6-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>".'
+    set -l editing 1
+    set -l chan 1
+    set -l sel 0
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $seedhex)
+    if test (count $m) -eq 3
+        set seedr (math "0x$m[1]")
+        set seedg (math "0x$m[2]")
+        set seedb (math "0x$m[3]")
+    end
+    set -l seed $seedhex
+    set -l phase 0
+    set -l flashfield ''
+    set -l recipes 'mono|bar|derived'
+    set -l pals 'stale stale stale stale stale stale stale'
+    set -l fgs '#000000'
+    set -l tabsfgs '#000000'
+    set -g __t6_reload_calls 0
+    set -g __t6_rkq $argv[3..-1]
+    eval $ARROWLR6WRAP
+    printf '%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls"
+end
+
+set -g RES6A (__t6_arrow right '#000000')
+set -g f6a (string split \x1e -- $RES6A)
+t "channel edit overwrites the stale placeholder palette" no (test "$f6a[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
+set -g expected6a (string join ' ' (__tmux_lives_theme_palette $f6a[3] mono bar derived 0))
+t "channel edit's cursor-row palette matches a direct call for the new seed" "$expected6a" "$f6a[1]"
+t "channel edit sets flashfield to seed (drives the settle timeout below)" seed "$f6a[2]"
+t "channel edit's seed reflects the +8 delta" '#080000' "$f6a[3]"
+t "channel edit does not call the batch reload" 0 "$f6a[4]"
+
+# A held key: the drain coalesces 3 presses into ONE net delta and this arm
+# still recomputes exactly once — there is only one call site in the arm
+# regardless of burst size, which is what keeps a hold cheap.
+set -g RES6B (__t6_arrow right '#000000' right right)
+set -g f6b (string split \x1e -- $RES6B)
+t "a 3-press coalesced burst sums to +24, not three separate +8s" '#180000' "$f6b[3]"
+set -g expected6b (string join ' ' (__tmux_lives_theme_palette $f6b[3] mono bar derived 0))
+t "a coalesced burst's cursor-row palette matches the summed seed" "$expected6b" "$f6b[1]"
+t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
+
+# --- Step 4: input settling triggers exactly one batch reload + reanchor --------
+set -g __t6_reanchor_calls 0
+function __tcz_thp_reanchor --description 'test stub (picker-seed-section Task 6): counts calls instead of recomputing the anchor row.'
+    set -g __t6_reanchor_calls (math $__t6_reanchor_calls + 1)
+end
+function __t6_settle --argument-names queued --description 'eval the REAL flashfield-timeout block (Step 4) with flashfield pre-set to seed (as case left/right now leaves it) and a stubbed readkey returning <queued>. Wrapped in a bounded for-loop, not source: the extracted body itself calls `continue` on the timeout path, which is only valid inside a loop, and a SECOND pass is expected there (flashfield now empty, the block falls to its own else-branch real read) — bounded so a coding mistake cannot spin forever. Prints "<reload_calls> <reanchor_calls> <flashfield>".'
+    set -l flashfield seed
+    set -l tok ''
+    set -g __t6_reload_calls 0
+    set -g __t6_reanchor_calls 0
+    set -g __t6_rkq $queued
+    for _pass in 1 2 3 4 5
+        eval $SETTLE6
+        break
+    end
+    printf '%s %s %s\n' $__t6_reload_calls $__t6_reanchor_calls "$flashfield"
+end
+
+set -g RES6T (__t6_settle timeout)
+set -g f6t (string split ' ' -- $RES6T)
+t "settle (no key within ~0.5s) calls the batch reload exactly once" 1 "$f6t[1]"
+t "settle (no key within ~0.5s) calls reanchor exactly once"         1 "$f6t[2]"
+t "settle clears flashfield"                                         '' "$f6t[3]"
+
+set -g RES6K (__t6_settle b)
+set -g f6k (string split ' ' -- $RES6K)
+t "a real key within the flash window does not call the batch reload" 0 "$f6k[1]"
+t "a real key within the flash window does not call reanchor"         0 "$f6k[2]"
+t "a real key within the flash window leaves flashfield alone (dispatch handles it normally)" seed "$f6k[3]"
+
+# Restore reload/reanchor to their REAL implementations for the remaining
+# tests below — readkey/stty stay stubbed a little longer (the end-to-end
+# test just below still needs them for the two extracted arms' own internal
+# drains); both are restored at the very end of this section.
+functions -e __tcz_thp_reload
+eval $RB7
+functions -e __tcz_thp_reanchor
+set -g RA6 (awk '/function __tcz_thp_reanchor/,/^    end$/' $catfile | string collect)
+t "reanchor body extraction is non-empty (task 6)" 1 (test -n "$RA6"; and echo 1; or echo 0)
+eval $RA6
+
+# --- Step 4: the current row's rendered band actually changes after a seed edit --
+# Behavioural, not a grep for the call: __tcz_thp_reanchor exists precisely so
+# the current row's band tracks a changed seed (its own comment says so). Prove
+# it END TO END, no stubs on reload/reanchor this time — the REAL case
+# left/right arm followed by the REAL flashfield-timeout settle block, exactly
+# as the picker sequences them across two loop iterations — then render the
+# SAME 14-col strip __tcz_theme_picker itself builds at its current-row draw
+# site (__tcz_thp_cells "$anchpal") and diff the actual ANSI text against what
+# the un-edited seed produces.
+function __t6_band --argument-names seedhex --description 'eval the REAL __tcz_thp_reanchor against a fixed anchor recipe (mono|bar|derived, phase 0) for the given seed directly (no dispatch), then render the current-row''s band exactly as __tcz_theme_picker does at its own current-row draw site (~line 2190). Prints the rendered (ANSI) 14-col strip. Used both as the end-to-end test''s "before" baseline and standalone below to confirm reanchor itself is seed-sensitive.'
+    set -l seed $seedhex
+    set -l anch_scheme mono
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    __tcz_thp_reanchor
+    __tcz_thp_cells "$anchpal"
+end
+function __t6_e2e --argument-names old_seed --description 'end to end: the REAL case left/right arm moves the seed one channel-press (chan=1, +8), then the REAL flashfield-timeout block runs a genuine settle (queued token "timeout") — no reload/reanchor stubs, both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER settling.'
+    set -l editing 1
+    set -l chan 1
+    set -l sel 0
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $old_seed)
+    if test (count $m) -eq 3
+        set seedr (math "0x$m[1]")
+        set seedg (math "0x$m[2]")
+        set seedb (math "0x$m[3]")
+    end
+    set -l seed $old_seed
+    set -l phase 0
+    set -l flashfield ''
+    set -l recipes 'mono|bar|derived'
+    set -l pals 'stale stale stale stale stale stale stale'
+    set -l fgs '#000000'
+    set -l tabsfgs '#000000'
+    set -l anch_scheme mono
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l tok right
+    set -g __t6_rkq
+    eval $ARROWLR6WRAP
+    set -l tok ''
+    set -g __t6_rkq timeout
+    for _pass in 1 2 3 4 5
+        eval $SETTLE6
+        break
+    end
+    __tcz_thp_cells "$anchpal"
+end
+set -g BAND6BEFORE (__t6_band '#000000')
+set -g BAND6AFTER (__t6_e2e '#000000')
+set -g BAND6EXPECTED (__t6_band '#080000')
+t "end-to-end band is non-empty after a real channel edit + settle" yes (test -n "$BAND6AFTER"; and echo yes; or echo no)
+t "end-to-end: the current row's band actually changes after a live seed edit settles" no (test "$BAND6BEFORE" = "$BAND6AFTER"; and echo yes; or echo no)
+# The "differs from before" check above is defeatable: a settle path that never
+# reaches reanchor at all would leave $anchpal empty, and __tcz_thp_cells("")
+# degrades to a 2-char blank strip (measured) — trivially different from the
+# real 154-char band above, but for the wrong reason. Pin the EXACT expected
+# band instead: a direct reanchor call for the seed the edit should have
+# produced (#000000 + one chan-1 press = #080000, same arithmetic case-left/
+# right itself performs).
+t "end-to-end: the settled band matches a direct reanchor call for the edited seed" "$BAND6EXPECTED" "$BAND6AFTER"
+
+set -g BAND6A (__t6_band '#5f772b')
+set -g BAND6B (__t6_band '#772b5f')
+t "reanchor's band is non-empty for a real seed" yes (test -n "$BAND6A"; and echo yes; or echo no)
+t "current row's rendered band changes after the seed changes" no (test "$BAND6A" = "$BAND6B"; and echo yes; or echo no)
+
+# Restore what this section stubbed.
+eval $__t6_real_readkey
+functions -e stty
+functions -e __tcz_thp_reanchor
 
 
 if test $FAIL -eq 0

@@ -2236,6 +2236,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             stty min 1 time 0 2>/dev/null
             if test "$tok" = timeout
                 set flashfield ''
+                # picker-seed-section Task 6: input has settled — no key
+                # arrived within ~0.5s of the last live channel edit. Batch
+                # reload the remaining visible strips (schemes list) now, plus
+                # reanchor so the current row's band tracks the new seed too
+                # (its own comment explains why: nothing else recomputes it).
+                # Cheap even when this flash came from something else (a
+                # hexentry/sliders commit already reloaded synchronously, or
+                # this timeout just outlived a non-editing flash) — reload's
+                # cache is keyed on the seed, so an unchanged seed hits cache
+                # instead of paying the 310-800ms batch again.
+                __tcz_thp_reload
+                __tcz_thp_reanchor
                 continue
             end
         else
@@ -2332,6 +2344,32 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     test $cur -gt 255; and set cur 255
                     set $vn $cur
                     set seed (printf '#%02x%02x%02x' $seedr $seedg $seedb)
+                    # picker-seed-section Task 6: recompute ONLY the cursor's own
+                    # scheme row here (~40ms) — a full batch reload across the
+                    # visible strips is 310-800ms (14/35 rows), which a held key
+                    # cannot afford per step. The seed is passed as a variable
+                    # (never a literal), matching the engine call's other sites —
+                    # a source-text guard elsewhere counts them and is sensitive
+                    # to exactly this shape, so do not spell that shape out here
+                    # even in prose. The seed zone and preview bar need no
+                    # separate repaint call: both already re-derive from $seed
+                    # on every redraw (see the draw loop above), same as the
+                    # cursor row's own $curpal lookup does from $pals below —
+                    # updating pals/fgs/tabsfgs here is exactly what that
+                    # lookup reads on the very next frame. Setting flashfield
+                    # defers the expensive batch (reload + reanchor) to the
+                    # flashfield-timeout block below: it only fires once no
+                    # key has arrived for ~0.5s, so a held key never queues
+                    # more than one cheap recompute per step.
+                    set -l pi (math $sel + 1)
+                    set -l rc (string split '|' -- $recipes[$pi])
+                    set -l p (__tmux_lives_theme_palette $seed $rc[1] $rc[2] $rc[3] $phase)
+                    if test (count $p) -eq 7
+                        set pals[$pi] (string join ' ' $p)
+                        set fgs[$pi] (__tmux_lives_contrast_fg "$p[6]")
+                        set tabsfgs[$pi] (__tmux_lives_contrast_fg "$p[3]")
+                    end
+                    set flashfield seed
                 end
             case m
                 # expand/collapse the catalog: 14 curated rows <-> all 35.
