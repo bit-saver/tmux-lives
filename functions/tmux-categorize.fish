@@ -1758,7 +1758,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l htlen (math (string length -- $htA)+(string length -- $htWord)+(string length -- $htB)+1)
         set -l htfill (math "$IW + 2 - $htlen")
         test $htfill -lt 0; and set htfill 0
-        set -l hetop $BORDER$htA$heB1$BRAND$htWord$heB0$BORDER$htB(string repeat -n $htfill ─)"╮"$RST
+        # Capture the repeat into a var FIRST and interpolate it QUOTED — the same
+        # zero-output-substitution hazard __tcz_thp_zsep's own $fillstr guards
+        # against: at fill=0, `string repeat -n 0 ─` emits nothing, and splicing
+        # that directly into this concatenation (no intervening var) would make
+        # the WHOLE right-hand side a zero-element list, silently vanishing the
+        # entire top border row instead of just its dash fill.
+        set -l htfillstr (string repeat -n $htfill ─)
+        set -l hetop $BORDER$htA$heB1$BRAND$htWord$heB0$BORDER$htB"$htfillstr╮"$RST
         set -l hebot $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         printf '\e[2J'
         while test $entering -eq 1

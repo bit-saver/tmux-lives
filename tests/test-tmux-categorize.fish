@@ -2974,7 +2974,8 @@ function __tcz_thp_readchar --description 'test stub, temporarily REPLACING the 
     end
 end
 
-function __t9_hexentry_rows --description 'run the REAL __tcz_thp_hexentry for exactly one drawn frame (the queued token is a single "esc", so the entering-loop exits immediately after its first paint) and print each frame ROW, one per output line, SGR left intact (callers strip it as needed). Captures the actual synchronized-update PAINT rather than peeking at $helines — $helines is a -l local of the WHILE loop inside __tcz_thp_hexentry; that block scope closes before this harness gets control back, so the rendered bytes are the only thing left to assert on, which is also the more faithful check: it is what the user would actually see.'
+function __t9_hexentry_rows --argument-names iw --description 'run the REAL __tcz_thp_hexentry for exactly one drawn frame (the queued token is a single "esc", so the entering-loop exits immediately after its first paint) and print each frame ROW, one per output line, SGR left intact (callers strip it as needed). <iw> parameterizes $IW (default 50, the shipped width) — a second call at a different width is what proves the fill is genuinely computed from $IW rather than a value the reviewer could replace with a literal and still see ALL PASS. Captures the actual synchronized-update PAINT rather than peeking at $helines — $helines is a -l local of the WHILE loop inside __tcz_thp_hexentry; that block scope closes before this harness gets control back, so the rendered bytes are the only thing left to assert on, which is also the more faithful check: it is what the user would actually see. Uses PLAIN `string collect` throughout its peeling — see __t9_hexentry_no_trailing_nl below for why `--no-trim-newlines` does NOT belong in this particular pipeline.'
+    test -n "$iw"; or set iw 50
     set -l seed '#5f772b'
     set -l seedfg '#f5f5f5'
     set -l note ''
@@ -2982,7 +2983,7 @@ function __t9_hexentry_rows --description 'run the REAL __tcz_thp_hexentry for e
     set -l BORDER (__tcz_theme border)
     set -l RST (__tcz_theme reset)
     set -l BRAND (__tcz_theme brand)
-    set -l IW 50
+    set -l IW $iw
     set -g __t9h_rkq esc
     set -l out (__tcz_thp_hexentry | string collect)
     # Peel the four wrapper escapes by EXACT literal match, in the order they
@@ -2996,6 +2997,22 @@ function __t9_hexentry_rows --description 'run the REAL __tcz_thp_hexentry for e
     # newlines the row split below depends on. Bit this for real while
     # writing this test: without `| string collect` here, the row count came
     # back 2 (one giant space-joined row) instead of 11.
+    #
+    # PLAIN `string collect` (no --no-trim-newlines) is deliberate here, not
+    # an oversight: `string replace`/`string match` process a multi-line
+    # STRING one line at a time and re-echo EVERY line — including the
+    # last — with its OWN trailing newline, an artifact of the tool's own
+    # per-record convention, not a property of the content. Plain `string
+    # collect` trims exactly that one artifact newline back off after each
+    # step, which is what makes this 4-step peel reconstruct the original
+    # content correctly. Tried --no-trim-newlines on every step first: it
+    # preserves those FOUR artifact newlines right along with any genuine
+    # one, so even the CORRECT (non-mutated) implementation came back as 11
+    # real rows plus 4 fully empty ones — a false positive on every run, not
+    # a discriminator. See __t9_hexentry_no_trailing_nl for the check that
+    # actually needs to see a genuine trailing newline, and why it works by
+    # testing the untouched raw capture directly instead of trying to make
+    # this extraction pipeline serve double duty.
     set out (string replace -- (printf '\e[2J') '' "$out" | string collect)
     set out (string replace -- (printf '\e[?2026h\e[H') '' "$out" | string collect)
     set out (string replace -- (printf '\e[J\e[?2026l') '' "$out" | string collect)
@@ -3005,8 +3022,31 @@ function __t9_hexentry_rows --description 'run the REAL __tcz_thp_hexentry for e
     end
 end
 
+function __t9_hexentry_no_trailing_nl --description 'run the REAL __tcz_thp_hexentry for one frame and check the RAW captured stdout DIRECTLY — no string replace/match extraction — for a newline sitting immediately before the synchronized-update close marker (\e[J\e[?2026l). That exact shape is what a reintroduced `printf "%s\e[K\n" $helines[-1]` mutation (the top-border-scroll defect: the extra \n pushes the cursor one row past the popup, scrolling the top border off) would produce; the correct implementation prints the last row via `printf "%s\e[K" …` with no trailing \n, so the byte immediately before the close marker is K, never a newline. Deliberately does NOT reuse __t9_hexentry_rows own peeling: string replace/match echo every processed line with their OWN trailing newline (see the comment on that function) and --no-trim-newlines would preserve those artifacts too, not just a genuine one — proven while building this fix (a toy 3-line round trip through string match -rg with --no-trim-newlines came back with two EXTRA \n bytes appended, not the one genuine content byte). A single string match -q existence check on the untouched raw capture sidesteps the whole class: nothing here gets split, re-echoed, or reassembled. Prints yes/no.'
+    set -l seed '#5f772b'
+    set -l seedfg '#f5f5f5'
+    set -l note ''
+    set -l flashfield ''
+    set -l BORDER (__tcz_theme border)
+    set -l RST (__tcz_theme reset)
+    set -l BRAND (__tcz_theme brand)
+    set -l IW 50
+    set -g __t9h_rkq esc
+    set -l out (__tcz_thp_hexentry | string collect --no-trim-newlines)
+    string match -qr '\n\x1b\[J\x1b\[\?2026l' -- "$out"; and echo yes; or echo no
+end
+
 set -g HEROWS5 (__t9_hexentry_rows)
-t "hexentry paints the expected row count (top+8+bottom)" 11 (count $HEROWS5)
+# hdr + buf + blank + swatch(4) + blank + legend = 9 content rows, plus the
+# top and bottom border rows = 11. ("top+8+bottom" undercounted the content
+# by one row — the two blank spacer rows are each their own row, not one
+# shared blank — this repo fixed the same class of off-by-one label at a2f2218.)
+t "hexentry paints the expected row count (top+9+bottom)" 11 (count $HEROWS5)
+# The direct discriminator for a reintroduced trailing newline after the last
+# row — see __t9_hexentry_no_trailing_nl for why it checks the untouched raw
+# capture rather than $HEROWS5 (this extraction pipeline can't safely surface
+# that signal — see __t9_hexentry_rows' own comment on why).
+t "hexentry has no trailing empty row (top-border-scroll defect class)" no (__t9_hexentry_no_trailing_nl)
 set -g HEBAD5 0
 for row in $HEROWS5
     set -l vis (__tcz_strip_sgr "$row")
@@ -3017,8 +3057,32 @@ end
 t "every hexentry row opens+closes on a frame glyph and is 52 cols wide" 0 $HEBAD5
 t "hexentry top border carries the seed title" yes (string match -q '*seed*' -- (__tcz_strip_sgr $HEROWS5[1]); and echo yes; or echo no)
 
+# Second width (Minor 5): IW=50 alone can't distinguish a genuinely
+# parameterized fill from one where every $IW inside __tcz_thp_hexentry was
+# replaced by a literal — both render identically AT 50. IW=70 (row width 72)
+# is a value nothing in the function could coincidentally hardcode to and
+# still pass the IW=50 checks above.
+set -g HEROWS5W (__t9_hexentry_rows 70)
+t "hexentry row count holds at a second width (IW=70)" 11 (count $HEROWS5W)
+set -g HEBAD5W 0
+for row in $HEROWS5W
+    set -l vis (__tcz_strip_sgr "$row")
+    test (string length --visible -- "$vis") -eq 72; or set HEBAD5W (math $HEBAD5W + 1)
+end
+t "every row is 72 cols wide at IW=70 (fill genuinely tracks \$IW)" 0 $HEBAD5W
+
 eval $__t9h_real_readchar
 functions -e __tcz_thp_hexentry
+
+# named risk (same convention as the existing c/tab guards above): readkey is
+# SHARED with the session switcher, so the new 't' mapping must (a) actually
+# work through the real reader, not just in an eval'd fragment that presets
+# $tok and bypasses it entirely, and (b) stay a safe no-op in the switcher,
+# whose own dispatch must have NO case t. $POPBODY is the switcher's body,
+# already captured above (picker-second-list Task 5's ⇥ guard section).
+t "readkey maps 0x74 to t" t (echo -n t | __tcz_popup_readkey)
+t "switcher has no case t (readkey's t token is a safe no-op there)" 0 \
+    (string match -qr 'case t\b' -- "$POPBODY"; and echo 1; or echo 0)
 
 # --- Task 5: t (from edit mode) reaches the hex editor; editing stays 1 ----------
 set -g CASET5 (awk '/^            case z$/{exit} /^            case t$/{f=1} f{print}' $catfile | string collect)
