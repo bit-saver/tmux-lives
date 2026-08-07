@@ -737,10 +737,6 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_schemes --description 'the v3 scheme tokens, one per line — the ONE home of the list (CLI validation, list, picker batch all consume it) [v3 only — see __tmux_lives_theme_relationships for v4]'
-    printf '%s\n' mono warm cool span wide aurora sunset fire complement full
-end
-
 function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
@@ -983,7 +979,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--place bar|tabs|cap] [--mode literal|derived]: the v5 gradient-map bar theme'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--place bar|tabs|cap] [--mode literal|derived]: the v5 bar theme (relationship x placement x mode)'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -1259,7 +1255,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'theme [<rel>|list|off]      gradient-map bar theme; no-arg=picker' \
+        'theme [<rel>|list|off]      seed-based bar theme; no-arg=picker' \
         "      --place <p>           bar|tabs|cap (default: bar)" \
         "      --mode <m>            literal|derived (default: derived)" \
         "      --phase <deg>         rotate the hue arc (default: 0)" \
@@ -1401,7 +1397,7 @@ function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migrat
     for old in tmux_lives_theme_polarity tmux_lives_theme_range
         set -q $old; and begin; set -e $old; set had 1; end
     end
-    test $had -eq 1; and echo "tmux-lives: theme is now seed-anchored — polarity/range retired; contrast defaults to auto ('tmux-lives setup theme')"
+    test $had -eq 1; and echo "tmux-lives: theme is now seed-anchored — polarity/range retired ('tmux-lives setup theme')"
     return 0
 end
 

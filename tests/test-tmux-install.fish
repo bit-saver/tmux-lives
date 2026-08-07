@@ -1024,7 +1024,17 @@ for n in $_th_names
     set -e $n
 end
 
-t "theme_schemes lists the 10 arcs" "mono warm cool span wide aurora sunset fire complement full" (__tmux_lives_theme_schemes | string join ' ')
+# The v3 arc tokens (warm/cool/span/wide/aurora/sunset/fire/complement/full) named a
+# model that no longer exists — v4 replaced arcs with signed relationships, and v5
+# replaced the curve wholesale. __tmux_lives_theme_schemes was their only home and had
+# zero production callers; its own test asserted the retired list, so it was dead code
+# testing dead code. Guard the NAMES rather than the function, so reintroducing any of
+# them anywhere in the install file is caught, not just a same-named function.
+# NB $src is not defined until much further down this file; referencing it here would
+# expand to an empty path and the grep would pass vacuously. Use $plugindir (line 18).
+set -g _v3names (grep -cE '\b(aurora|sunset|complement)\b' $plugindir/conf.d/tmux-lives-install.fish)
+t "retired v3 arc names are gone from the install source" 0 $_v3names
+t "theme_schemes is gone" 0 (functions -q __tmux_lives_theme_schemes; and echo 1; or echo 0)
 
 # dispatcher routes + help row
 functions -c __tmux_lives_theme_cmd __thc_bak
@@ -1035,7 +1045,7 @@ functions -c __tmux_lives_theme_cmd __thc_bak
 function __tmux_lives_theme_cmd; echo "THEME:$argv"; end
 t "setup dispatch routes theme" "THEME:warm x" (__tmux_lives_setup_dispatch theme warm x)
 functions -e __tmux_lives_theme_cmd; functions -c __thc_bak __tmux_lives_theme_cmd; functions -e __thc_bak
-t "setup help lists theme" yes (string match -q '*theme*gradient-map*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+t "setup help lists theme" yes (string match -q '*theme [<rel>*bar theme*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 # v4: theme-cmd/apply/list surface — relationships, --place/--mode, --rotate retired.
 functions -c __tmux_lives_write_fragment __wfth_bak

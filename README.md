@@ -77,23 +77,46 @@ This is **gated to tmux 3.7 and newer** for two reasons: only there does the cap
 
 Both settings apply to clients that attach *after* the fragment loads. tmux never revisits a client's capabilities once it has attached, so an already-open terminal keeps its old behaviour until it reconnects.
 
-### Theming (gradient map)
+### Theming
 
-The status bar is themed by a gradient map, and each **scheme** now varies more than trim: it places the bar itself at a different hue on your seed's own depth (lightness) — so schemes give you genuinely different bar colors, not just variations dressed around one fixed bar. The endcaps and the ShellFish/iTerm2 tab strip now read as one harmonious trio with the bar: the cap is derived from wherever the bar lands (a calibrated pairing rule tuned so the pair always reads well together), and the tabs sit kin to that bar/cap pair — hue halfway between them, one lightness step away from the bar (lighter when the bar's dark, darker when it's already light), the cap's chroma — in every scheme, including `mono`. Your seed's home base is the ✦ mark: it always shows up there verbatim, plus in `mono`, where the bar IS the seed, untouched (the one scheme that never resamples), and in the picker's anchor row, which freezes your saved theme's seed for comparison. The remaining accents — separators · active · windows — come from a ring of arc samples around your seed, and they're the only roles `o` rotate shuffles; text stays contrast-safe automatically, computed straight off the actual bar color rather than the seed. Default scheme: `mono`.
+A theme is your **seed** colour (set with `setup color`) plus three choices about what to do with it.
 
-    tmux-lives setup theme               # the picker (M-k / M-m k do the same):
-                                         # scheme catalog + a live preview of YOUR bar
-    tmux-lives setup theme list          # print every scheme as a 7-swatch strip
-    tmux-lives setup theme warm --phase 30
-    tmux-lives setup theme off           # the legacy look (derived bar, neutral cap)
+The two large areas on screen — the tmux status bar and the ShellFish/iTerm2 tab strip — are what actually carry a scheme. The seed anchors one of them, a **relationship** says how far the other travels in hue, and the endcap bridges between them at half that travel, floored so it can never collapse into the bar. Depth is fixed per role, so hue does the differentiating and lightness does the cohering.
 
-Schemes: `mono` · `warm` · `cool` · `span` · `wide` · `aurora` · `sunset` · `fire` · `complement` · `full`. Knobs: `--phase <deg>` (also steers the bar's hue itself in every scheme but `mono`), `--rotate 0-4` (cycles the accent ring — separators/active/windows only; bar, cap, tabs, and text never move). ShellFish and iTerm2 tabs wear the `tabs` role; roles are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …) — retune with `tmux set -g @tmux_lives_… '#hex'`; the `windows` colour rides `status-style fg`. Upgrading from the old cap-color engine: your `cap` settings migrate automatically (scheme resets to `mono` — the models differ; `M-k` now opens the theme picker). Upgrading from the v3 polarity model: `--polarity`/`--range` are gone — `fisher update` erases the old settings automatically, with a one-line notice.
+**Relationship** is a signed hue travel — warm in one direction, cool in the other: `mono` (no travel) · `wheat` · `amber` · `ember` · `coral` (increasingly warm) · `mint` · `sage` · `teal` (increasingly cool).
 
-The picker (`setup theme`, `M-k`, or `M-m k`) shows a ShellFish tab chip when a ShellFish client is attached, a live bar preview, and labeled adjustment/scheme zones with a key legend: `↑↓` move · `⇞⇟` page · `b` seed (opens RGB sliders — `t` inside for typed hex) · `m` more · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close. Hold shift on a cycling key to step it backward; changed values flash blue for half a second.
+**Placement** (`--place`) picks which large area the seed anchors: `bar` or `tabs`. There is also `cap`, an accent-led minority where the seed lands on the endcap and the bar is solved backwards from it.
 
-The list opens on a curated 14 schemes (5 bar-placed, 7 tabs-placed, 2 cap-placed). `m` does not replace that list — it appends the remaining 21 catalog entries below a `More Schemes` header, so the curated rows keep their positions and scroll position instead of being reshuffled into a different order.
+**Mode** (`--mode`) is whether the anchored role wears your seed *exactly* (`literal`) or uses it as a basis with lightness and chroma normalised (`derived`).
 
-Your current theme lives in the second, untitled list at the bottom of the picker (reach it with `⇥`), frozen at its saved knobs — select it and press `a` to flip back for comparison against whatever else you're auditioning. `z` shakes up a random scheme, phase, and rotate in one press, if you want inspiration. Changed values light up blue immediately, before the strips recompute — you see what moved without waiting for the redraw.
+```fish
+tmux-lives setup theme                      # the picker (M-k / M-m k do the same)
+tmux-lives setup theme list                 # every catalog scheme as a 7-swatch strip
+tmux-lives setup theme amber --place tabs --mode literal
+tmux-lives setup theme off                  # legacy look: derived bar, neutral cap
+```
+
+The picker works from a **catalog** of 35 named recipes. Each name is a relationship plus a tier that encodes the placement and mode: `soft` (bar, derived) · `glow` (bar, literal) · `slate` (tabs, derived) · `chip` (tabs, literal) · `deep` (cap, derived) · `core` (cap, literal). So `amber chip` is amber travel, anchored at the tabs, wearing your seed verbatim.
+
+Seven roles get colours — `bar`, `sep`, `tabs`, `active`, `windows`, `cap`, `text`. ShellFish and iTerm2 tabs wear the `tabs` role. All are live `@options` (`@tmux_lives_sep_fg`, `@tmux_lives_text_fg`, …), so `tmux set -g @tmux_lives_… '#hex'` retunes one without re-rendering anything; the `windows` colour rides `status-style fg`.
+
+**A known limitation, stated plainly:** the four supporting roles (`sep`, `active`, `windows`, `text`) currently derive from the bar alone and ignore the endcap entirely. A scheme therefore moves the bar/tabs/cap trio far more than it moves the trim — across all 35 catalog rows, six of the seven roles resolve to only 11 distinct values. Redesigning that derivation is planned; until then, expect schemes to differ mainly in the large areas.
+
+#### The picker
+
+`setup theme` with no arguments, `M-k`, or `M-m k` all open it. It shows a ShellFish tab chip when a ShellFish client is attached, a live preview of your bar, and a labelled adjustments zone above the scheme list. The keys are:
+
+`↑↓` move · `⇞⇟` page · `b` seed (RGB sliders; `t` inside for typed hex) · `m` more · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close.
+
+`a` applies a scheme live without saving it, so you can audition; `⏎` commits. `esc` reverts whatever you were previewing — including an uncommitted seed change — and closes.
+
+The list opens on a curated 14 (5 bar-placed, 7 tabs-placed, 2 cap-placed). **`m` does not replace that list** — it appends the remaining 21 below a `More Schemes` header, so the curated rows keep their positions instead of being reshuffled. `z` jumps to a random row anywhere in the full catalog.
+
+Your current theme and the `off` entry live in a second, untitled list at the bottom, reached with `⇥`. The current row is a live readout: its label is highlighted only while the theme you have saved is genuinely what is on the bar. Select it and press `a` to flip back to it for comparison against whatever you are auditioning.
+
+#### Retired settings
+
+`--vividness`, `--shape`, `--ease` and `--contrast` were accepted, stored and displayed for several versions but never affected the output — verified byte-identical across every catalog row at every value. They now error, and `fisher update` erases the stored values with a one-line notice. `--rotate` went with the v4 engine (`--place` replaced it); `--polarity` and `--range` went before that. Old `cap`-engine settings migrate automatically on update.
 
 ### In-tmux command surface (launcher + scratch split + resize)
 
