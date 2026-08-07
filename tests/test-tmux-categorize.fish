@@ -2453,11 +2453,63 @@ t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows li
 t "frame: 26 rows — expanded, header on screen"     26 (__t9_frame_rows list 0 35 13 0 mono "$PAL9" '' 1 14)
 t "frame: 26 rows — expanded, scrolled past header" 26 (__t9_frame_rows list 0 35 30 0 mono "$PAL9" '' 1 14)
 t "frame: 26 rows — expanded, top of list"          26 (__t9_frame_rows list 0 35 0  0 mono "$PAL9" '' 1 14)
+# sel=34 is the very last of the 35 catalog rows: the window clamps against
+# the end (same clamped start as sel=30 above) and the row loop reaches
+# idx=35 — toks[35], the highest valid index into a 35-element $toks. An
+# off-by-one in the virtual-row math (vtotal/vsel) is most likely to surface
+# exactly here, not at the mid-list states above.
+t "frame: 26 rows — expanded, very bottom"          26 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14)
 t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0 14 0  0 mono "$PAL9" '' 0 14)
 
-# The header must appear ONLY when expanded — this is the fix-discriminator.
+# The header must appear ONLY when expanded, and only while it's still inside
+# the scrolled window — this is the fix-discriminator.
 t "header absent when collapsed" 0 (__t9_frame_text list 0 14 5 0 mono "$PAL9" '' 0 14 | string match -ra 'More Schemes' | count)
 t "header present when expanded near the boundary" 1 (__t9_frame_text list 0 35 13 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
+# Same scrolled-past state as "expanded, scrolled past header" above (sel=30):
+# only the collapsed case was ever asserted header-free before this.
+t "header absent when expanded and scrolled past" 0 (__t9_frame_text list 0 35 30 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
+
+# --- Task 9: collapsing from below the header, run for real -----------------
+# Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT
+# GREP over the case-m handler (see the RB7-style "reload composes"
+# assertions above), not an execution — grep cannot see whether $sel actually
+# ends up in bounds after the toggle. Extract the case-m body itself with awk
+# (same technique as $RB7 above) and eval it for real, starting EXPANDED with
+# the cursor on a hidden row (sel=30 is index 31 of 35 — inside the 21
+# appended "rest" rows, since ndefault=14), then pressing m once.
+set -g CASEM9 (awk '/case m$/,/set flashfield/' $catfile | string collect)
+t "case-m body extraction is non-empty" 1 (test -n "$CASEM9"; and echo 1; or echo 0)
+# `case` is a switch-only builtin: eval'ing the extracted body alone is a
+# RUNTIME error ("'case' builtin not inside of switch block"), because eval
+# parses its argument as an independent script — a REAL switch statically
+# wrapped around the eval CALL does not splice into it (a switch's direct
+# child must itself be a literal `case` at parse time, and $CASEM9 is only
+# known at runtime). So the switch wrapper has to be part of the SAME
+# eval'd string as the case-m body, not a real switch surrounding the call.
+set -g CASEM9WRAP "switch m
+$CASEM9
+end"
+function __t9_case_m --description 'run the REAL case-m handler (via $CASEM9WRAP) against a throwaway scope that declares every local the body reads or writes, with the REAL __tcz_thp_reload already global (eval\'d from $RB7 above). Starts EXPANDED (14 curated + 21 more) with sel=30, presses m once (collapse), prints "<sel>\n<n>".'
+    set -l seed '#5f772b'
+    set -l phase 0
+    set -l expanded 1
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l flashfield ''
+    __tcz_thp_reload
+    set -l n (count $toks)
+    set -l sel 30
+    eval $CASEM9WRAP
+    printf '%s\n' $sel $n
+end
+set -g CASEMRES9 (__t9_case_m)
+t "case m collapse from a hidden row: sel lands in range, not stale" 13 $CASEMRES9[1]
+t "case m collapse from a hidden row: n reflects the collapsed catalog" 14 $CASEMRES9[2]
 
 # ---------------------------------------------------------------------
 # review finding 3: `islive` ignored a previewed-but-uncommitted seed change,
