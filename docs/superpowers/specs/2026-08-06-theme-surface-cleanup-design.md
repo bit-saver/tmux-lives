@@ -117,7 +117,9 @@ Beyond the frame count, assert the properties that would actually regress: the f
 
 ## Risks
 
-**The signature change is the risk in this plan.** Four callers of `__tmux_lives_theme_palette` and several of `apply_live` must move together or the suite goes red in a way that obscures which change broke what. It is isolated to Part 1 for exactly this reason.
+**The signature change is less dangerous than it first appears, and the real hazard is elsewhere.** Verified: fish silently ignores arguments beyond `--argument-names`, so *shrinking* a signature by removing trailing parameters leaves every existing 9-arg call site working identically. The v4 build went red because that change **reordered and added** parameters; removing trailing ones is not the same operation. Call sites can therefore be cleaned up in a later task without an intervening broken state.
+
+**The genuinely atomic change is the fragment argv renumber.** Removing positions 17–20 shifts `syncterm` from 21 to 17, and `__tmux_lives_render_fragment` and `__tmux_lives_write_fragment` must move in the same commit or the fragment silently renders with the sync feature disabled — a failure with no error, no rc, and no visible symptom until someone's cursor starts strobing again. That pairing is the one place where a half-applied change is dangerous.
 
 **Assertions are the other risk.** The last two builds in this repo produced four separate waves of defective assertions — vacuous body-greps, one unsatisfiable, one self-contradictory pair, and one whose sample comment contained the substring its own guard counted. Every assertion in the plan must be shown **failing against the pre-change code** before it is trusted, and preference goes to asserting effects over grepping source. A grep-only guard on Part 1 would be especially weak, since the strings being removed appear in comments and docs as well.
 
