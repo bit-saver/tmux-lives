@@ -2944,6 +2944,127 @@ end
 # deliberately different values below, so a swap changes the printed result.
 t "esc restores from editseed, not anch_seed" '#111111' (__t9_esc '#999999' '#111111' '#222222')
 
+# --- Task 5: typed hex is framed ------------------------------------------------
+# The picker opens with display-popup -B, so tmux draws NO border; every screen
+# must draw its own or it floats on the scrollback.
+set -g HB5 (awk '/function __tcz_thp_hexentry/,/^    end$/' $catfile | string collect)
+t "hexentry body extraction is non-empty" 1 (test -n "$HB5"; and echo 1; or echo 0)
+t "hexentry draws its own border" yes (string match -qr '╭|╰' -- "$HB5"; and echo yes; or echo no)
+
+# The grep above is a floor, not a ceiling — it would pass just as well with a
+# border glyph sitting in an unrelated comment. Prove the RENDERED FRAME is
+# actually bordered, at the SAME width as the rest of the picker (IW+2 = 52),
+# on every row: eval-define the real extracted function (the `function …
+# end` wrapper registers it globally, exactly like sourcing does for every
+# other builder in this file), stub __tcz_thp_readchar so the entering-loop
+# reads a scripted "esc" and exits after painting exactly one frame, and seed
+# every outer-scope local __tcz_thp_hexentry closes over via
+# --no-scope-shadowing (BORDER/RST/BRAND/IW/seed/seedfg/note/flashfield —
+# __tcz_theme_picker sets all of these before its loop can ever reach here).
+eval $HB5
+t "hexentry is now a real callable function" 0 (functions -q __tcz_thp_hexentry; echo $status)
+
+set -g __t9h_real_readchar (functions __tcz_thp_readchar | string collect)
+function __tcz_thp_readchar --description 'test stub, temporarily REPLACING the real __tcz_thp_readchar (restored from $__t9h_real_readchar below): pops the next token off $__t9h_rkq; returns esc once exhausted so the entering-loop always terminates regardless of how many tokens a scenario queued.'
+    if test (count $__t9h_rkq) -gt 0
+        echo $__t9h_rkq[1]
+        set -g __t9h_rkq $__t9h_rkq[2..-1]
+    else
+        echo esc
+    end
+end
+
+function __t9_hexentry_rows --description 'run the REAL __tcz_thp_hexentry for exactly one drawn frame (the queued token is a single "esc", so the entering-loop exits immediately after its first paint) and print each frame ROW, one per output line, SGR left intact (callers strip it as needed). Captures the actual synchronized-update PAINT rather than peeking at $helines — $helines is a -l local of the WHILE loop inside __tcz_thp_hexentry; that block scope closes before this harness gets control back, so the rendered bytes are the only thing left to assert on, which is also the more faithful check: it is what the user would actually see.'
+    set -l seed '#5f772b'
+    set -l seedfg '#f5f5f5'
+    set -l note ''
+    set -l flashfield ''
+    set -l BORDER (__tcz_theme border)
+    set -l RST (__tcz_theme reset)
+    set -l BRAND (__tcz_theme brand)
+    set -l IW 50
+    set -g __t9h_rkq esc
+    set -l out (__tcz_thp_hexentry | string collect)
+    # Peel the four wrapper escapes by EXACT literal match, in the order they
+    # were printed (leading full-screen clear · sync-update open+home · the
+    # single frame's rows, \n-joined · sync-update close · trailing full-screen
+    # clear) — what remains is exactly "<row1>\e[K\n<row2>\e[K\n…<rowN>\e[K".
+    # `string replace` on a multi-line STRING returns one OUTPUT ITEM PER
+    # INPUT LINE rather than one joined string — re-collect after every call,
+    # or the next replace's `"$out"` re-joins those items with SPACES (fish's
+    # quoting rule for a multi-element var), silently eating the very
+    # newlines the row split below depends on. Bit this for real while
+    # writing this test: without `| string collect` here, the row count came
+    # back 2 (one giant space-joined row) instead of 11.
+    set out (string replace -- (printf '\e[2J') '' "$out" | string collect)
+    set out (string replace -- (printf '\e[?2026h\e[H') '' "$out" | string collect)
+    set out (string replace -- (printf '\e[J\e[?2026l') '' "$out" | string collect)
+    set out (string replace -- (printf '\e[2J') '' "$out" | string collect)
+    for row in (string split \n -- "$out")
+        string replace -- (printf '\e[K') '' "$row"
+    end
+end
+
+set -g HEROWS5 (__t9_hexentry_rows)
+t "hexentry paints the expected row count (top+8+bottom)" 11 (count $HEROWS5)
+set -g HEBAD5 0
+for row in $HEROWS5
+    set -l vis (__tcz_strip_sgr "$row")
+    string match -qr '^[╭╰│]' -- "$vis"; or set HEBAD5 (math $HEBAD5 + 1)
+    string match -qr '[╮╯│]$' -- "$vis"; or set HEBAD5 (math $HEBAD5 + 1)
+    test (string length --visible -- "$vis") -eq 52; or set HEBAD5 (math $HEBAD5 + 1)
+end
+t "every hexentry row opens+closes on a frame glyph and is 52 cols wide" 0 $HEBAD5
+t "hexentry top border carries the seed title" yes (string match -q '*seed*' -- (__tcz_strip_sgr $HEROWS5[1]); and echo yes; or echo no)
+
+eval $__t9h_real_readchar
+functions -e __tcz_thp_hexentry
+
+# --- Task 5: t (from edit mode) reaches the hex editor; editing stays 1 ----------
+set -g CASET5 (awk '/^            case z$/{exit} /^            case t$/{f=1} f{print}' $catfile | string collect)
+t "case-t body extraction is non-empty" 1 (test -n "$CASET5"; and echo 1; or echo 0)
+set -g CASET5WRAP "switch \$tok
+$CASET5
+end"
+# __tcz_thp_hexentry is stubbed here too (a marker, not the real screen) — this
+# block is about REACHABILITY (does case t call it, and only while editing),
+# not about hexentry's own content, which the block above already covers.
+function __tcz_thp_hexentry --description 'test stub: records that it was reached'
+    set -g __t9_hexentry_called 1
+end
+function __t9_caset --argument-names editing --description 'eval the REAL case-t arm against a seeded editing flag. Prints "<reached 0|1> <editing>" — editing is read back out so a future regression that clears it around the hexentry call is caught, not just assumed.'
+    set -g __t9_hexentry_called 0
+    set -l tok t
+    eval $CASET5WRAP
+    printf '%s %s\n' $__t9_hexentry_called $editing
+end
+t "case t: editing=1 opens the hex editor, editing stays 1" "1 1" (__t9_caset 1)
+t "case t: editing=0 is a no-op" "0 0" (__t9_caset 0)
+functions -e __tcz_thp_hexentry
+
+# --- Task 5 (Step 4b): tab is gated while editing --------------------------------
+# Task 4 review Minor, folded into this task: case tab was not gated by editing,
+# so ⇥ mid-edit moved focus to the second list while editing still owned ↑↓/←→ —
+# the state row drew as selected but arrows kept moving the RGB channel, ⏎ exited
+# edit mode instead of acting on the state row, and b (itself focus-gated) could
+# no longer reach back to close it. Recoverable in one keypress, hence Minor, but
+# the fix is one line and this task is already in the same dispatch.
+set -g CASETAB5 (awk '/^            case a$/{exit} /^            case tab$/{f=1} f{print}' $catfile | string collect)
+t "case-tab body extraction is non-empty" 1 (test -n "$CASETAB5"; and echo 1; or echo 0)
+set -g CASETAB5WRAP "switch \$tok
+$CASETAB5
+end"
+function __t9_casetab --argument-names editing focus --description 'eval the REAL case-tab arm against a seeded editing/focus pair. Prints the resulting focus.'
+    set -l tok tab
+    set -l flashfield START
+    eval $CASETAB5WRAP
+    echo $focus
+end
+t "case tab: editing=1 cannot change focus away from list" list (__t9_casetab 1 list)
+t "case tab: editing=1 cannot change focus away from state" state (__t9_casetab 1 state)
+t "case tab: editing=0 still toggles list->state (non-regression)" state (__t9_casetab 0 list)
+t "case tab: editing=0 still toggles state->list (non-regression)" list (__t9_casetab 0 state)
+
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

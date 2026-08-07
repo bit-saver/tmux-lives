@@ -879,7 +879,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|t|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -907,6 +907,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 73; echo s; return                      # s (theme-picker: chroma shape)
         case 65; echo e; return                      # e (theme-picker: hue ease)
         case 62; echo b; return                      # b (theme-picker: set seed)
+        case 74; echo t; return                      # t (theme-picker: typed hex, from edit mode)
         case 64; echo d; return                      # d (theme-picker: cycle contrast)
         case 61; echo a; return                      # a (theme-picker: apply preview)
         case 6f; echo o; return                      # o (theme-picker: rotate placement)
@@ -1739,63 +1740,93 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a recipes "$f[5]"
         end
     end
-    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
-                set -l buf (string replace -r '^#' '' -- $seed)
-                set -l cand ''
-                set -l hue ''
-                set -l okl ''
-                set -l okc ''
-                set -l entering 1
-                printf '\e[2J'
-                while test $entering -eq 1
-                    set cand ''
-                    set hue ''
-                    set okl ''
-                    set okc ''
-                    set -l b6 $buf
-                    string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
-                    if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
-                        set cand "#"(string lower -- $b6)
-                        set -l rgb (__tmux_lives_hex_to_rgb01 $cand)
-                        set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-                        set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
-                        set -l rop (string split ' ' -- "$ro")
-                        set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
+    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete). Framed like every other picker screen (picker-seed-section Task 5): the popup itself opens with display-popup -B, so tmux draws no border of its own — an unframed screen used to float on the users scrollback. Reuses __tcz_thp_ln/__tcz_theme border rather than hand-rolling a new frame style; $BORDER/$RST/$BRAND/$IW are the callers own (shared via --no-scope-shadowing, already set before the interactive loop that can reach here).'
+        set -l buf (string replace -r '^#' '' -- $seed)
+        set -l cand ''
+        set -l hue ''
+        set -l okl ''
+        set -l okc ''
+        set -l entering 1
+        # Top-border title, measured the same way __tcz_thp_zsep measures its own
+        # label — pieces summed into a length rather than a hardcoded fill count,
+        # so it can never silently drift out of step with $IW.
+        set -l htA "╭─ "
+        set -l htWord seed
+        set -l htB " ─ typed hex "
+        set -l heB1 (printf '\e[1m')
+        set -l heB0 (printf '\e[22m')
+        set -l htlen (math (string length -- $htA)+(string length -- $htWord)+(string length -- $htB)+1)
+        set -l htfill (math "$IW + 2 - $htlen")
+        test $htfill -lt 0; and set htfill 0
+        set -l hetop $BORDER$htA$heB1$BRAND$htWord$heB0$BORDER$htB(string repeat -n $htfill ─)"╮"$RST
+        set -l hebot $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
+        printf '\e[2J'
+        while test $entering -eq 1
+            set cand ''
+            set hue ''
+            set okl ''
+            set okc ''
+            set -l b6 $buf
+            string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
+            if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
+                set cand "#"(string lower -- $b6)
+                set -l rgb (__tmux_lives_hex_to_rgb01 $cand)
+                set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+                set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
+                set -l rop (string split ' ' -- "$ro")
+                set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
+            end
+            set -l sw4 (__tcz_thp_swatch "$cand" "$hue" "$okl" "$okc")
+            set -l leg (__tcz_legend_row 14 '⏎' apply esc cancel)
+            set -l hdrrow (printf ' %sseed — this IS the bar color%s' "$heB1" "$heB0")
+            set -l bufrow (printf ' #%s_' "$buf")
+            set -l helines
+            set -a helines $hetop
+            set -a helines (__tcz_thp_ln "$hdrrow" $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln "$bufrow" $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln '' $IW $BORDER $RST)
+            for row in $sw4
+                set -a helines (__tcz_thp_ln "$row" $IW $BORDER $RST)
+            end
+            set -a helines (__tcz_thp_ln '' $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln "$leg" $IW $BORDER $RST)
+            set -a helines $hebot
+            # Synchronized update (DECSET 2026), same atomic-paint pattern as the
+            # main frame below — commits the entry paint in one go. Newlines
+            # BETWEEN rows only (the __tcz_popup_draw / main-frame convention): a
+            # trailing newline after the last row scrolls the top border off.
+            printf '\e[?2026h\e[H'
+            test (count $helines) -gt 1; and printf '%s\e[K\n' $helines[1..-2]
+            printf '%s\e[K' $helines[-1]
+            printf '\e[J\e[?2026l'
+            set -l tok (__tcz_thp_readchar)
+            switch $tok
+                case back
+                    test -n "$buf"; and set buf (string sub -e -1 -- $buf)
+                case enter
+                    if test -n "$cand"
+                        # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
+                        # universal here is why Esc could not restore the seed: it was
+                        # already gone, and every role derives from it, so the scheme
+                        # looked unrestored too even with its own universals intact.
+                        set seed $cand
+                        set seedfg (__tmux_lives_contrast_fg "$seed")
+                        __tcz_thp_reload
+                        __tcz_thp_reanchor
+                        set note "seed previewed: $seed"
+                        set flashfield seed
                     end
-                    set -l sw4 (__tcz_thp_swatch "$cand" "$hue" "$okl" "$okc")
-                    set -l leg (__tcz_legend_row 14 '⏎' apply esc cancel)
-                    # Synchronized update (DECSET 2026), same atomic-paint pattern as the
-                    # main frame below — commits the entry paint in one go.
-                    printf '\e[?2026h\e[H \e[1mseed — this IS the bar color\e[22m\e[K\n #%s_\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n%s\e[K' "$buf" $sw4[1] $sw4[2] $sw4[3] $sw4[4] "$leg"
-                    printf '\e[J\e[?2026l'
-                    set -l tok (__tcz_thp_readchar)
-                    switch $tok
-                        case back
-                            test -n "$buf"; and set buf (string sub -e -1 -- $buf)
-                        case enter
-                            if test -n "$cand"
-                                # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
-                                # universal here is why Esc could not restore the seed: it was
-                                # already gone, and every role derives from it, so the scheme
-                                # looked unrestored too even with its own universals intact.
-                                set seed $cand
-                                set seedfg (__tmux_lives_contrast_fg "$seed")
-                                __tcz_thp_reload
-                                __tcz_thp_reanchor
-                                set note "seed previewed: $seed"
-                                set flashfield seed
-                            end
-                            set entering 0
-                        case esc
-                            set entering 0
-                        case hash other t up down left right
-                            # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
-                        case '*'
-                            # $tok IS the typed hex character
-                            test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
-                    end
-                end
-                printf '\e[2J'
+                    set entering 0
+                case esc
+                    set entering 0
+                case hash other t up down left right
+                    # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
+                case '*'
+                    # $tok IS the typed hex character
+                    test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
+            end
+        end
+        printf '\e[2J'
     end
     function __tcz_thp_sliders --no-scope-shadowing --description 'RGB slider seed screen: ↑↓ channel, ←→ ±8 (coalesced), t typed hex, ⏎ apply, esc cancel'
         set -l r 58
@@ -2345,6 +2376,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         set editseed $seed
                     end
                 end
+            case t
+                # A detour within edit mode, not a separate destination: on
+                # ⏎/esc __tcz_thp_hexentry just returns here, and neither it
+                # nor this arm touches $editing, so it is still 1 afterward —
+                # the next redraw shows the sliders again, seed and all (the
+                # draw section re-derives seedr/g/b from $seed every frame,
+                # so a hexentry commit is picked up with no extra plumbing).
+                # Idle (editing=0) it's a no-op, symmetric with b's own gate.
+                test "$editing" = 1; and __tcz_thp_hexentry
             case z
                 # shake: land on a random row across the FULL catalog. RELOAD
                 # BEFORE ROLLING so the bound is the real expanded size — the
@@ -2371,8 +2411,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # move between the two lists. `c` is retired: a key meaning "current"
                 # that lands on current, from which you arrow to off, promises one
                 # thing and does another. ⇥ carries no such claim and toggles back.
-                test $focus = list; and set focus state; or set focus list
-                set flashfield ''
+                # Ignored while editing (Task 4 review Minor, folded in here): the
+                # second list has no seed of its own, and letting ⇥ through moved
+                # focus to `state` while `editing` still owned ↑↓/←→ — the second
+                # list's cursor drew as selected but arrows kept moving the RGB
+                # channel, ⏎ exited edit mode instead of acting on the state row,
+                # and b (itself focus-gated) could no longer get back. One key
+                # (b) recovers it, but the fix is one line, same gate as b's own.
+                if test "$editing" != 1
+                    test $focus = list; and set focus state; or set focus list
+                    set flashfield ''
+                end
             # previewed: 0 none, 1 a LISTED scheme, 2 the current row. The distinction
             # matters because previewing the current row still leaves the persisted
             # theme on the bar — so `current` stays lit. It is never reset: `cancel`
