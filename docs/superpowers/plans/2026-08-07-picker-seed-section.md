@@ -108,6 +108,18 @@ Replace `set -l WIN 11` (~1913):
 
 `conf.d/tmux-lives-install.fish` (~190 and ~990) and `functions/tmux-categorize.fish` (~1085): replace `-w 52 -h 26` with `-w 52 -h 85%` in all three.
 
+- [ ] **Step 4b: Pad the scheme window so the frame always fills the popup**
+
+⚠️ **Without this the frame does not equal the popup height and Step 5's assertions cannot pass.** `__tcz_thp_window` returns `"0 <total>"` when `total <= winsize` (`functions/tmux-categorize.fish:1461-1462`) and the draw loop emits exactly `count` rows with no padding. Measured: `__tcz_thp_window 34 36 37` → `0 36`. So with a window LARGER than the list, the frame comes out short by `WIN - total`.
+
+Today this is invisible because `WIN` is 11 and the list is always 14 or 36. Once `WIN` is derived it routinely exceeds the list: on the user's 62-row client `-h 85%` is 52 rows, so `WIN` is 30 (37 before the seed section lands) against a 14-row collapsed list.
+
+Two consequences, the second worse than the first: the box stops short of the popup bottom, and pressing `m` GROWS the box by 16 rows — a bigger visual jump than the seed-zone jump Task 3 is specifically designed to prevent.
+
+Fix in the **draw loop**, after the scheme-row `for`: emit `WIN - count` blank framed rows (`__tcz_thp_ln '' $IW $BORDER $RST`). Do **not** change `__tcz_thp_window` — it is a pure builder whose short-list contract is pinned by `tests/test-tmux-categorize.fish:1686` (`"0 5"` for `0 5 8`), and other assertions depend on it.
+
+This makes "the draw emits exactly `rows` lines" true in every state, which is exactly what the frame proof asserts.
+
 - [ ] **Step 5: Make the frame proof parametric**
 
 `__t9_frame_rows` currently hardcodes `set -l WIN 11` and every assertion expects 26. Give it a `rows` parameter, set `WIN` to `rows - 15` inside it, and assert the draw emits exactly `rows`:
@@ -190,8 +202,10 @@ git commit -m "fix(picker): emit the tab colour on preview and cancel instead of
 - Test: `tests/test-tmux-categorize.fish`
 
 **Interfaces:**
-- Produces: `__tcz_thp_seedzone <w> <hex> <hue> <L> <C> <editing> <chan> <r> <g> <b>` → exactly 8 lines, each exactly `w` visible columns. `editing` = 0 renders three readout rows; `editing` = 1 renders three R/G/B bars (Task 4 uses that path).
+- Produces: `__tcz_thp_seedzone <w> <hex> <hue> <L> <C> <editing> <chan> <r> <g> <b>` → exactly 8 lines, each exactly **`w` + 2** visible columns. `editing` = 0 renders three readout rows; `editing` = 1 renders three R/G/B bars (Task 4 uses that path).
 - `STATIC` becomes **22**.
+
+**Why `w` + 2 and not `w`:** every row of this frame carries its own border glyphs. `__tcz_thp_zsep` prints `├` + `w` cols + `┤`, and `__tcz_thp_ln` prints `│` + content padded to `w` + `│` — both `w + 2` visible columns. So the seed zone returns **fully-framed** rows: row 1 is a `__tcz_thp_zsep`, rows 2–8 are content wrapped in `__tcz_thp_ln` inside the builder. The draw then appends all 8 verbatim with no further wrapping, and the existing `configuration` zsep at ~1982 is what row 1 replaces. Measure at `w` = 50 and expect **52**.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -204,7 +218,8 @@ set -g SZ (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 0 1 95 119 43)
 t "seedzone is exactly 8 rows" 8 (count $SZ)
 for i in (seq 8)
     set -l v (string replace -ra '\x1b\[[0-9;]*m' '' -- "$SZ[$i]")
-    t "seedzone row $i is exactly 50 visible cols" 50 (string length --visible -- "$v")
+    # w + 2: the border glyphs are part of every row in this frame.
+    t "seedzone row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
 end
 t "seedzone shows the hex when idle" yes (string match -q '*5f772b*' -- (string join ' ' $SZ); and echo yes; or echo no)
 # The anti-jump property: editing must not change the row count.
@@ -233,7 +248,9 @@ Reuse the existing builders rather than re-deriving them: `__tcz_thp_swatch` alr
 
 Rows 1–5 are identical in both states; only 6–8 differ. That is what makes the section fixed-height and the list jump-free, and it is what the anti-jump assertion checks.
 
-Every row must be exactly `w` visible columns. Measure with `string length --visible`, which discounts SGR escapes — a plain `string length` counts them and will be wrong. `__tcz_thp_slider` is fixed at 39 columns, so rows 6–8 need padding to reach `w`; do not change the slider builder's own width, which other callers depend on.
+Measure with `string length --visible`, which discounts SGR escapes — a plain `string length` counts them and will be wrong.
+
+**Rows 2–8 ALL need padding, not just 6–8.** Measured at `w` = 50: `__tcz_thp_swatch` returns rows of **21 / 46 / 40 / 39** visible columns and `__tcz_thp_slider` is fixed at **39**. None of them reaches 50. Pad each to `w` and then wrap it in `__tcz_thp_ln`, which pads to `w` itself and adds the borders — so passing it short content is safe and the explicit pad is belt-and-braces. Do **not** change either builder's own width; other callers depend on both.
 
 - [ ] **Step 4: Wire it into the draw and raise STATIC**
 
@@ -272,7 +289,14 @@ set -g PB4 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string colle
 t "picker body extraction is non-empty" 1 (test -n "$PB4"; and echo 1; or echo 0)
 t "b toggles an edit mode" yes (string match -qr 'set editing' -- "$PB4"; and echo yes; or echo no)
 t "arrows are mode-dependent" yes (string match -qr 'test "\$editing" = 1' -- "$PB4"; and echo yes; or echo no)
-t "esc in edit mode does not break the loop" yes (string match -qr 'editing.*\n[^\n]*set editing 0' -- "$PB4"; and echo yes; or echo no)
+# The esc-in-edit-mode arm must clear the mode WITHOUT leaving the loop. Bound the
+# grep to the arm itself: an unanchored multiline pattern over a 700-line body
+# matches something the moment edit mode exists at all and proves nothing.
+# Anchor on the two unique markers the implementation must place around it.
+set -g ESCARM4 (string match -r 'BEGIN edit-esc(.|\n)*?END edit-esc' -- "$PB4")
+t "edit-esc arm is uniquely anchored and non-empty" 1 (test -n "$ESCARM4"; and echo 1; or echo 0)
+t "edit-esc arm clears the mode" 1 (string match -ra 'set editing 0' -- "$ESCARM4" | count)
+t "edit-esc arm does not break the loop" 0 (string match -ra '\bbreak\b' -- "$ESCARM4" | count)
 # The drain-hang guard is load-bearing and has been hit for real.
 set -g DR4 (string match -ra 'stty min 0 time' -- "$PB4" | count)
 t "drain loops re-assert non-blocking mode" yes (test $DR4 -ge 2; and echo yes; or echo no)
@@ -285,6 +309,16 @@ Expected: the three edit-mode assertions fail. The drain guard's status depends 
 - [ ] **Step 3: Add the mode and route the arrows**
 
 Add `set -l editing 0` and `set -l chan 1` beside the other picker locals. In the dispatch, branch `up`/`down`/`left`/`right` on `$editing`. Add `case b` to toggle it (ignored when `focus` is `state`). In edit mode, `⏎` clears `editing` and keeps the value; `esc` restores the opening seed and clears `editing` **without `break`**.
+
+Wrap the esc-in-edit-mode branch in the two comment markers the test anchors on, so the guard is bounded to that arm rather than the whole function body:
+
+```fish
+                # BEGIN edit-esc
+                # Leaves edit mode only — the picker stays open. No break here:
+                # esc while editing reverts the seed, it does not close the picker.
+                ...
+                # END edit-esc
+```
 
 - [ ] **Step 4: Verify the arrows do not leak between modes**
 
@@ -372,9 +406,11 @@ t "one palette is under 150ms" yes (test (math "($T6B - $T6A) / 1000000") -lt 15
 
 - [ ] **Step 2: Run it and confirm it fails**
 
-Expected: `a channel change recomputes one palette => got [no]`. The perf fence PASSES already — it is a non-regression guard against the palette getting slower, not a discriminator.
+Expected: `picker now has exactly 3 palette call sites => got [2]` — the picker has exactly two today (`functions/tmux-categorize.fish:1682` and `:1891`). The perf fence PASSES already — it is a non-regression guard against the palette getting slower, not a discriminator.
 
-⚠️ **An existing guard collides with this task and must be updated, not worked around.** `tests/test-tmux-categorize.fish` (~2277) asserts `consolidated guard: exactly 2 palette call sites`. Adding the live path makes it 3. Change the expected value to 3 — do NOT relax the assertion to a lower bound, and do not delete it. This repo has previously shipped a `>=` bound that passed against pre-change data and hid a real composition change; an exact count is the point of that guard.
+⚠️ **An existing guard collides with this task and must be updated, not worked around.** `tests/test-tmux-categorize.fish:2277` asserts `consolidated guard: exactly 2 palette call sites`. Adding the live path makes it 3. Change the expected value to 3 — do NOT relax the assertion to a lower bound, and do not delete it. This repo has previously shipped a `>=` bound that passed against pre-change data and hid a real composition change; an exact count is the point of that guard.
+
+⚠️ **That guard's pattern constrains how you write the new call.** It matches `__tmux_lives_theme_palette \$` — the argument immediately after the space must start with `$`. A call whose first argument is a literal (`__tmux_lives_theme_palette "#5f772b" …`) would NOT be counted, so the guard would still read 2 and your update to 3 would fail. Pass the seed through a variable, as both existing call sites do.
 
 - [ ] **Step 3: Recompute one palette on each channel change**
 
