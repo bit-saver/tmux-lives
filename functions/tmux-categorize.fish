@@ -1611,6 +1611,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # actually have — otherwise confirming your own theme would silently zero it.
     set -l persisted_phase 0
     set -l expanded 0
+    # Where the curated rows end and the appended ones begin. Constant for the
+    # session; the reload composes default-then-rest in exactly this order.
+    set -l ndefault (count (__tmux_lives_theme_catalog_default))
     set -l legacy ''
     set -l seedfg '#f5f5f5'
     # place/mode: READ-ONLY picker state — populated once by __tcz_thp_init
@@ -1989,7 +1992,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # WIN=11: the frame is 15 static rows (border/chip/preview/configuration-
         # zsep/seed/schemes-zsep/second-list-zsep/current/off/blank-zsep/
         # legend×3/note/bottom-border) + WIN scheme rows = 26
-        set -l win (__tcz_thp_window $sel $n $WIN)
+        # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
+        # SCHEMES only, so it can never land on the header and vismap needs no change:
+        # stepping over it falls out of the model instead of being a special case that
+        # ↑↓, PgUp/PgDn, z and the collapse clamp would each have to repeat.
+        set -l vtotal $n
+        set -l vsel $sel
+        if test "$expanded" = 1
+            set vtotal (math $n + 1)
+            test $sel -ge $ndefault; and set vsel (math $sel + 1)
+        end
+        set -l win (__tcz_thp_window $vsel $vtotal $WIN)
         set -l ws (string split ' ' $win)
         set -l start $ws[1]
         set -l count $ws[2]
@@ -1999,9 +2012,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_zsep $IW schemes $BORDER $RST)
         if test $count -gt 0
             for i in (seq $start (math $start + $count - 1))
-                set -l idx (math $i + 1)
+                if test "$expanded" = 1; and test $i -eq $ndefault
+                    set -a lines (__tcz_thp_ln (__tcz_thp_grouphdr $IW 'More Schemes') $IW $BORDER $RST)
+                    continue
+                end
+                set -l si $i
+                if test "$expanded" = 1; and test $i -gt $ndefault
+                    set si (math $i - 1)
+                end
+                set -l idx (math $si + 1)
                 set -l selflag 0
-                test $focus = list; and test $i -eq $sel; and set selflag 1
+                test $focus = list; and test $si -eq $sel; and set selflag 1
                 set -l curflag 0
                 test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)

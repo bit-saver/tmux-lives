@@ -1571,6 +1571,42 @@ t "reload body extraction is non-empty" 1 (test -n "$RB7"; and echo 1; or echo 0
 t "reload composes with catalog_rest" yes (string match -q '*__tmux_lives_theme_catalog_rest*' -- "$RB7"; and echo yes; or echo no)
 t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 'set rows \(__tmux_lives_theme_catalog\)' -- "$RB7" | count)
 
+# The two source-greps above are defeatable: e.g. appending catalog_rest BUT
+# also prepending it ahead of the curated rows still contains the string
+# "catalog_rest" and still avoids the banned wholesale-swap shape, so both
+# checks pass while the "curated 14 first, then the rest" contract the More
+# Schemes header depends on is broken. Prove composition DIRECTLY instead: eval
+# the real function body (function definitions are global in fish regardless
+# of where `function` runs) so __tcz_thp_reload becomes callable, then call it
+# normally (not eval'd) from a throwaway wrapper that declares the locals it
+# reads ($seed/$phase/$expanded) and writes ($toks/$pals/$fgs/$tabsfgs/
+# $recipes/$cachekeys/$cacheblobs) — --no-scope-shadowing means the call
+# operates directly on the wrapper's own locals, exactly as it does when
+# called from inside __tcz_theme_picker's loop.
+eval $RB7
+function __t7_reload_compose --description 'call the REAL __tcz_thp_reload with expanded=1 against a throwaway scope; prints the composed $toks, one per line'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l seed '#5f772b'
+    set -l phase 0
+    set -l expanded 1
+    __tcz_thp_reload
+    printf '%s\n' $toks
+end
+set -g TOKS7 (__t7_reload_compose)
+t "reload composed, expanded: all 35 catalog rows present" 35 (count $TOKS7)
+set -g DEFNAMES7
+for e in (__tmux_lives_theme_catalog_default)
+    set -a DEFNAMES7 (string split '|' -- $e)[1]
+end
+t "reload composed: exactly 14 curated names in catalog_default" 14 (count $DEFNAMES7)
+t "reload composed: curated 14 come first, in catalog-default order" (string join \x1e -- $DEFNAMES7) (string join \x1e -- $TOKS7[1..14])
+
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
 # _reload/_init must consume the v4 engine (the 9-arg __tmux_lives_theme_palette)
 # instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the
@@ -2352,7 +2388,7 @@ t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h
 set -g DRAWTEXT9 (awk '/set -l curpal/,/╰/' $catfile | string collect)
 t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 1; or echo 0)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2386,7 +2422,13 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
         set -a recipes 'mono|bar|derived'
     end
     eval $DRAWTEXT9
+    set -g __t9_last_lines $lines
     count $lines
+end
+
+function __t9_frame_text --description 'same eval as __t9_frame_rows, but returns the rendered rows so CONTENT can be asserted, not just the row count'
+    __t9_frame_rows $argv >/dev/null
+    printf '%s\n' $__t9_last_lines
 end
 
 set -l PAL9 '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
@@ -2405,6 +2447,17 @@ t "frame: 26 rows — previewing a listed scheme (1)"     26 (__t9_frame_rows li
 t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows state 0 14 0  2 mono "$PAL9" '')
 t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
 t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
+
+# --- Task 8: frame stays 26 with the header, and the header exists only expanded --
+# The harness evals the REAL draw block, so it cannot drift from the implementation.
+t "frame: 26 rows — expanded, header on screen"     26 (__t9_frame_rows list 0 35 13 0 mono "$PAL9" '' 1 14)
+t "frame: 26 rows — expanded, scrolled past header" 26 (__t9_frame_rows list 0 35 30 0 mono "$PAL9" '' 1 14)
+t "frame: 26 rows — expanded, top of list"          26 (__t9_frame_rows list 0 35 0  0 mono "$PAL9" '' 1 14)
+t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0 14 0  0 mono "$PAL9" '' 0 14)
+
+# The header must appear ONLY when expanded — this is the fix-discriminator.
+t "header absent when collapsed" 0 (__t9_frame_text list 0 14 5 0 mono "$PAL9" '' 0 14 | string match -ra 'More Schemes' | count)
+t "header present when expanded near the boundary" 1 (__t9_frame_text list 0 35 13 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
 
 # ---------------------------------------------------------------------
 # review finding 3: `islive` ignored a previewed-but-uncommitted seed change,
