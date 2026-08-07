@@ -1147,6 +1147,9 @@ t "catalog_rest exists" 0 (functions -q __tmux_lives_theme_catalog_rest; echo $s
 set -g CR5 (__tmux_lives_theme_catalog_rest)
 t "catalog_rest returns the other 21" 21 (count $CR5)
 t "catalog_rest + default = the whole catalog" (__tmux_lives_theme_catalog | count) (math (count $CR5) + (__tmux_lives_theme_catalog_default | count))
+# Non-regression guard: passes vacuously pre-fix (empty set vs 14 curated = 0 common rows,
+# expects 0) and after (21 distinct rows vs 14 curated = still 0 common). Catches future
+# regressions if either set is computed incorrectly. Not a fix-discriminator.
 t "catalog_rest and default do not overlap" 0 (comm -12 (printf '%s\n' $CR5 | sort | psub) (__tmux_lives_theme_catalog_default | sort | psub) | count)
 t "catalog_rest preserves catalog order" yes (test "$CR5[1]" = (__tmux_lives_theme_catalog | string match -rv '\|1$' | head -1); and echo yes; or echo no)
 
