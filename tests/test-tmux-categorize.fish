@@ -1434,14 +1434,18 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
-# NB this specific literal (a gap-less "stty min 0 time 0") lives ONLY in the
-# seed RGB-slider's ←→ drain (__tcz_thp_sliders) — a separate loop in a
-# separate function from the ↑↓/pgup/pgdn drain below, which uses a variable
-# gap ($gap) and has its own, differently-scoped pin further down ("picker
-# drain re-asserts non-blocking inside the loop"). This test used to be named
-# as if it covered that drain; it never did — renamed to say what it actually
-# checks rather than retired, since the slider hang guard has no other cover.
-t "picker seed-slider drain re-asserts non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+# NB this specific literal (a gap-less "stty min 0 time 0") used to live ONLY in
+# the orphaned seed RGB-slider's ←→ drain (__tcz_thp_sliders, still defined but
+# unreferenced pending Task 5) — a separate loop in a separate function from the
+# ↑↓/pgup/pgdn drain below, which uses a variable gap ($gap) and has its own,
+# differently-scoped pin further down ("picker drain re-asserts non-blocking
+# inside the loop"). picker-seed-section Task 4 adds a SECOND occurrence of the
+# same gap-less shape — the in-frame edit mode's own ←→ channel-value drain,
+# in the main dispatch rather than the retired popup screen — so the count
+# moves 1->2. This test used to be named as if it covered the ↑↓/pgup/pgdn
+# drain; it never did — renamed to say what it actually checks rather than
+# retired, since the gap-less-drain hang guard has no other cover.
+t "picker gap-less drains re-assert non-blocking each iteration" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
 # The ↑↓/pgup/pgdn drain must NEVER escalate on the arrow arm: it only breaks
 # on a poll TIMEOUT, so a gap=1 (~100ms) wait never times out while autorepeat
 # keeps delivering faster than that — no redraw, no movement, until release
@@ -1510,7 +1514,13 @@ t "readchar classifies arrows + t" yes (begin; set -l l (functions __tcz_thp_rea
 t "hex entry ignores the new tokens" yes (string match -q '*case hash other t up down left right*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
 # --- RGB slider seed picker (Task 2): slider screen, b reroute, hexentry extraction ---
-t "picker b opens the sliders" yes (string match -qr 'case b\s+__tcz_thp_sliders' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# picker-seed-section Task 4 retires the reroute this test used to pin: b no
+# longer opens a separate popup screen, it toggles the seedzone's own in-frame
+# edit mode (see the "Task 4: edit mode" block further down). __tcz_thp_sliders
+# stays defined but loses its only caller here — expected, not a defect, until
+# Task 5 gives it (and __tcz_thp_hexentry, reachable only through it today)
+# a new one.
+t "picker b no longer opens the old sliders screen" 0 (string match -ra 'case b\s+__tcz_thp_sliders' -- (functions __tcz_theme_picker | string collect) | count)
 t "sliders route t to the hex editor" yes (string match -qr 'case t\s+__tcz_thp_hexentry' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "sliders apply composes a hex" yes (string match -q '*#%02x%02x%02x*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "sliders erased on exit" yes (begin; set -l l (functions __tcz_theme_picker | string collect); string match -q '*functions -e __tcz_thp_sliders*' -- $l; and string match -q '*functions -e __tcz_thp_hexentry*' -- $l; end; and echo yes; or echo no)
@@ -2738,6 +2748,23 @@ t "grouphdr leaves col 1 blank (never selectable)" ' ' (string sub -s 1 -l 1 -- 
 t "grouphdr has no border connectors" 0 (string match -ra '[├┤]' -- "$GH6V" | count)
 t "grouphdr keeps a blank column before the right edge" ' ' (string sub -s 50 -l 1 -- "$GH6V")
 t "grouphdr is one line" 1 (count $GH6)
+
+# --- Task 4: edit mode ----------------------------------------------------------
+set -g PB4 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "picker body extraction is non-empty" 1 (test -n "$PB4"; and echo 1; or echo 0)
+t "b toggles an edit mode" yes (string match -qr 'set editing' -- "$PB4"; and echo yes; or echo no)
+t "arrows are mode-dependent" yes (string match -qr 'test "\$editing" = 1' -- "$PB4"; and echo yes; or echo no)
+# The esc-in-edit-mode arm must clear the mode WITHOUT leaving the loop. Bound the
+# grep to the arm itself: an unanchored multiline pattern over a 700-line body
+# matches something the moment edit mode exists at all and proves nothing.
+# Anchor on the two unique markers the implementation must place around it.
+set -g ESCARM4 (string match -r 'BEGIN edit-esc(.|\n)*?END edit-esc' -- "$PB4")
+t "edit-esc arm is uniquely anchored and non-empty" 1 (test -n "$ESCARM4"; and echo 1; or echo 0)
+t "edit-esc arm clears the mode" 1 (string match -ra 'set editing 0' -- "$ESCARM4" | count)
+t "edit-esc arm does not break the loop" 0 (string match -ra '\bbreak\b' -- "$ESCARM4" | count)
+# The drain-hang guard is load-bearing and has been hit for real.
+set -g DR4 (string match -ra 'stty min 0 time' -- "$PB4" | count)
+t "drain loops re-assert non-blocking mode" yes (test $DR4 -ge 2; and echo yes; or echo no)
 
 rm -rf $shimdir
 if test $FAIL -eq 0
