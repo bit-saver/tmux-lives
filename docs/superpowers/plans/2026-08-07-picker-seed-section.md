@@ -466,7 +466,7 @@ Document the seed section, `b` for edit mode and its key semantics, that the pop
 
 - [ ] **Step 2: Add the CLAUDE.md paragraph**
 
-Record: the percentage-height decision and **why** (a too-tall popup fails to open rather than clamping — the fact that forces it); `STATIC = 22` and the derived `WIN`; the seed zone's fixed height as the anti-jump property; the measured palette costs that force the live/settle split; and the tab-OSC defect with its 15-second symptom.
+Record: the percentage-height decision and **why** (a too-tall popup fails to open rather than clamping — the fact that forces it); `STATIC = 21` and the derived `WIN`; the seed zone's fixed height as the anti-jump property; the measured palette costs that force the live/settle split; and the tab-OSC defect with its 15-second symptom.
 
 - [ ] **Step 3: Commit**
 
