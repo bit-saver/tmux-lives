@@ -262,6 +262,13 @@ command tmux -L $syncsock kill-server 2>/dev/null; rm -f $syncfrag
 set -g FRAG17 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 'xterm*' | string collect)
 t "sync is positional 17 after the knobs are removed" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAG17"; and echo yes; or echo no)
 
+# --- picker-seed-section Task 1: the picker opens at a percentage height, not a fixed 26 ----------
+# A popup taller than the client FAILS to open on tmux 3.3a ("height too large") —
+# it does not clamp. So the height must be a percentage, which always fits.
+set -g FRAGH (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 'xterm*' | string collect)
+t "theme-picker bind uses a percentage height" yes (string match -q '*-w 52 -h 85%*' -- "$FRAGH"; and echo yes; or echo no)
+t "theme-picker bind no longer pins 26 rows" no (string match -q '*-w 52 -h 26*' -- "$FRAGH"; and echo yes; or echo no)
+
 # The engine must produce the SAME colours as before — this is a refactor, not a
 # derivation change. Pinned as literal hexes so it cannot drift silently.
 set -g P5 (__tmux_lives_theme_palette '#5f772b' amber bar derived 0)
@@ -354,7 +361,7 @@ t "setup help still fits 80 cols framed" yes (set -l mx 0; for l in (__tmux_live
 
 # dedicated M-k theme-picker keybind (argv[12] = theme_key)
 set -g CK (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
-t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 26 -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
+t "fragment binds the theme-picker key" yes (string match -q "*bind-key -n M-k display-popup -B -E -w 52 -h 85% -- fish --no-config*theme-picker*" -- "$CK"; and echo yes; or echo no)
 set -g CK0 (__tmux_lives_render_fragment /x/cat.fish S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s block '' | string collect)
 t "empty theme-key omits the bind" 1 (string match -q '*theme-picker*' -- "$CK0"; and echo 0; or echo 1)
 
@@ -1059,7 +1066,7 @@ set -e TMUX
 set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
-t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 26*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 85%*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: invalid relationship rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: invalid relationship leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
@@ -1835,8 +1842,14 @@ t "no low/high help token outside the migration"   0 (awk '/^function __tmux_liv
 # the frame AGAIN, 24->26 rows (18 static + WIN=8). 52x26 popup geometry at
 # every open site; guard every stale height (27 was the v3.1/Phase-2-Tasks-
 # 1-4 value, 24 was this task's own pre-current-zone/legend-grid value, 22
-# was the pre-windowing value, 20 an even older stray). ---
-t "fragment theme-picker bind is 52x26" 1 (string match -q '*-h 26*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
+# was the pre-windowing value, 20 an even older stray).
+# picker-seed-section Task 1 (2026-08-07): 26 was itself a FIXED number,
+# which cannot survive a client shorter than it (a popup taller than the
+# client refuses to open on 3.3a — no clamp). -h is now a percentage at
+# every open site and the scheme window is derived from the popup's own
+# reported size at open time, so 26 joins 27/24/22/20 as a stale literal. ---
+t "fragment theme-picker bind is 52 wide, height is a percentage" 1 (string match -q '*-w 52 -h 85%*theme-picker*' -- "$fr0"; and echo 1; or echo 0)
+t "install: no stale theme popup height (26)" 0 (string match -q '*-w 52 -h 26*' -- "$src"; and echo 1; or echo 0)
 t "install: no stale theme popup height (27)" 0 (string match -q '*-w 52 -h 27*' -- "$src"; and echo 1; or echo 0)
 t "install: no stale theme popup height (24)" 0 (string match -q '*-w 52 -h 24*' -- "$src"; and echo 1; or echo 0)
 t "install: no stale theme popup height (22)" 0 (string match -q '*-w 52 -h 22*' -- "$src"; and echo 1; or echo 0)

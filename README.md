@@ -104,11 +104,17 @@ Seven roles get colours — `bar`, `sep`, `tabs`, `active`, `windows`, `cap`, `t
 
 #### The picker
 
-`setup theme` with no arguments, `M-k`, or `M-m k` all open it. It shows a ShellFish tab chip when a ShellFish client is attached, a live preview of your bar, and a labelled adjustments zone above the scheme list. The keys are:
+`setup theme` with no arguments, `M-k`, or `M-m k` all open it. It shows a ShellFish tab chip when a ShellFish client is attached, a live preview of your bar, and a permanent seed section above the scheme list. **The popup's height adapts to your terminal** — it opens at 85% of your client's height rather than a fixed size, because a popup taller than the client refuses to open at all on tmux 3.3a rather than clamping to fit. So how many schemes you can see without scrolling depends on how tall your terminal is; a short window just scrolls more.
 
-`↑↓` move · `⇞⇟` page · `b` seed (RGB sliders; `t` inside for typed hex) · `m` more · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close.
+The seed section is always 8 rows, whether or not you're editing it, so toggling edit mode never makes the scheme list jump. Press `b` to enter it: `↑↓` pick the R/G/B channel, `←→` move it by ±8, `⏎` keeps the change and leaves edit mode, `esc` leaves edit mode **without closing the picker** and puts the seed back to what it was when you pressed `b`. Outside edit mode, `↑↓`/`←→` steer the scheme list instead, and `⇥` is ignored while you're editing. From edit mode, `t` opens a typed-hex entry screen with its own border (the picker popup itself has none, so an unframed screen used to float on your scrollback); `esc`/`⏎` there return you to edit mode rather than out of the picker.
 
-`a` applies a scheme live without saving it, so you can audition; `⏎` commits. `esc` reverts whatever you were previewing — including an uncommitted seed change — and closes.
+Moving a channel recomputes the cursor's own scheme immediately (about 40ms); the rest of the strips and the `current` row catch up once input settles — a full batch is 310-800ms depending on whether 14 or 35 rows are visible, too slow to pay on every keystroke.
+
+The keys are:
+
+`↑↓` move · `⇞⇟` page · `b` edit seed · `m` more · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close.
+
+`a` applies a scheme live without saving it, so you can audition; `⏎` commits. Outside edit mode, `esc` reverts whatever you were previewing — including an uncommitted seed change — and closes. A ShellFish/iTerm2 tab's colour now updates the moment you preview or revert, rather than lagging behind the ~15-second status-bar tick in either direction.
 
 The list opens on a curated 14 (5 bar-placed, 7 tabs-placed, 2 cap-placed). **`m` does not replace that list** — it appends the remaining 21 below a `More Schemes` header, so the curated rows keep their positions instead of being reshuffled. `z` jumps to a random row anywhere in the full catalog.
 

@@ -879,7 +879,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|t|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -907,6 +907,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 73; echo s; return                      # s (theme-picker: chroma shape)
         case 65; echo e; return                      # e (theme-picker: hue ease)
         case 62; echo b; return                      # b (theme-picker: set seed)
+        case 74; echo t; return                      # t (theme-picker: typed hex, from edit mode)
         case 64; echo d; return                      # d (theme-picker: cycle contrast)
         case 61; echo a; return                      # a (theme-picker: apply preview)
         case 6f; echo o; return                      # o (theme-picker: rotate placement)
@@ -1082,7 +1083,7 @@ function __tcz_modal_run --argument-names action client --description 'perform o
             # Defer: run AFTER this popup closes; open the theme picker in its OWN popup
             # (the theme-picker verb runs INSIDE a popup, unlike open-switcher which
             # opens one itself — so we must wrap it here).
-            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 26 -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
+            tmux run-shell -b "tmux display-popup -B -E -w 52 -h 85% -- fish --no-config $__tcz_self theme-picker '$client'" 2>/dev/null
         case new
             fish -c 'tmux-lives new' 2>/dev/null
         case clear
@@ -1493,6 +1494,37 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
+function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — a FIXED 8-row, fully-framed section (a zone separator labelled seed + the 4-row __tcz_thp_swatch band + 3 rows that read out hex/hue·L/chroma while editing=0, or three __tcz_thp_slider R/G/B bars — the one at <chan> marked selected — while editing=1). Every row is exactly w+2 visible cols, border glyphs included (like __tcz_thp_zsep/__tcz_thp_ln); rows 1-5 are IDENTICAL in both states, so toggling edit mode never resizes the scheme window below it — only rows 6-8 change. Reuses __tcz_thp_swatch/__tcz_thp_slider rather than re-deriving them; each row is wrapped in __tcz_thp_ln, which pads short content to w itself. Callers append the 8-line result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
+    set -l BORDER (__tcz_theme border)
+    set -l RST (__tcz_theme reset)
+    set -l lines
+    set -a lines (__tcz_thp_zsep $w seed $BORDER $RST)
+    for row in (__tcz_thp_swatch "$hex" "$hue" "$L" "$C")
+        set -a lines (__tcz_thp_ln "$row" $w $BORDER $RST)
+    end
+    if test "$editing" = 1
+        set -l s1 0
+        set -l s2 0
+        set -l s3 0
+        test "$chan" = 1; and set s1 1
+        test "$chan" = 2; and set s2 1
+        test "$chan" = 3; and set s3 1
+        set -l row1 (__tcz_thp_slider R $r $s1)
+        set -l row2 (__tcz_thp_slider G $g $s2)
+        set -l row3 (__tcz_thp_slider B $b $s3)
+        set -a lines (__tcz_thp_ln "$row1" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$row2" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$row3" $w $BORDER $RST)
+    else
+        set -l MUT (__tcz_theme muted)
+        set -l RS (__tcz_theme reset)
+        set -l hexbold (printf '\e[1m%s\e[22m' "$hex")
+        set -a lines (__tcz_thp_ln "$hexbold" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$MUT""hue $hue° · L $L$RS" $w $BORDER $RST)
+        set -a lines (__tcz_thp_ln "$MUT""chroma $C$RS" $w $BORDER $RST)
+    end
+    printf '%s\n' $lines
+end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
     dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
@@ -1592,7 +1624,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 26); the frame is EXACTLY 26 rows (15 static chrome/second-list/legend rows + an 11-row scheme window, constant regardless of the 14-vs-35 catalog size — the window holds 11 virtual rows, and when expanded one of them is spent on the More Schemes group header rather than a scheme).'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 21 static chrome/seed-zone/second-list/legend rows + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - 21, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1708,63 +1740,100 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a recipes "$f[5]"
         end
     end
-    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete)'
-                set -l buf (string replace -r '^#' '' -- $seed)
-                set -l cand ''
-                set -l hue ''
-                set -l okl ''
-                set -l okc ''
-                set -l entering 1
-                printf '\e[2J'
-                while test $entering -eq 1
-                    set cand ''
-                    set hue ''
-                    set okl ''
-                    set okc ''
-                    set -l b6 $buf
-                    string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
-                    if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
-                        set cand "#"(string lower -- $b6)
-                        set -l rgb (__tmux_lives_hex_to_rgb01 $cand)
-                        set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-                        set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
-                        set -l rop (string split ' ' -- "$ro")
-                        set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
+    function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete). Framed like every other picker screen (picker-seed-section Task 5): the popup itself opens with display-popup -B, so tmux draws no border of its own — an unframed screen used to float on the users scrollback. Reuses __tcz_thp_ln/__tcz_theme border rather than hand-rolling a new frame style; $BORDER/$RST/$BRAND/$IW are the callers own (shared via --no-scope-shadowing, already set before the interactive loop that can reach here).'
+        set -l buf (string replace -r '^#' '' -- $seed)
+        set -l cand ''
+        set -l hue ''
+        set -l okl ''
+        set -l okc ''
+        set -l entering 1
+        # Top-border title, measured the same way __tcz_thp_zsep measures its own
+        # label — pieces summed into a length rather than a hardcoded fill count,
+        # so it can never silently drift out of step with $IW.
+        set -l htA "╭─ "
+        set -l htWord seed
+        set -l htB " ─ typed hex "
+        set -l heB1 (printf '\e[1m')
+        set -l heB0 (printf '\e[22m')
+        set -l htlen (math (string length -- $htA)+(string length -- $htWord)+(string length -- $htB)+1)
+        set -l htfill (math "$IW + 2 - $htlen")
+        test $htfill -lt 0; and set htfill 0
+        # Capture the repeat into a var FIRST and interpolate it QUOTED — the same
+        # zero-output-substitution hazard __tcz_thp_zsep's own $fillstr guards
+        # against: at fill=0, `string repeat -n 0 ─` emits nothing, and splicing
+        # that directly into this concatenation (no intervening var) would make
+        # the WHOLE right-hand side a zero-element list, silently vanishing the
+        # entire top border row instead of just its dash fill.
+        set -l htfillstr (string repeat -n $htfill ─)
+        set -l hetop $BORDER$htA$heB1$BRAND$htWord$heB0$BORDER$htB"$htfillstr╮"$RST
+        set -l hebot $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
+        printf '\e[2J'
+        while test $entering -eq 1
+            set cand ''
+            set hue ''
+            set okl ''
+            set okc ''
+            set -l b6 $buf
+            string match -qr '^[0-9a-fA-F]{3}$' -- $buf; and set b6 (string sub -l 1 -- $buf)(string sub -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 2 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)(string sub -s 3 -l 1 -- $buf)
+            if string match -qr '^[0-9a-fA-F]{6}$' -- $b6
+                set cand "#"(string lower -- $b6)
+                set -l rgb (__tmux_lives_hex_to_rgb01 $cand)
+                set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+                set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
+                set -l rop (string split ' ' -- "$ro")
+                set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
+            end
+            set -l sw4 (__tcz_thp_swatch "$cand" "$hue" "$okl" "$okc")
+            set -l leg (__tcz_legend_row 14 '⏎' apply esc cancel)
+            set -l hdrrow (printf ' %sseed — this IS the bar color%s' "$heB1" "$heB0")
+            set -l bufrow (printf ' #%s_' "$buf")
+            set -l helines
+            set -a helines $hetop
+            set -a helines (__tcz_thp_ln "$hdrrow" $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln "$bufrow" $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln '' $IW $BORDER $RST)
+            for row in $sw4
+                set -a helines (__tcz_thp_ln "$row" $IW $BORDER $RST)
+            end
+            set -a helines (__tcz_thp_ln '' $IW $BORDER $RST)
+            set -a helines (__tcz_thp_ln "$leg" $IW $BORDER $RST)
+            set -a helines $hebot
+            # Synchronized update (DECSET 2026), same atomic-paint pattern as the
+            # main frame below — commits the entry paint in one go. Newlines
+            # BETWEEN rows only (the __tcz_popup_draw / main-frame convention): a
+            # trailing newline after the last row scrolls the top border off.
+            printf '\e[?2026h\e[H'
+            test (count $helines) -gt 1; and printf '%s\e[K\n' $helines[1..-2]
+            printf '%s\e[K' $helines[-1]
+            printf '\e[J\e[?2026l'
+            set -l tok (__tcz_thp_readchar)
+            switch $tok
+                case back
+                    test -n "$buf"; and set buf (string sub -e -1 -- $buf)
+                case enter
+                    if test -n "$cand"
+                        # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
+                        # universal here is why Esc could not restore the seed: it was
+                        # already gone, and every role derives from it, so the scheme
+                        # looked unrestored too even with its own universals intact.
+                        set seed $cand
+                        set seedfg (__tmux_lives_contrast_fg "$seed")
+                        __tcz_thp_reload
+                        __tcz_thp_reanchor
+                        set note "seed previewed: $seed"
+                        set flashfield seed
                     end
-                    set -l sw4 (__tcz_thp_swatch "$cand" "$hue" "$okl" "$okc")
-                    set -l leg (__tcz_legend_row 14 '⏎' apply esc cancel)
-                    # Synchronized update (DECSET 2026), same atomic-paint pattern as the
-                    # main frame below — commits the entry paint in one go.
-                    printf '\e[?2026h\e[H \e[1mseed — this IS the bar color\e[22m\e[K\n #%s_\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n%s\e[K' "$buf" $sw4[1] $sw4[2] $sw4[3] $sw4[4] "$leg"
-                    printf '\e[J\e[?2026l'
-                    set -l tok (__tcz_thp_readchar)
-                    switch $tok
-                        case back
-                            test -n "$buf"; and set buf (string sub -e -1 -- $buf)
-                        case enter
-                            if test -n "$cand"
-                                # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
-                                # universal here is why Esc could not restore the seed: it was
-                                # already gone, and every role derives from it, so the scheme
-                                # looked unrestored too even with its own universals intact.
-                                set seed $cand
-                                set seedfg (__tmux_lives_contrast_fg "$seed")
-                                __tcz_thp_reload
-                                __tcz_thp_reanchor
-                                set note "seed previewed: $seed"
-                                set flashfield seed
-                            end
-                            set entering 0
-                        case esc
-                            set entering 0
-                        case hash other t up down left right
-                            # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
-                        case '*'
-                            # $tok IS the typed hex character
-                            test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
-                    end
-                end
-                printf '\e[2J'
+                    set entering 0
+                case esc
+                    set entering 0
+                case hash other t up down left right
+                    # ignored in hex entry ('#' implied; arrows/t are slider-screen tokens)
+                case '*'
+                    # $tok IS the typed hex character
+                    test (string length -- $buf) -lt 6; and set buf "$buf"(string lower -- $tok)
+            end
+        end
+        printf '\e[2J'
     end
     function __tcz_thp_sliders --no-scope-shadowing --description 'RGB slider seed screen: ↑↓ channel, ←→ ±8 (coalesced), t typed hex, ⏎ apply, esc cancel'
         set -l r 58
@@ -1901,6 +1970,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     __tcz_thp_reanchor
     set -l sel 0
+    # Seed edit mode (Task 4): editing=1 shows the seedzone's R/G/B sliders
+    # instead of its readouts and reroutes ↑↓/←→ to them (see the seedzone
+    # draw call and the arrow dispatch below). chan selects which channel
+    # (1=R/2=G/3=B) ←→ moves. editseed captures $seed at the moment editing
+    # is entered, so esc has something to revert to that is scoped to the
+    # CURRENT edit session — not the picker-open anchor ($anch_seed, which
+    # the outer Esc/cancel path still owns).
+    set -l editing 0
+    set -l chan 1
+    set -l editseed ''
     set -l saved (stty -g)
     set -g __tcz_thp_saved $saved
     function __tcz_thp_cleanup --on-signal INT --on-signal TERM
@@ -1911,7 +1990,29 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l IW 50
     # Window size lives out here so BOTH the draw loop and the key dispatch (which
     # pages by it) see one value — a second literal would drift.
-    set -l WIN 11
+    # The popup opens at a PERCENTAGE height, because a popup taller than the client
+    # does not clamp on tmux 3.3a — it refuses to open. So the picker cannot know its
+    # height in advance and must ask. `stty size` reports the popup's real dimensions
+    # ($LINES/$COLUMNS are not exported into a popup). One derived quantity; every
+    # other measurement in this function stays fixed.
+    # picker-seed-section Task 3: the seed became a fixed 8-row section (was 1
+    # row behind its own zsep, sharing the 'configuration' zsep before it) —
+    # net +6 static rows: top border · tab chip · preview bar · [seed zone:
+    # zsep + 4-row swatch + 3 readout/slider rows] · schemes zsep ·
+    # second-list zsep · current · off · blank zsep · legend×3 · note ·
+    # bottom border = 21.
+    set -l STATIC 21
+    set -l dims (stty size 2>/dev/null | string split ' ')
+    set -l rows 26
+    test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
+    set -l WIN (math "$rows - $STATIC")
+    if test $WIN -lt 3
+        # Too short to draw a usable list. Say so plainly rather than rendering a
+        # frame that overflows and scrolls its own top border away.
+        printf '\e[2J\e[H tmux-lives: window too short for the theme picker\n (needs %s rows, has %s)\n' (math "$STATIC + 3") $rows
+        stty $saved 2>/dev/null
+        return 0
+    end
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -1928,6 +2029,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     set -l note ''
     set -l flashfield ''
+    # picker-seed-section Task 6 fix round 1: a batch reload/reanchor is owed
+    # whenever a live channel edit has happened but the picker hasn't yet
+    # settled. This is DELIBERATELY separate from $flashfield — flashfield is
+    # a purely cosmetic highlight flag (its only consumer, __tcz_thp_seedrow,
+    # has been unreferenced since Task 3) that several OTHER arms clear on
+    # their own unrelated keypresses (m/z/tab) with no idea it also carries a
+    # recompute obligation. Coupling the two meant those arms silently
+    # cancelled a pending batch. seeddirty is cleared ONLY where it is
+    # consumed, in the settle block below.
+    set -l seeddirty 0
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l apply ''
@@ -1964,7 +2075,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
-        set -l seedchip (__tcz_thp_bg "$seed")(__tcz_thp_fg "$seedfg")"$seed"(printf '\e[0m')
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -1979,19 +2089,40 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        set -a lines (__tcz_thp_zsep $IW 'configuration' $BORDER $RST)
-        # ONE horizontal row: label and value side by side. The zone holds a single
-        # field now that phase is hidden, so the stacked label-row/value-row form was
-        # pure overhead — and the row it frees goes to the scheme window below.
-        set -l seedrow (__tcz_thp_seedrow "$flashfield" "$seedchip")
-        set -a lines (__tcz_thp_ln "$seedrow" $IW $BORDER $RST)
+        # picker-seed-section Task 3: the seed is a FIXED 8-row section (zsep +
+        # 4-row swatch + 3 readout/slider rows), not the old single zsep+row —
+        # see __tcz_thp_seedzone. Task 4 wires the real in-place edit-mode
+        # toggle (editing/chan below), so this call now passes the live
+        # state instead of a literal 0/1. hue/L/C and r/g/b are recomputed
+        # from $seed every redraw (in-process fish math, no subprocess
+        # spawn) — Task 3's own point in doing this was that the edit-mode
+        # flip needs no extra plumbing here, and that holds: a ←→ channel
+        # move (below) mutates $seed itself, and this block picks it up on
+        # the very next redraw. The zone arrives already framed (zsep +
+        # __tcz_thp_ln rows), so it is appended to lines verbatim — wrapping
+        # it in __tcz_thp_ln again would double the border.
+        set -l seedm (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$seed")
+        set -l seedr 0
+        set -l seedg 0
+        set -l seedb 0
+        if test (count $seedm) -eq 3
+            set seedr (math "0x$seedm[1]")
+            set seedg (math "0x$seedm[2]")
+            set seedb (math "0x$seedm[3]")
+        end
+        set -l seedrgb01 (__tmux_lives_hex_to_rgb01 $seed)
+        set -l seedoklch (__tmux_lives_rgb_to_oklch $seedrgb01[1] $seedrgb01[2] $seedrgb01[3])
+        set -l seedro (printf '%.0f %.2f %.3f' $seedoklch[3] $seedoklch[1] $seedoklch[2])
+        set -l seedrop (string split ' ' -- "$seedro")
+        set -a lines (__tcz_thp_seedzone $IW "$seed" "$seedrop[1]" "$seedrop[2]" "$seedrop[3]" $editing $chan $seedr $seedg $seedb)
         # Windowed scrolling list: only the SCHEME rows scroll; the second list
         # (current + off) is pinned below, always drawn. sel can never exceed
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
         # clamp for an off/anchor cursor position — that clamp is dead, removed.
-        # WIN=11: the frame is 15 static rows (border/chip/preview/configuration-
-        # zsep/seed/schemes-zsep/second-list-zsep/current/off/blank-zsep/
-        # legend×3/note/bottom-border) + WIN scheme rows = 26
+        # The frame is 21 static rows (border/chip/preview/seed-zone[zsep+
+        # swatch×4+3 readout-or-slider rows]/schemes-zsep/second-list-zsep/
+        # current/off/blank-zsep/legend×3/note/bottom-border) + WIN scheme
+        # rows = rows (the popup's own reported height, see STATIC above).
         # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
         # SCHEMES only, so it can never land on the header and vismap needs no change:
         # stepping over it falls out of the model instead of being a special case that
@@ -2031,6 +2162,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set row "$SELBG$row$RST"
                 end
                 set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
+            end
+        end
+        # WIN is now derived from the popup's own height (see STATIC/rows above), so
+        # it routinely exceeds the list — __tcz_thp_window returns "0 <total>" (fewer
+        # than WIN rows) whenever total <= WIN, and the loop above then draws fewer
+        # than WIN rows with nothing to fill the rest. Pad with blank framed rows so
+        # the frame always ends exactly at the popup's bottom, not short of it.
+        set -l winpad (math "$WIN - $count")
+        if test $winpad -gt 0
+            for i in (seq 1 $winpad)
+                set -a lines (__tcz_thp_ln '' $IW $BORDER $RST)
             end
         end
         # ── second list: the current theme and off. Untitled: no word covers both,
@@ -2096,14 +2238,40 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '%s\e[K' $lines[-1]
         printf '\e[J\e[?2026l'
         set -l tok
-        if test -n "$flashfield"
-            # flash active: wait up to ~0.5s; on timeout clear the flash and
-            # repaint. A real key is handled exactly like the blocking read.
+        if test -n "$flashfield"; or test "$seeddirty" = 1
+            # flash active and/or a batch reload is owed: wait up to ~0.5s;
+            # on timeout clear the flash and/or run the owed batch. A real
+            # key is handled exactly like the blocking read. seeddirty must
+            # be checked here TOO (not just flashfield) — picker-seed-section
+            # Task 6 fix round 1: m/z/tab clear flashfield on their own
+            # unrelated keypresses, and if this branch were gated on
+            # flashfield alone, clearing it would also stop the timed poll
+            # from ever running again, so a batch left owed after one of
+            # those arms would never fire — the picker falls to a plain
+            # blocking read instead and the deferred catch-up is silently
+            # lost until the next seed edit (or never, if none comes).
             stty min 0 time 5 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
             stty min 1 time 0 2>/dev/null
             if test "$tok" = timeout
                 set flashfield ''
+                if test "$seeddirty" = 1
+                    # picker-seed-section Task 6: input has settled — no key
+                    # arrived within ~0.5s of the last live channel edit.
+                    # Batch reload the remaining visible strips (schemes
+                    # list) now, plus reanchor so the current row's band
+                    # tracks the new seed too (its own comment explains why:
+                    # nothing else recomputes it). Cheap even when this flash
+                    # came from something else (a hexentry/sliders commit
+                    # already reloaded synchronously) — reload's cache is
+                    # keyed on the seed, so an unchanged seed hits cache
+                    # instead of paying the 310-800ms batch again. Gated on
+                    # seeddirty, not flashfield: see its own declaration
+                    # comment above for why the two must stay independent.
+                    __tcz_thp_reload
+                    __tcz_thp_reanchor
+                    set seeddirty 0
+                end
                 continue
             end
         else
@@ -2111,60 +2279,128 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         switch $tok
             case up down pgup pgdn
-                # Drain, then move ONE row. The drain is what prevents the original
-                # defect — an unbounded redraw backlog that kept scrolling for seconds
-                # after release — but it must not COUNT what it swallows. Re-assert
-                # non-blocking INSIDE the loop: readkey's CSI branch leaves the tty
-                # blocking on return, and a drain read after it hangs (hit for real once).
-                set -l steps 0
-                switch $tok
-                    case up;   set steps -1
-                    case down; set steps 1
-                    case pgup; set steps (math "0 - $WIN")
-                    case pgdn; set steps $WIN
-                end
-                set -l gap 0
-                while true
-                    stty min 0 time $gap 2>/dev/null
-                    set -l k2 (__tcz_popup_readkey)
-                    switch "$k2"
-                        # SWALLOW queued autorepeats without counting them. Summing the
-                        # burst (the 2026-07-29 form) moved many rows per redraw, so the
-                        # intermediate positions were never drawn and release landed on
-                        # the accumulated total rather than the last row you saw. One row
-                        # per render cycle instead: a held key scrolls at whatever rate
-                        # the terminal can actually paint, and release stops where it is.
-                        # NB do not escalate `gap` here: the loop only breaks on a POLL
-                        # TIMEOUT, so a gap=1 (~100ms) wait never times out while
-                        # autorepeat keeps delivering faster than that — no redraw, no
-                        # movement, until release, when exactly one row applies (measured:
-                        # 2 rows moved in 2s of holding, at a 61ms redraw cost). A gap=0
-                        # poll still drains whatever the terminal has already buffered, so
-                        # the anti-backlog property survives without ever blocking on it.
-                        case up down
-                        # pages DO coalesce — discrete, not autorepeated in practice
-                        case pgup; set steps (math "$steps - $WIN"); set gap 1
-                        case pgdn; set steps (math "$steps + $WIN"); set gap 1
-                        case '*';  break
+                if test "$editing" = 1
+                    # Edit mode: ↑↓ pick the R/G/B channel; there is no list to
+                    # page here, so pgup/pgdn are ignored while editing.
+                    switch $tok
+                        case up
+                            test $chan -gt 1; and set chan (math $chan - 1)
+                        case down
+                            test $chan -lt 3; and set chan (math $chan + 1)
                     end
-                end
-                stty min 1 time 0 2>/dev/null
-                if test $focus = state
-                    # the second list is two rows; clamp within it
-                    set sel2 (math "$sel2 + $steps")
-                    test $sel2 -lt 0; and set sel2 0
-                    test $sel2 -gt 1; and set sel2 1
                 else
-                    set -l dir down
-                    test $steps -lt 0; and set dir up
-                    for _i in (seq (math "abs($steps)"))
-                        set sel (__tcz_thp_vismap $sel $n $dir)
+                    # Drain, then move ONE row. The drain is what prevents the original
+                    # defect — an unbounded redraw backlog that kept scrolling for seconds
+                    # after release — but it must not COUNT what it swallows. Re-assert
+                    # non-blocking INSIDE the loop: readkey's CSI branch leaves the tty
+                    # blocking on return, and a drain read after it hangs (hit for real once).
+                    set -l steps 0
+                    switch $tok
+                        case up;   set steps -1
+                        case down; set steps 1
+                        case pgup; set steps (math "0 - $WIN")
+                        case pgdn; set steps $WIN
+                    end
+                    set -l gap 0
+                    while true
+                        stty min 0 time $gap 2>/dev/null
+                        set -l k2 (__tcz_popup_readkey)
+                        switch "$k2"
+                            # SWALLOW queued autorepeats without counting them. Summing the
+                            # burst (the 2026-07-29 form) moved many rows per redraw, so the
+                            # intermediate positions were never drawn and release landed on
+                            # the accumulated total rather than the last row you saw. One row
+                            # per render cycle instead: a held key scrolls at whatever rate
+                            # the terminal can actually paint, and release stops where it is.
+                            # NB do not escalate `gap` here: the loop only breaks on a POLL
+                            # TIMEOUT, so a gap=1 (~100ms) wait never times out while
+                            # autorepeat keeps delivering faster than that — no redraw, no
+                            # movement, until release, when exactly one row applies (measured:
+                            # 2 rows moved in 2s of holding, at a 61ms redraw cost). A gap=0
+                            # poll still drains whatever the terminal has already buffered, so
+                            # the anti-backlog property survives without ever blocking on it.
+                            case up down
+                            # pages DO coalesce — discrete, not autorepeated in practice
+                            case pgup; set steps (math "$steps - $WIN"); set gap 1
+                            case pgdn; set steps (math "$steps + $WIN"); set gap 1
+                            case '*';  break
+                        end
+                    end
+                    stty min 1 time 0 2>/dev/null
+                    if test $focus = state
+                        # the second list is two rows; clamp within it
+                        set sel2 (math "$sel2 + $steps")
+                        test $sel2 -lt 0; and set sel2 0
+                        test $sel2 -gt 1; and set sel2 1
+                    else
+                        set -l dir down
+                        test $steps -lt 0; and set dir up
+                        for _i in (seq (math "abs($steps)"))
+                            set sel (__tcz_thp_vismap $sel $n $dir)
+                        end
                     end
                 end
-            # ←→ retired with the phase field: phase is HIDDEN and pinned at 0
-            # for now (a different seed is the better lever, and a knob nobody
-            # reaches for is a knob that lies). The engine and CLI still accept
-            # --phase; only the picker stops exposing it.
+            # ←→ move the seed's selected R/G/B channel, but ONLY while editing —
+            # outside edit mode they stay unbound, same as they were when phase
+            # (their old occupant) was hidden: a different seed is the better
+            # lever than a knob nobody reaches for. Coalesced the same way the
+            # retired standalone sliders screen did it — a burst of autorepeat
+            # collapses to one net delta rather than one delta per byte.
+            case left right
+                if test "$editing" = 1
+                    set -l delta -8
+                    test "$tok" = right; and set delta 8
+                    while true
+                        stty min 0 time 0 2>/dev/null
+                        set -l k2 (__tcz_popup_readkey)
+                        switch "$k2"
+                            case left;  set delta (math "$delta - 8")
+                            case right; set delta (math "$delta + 8")
+                            case '*';   break
+                        end
+                    end
+                    stty min 1 time 0 2>/dev/null
+                    set -l names seedr seedg seedb
+                    set -l vn $names[$chan]
+                    set -l cur $$vn
+                    set cur (math "$cur + $delta")
+                    test $cur -lt 0; and set cur 0
+                    test $cur -gt 255; and set cur 255
+                    set $vn $cur
+                    set seed (printf '#%02x%02x%02x' $seedr $seedg $seedb)
+                    # picker-seed-section Task 6: recompute ONLY the cursor's own
+                    # scheme row here (~40ms) — a full batch reload across the
+                    # visible strips is 310-800ms (14/35 rows), which a held key
+                    # cannot afford per step. The seed is passed as a variable
+                    # (never a literal), matching the engine call's other sites —
+                    # a source-text guard elsewhere counts them and is sensitive
+                    # to exactly this shape, so do not spell that shape out here
+                    # even in prose. The seed zone and preview bar need no
+                    # separate repaint call: both already re-derive from $seed
+                    # on every redraw (see the draw loop above), same as the
+                    # cursor row's own $curpal lookup does from $pals below —
+                    # updating pals/fgs/tabsfgs here is exactly what that
+                    # lookup reads on the very next frame. seeddirty (not
+                    # flashfield) is what defers the expensive batch (reload +
+                    # reanchor) to the settle block below — flashfield is a
+                    # separate, purely cosmetic flag that other arms (m/z/tab)
+                    # clear on their own unrelated keypresses; seeddirty
+                    # survives that and is cleared only once the batch it
+                    # tracks actually runs, so a held key never queues more
+                    # than one cheap recompute per step and the deferred
+                    # catch-up cannot be silently cancelled by an intervening
+                    # keypress.
+                    set -l pi (math $sel + 1)
+                    set -l rc (string split '|' -- $recipes[$pi])
+                    set -l p (__tmux_lives_theme_palette $seed $rc[1] $rc[2] $rc[3] $phase)
+                    if test (count $p) -eq 7
+                        set pals[$pi] (string join ' ' $p)
+                        set fgs[$pi] (__tmux_lives_contrast_fg "$p[6]")
+                        set tabsfgs[$pi] (__tmux_lives_contrast_fg "$p[3]")
+                    end
+                    set flashfield seed
+                    set seeddirty 1
+                end
             case m
                 # expand/collapse the catalog: 14 curated rows <-> all 35.
                 # Reload FIRST so $n reflects the NEW list length before the
@@ -2199,7 +2435,31 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $sel -gt $lastrow; and set sel $lastrow
                 set flashfield ''
             case b
-                __tcz_thp_sliders
+                # Toggles the seedzone between readouts and its R/G/B sliders —
+                # ignored while focus is on the second list, which has no seed
+                # of its own to edit. Entering captures $editseed so esc (below)
+                # has this edit session's starting point to revert to; leaving
+                # via b needs no such capture — every ←→ move already commits
+                # straight into $seed (see case left right), so there is
+                # nothing left to "keep".
+                if test $focus != state
+                    if test "$editing" = 1
+                        set editing 0
+                    else
+                        set editing 1
+                        set chan 1
+                        set editseed $seed
+                    end
+                end
+            case t
+                # A detour within edit mode, not a separate destination: on
+                # ⏎/esc __tcz_thp_hexentry just returns here, and neither it
+                # nor this arm touches $editing, so it is still 1 afterward —
+                # the next redraw shows the sliders again, seed and all (the
+                # draw section re-derives seedr/g/b from $seed every frame,
+                # so a hexentry commit is picked up with no extra plumbing).
+                # Idle (editing=0) it's a no-op, symmetric with b's own gate.
+                test "$editing" = 1; and __tcz_thp_hexentry
             case z
                 # shake: land on a random row across the FULL catalog. RELOAD
                 # BEFORE ROLLING so the bound is the real expanded size — the
@@ -2226,8 +2486,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # move between the two lists. `c` is retired: a key meaning "current"
                 # that lands on current, from which you arrow to off, promises one
                 # thing and does another. ⇥ carries no such claim and toggles back.
-                test $focus = list; and set focus state; or set focus list
-                set flashfield ''
+                # Ignored while editing (Task 4 review Minor, folded in here): the
+                # second list has no seed of its own, and letting ⇥ through moved
+                # focus to `state` while `editing` still owned ↑↓/←→ — the second
+                # list's cursor drew as selected but arrows kept moving the RGB
+                # channel, ⏎ exited edit mode instead of acting on the state row,
+                # and b (itself focus-gated) could no longer get back. One key
+                # (b) recovers it, but the fix is one line, same gate as b's own.
+                if test "$editing" != 1
+                    test $focus = list; and set focus state; or set focus list
+                    set flashfield ''
+                end
             # previewed: 0 none, 1 a LISTED scheme, 2 the current row. The distinction
             # matters because previewing the current row still leaves the persisted
             # theme on the bar — so `current` stays lit. It is never reset: `cancel`
@@ -2236,10 +2505,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 if test $focus = state
                     if test $sel2 -eq 0
                         fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
+                        set -l tabhex (__tcz_tab_color '')
+                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
                         set previewed 2
                         set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
                     else
                         fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
+                        set -l tabhex (__tcz_tab_color '')
+                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
                         set previewed 1
                         set note "● previewing off — ⏎ save · esc revert"
                     end
@@ -2250,35 +2523,62 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -l rplace $rc[2]
                     set -l rmode $rc[3]
                     fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
+                    set -l tabhex (__tcz_tab_color '')
+                    test -n "$tabhex"; and __tcz_recolor "$tabhex"
                     set previewed 1
                     set note "● previewing $rel — ⏎ save · esc revert"
                 end
             case enter
-                if test $focus = state
-                    if test $sel2 -eq 0
-                        set apply $anch_scheme
-                        set phase $anch_phase
-                        set place $anch_place
-                        set mode $anch_mode
-                    else
-                        set apply off
-                    end
+                if test "$editing" = 1
+                    # ⏎ while editing keeps the change and leaves edit mode —
+                    # nothing more to do: every ←→ move already committed
+                    # straight into $seed, so there is no staged value to
+                    # apply here (the esc/q arm just below IS different — it
+                    # does have something to undo).
+                    set editing 0
                 else
-                    set -l pi (math $sel + 1)
-                    set -l rc (string split '|' -- $recipes[$pi])
-                    set apply $rc[1]
-                    set place $rc[2]
-                    set mode $rc[3]
+                    if test $focus = state
+                        if test $sel2 -eq 0
+                            set apply $anch_scheme
+                            set phase $anch_phase
+                            set place $anch_place
+                            set mode $anch_mode
+                        else
+                            set apply off
+                        end
+                    else
+                        set -l pi (math $sel + 1)
+                        set -l rc (string split '|' -- $recipes[$pi])
+                        set apply $rc[1]
+                        set place $rc[2]
+                        set mode $rc[3]
+                    end
+                    break
                 end
-                break
             case cancel
-                # Restore BOTH. Restoring the theme alone is what made this look
-                # broken: every role derives from the seed, so a correct theme
-                # rendered against a changed seed still is not what you started with.
-                if test $previewed -ne 0; or test "$seed" != "$anch_seed"
-                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live' "$anch_seed" >/dev/null 2>&1
+                if test "$editing" = 1
+                    # BEGIN edit-esc
+                    # Leaves edit mode only — the picker stays open. This arm
+                    # never exits the read loop: esc while editing reverts the
+                    # seed to what it was when edit mode was entered, it does
+                    # not close the picker (contrast the plain esc/q below,
+                    # which does exit and reverts all the way to $anch_seed).
+                    set seed $editseed
+                    set editing 0
+                    set seeddirty 1
+                    set note ''
+                    # END edit-esc
+                else
+                    # Restore BOTH. Restoring the theme alone is what made this look
+                    # broken: every role derives from the seed, so a correct theme
+                    # rendered against a changed seed still is not what you started with.
+                    if test $previewed -ne 0; or test "$seed" != "$anch_seed"
+                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live' "$anch_seed" >/dev/null 2>&1
+                        set -l tabhex (__tcz_tab_color '')
+                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                    end
+                    break
                 end
-                break
         end
     end
     functions -e __tcz_thp_cleanup
