@@ -2029,6 +2029,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     end
     set -l note ''
     set -l flashfield ''
+    # picker-seed-section Task 6 fix round 1: a batch reload/reanchor is owed
+    # whenever a live channel edit has happened but the picker hasn't yet
+    # settled. This is DELIBERATELY separate from $flashfield — flashfield is
+    # a purely cosmetic highlight flag (its only consumer, __tcz_thp_seedrow,
+    # has been unreferenced since Task 3) that several OTHER arms clear on
+    # their own unrelated keypresses (m/z/tab) with no idea it also carries a
+    # recompute obligation. Coupling the two meant those arms silently
+    # cancelled a pending batch. seeddirty is cleared ONLY where it is
+    # consumed, in the settle block below.
+    set -l seeddirty 0
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l apply ''
@@ -2228,26 +2238,40 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '%s\e[K' $lines[-1]
         printf '\e[J\e[?2026l'
         set -l tok
-        if test -n "$flashfield"
-            # flash active: wait up to ~0.5s; on timeout clear the flash and
-            # repaint. A real key is handled exactly like the blocking read.
+        if test -n "$flashfield"; or test "$seeddirty" = 1
+            # flash active and/or a batch reload is owed: wait up to ~0.5s;
+            # on timeout clear the flash and/or run the owed batch. A real
+            # key is handled exactly like the blocking read. seeddirty must
+            # be checked here TOO (not just flashfield) — picker-seed-section
+            # Task 6 fix round 1: m/z/tab clear flashfield on their own
+            # unrelated keypresses, and if this branch were gated on
+            # flashfield alone, clearing it would also stop the timed poll
+            # from ever running again, so a batch left owed after one of
+            # those arms would never fire — the picker falls to a plain
+            # blocking read instead and the deferred catch-up is silently
+            # lost until the next seed edit (or never, if none comes).
             stty min 0 time 5 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
             stty min 1 time 0 2>/dev/null
             if test "$tok" = timeout
                 set flashfield ''
-                # picker-seed-section Task 6: input has settled — no key
-                # arrived within ~0.5s of the last live channel edit. Batch
-                # reload the remaining visible strips (schemes list) now, plus
-                # reanchor so the current row's band tracks the new seed too
-                # (its own comment explains why: nothing else recomputes it).
-                # Cheap even when this flash came from something else (a
-                # hexentry/sliders commit already reloaded synchronously, or
-                # this timeout just outlived a non-editing flash) — reload's
-                # cache is keyed on the seed, so an unchanged seed hits cache
-                # instead of paying the 310-800ms batch again.
-                __tcz_thp_reload
-                __tcz_thp_reanchor
+                if test "$seeddirty" = 1
+                    # picker-seed-section Task 6: input has settled — no key
+                    # arrived within ~0.5s of the last live channel edit.
+                    # Batch reload the remaining visible strips (schemes
+                    # list) now, plus reanchor so the current row's band
+                    # tracks the new seed too (its own comment explains why:
+                    # nothing else recomputes it). Cheap even when this flash
+                    # came from something else (a hexentry/sliders commit
+                    # already reloaded synchronously) — reload's cache is
+                    # keyed on the seed, so an unchanged seed hits cache
+                    # instead of paying the 310-800ms batch again. Gated on
+                    # seeddirty, not flashfield: see its own declaration
+                    # comment above for why the two must stay independent.
+                    __tcz_thp_reload
+                    __tcz_thp_reanchor
+                    set seeddirty 0
+                end
                 continue
             end
         else
@@ -2356,11 +2380,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # on every redraw (see the draw loop above), same as the
                     # cursor row's own $curpal lookup does from $pals below —
                     # updating pals/fgs/tabsfgs here is exactly what that
-                    # lookup reads on the very next frame. Setting flashfield
-                    # defers the expensive batch (reload + reanchor) to the
-                    # flashfield-timeout block below: it only fires once no
-                    # key has arrived for ~0.5s, so a held key never queues
-                    # more than one cheap recompute per step.
+                    # lookup reads on the very next frame. seeddirty (not
+                    # flashfield) is what defers the expensive batch (reload +
+                    # reanchor) to the settle block below — flashfield is a
+                    # separate, purely cosmetic flag that other arms (m/z/tab)
+                    # clear on their own unrelated keypresses; seeddirty
+                    # survives that and is cleared only once the batch it
+                    # tracks actually runs, so a held key never queues more
+                    # than one cheap recompute per step and the deferred
+                    # catch-up cannot be silently cancelled by an intervening
+                    # keypress.
                     set -l pi (math $sel + 1)
                     set -l rc (string split '|' -- $recipes[$pi])
                     set -l p (__tmux_lives_theme_palette $seed $rc[1] $rc[2] $rc[3] $phase)
@@ -2370,6 +2399,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         set tabsfgs[$pi] (__tmux_lives_contrast_fg "$p[3]")
                     end
                     set flashfield seed
+                    set seeddirty 1
                 end
             case m
                 # expand/collapse the catalog: 14 curated rows <-> all 35.

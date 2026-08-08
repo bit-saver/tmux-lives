@@ -3179,16 +3179,34 @@ t "drain invariant: exactly one while-true loop (the main event loop) lacks an i
 # inside would not survive the call returning (same rationale as $ARROW9WRAP
 # above). Both extractions are content-anchored, not line-numbered, so later
 # tasks' line drift is safe.
-set -g ARROWLR6 (awk '/^            case m$/{exit} /^            case left right$/{f=1} f{print}' $catfile | string collect)
+# fix round 1 (Minor 1): non-empty alone cannot see the inverse of the
+# vacuity class this branch has hit repeatedly — if an exit anchor ever
+# drifted (renamed, deleted), awk's range would run to literal EOF instead
+# of stopping: still non-empty, but silently wrong (everything after the
+# start, including every later case arm and the picker's own teardown
+# calls). `f &&` before the exit test (rather than an unconditional exit
+# pattern) additionally guards against the exit text ever matching BEFORE
+# the start anchor is seen — not a live risk today (both anchors are
+# verified unique at their indentation), but it costs nothing and is the
+# same defensive shape used to catch the accidental-anchor-capture class
+# elsewhere in this file. Both anchors' non-empty checks are paired with a
+# negative-containment check against content known to sit well past the
+# intended boundary, so a runaway extraction fails loudly instead of
+# silently overrunning.
+set -g ARROWLR6 (awk '/^            case left right$/{f=1} f && /^            case m$/{exit} f{print}' $catfile | string collect)
 t "left/right arm extraction is non-empty (task 6)" 1 (test -n "$ARROWLR6"; and echo 1; or echo 0)
+t "left/right arm extraction stopped before case m (did not run to EOF)" 0 (string match -q '*case m*' -- "$ARROWLR6"; and echo 1; or echo 0)
+t "left/right arm extraction did not run all the way to the picker's teardown" 0 (string match -q '*functions -e __tcz_thp_reload*' -- "$ARROWLR6"; and echo 1; or echo 0)
 set -g ARROWLR6WRAP "switch \$tok
 $ARROWLR6
 end"
 # The flashfield-timeout block ("has input settled?") sits between the frame
 # draw and the main switch; `set -l tok` through the line before `switch $tok`
 # is unique in the file at this indentation.
-set -g SETTLE6 (awk '/^        set -l tok$/{f=1} /^        switch \$tok$/{exit} f{print}' $catfile | string collect)
+set -g SETTLE6 (awk '/^        set -l tok$/{f=1} f && /^        switch \$tok$/{exit} f{print}' $catfile | string collect)
 t "settle-block extraction is non-empty (task 6)" 1 (test -n "$SETTLE6"; and echo 1; or echo 0)
+t "settle-block extraction stopped before the main switch (did not run to EOF)" 0 (string match -q '*case m*' -- "$SETTLE6"; and echo 1; or echo 0)
+t "settle-block extraction did not run all the way to the picker's teardown" 0 (string match -q '*functions -e __tcz_thp_reload*' -- "$SETTLE6"; and echo 1; or echo 0)
 
 # Stub __tcz_popup_readkey (queue-based, same convention as $ARROW9WRAP's own
 # harness above) and stty (no-op — no real tty to assert on under the
@@ -3215,7 +3233,7 @@ function __tcz_thp_reload --description 'test stub (picker-seed-section Task 6):
     set -g __t6_reload_calls (math $__t6_reload_calls + 1)
 end
 
-function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-6-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>".'
+function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-6-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>\x1e<seeddirty>".'
     set -l editing 1
     set -l chan 1
     set -l sel 0
@@ -3231,6 +3249,7 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
     set -l seed $seedhex
     set -l phase 0
     set -l flashfield ''
+    set -l seeddirty 0
     set -l recipes 'mono|bar|derived'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
@@ -3238,7 +3257,7 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
     set -g __t6_reload_calls 0
     set -g __t6_rkq $argv[3..-1]
     eval $ARROWLR6WRAP
-    printf '%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls"
+    printf '%s\x1e%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls" "$seeddirty"
 end
 
 set -g RES6A (__t6_arrow right '#000000')
@@ -3249,6 +3268,11 @@ t "channel edit's cursor-row palette matches a direct call for the new seed" "$e
 t "channel edit sets flashfield to seed (drives the settle timeout below)" seed "$f6a[2]"
 t "channel edit's seed reflects the +8 delta" '#080000' "$f6a[3]"
 t "channel edit does not call the batch reload" 0 "$f6a[4]"
+# fix round 1 (Important 1): the batch is now owed via a DEDICATED flag, not
+# flashfield alone — flashfield is cleared by other arms (m/z/tab) that have
+# no idea it also carries this obligation, which used to silently cancel the
+# deferred reload+reanchor. Assert the dedicated flag directly.
+t "channel edit marks the seed dirty (independent of flashfield)" 1 "$f6a[5]"
 
 # A held key: the drain coalesces 3 presses into ONE net delta and this arm
 # still recomputes exactly once — there is only one call site in the arm
@@ -3259,14 +3283,16 @@ t "a 3-press coalesced burst sums to +24, not three separate +8s" '#180000' "$f6
 set -g expected6b (string join ' ' (__tmux_lives_theme_palette $f6b[3] mono bar derived 0))
 t "a coalesced burst's cursor-row palette matches the summed seed" "$expected6b" "$f6b[1]"
 t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
+t "a coalesced burst also marks the seed dirty" 1 "$f6b[5]"
 
 # --- Step 4: input settling triggers exactly one batch reload + reanchor --------
 set -g __t6_reanchor_calls 0
 function __tcz_thp_reanchor --description 'test stub (picker-seed-section Task 6): counts calls instead of recomputing the anchor row.'
     set -g __t6_reanchor_calls (math $__t6_reanchor_calls + 1)
 end
-function __t6_settle --argument-names queued --description 'eval the REAL flashfield-timeout block (Step 4) with flashfield pre-set to seed (as case left/right now leaves it) and a stubbed readkey returning <queued>. Wrapped in a bounded for-loop, not source: the extracted body itself calls `continue` on the timeout path, which is only valid inside a loop, and a SECOND pass is expected there (flashfield now empty, the block falls to its own else-branch real read) — bounded so a coding mistake cannot spin forever. Prints "<reload_calls> <reanchor_calls> <flashfield>".'
-    set -l flashfield seed
+function __t6_settle --argument-names flash dirty queued --description 'eval the REAL flashfield-timeout block (Step 4, fix round 1) with $flashfield and $seeddirty seeded independently (fix round 1 made them independent flags on purpose) and a stubbed readkey returning <queued>. Wrapped in a bounded for-loop, not source: the extracted body itself calls `continue` on the timeout path, which is only valid inside a loop, and a SECOND pass is expected on a genuine timeout with a still-nonempty flashfield-or-seeddirty condition already false (both cleared by the first pass), the block falls to its own else-branch real read — bounded so a coding mistake cannot spin forever. Prints "<reload_calls> <reanchor_calls> <flashfield> <seeddirty>".'
+    set -l flashfield $flash
+    set -l seeddirty $dirty
     set -l tok ''
     set -g __t6_reload_calls 0
     set -g __t6_reanchor_calls 0
@@ -3275,20 +3301,42 @@ function __t6_settle --argument-names queued --description 'eval the REAL flashf
         eval $SETTLE6
         break
     end
-    printf '%s %s %s\n' $__t6_reload_calls $__t6_reanchor_calls "$flashfield"
+    printf '%s %s %s %s\n' $__t6_reload_calls $__t6_reanchor_calls "$flashfield" "$seeddirty"
 end
 
-set -g RES6T (__t6_settle timeout)
+set -g RES6T (__t6_settle seed 1 timeout)
 set -g f6t (string split ' ' -- $RES6T)
 t "settle (no key within ~0.5s) calls the batch reload exactly once" 1 "$f6t[1]"
 t "settle (no key within ~0.5s) calls reanchor exactly once"         1 "$f6t[2]"
 t "settle clears flashfield"                                         '' "$f6t[3]"
+t "settle clears seeddirty"                                          0 "$f6t[4]"
 
-set -g RES6K (__t6_settle b)
+# fix round 1 (Important 1) — the core of the fix: seeddirty alone, WITHOUT
+# flashfield, must still drive the timed poll and fire the batch. This is
+# exactly the state m/z/tab leave things in (they clear flashfield but never
+# touch seeddirty) — before the fix this branch was gated on flashfield
+# alone, so an empty flashfield meant no timed poll ever ran again and the
+# owed batch was lost until another seed edit.
+set -g RES6D (__t6_settle '' 1 timeout)
+set -g f6d (string split ' ' -- $RES6D)
+t "settle fires on seeddirty alone (flashfield already empty)" 1 "$f6d[1]"
+t "settle's reanchor also fires on seeddirty alone"             1 "$f6d[2]"
+t "settle clears seeddirty even when flashfield started empty"  0 "$f6d[4]"
+
+# Negative control: neither flag set -> no timed poll at all (falls to a
+# blocking read instead), so the batch cannot fire. Queueing "timeout" here
+# is harmless noise (the stub returns it as if it were a real keystroke); the
+# only thing under test is that reload/reanchor stay at 0.
+set -g RES6N (__t6_settle '' 0 timeout)
+set -g f6n (string split ' ' -- $RES6N)
+t "settle does nothing when neither flashfield nor seeddirty is set" "0 0" "$f6n[1] $f6n[2]"
+
+set -g RES6K (__t6_settle seed 1 b)
 set -g f6k (string split ' ' -- $RES6K)
 t "a real key within the flash window does not call the batch reload" 0 "$f6k[1]"
 t "a real key within the flash window does not call reanchor"         0 "$f6k[2]"
 t "a real key within the flash window leaves flashfield alone (dispatch handles it normally)" seed "$f6k[3]"
+t "a real key within the flash window leaves seeddirty owed (dispatch handles it normally)" 1 "$f6k[4]"
 
 # Restore reload/reanchor to their REAL implementations for the remaining
 # tests below — readkey/stty stay stubbed a little longer (the end-to-end
@@ -3338,6 +3386,7 @@ function __t6_e2e --argument-names old_seed --description 'end to end: the REAL 
     set -l seed $old_seed
     set -l phase 0
     set -l flashfield ''
+    set -l seeddirty 0
     set -l recipes 'mono|bar|derived'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
@@ -3378,6 +3427,97 @@ set -g BAND6A (__t6_band '#5f772b')
 set -g BAND6B (__t6_band '#772b5f')
 t "reanchor's band is non-empty for a real seed" yes (test -n "$BAND6A"; and echo yes; or echo no)
 t "current row's rendered band changes after the seed changes" no (test "$BAND6A" = "$BAND6B"; and echo yes; or echo no)
+
+# --- Step 4 fix round 1 (Important 1): a follow-up keypress must not cancel
+# the deferred batch -----------------------------------------------------
+# Reviewer repro: → m, → z, and → b ⇥ all left the current row's band stale
+# for the rest of the picker session, because flashfield — cleared by these
+# three unrelated arms with no idea it also carried a recompute obligation —
+# used to be the SOLE signal gating the settle path. seeddirty (this fix
+# round) is untouched by all three, so the deferred batch survives them.
+# Extract the arms these sequences dispatch through and drive them for real
+# — reload/reanchor both real (not stubbed) here, same as the base
+# end-to-end test above, since m/z's own pre-existing reload call needs the
+# real catalog to do anything meaningful.
+set -g CASEM6   (awk '/^            case b$/{exit} /^            case m$/{f=1} f{print}' $catfile | string collect)
+set -g CASEB6   (awk '/^            case t$/{exit} /^            case b$/{f=1} f{print}' $catfile | string collect)
+set -g CASEZ6   (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
+set -g CASETAB6 (awk '/^            case a$/{exit} /^            case tab$/{f=1} f{print}' $catfile | string collect)
+t "case-m body extraction is non-empty (task 6)"   1 (test -n "$CASEM6"; and echo 1; or echo 0)
+t "case-b body extraction is non-empty (task 6)"   1 (test -n "$CASEB6"; and echo 1; or echo 0)
+t "case-z body extraction is non-empty (task 6)"   1 (test -n "$CASEZ6"; and echo 1; or echo 0)
+t "case-tab body extraction is non-empty (task 6)" 1 (test -n "$CASETAB6"; and echo 1; or echo 0)
+set -g SEQ6WRAP "switch \$tok
+$ARROWLR6
+$CASEM6
+$CASEB6
+$CASEZ6
+$CASETAB6
+end"
+
+function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER the whole sequence settles.'
+    set -l editing 1
+    set -l chan 1
+    set -l sel 0
+    set -l focus list
+    set -l editseed ''
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $old_seed)
+    if test (count $m) -eq 3
+        set seedr (math "0x$m[1]")
+        set seedg (math "0x$m[2]")
+        set seedb (math "0x$m[3]")
+    end
+    set -l seed $old_seed
+    set -l phase 0
+    set -l expanded 0
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l recipes 'mono|bar|derived'
+    set -l toks 'mono soft'
+    set -l pals 'stale stale stale stale stale stale stale'
+    set -l fgs '#000000'
+    set -l tabsfgs '#000000'
+    set -l n 1
+    set -l ndefault 1
+    set -l anch_scheme mono
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    # Step 1: a real channel edit (chan=1, +8) — the seed is now dirty.
+    set -l tok right
+    set -g __t6_rkq
+    eval $SEQ6WRAP
+    # Step 2: the follow-up sequence, one dispatched key per argv element.
+    for k in $argv[2..-1]
+        set tok $k
+        set -g __t6_rkq
+        eval $SEQ6WRAP
+    end
+    # Step 3: settle — a genuine timeout, queued once.
+    set tok ''
+    set -g __t6_rkq timeout
+    for _pass in 1 2 3 4 5
+        eval $SETTLE6
+        break
+    end
+    __tcz_thp_cells "$anchpal"
+end
+
+# Every sequence starts from the same seed (#000000) and the same single
+# chan-1 press (+8), so the fresh band any of them should settle to is the
+# SAME one $BAND6EXPECTED already pins above — reused, not recomputed.
+set -g SEQ6_M    (__t6_seq '#000000' m)
+set -g SEQ6_Z    (__t6_seq '#000000' z)
+set -g SEQ6_BTAB (__t6_seq '#000000' b tab)
+t "→ m then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_M"
+t "→ z then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_Z"
+t "→ b ⇥ then settle: the current row's band ends up fresh, not stale"    "$BAND6EXPECTED" "$SEQ6_BTAB"
 
 # Restore what this section stubbed.
 eval $__t6_real_readkey
