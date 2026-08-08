@@ -2565,6 +2565,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # which does exit and reverts all the way to $anch_seed).
                     set seed $editseed
                     set editing 0
+                    set seeddirty 1
+                    set note ''
                     # END edit-esc
                 else
                     # Restore BOTH. Restoring the theme alone is what made this look

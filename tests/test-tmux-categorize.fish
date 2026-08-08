@@ -2465,7 +2465,21 @@ t "frame: no stale popup heights (broad)" 0 (count (string match -ra '\-w 52 \-h
 set -g DRAWTEXT9 (awk '/set -l curpal/,/╰/' $catfile | string collect)
 t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 1; or echo 0)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - 21, matching the real function — picker-seed-section Task 3 raised STATIC 15->21 when the seed became a fixed 8-row zone, and this copy was updated to match); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has.'
+# review finding 2: STATIC (the frame's static-row budget, "set -l STATIC 21")
+# lives ABOVE the DRAWTEXT9 extraction range (it feeds WIN once, before the
+# redraw loop DRAWTEXT9 is lifted from), so the harness restated its value as
+# a bare literal instead of reading it — `grep STATIC tests/*.fish` finds it
+# only in comments/docstrings. Mutation-proven: `set -l STATIC 20` in the real
+# source left the whole categorize suite ALL PASS, while a real popup at that
+# mutation overflows its own height by one row (the 2026-07-14
+# top-border-scroll defect, exactly). Read the real value out of the function
+# instead of restating it. The non-empty guard is mandatory: a missed
+# extraction would silently make WIN — and every frame assertion below —
+# garbage rather than merely wrong.
+set -g STATIC9 (string match -rg 'set -l STATIC (\d+)' -- "$SLB")
+t "STATIC extraction is non-empty" 1 (test -n "$STATIC9"; and echo 1; or echo 0)
+
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - STATIC, matching the real function, read out of it rather than restated — see STATIC9 above); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2474,7 +2488,9 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     set -l RST (__tcz_theme reset)
     set -l IW 50
     test -n "$rows"; or set rows 26
-    set -l WIN (math "$rows - 21")
+    test -n "$editing"; or set editing 0
+    test -n "$chan"; or set chan 1
+    set -l WIN (math "$rows - $STATIC9")
     set -l host somehost
     set -l chiptitle ''
     set -l note 'a note'
@@ -2597,6 +2613,29 @@ t "header present when expanded near the boundary" 1 (__t9_frame_text list 0 35 
 # Same scrolled-past state as "expanded, scrolled past header" above (sel=30):
 # only the collapsed case was ever asserted header-free before this.
 t "header absent when expanded and scrolled past" 0 (__t9_frame_text list 0 35 30 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
+
+# --- final review Finding 3: bind the __tcz_thp_seedzone call's positional
+# order (…$editing $chan…) with RENDERED CONTENT, not just a row count.
+# __t9_frame_rows used to declare neither editing nor chan at all, so the
+# real call at functions/tmux-categorize.fish:2117 silently reduced from 10
+# args to 8 (this repos own zero-output-argument-vanishing hazard) —
+# editing/chan landed on garbage from downstream positionals, and nothing
+# here noticed because BOTH of __tcz_thp_seedzone's branches emit exactly 8
+# lines regardless. editing=1/chan=2 is the case that actually discriminates
+# a swap at the call site: at chan=1 a swap is invisible (editing=1/chan=1
+# swapped is still 1/1), but at chan=2 a swap hands __tcz_thp_seedzone
+# editing=2/chan=1 — `test "$editing" = 1` is then false, so it falls to the
+# IDLE readout branch and the sliders vanish outright, matching the live
+# symptom exactly ("←→ silently keeps moving the now-invisible channel").
+set -l frameC1raw (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1))
+set -l frameC1 (__tcz_strip_sgr "$frameC1raw")
+t "seed-zone edit render: chan=1 marks the R slider" yes (string match -q '*▐R*' -- "$frameC1"; and echo yes; or echo no)
+t "seed-zone edit render: chan=1 does not mark G" no (string match -q '*▐G*' -- "$frameC1"; and echo yes; or echo no)
+
+set -l frameC2raw (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 2))
+set -l frameC2 (__tcz_strip_sgr "$frameC2raw")
+t "seed-zone edit render: chan=2 marks the G slider, binding the editing/chan call order" yes (string match -q '*▐G*' -- "$frameC2"; and echo yes; or echo no)
+t "seed-zone edit render: chan=2 does not mark R" no (string match -q '*▐R*' -- "$frameC2"; and echo yes; or echo no)
 
 # --- Task 9: collapsing from below the header, run for real -----------------
 # Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT
@@ -3443,16 +3482,27 @@ set -g CASEM6   (awk '/^            case b$/{exit} /^            case m$/{f=1} f
 set -g CASEB6   (awk '/^            case t$/{exit} /^            case b$/{f=1} f{print}' $catfile | string collect)
 set -g CASEZ6   (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
 set -g CASETAB6 (awk '/^            case a$/{exit} /^            case tab$/{f=1} f{print}' $catfile | string collect)
-t "case-m body extraction is non-empty (task 6)"   1 (test -n "$CASEM6"; and echo 1; or echo 0)
-t "case-b body extraction is non-empty (task 6)"   1 (test -n "$CASEB6"; and echo 1; or echo 0)
-t "case-z body extraction is non-empty (task 6)"   1 (test -n "$CASEZ6"; and echo 1; or echo 0)
-t "case-tab body extraction is non-empty (task 6)" 1 (test -n "$CASETAB6"; and echo 1; or echo 0)
+# case cancel (esc/q) is a distinct case label from case a/enter/m/b/z/tab, and
+# "case cancel" itself is NOT unique in the file (the switcher __tcz_popup has
+# its own, earlier one) — a plain start/exit awk pair the way CASETAB6 does it
+# would risk landing on the wrong one. Disambiguate with a two-flag state
+# machine: only start capturing once "case a" (unique in the file) has already
+# been seen, so the "case cancel" that trips f=1 is guaranteed to be this
+# picker's own.
+set -g CASECANCEL6 (awk '/^            case a$/{seen=1} seen && /^            case cancel$/{f=1} f && /^        end$/{exit} f{print}' $catfile | string collect)
+t "case-m body extraction is non-empty (task 6)"      1 (test -n "$CASEM6"; and echo 1; or echo 0)
+t "case-b body extraction is non-empty (task 6)"      1 (test -n "$CASEB6"; and echo 1; or echo 0)
+t "case-z body extraction is non-empty (task 6)"      1 (test -n "$CASEZ6"; and echo 1; or echo 0)
+t "case-tab body extraction is non-empty (task 6)"    1 (test -n "$CASETAB6"; and echo 1; or echo 0)
+t "case-cancel body extraction is non-empty (task 6)" 1 (test -n "$CASECANCEL6"; and echo 1; or echo 0)
+t "case-cancel extraction is the edit-esc arm, not the switchers own cancel" 1 (string match -q '*BEGIN edit-esc*' -- "$CASECANCEL6"; and echo 1; or echo 0)
 set -g SEQ6WRAP "switch \$tok
 $ARROWLR6
 $CASEM6
 $CASEB6
 $CASEZ6
 $CASETAB6
+$CASECANCEL6
 end"
 
 function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER the whole sequence settles.'
@@ -3518,6 +3568,98 @@ set -g SEQ6_BTAB (__t6_seq '#000000' b tab)
 t "→ m then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_M"
 t "→ z then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_Z"
 t "→ b ⇥ then settle: the current row's band ends up fresh, not stale"    "$BAND6EXPECTED" "$SEQ6_BTAB"
+
+# --- final review Finding 1: esc while editing must re-arm the deferred
+# recompute, not just revert $seed --------------------------------------
+# None of m/z/b-tab above dispatch through case cancel (it is its own case
+# label — a different arm entirely), so they cannot cover this. The pre-fix
+# edit-esc arm reverted $seed to $editseed but touched neither seeddirty nor
+# flashfield's settle-gate consumer, so the settle block's `if test
+# "$seeddirty" = 1` never fired and every strip kept rendering the ABANDONED
+# edited seed for the rest of the session even though $seed itself had
+# reverted. editseed is pre-seeded to old_seed here (mirroring what the real
+# `b` arm captures before any channel move), so the revert has a real prior
+# value to land back on.
+function __t6_esc_seq --argument-names old_seed --description 'end to end (Finding 1 fix): b →→→→ settle esc settle, matching the reviewers own repro row. A single right-then-immediate-esc is NOT enough to expose this bug: the arrow arm sets seeddirty itself, and esc pre-fix leaves it untouched (not cleared, not re-armed) — so a settle right after esc alone would fire "by accident" off the arrow press own flag and hide the defect. The real failure needs seeddirty to have already been DISCHARGED (cleared to 0 by a real settle) before esc runs, exactly as it is after a hexentry commit or a prior settle in the live repro. Sequence: (1) one real channel edit (chan=1, +8) — seed becomes the EDITED value, seeddirty=1; (2) a real settle — batch reload/reanchor run for the EDITED seed, seeddirty clears to 0; (3) the REAL case-cancel arm (tok=cancel, the token both esc and q map to) reverts $seed to $editseed=old_seed; (4) a second real settle. Pre-fix, step 4 settle gate is false (both flags already clear) so it never recomputes — the abandoned EDITED seeds palette survives. Post-fix, the case-cancel arm re-arms seeddirty in step 3, so step 4 recomputes for the REVERTED seed. Prints "<current-row band>\x1e<first scheme strips pals entry>" after both settles.'
+    set -l editing 1
+    set -l chan 1
+    set -l sel 0
+    set -l focus list
+    set -l editseed $old_seed
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- $old_seed)
+    if test (count $m) -eq 3
+        set seedr (math "0x$m[1]")
+        set seedg (math "0x$m[2]")
+        set seedb (math "0x$m[3]")
+    end
+    set -l seed $old_seed
+    set -l phase 0
+    set -l expanded 0
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l recipes 'mono|bar|derived'
+    set -l toks 'mono soft'
+    set -l pals 'stale stale stale stale stale stale stale'
+    set -l fgs '#000000'
+    set -l tabsfgs '#000000'
+    set -l n 1
+    set -l ndefault 1
+    set -l anch_scheme mono
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    # Step 1: a real channel edit (chan=1, +8) — the seed becomes dirty.
+    set -l tok right
+    set -g __t6_rkq
+    eval $SEQ6WRAP
+    # Step 2: settle — discharges the batch for the EDITED seed, clearing
+    # seeddirty back to 0 (exactly what a hexentry commit or an earlier
+    # settle already does before the esc in the live repro).
+    set tok ''
+    set -g __t6_rkq timeout
+    for _pass in 1 2 3 4 5
+        eval $SETTLE6
+        break
+    end
+    # Step 3: esc while editing, with seeddirty already discharged — the fix
+    # under test.
+    set tok cancel
+    set -g __t6_rkq
+    eval $SEQ6WRAP
+    # Step 4: settle again — a genuine timeout, queued once.
+    set tok ''
+    set -g __t6_rkq timeout
+    for _pass in 1 2 3 4 5
+        eval $SETTLE6
+        break
+    end
+    printf '%s\x1e%s\n' (__tcz_thp_cells "$anchpal") "$pals[1]"
+end
+
+function __t6_pal1 --argument-names seedhex --description 'direct control (Finding 1 fix): the REAL __tcz_thp_reload for the given seed (phase 0, unexpanded), no dispatch — returns the first catalog rows rendered palette (pals[1]), the scheme-strip counterpart to __t6_band, above, own current-row check.'
+    set -l seed $seedhex
+    set -l phase 0
+    set -l expanded 0
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    __tcz_thp_reload
+    echo $pals[1]
+end
+
+set -g SEQ6_ESC (__t6_esc_seq '#000000')
+set -g f6esc (string split \x1e -- $SEQ6_ESC)
+t "→ esc then settle: the current row's band reverts to the pre-edit seed, not the abandoned edit" "$BAND6BEFORE" "$f6esc[1]"
+set -g expected6esc (__t6_pal1 '#000000')
+t "→ esc then settle: a scheme strip also reverts to the pre-edit seed, not the abandoned edit" "$expected6esc" "$f6esc[2]"
 
 # Restore what this section stubbed.
 eval $__t6_real_readkey
