@@ -1235,29 +1235,42 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
 
-function __tcz_thp_cells --argument-names hexes --description 'pure: the 7x2-col gradient strip (14 visible cols). Each cell is ▇ (U+2587, lower seven-eighths) drawn in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging into one block (2026-08-01). Non-hex cells degrade to blank gaps so the strip stays aligned.'
+function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme swatch strip, 15 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then windows(1) sep(1) text(7 -> 1). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. active is NOT drawn: apply_live pushes @tmux_lives_active_fg and no format string reads it, so a cell for it would show a colour that appears nowhere. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned.'
+    set -l pal (string split ' ' -- "$hexes")
+    set -l RST (printf '\e[0m')
     set -l cells ''
-    for hex in (string split ' ' -- "$hexes")
-        set -l fg (__tcz_thp_fg "$hex")
+    # idx into the palette, then how many columns that role gets. idx 0 = the
+    # tier gap: big areas to its left, trim to its right. Widths sum to 15.
+    for pair in 3:5 1:4 6:2 0:1 5:1 2:1 7:1
+        set -l f (string split ':' -- $pair)
+        set -l idx $f[1]
+        set -l wid $f[2]
+        if test $idx -eq 0
+            set cells "$cells"(string repeat -n $wid ' ')
+            continue
+        end
+        set -l fg ''
+        test (count $pal) -ge $idx; and set fg (__tcz_thp_fg "$pal[$idx]")
         if test -n "$fg"
-            set cells "$cells$fg▇▇"(printf '\e[0m')
+            set cells "$cells$fg"(string repeat -n $wid ▇)"$RST"
         else
-            set cells "$cells  "
+            set cells "$cells"(string repeat -n $wid ' ')
         end
     end
     printf '%s\n' "$cells"
 end
 
-function __tcz_thp_band --argument-names hex --description 'pure: a 14-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 14 blanks.'
+function __tcz_thp_band --argument-names hex --description 'pure: a 15-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 15 blanks.'
     set -l fg (__tcz_thp_fg "$hex")
     if test -z "$fg"
-        printf '%s\n' '              '
+        set -l blank (string repeat -n 15 ' ')
+        printf '%s\n' "$blank"
         return
     end
-    printf '%s\n' "$fg"(string repeat -n 14 ▇)(printf '\e[0m')
+    printf '%s\n' "$fg"(string repeat -n 15 ▇)(printf '\e[0m')
 end
 
-function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + 7×2-col gradient strip(14) + space + name; <hexes> space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
+function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (15 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
     set -l cells (__tcz_thp_cells "$hexes")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
@@ -1273,7 +1286,7 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
     end
     printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
 end
-function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells>(14) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 14 columns identically. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
+function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 15 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 15 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
@@ -1286,7 +1299,14 @@ function __tcz_thp_staterow --argument-names w cells name label selected live --
         set labcol (__tcz_theme brand)
         set labon (printf '\e[1m')
     end
-    # marker(1) + cells(14) + space(1) + name + pad + label + trailing space(1)
+    # marker(1) + cells(measured) + space(1) + name + pad + label + trailing space(1).
+    # cellslen is MEASURED, not a literal: the maxnlen/pad formulas below used
+    # to bake in the OLD cells width as fixed constants, so widening
+    # __tcz_thp_cells (this task's 14 -> 15) would have silently pushed every
+    # staterow one column past <w> — __tcz_thp_ln (the caller's frame wrapper)
+    # pads to w but never truncates. Deriving cellslen here instead means a
+    # future strip-width change can't desync this row again.
+    set -l cellslen (string length --visible -- "$cells")
     set -l llen (string length --visible -- "$label")
     # Truncate the NAME so the row is structurally incapable of overflowing
     # <w>: __tcz_thp_ln (the caller's frame wrapper) pads to w but never
@@ -1296,11 +1316,11 @@ function __tcz_thp_staterow --argument-names w cells name label selected live --
     # (and, being an element count rather than a display-column measurement,
     # cannot see). Unreachable with today's catalog (longest name is 11 cols)
     # but made impossible rather than merely unlikely.
-    set -l maxnlen (math "$w - 18 - $llen")
+    set -l maxnlen (math "$w - $cellslen - 4 - $llen")
     test $maxnlen -lt 0; and set maxnlen 0
     set -l nlen (string length --visible -- "$name")
     test $nlen -gt $maxnlen; and set name (string sub -l $maxnlen -- "$name"); and set nlen $maxnlen
-    set -l pad (math "$w - 17 - $nlen - $llen")
+    set -l pad (math "$w - $cellslen - 3 - $nlen - $llen")
     test $pad -lt 1; and set pad 1
     # Capture the repeat into a var and interpolate it QUOTED: a zero-output command
     # substitution used as a bare argument VANISHES from the arg list and shifts every

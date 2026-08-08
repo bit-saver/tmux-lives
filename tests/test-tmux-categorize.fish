@@ -1251,8 +1251,8 @@ t "sel-bg darkened" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;25;25;19m');
 set -g THX "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba"
 t "thp_fg hex -> SGR" yes (string match -q '*38;2;14;25;13*' -- (__tcz_thp_fg "#0e190d"); and echo yes; or echo no)
 t "thp_fg non-hex -> empty" 0 (count (__tcz_thp_fg colour238))
-t "thp_row lead is 16 visible cols + name" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
-t "thp_row selected keeps the width" (math 16 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
+t "thp_row lead is 17 visible cols + name" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
+t "thp_row selected keeps the width" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
 t "thp_row selected carries the ▐ marker" yes (string match -q '*▐*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
 # __tcz_thp_off_row is retired (picker-second-list Task 3) — its fixed
 # natural-width contract has no equivalent under __tcz_thp_staterow's
@@ -1358,18 +1358,41 @@ functions -e tmux
 t "cells fn exists" 1 (functions -q __tcz_thp_cells; and echo 1; or echo 0)
 t "band fn exists"  1 (functions -q __tcz_thp_band; and echo 1; or echo 0)
 set -g CELLS (__tcz_thp_cells '#112233 #223344 #334455 #445566 #556677 #667788 #778899')
-t "cells is 14 visible cols" 14 (string length --visible -- "$CELLS")
-t "cells uses the seven-eighths block" 14 (count (string match -ra '▇' -- "$CELLS"))
+t "cells is 15 visible cols" 15 (string length --visible -- "$CELLS")
+# Inked cells stay 14 (5+4+2+1+1+1) because the 15th column is the tier gap,
+# so this count CANNOT discriminate the change. Kept only as a non-regression
+# guard that the seven-eighths glyph is still what draws a cell.
+t "cells still uses the seven-eighths block" 14 (count (string match -ra '▇' -- "$CELLS"))
 t "cells sets FOREGROUND, not background" 0 (count (string match -ra '48;2;' -- "$CELLS"))
 t "cells carries each role colour" 1 (string match -q '*38;2;17;34;51*' -- "$CELLS"; and echo 1; or echo 0)
 # a non-hex cell degrades to a blank gap, keeping the strip aligned
-t "cells degrades non-hex to blanks" 14 (string length --visible -- (__tcz_thp_cells '#112233 nope #334455 #445566 #556677 #667788 #778899'))
+t "cells degrades non-hex to blanks" 15 (string length --visible -- (__tcz_thp_cells '#112233 nope #334455 #445566 #556677 #667788 #778899'))
 set -g BAND (__tcz_thp_band '#5f772b')
-t "band is 14 visible cols" 14 (string length --visible -- "$BAND")
-t "band uses the same glyph"  14 (count (string match -ra '▇' -- "$BAND"))
-t "band degrades non-hex to blanks" 14 (string length --visible -- (__tcz_thp_band nope))
-# and the scheme row still measures the same as before
-t "row strip is still 14 cols inside the row" 1 (string match -q '*▇▇*' -- (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 0 0); and echo 1; or echo 0)
+t "band is 15 visible cols" 15 (string length --visible -- "$BAND")
+# band has no tier gap (it is one colour end to end), so unlike the cells
+# glyph-count guard above, this DOES move with the width: 14 -> 15.
+t "band uses the same glyph, now 15 wide" 15 (count (string match -ra '▇' -- "$BAND"))
+t "band blank fallback is 15 visible cols" 15 (string length --visible -- (__tcz_thp_band nope))
+
+# --- ordering and widths, asserted on the RENDERED strip -----------------------
+# Each role gets a distinguishable colour so a run length is unambiguous.
+# Order is by on-screen area: tabs bar cap · gap · windows sep text.
+set -g W1 (__tcz_thp_cells '#010101 #020202 #030303 #040404 #050505 #060606 #070707')
+set -g W1V (__tcz_strip_sgr "$W1")
+t "strip: tabs leads with 5 cells" 1 (string match -qr '^(\e\[[0-9;]*m)*[^\e]*▇{5}' -- "$W1"; and echo 1; or echo 0)
+# fg colour order proves WHICH role sits where, independent of run length.
+set -g W1SEQ (string join ' ' (string match -ra '38;2;[0-9]+;[0-9]+;[0-9]+' -- "$W1"))
+t "strip: role order is tabs bar cap windows sep text" \
+  "38;2;3;3;3 38;2;1;1;1 38;2;6;6;6 38;2;5;5;5 38;2;2;2;2 38;2;7;7;7" "$W1SEQ"
+t "strip: active (#040404) is absent" 0 (string match -ra '38;2;4;4;4' -- "$W1" | count)
+# The tier gap is 1 column wide per the mapping table (5+4+2+1+1+1+1=15), so
+# exactly one blank CHARACTER appears, never two adjacent — a single-space
+# pattern is the only one this can ever match. (Caught pre-implementation:
+# the brief's own draft used a two-space pattern, which cannot match a
+# 1-column gap and would fail both before AND after the fix.)
+t "strip: exactly one blank tier column" 1 (string match -ra ' ' -- "$W1V" | count)
+# and the scheme row still shows ink cells inside it (unaffected by the reorder)
+t "row strip still shows ink cells inside the row" 1 (string match -q '*▇▇*' -- (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 0 0); and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
 # __tcz_thp_staterow — the second list's row: name left, role label RIGHT
@@ -3394,10 +3417,10 @@ eval $RA6
 # it END TO END, no stubs on reload/reanchor this time — the REAL case
 # left/right arm followed by the REAL flashfield-timeout settle block, exactly
 # as the picker sequences them across two loop iterations — then render the
-# SAME 14-col strip __tcz_theme_picker itself builds at its current-row draw
+# SAME 15-col strip __tcz_theme_picker itself builds at its current-row draw
 # site (__tcz_thp_cells "$anchpal") and diff the actual ANSI text against what
 # the un-edited seed produces.
-function __t6_band --argument-names seedhex --description 'eval the REAL __tcz_thp_reanchor against a fixed anchor recipe (mono|bar|derived, phase 0) for the given seed directly (no dispatch), then render the current-row''s band exactly as __tcz_theme_picker does at its own current-row draw site (~line 2190). Prints the rendered (ANSI) 14-col strip. Used both as the end-to-end test''s "before" baseline and standalone below to confirm reanchor itself is seed-sensitive.'
+function __t6_band --argument-names seedhex --description 'eval the REAL __tcz_thp_reanchor against a fixed anchor recipe (mono|bar|derived, phase 0) for the given seed directly (no dispatch), then render the current-row''s band exactly as __tcz_theme_picker does at its own current-row draw site (~line 2190). Prints the rendered (ANSI) 15-col strip. Used both as the end-to-end test''s "before" baseline and standalone below to confirm reanchor itself is seed-sensitive.'
     set -l seed $seedhex
     set -l anch_scheme mono
     set -l anch_place bar
