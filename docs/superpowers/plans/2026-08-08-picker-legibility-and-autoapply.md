@@ -91,7 +91,7 @@ set -g W1SEQ (string join ' ' (string match -ra '38;2;[0-9]+;[0-9]+;[0-9]+' -- "
 t "strip: role order is tabs bar cap windows sep text" \
   "38;2;3;3;3 38;2;1;1;1 38;2;6;6;6 38;2;5;5;5 38;2;2;2;2 38;2;7;7;7" "$W1SEQ"
 t "strip: active (#040404) is absent" 0 (string match -ra '38;2;4;4;4' -- "$W1" | count)
-t "strip: exactly one blank tier column" 1 (string match -ra '  ' -- "$W1V" | count)
+t "strip: exactly one blank tier column" 1 (string match -ra ' ' -- "$W1V" | count)
 ```
 
 - [ ] **Step 2: Run and confirm the right things fail**
@@ -413,7 +413,7 @@ git commit -m "feat(picker): seed zone is 3 rows idle, 8 editing; the static cou
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
-# --- Task 5: the legend tells the truth in each mode ---------------------------
+# --- Task 4: the legend tells the truth in each mode ---------------------------
 # The reported "enter closes the picker" bug lives here, not in the dispatch:
 # a static footer advertised save/close while editing and never named ←→ or t.
 set -g LEGI (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 | string collect)
@@ -447,7 +447,7 @@ Expected: the five editing-legend assertions fail, because the editing frame cur
 
 Measured: `__tcz_thp_leg 3` lays out three pairs per row, and the browsing legend's **10 pairs produce 3 rows**. The editing set above is 5 pairs, which produces 2. **Pad the editing legend to 3 rows.**
 
-Do NOT add `A auto` here. It is the eleventh pair, **11 pairs produce 4 rows**, and that extra row belongs to Task 6 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
+Do NOT add `A auto` here. It is the eleventh pair, **11 pairs produce 4 rows**, and that extra row belongs to Task 5 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
 
 ```fish
 t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
@@ -465,7 +465,7 @@ git commit -m "fix(picker): the legend follows the mode"
 ### Task 5: Auto-apply on dwell
 
 **Files:**
-- Modify: `functions/tmux-categorize.fish` — `__tcz_popup_readkey` (882), the settle branch (2241-2280), the movement arms, the legend from Task 5
+- Modify: `functions/tmux-categorize.fish` — `__tcz_popup_readkey` (882), the settle branch (2241-2280), the movement arms, the legend from Task 4
 - Test: `tests/test-tmux-categorize.fish`
 
 **Interfaces:**
@@ -482,7 +482,7 @@ git commit -m "fix(picker): the legend follows the mode"
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
-# --- Task 6: auto-apply on dwell -----------------------------------------------
+# --- Task 5: auto-apply on dwell -----------------------------------------------
 # A is absent from readkey's OUTER switch. Assert the mapping behaviourally:
 # grepping `case 41` finds the ESC-branch arrow handler and misleads.
 t "readkey maps 0x41 to A" A (printf A | __tcz_popup_readkey)
