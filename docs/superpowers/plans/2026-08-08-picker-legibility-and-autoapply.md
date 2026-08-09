@@ -202,9 +202,12 @@ set -g BANDROW (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 | string m
 t "band row extraction is non-empty" 1 (test -n "$BANDROW"; and echo 1; or echo 0)
 set -g BANDVIS (__tcz_strip_sgr "$BANDROW")
 t "selected row is exactly the inner width plus both borders" 52 (string length --visible -- "$BANDVIS")
-# sel-bg must still be the active background when the final inner column is drawn:
-# no reset may appear between the last content and the closing border.
-t "band survives to the right border" 0 (string match -ra '\e\[0m│' -- "$BANDROW" | count)
+# sel-bg must still be the active background when the final inner column is drawn.
+# NB the signature to look for is a reset followed by PADDING, not a reset
+# followed by the border glyph: __tcz_thp_ln's printf emits the border SGR
+# immediately before the closing border, so a reset can never sit directly
+# against it and that form of the assertion is unsatisfiable at both ends.
+t "band survives to the right border" 0 (string match -ra '\e\[0m ' -- "$BANDROW" | count)
 ```
 
 Mutation-check this: revert Step 4 only, confirm `band survives to the right border` fails, restore, confirm it passes.
