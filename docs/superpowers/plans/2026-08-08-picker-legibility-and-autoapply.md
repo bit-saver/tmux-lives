@@ -638,7 +638,7 @@ Document the mode-dependent seed zone and that the visible scheme count differs 
 
 - [ ] **Step 2: Add the CLAUDE.md paragraph**
 
-House style: a bolded lead-in naming the change, the date, and the branch, then one dense paragraph. Record the configuration-versus-adoption principle and that it is the user's; the measured 1.8× tabs-to-bar area ratio that reordered the strip; `active` having been unpainted in every session until now; `STATIC` splitting into **17 idle / 22 editing** and the frame proof finally *reading* it out of the source rather than restating a literal; that the eleventh legend pair costs a whole legend row, which is why both numbers are one higher than the zone arithmetic alone suggests; the `▌`-for-`▐` swap and why a half-width swatch cell was rejected; the 500 ms dwell shared with the flash and seed-batch timers; and that the reported ENTER bug was a lying legend rather than a broken dispatch.
+House style: a bolded lead-in naming the change, the date, and the branch, then one dense paragraph. Record the configuration-versus-adoption principle and that it is the user's; the measured 1.8× tabs-to-bar area ratio that reordered the strip; `active` having been unpainted in every session until now; `STATIC` splitting into **17 idle / 22 editing** and the frame proof finally *reading* it out of the source rather than restating a literal; that the tenth legend pair costs a whole legend row, which is why both numbers are one higher than the zone arithmetic alone suggests; the `▌`-for-`▐` swap and why a half-width swatch cell was rejected; the 500 ms dwell shared with the flash and seed-batch timers; and that the reported ENTER bug was a lying legend rather than a broken dispatch.
 
 - [ ] **Step 3: Commit**
 
