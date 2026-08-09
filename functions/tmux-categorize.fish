@@ -1236,13 +1236,20 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
 
-function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme swatch strip, 15 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then windows(1) sep(1) text(7 -> 1). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. active is NOT drawn: apply_live pushes @tmux_lives_active_fg and no format string reads it, so a cell for it would show a colour that appears nowhere. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned.'
+function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme swatch strip, 16 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then the trim roles windows(1) sep(1) text(1), then active(1) as a fourth trim cell (picker-legibility-autoapply Task 6: window-status-current-format now reads @tmux_lives_active_fg, so it finally paints somewhere and earns a cell). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned.'
     set -l pal (string split ' ' -- "$hexes")
     set -l RST (printf '\e[0m')
     set -l cells ''
     # idx into the palette, then how many columns that role gets. idx 0 = the
-    # tier gap: big areas to its left, trim to its right. Widths sum to 15.
-    for pair in 3:5 1:4 6:2 0:1 5:1 2:1 7:1
+    # tier gap: big areas to its left, trim to its right. Widths sum to 16.
+    # HAZARD (carried forward from Task 1's review): $cells accumulates via
+    # "$cells"(string repeat -n $wid …) — if $wid were ever 0, fish's
+    # zero-output command substitution does not just skip that column, it
+    # COLLAPSES THE WHOLE ACCUMULATED LIST to zero elements (verified: `set
+    # cells "ABC"(string repeat -n 0 ' ')` yields an empty list, not "ABC"),
+    # destroying every column built so far. Every width in this list,
+    # including active's below, must stay >= 1.
+    for pair in 3:5 1:4 6:2 0:1 5:1 2:1 7:1 4:1
         set -l f (string split ':' -- $pair)
         set -l idx $f[1]
         set -l wid $f[2]
@@ -1261,17 +1268,17 @@ function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme 
     printf '%s\n' "$cells"
 end
 
-function __tcz_thp_band --argument-names hex --description 'pure: a 15-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 15 blanks.'
+function __tcz_thp_band --argument-names hex --description 'pure: a 16-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 16 blanks.'
     set -l fg (__tcz_thp_fg "$hex")
     if test -z "$fg"
-        set -l blank (string repeat -n 15 ' ')
+        set -l blank (string repeat -n 16 ' ')
         printf '%s\n' "$blank"
         return
     end
-    printf '%s\n' "$fg"(string repeat -n 15 ▇)(printf '\e[0m')
+    printf '%s\n' "$fg"(string repeat -n 16 ▇)(printf '\e[0m')
 end
 
-function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (15 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
+function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
     set -l cells (__tcz_thp_cells "$hexes")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
@@ -1287,7 +1294,7 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
     end
     printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
 end
-function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 15 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 15 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
+function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
@@ -1420,11 +1427,6 @@ function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --descriptio
     test $pad -lt 0; and set pad 0
     set -l padstr (string repeat -n $pad ' ')
     printf '%s%s %s%s%s %s│ ⋯ │ ⋯ %s%s%s' "$bg" "$fgS" "$B1" "$title" "$NI" "$FA" "$NI" "$padstr" "$RST"
-end
-function __tcz_thp_seedrow --argument-names flashfield seedchip --description 'pure: the configuration zone row — the SEED label beside its value. The label wears the `flash` role while <flashfield> is `seed` (the change-flash affordance), else `muted`.'
-    set -l seedlab (__tcz_theme muted)
-    test "$flashfield" = seed; and set seedlab (__tcz_theme flash)
-    printf '%sSEED%s   %s' "$seedlab" (__tcz_theme reset) "$seedchip"
 end
 function __tcz_thp_shellfish --description 'true iff any attached client is ShellFish — the production detection (__tcz_client_is_shellfish; tmux_lives_fake_environ seam applies), checked ONCE at picker open.'
     for pid in (tmux list-clients -F '#{client_pid}' 2>/dev/null)
@@ -1873,97 +1875,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         printf '\e[2J'
     end
-    function __tcz_thp_sliders --no-scope-shadowing --description 'RGB slider seed screen: ↑↓ channel, ←→ ±8 (coalesced), t typed hex, ⏎ apply, esc cancel'
-        set -l r 58
-        set -l g 58
-        set -l b 58
-        set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$seed")
-        if test (count $m) -eq 3
-            set r (math "0x$m[1]")
-            set g (math "0x$m[2]")
-            set b (math "0x$m[3]")
-        end
-        set -l chan 1
-        set -l hue ''
-        set -l okl ''
-        set -l okc ''
-        set -l stale 1
-        set -l sliding 1
-        printf '\e[2J'
-        while test $sliding -eq 1
-            set -l hex (printf '#%02x%02x%02x' $r $g $b)
-            if test $stale -eq 1
-                set -l rgb (__tmux_lives_hex_to_rgb01 $hex)
-                set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-                set -l ro (printf '%.0f %.2f %.3f' $ok[3] $ok[1] $ok[2])
-                set -l rop (string split ' ' -- "$ro")
-                set hue "$rop[1]"; set okl "$rop[2]"; set okc "$rop[3]"
-                set stale 0
-            end
-            set -l s1 0
-            set -l s2 0
-            set -l s3 0
-            switch $chan
-                case 1; set s1 1
-                case 2; set s2 1
-                case 3; set s3 1
-            end
-            set -l row1 (__tcz_thp_slider R $r $s1)
-            set -l row2 (__tcz_thp_slider G $g $s2)
-            set -l row3 (__tcz_thp_slider B $b $s3)
-            set -l sw4 (__tcz_thp_swatch $hex "$hue" "$okl" "$okc")
-            set -l leg1 (__tcz_legend_row 14 '↑↓' channel '←→' adjust t 'type hex')
-            set -l leg2 (__tcz_legend_row 14 '⏎' apply esc cancel)
-            printf '\e[?2026h\e[H \e[1mseed — this IS the bar color\e[22m\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n %s\e[K\n\e[K\n%s\e[K\n%s\e[K' "$row1" "$row2" "$row3" $sw4[1] $sw4[2] $sw4[3] $sw4[4] "$leg1" "$leg2"
-            printf '\e[J\e[?2026l'
-            set -l tok (__tcz_thp_readchar)
-            switch $tok
-                case up
-                    test $chan -gt 1; and set chan (math $chan - 1)
-                case down
-                    test $chan -lt 3; and set chan (math $chan + 1)
-                case left right
-                    set -l delta -8
-                    test "$tok" = right; and set delta 8
-                    while true
-                        stty min 0 time 0 2>/dev/null
-                        set -l k2 (__tcz_thp_readchar)
-                        switch "$k2"
-                            case left; set delta (math $delta - 8)
-                            case right; set delta (math $delta + 8)
-                            case '*'; break
-                        end
-                    end
-                    stty min 1 time 0 2>/dev/null
-                    set -l names r g b
-                    set -l vn $names[$chan]
-                    set -l cur $$vn
-                    set cur (math "$cur + $delta")
-                    test $cur -lt 0; and set cur 0
-                    test $cur -gt 255; and set cur 255
-                    set $vn $cur
-                    set stale 1
-                case t
-                    __tcz_thp_hexentry
-                    set sliding 0
-                case enter
-                    # PREVIEW ONLY — ⏎ at the top level is what commits. Writing the
-                    # universal here is why Esc could not restore the seed: it was
-                    # already gone, and every role derives from it, so the scheme
-                    # looked unrestored too even with its own universals intact.
-                    set seed (printf '#%02x%02x%02x' $r $g $b)
-                    set seedfg (__tmux_lives_contrast_fg "$seed")
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
-                    set note "seed previewed: $seed"
-                    set flashfield seed
-                    set sliding 0
-                case esc
-                    set sliding 0
-            end
-        end
-        printf '\e[2J'
-    end
     __tcz_thp_reload
     set -l n (count $toks)          # n = catalog rows (14/35); the scheme list is sel 0..n-1
     # anchor snapshot: the persisted theme, frozen for this picker session
@@ -1986,7 +1897,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # after the snapshot above). --no-scope-shadowing so it mutates the
     # caller's vars directly, same as reload does
     # for toks/pals/fgs/tabsfgs. Call once here AND again after any seed edit
-    # (hexentry/sliders' ⏎) — every OTHER row already re-derives from $seed
+    # (hexentry's ⏎, or the in-frame edit's settle — picker-legibility-
+    # autoapply Task 6 deleted the standalone sliders screen, its own third
+    # call site) — every OTHER row already re-derives from $seed
     # via __tcz_thp_reload; without this, the `current` row's band, and the
     # top preview/tab chip whenever the cursor sits on it, silently kept
     # rendering the OLD seed while `a`/`⏎` had already moved on to the new one.
@@ -2102,7 +2015,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # whenever a live channel edit has happened but the picker hasn't yet
     # settled. This is DELIBERATELY separate from $flashfield — flashfield is
     # a purely cosmetic highlight flag (its only consumer, __tcz_thp_seedrow,
-    # has been unreferenced since Task 3) that several OTHER arms clear on
+    # was unreferenced since Task 3 and deleted outright in
+    # picker-legibility-autoapply Task 6) that several OTHER arms clear on
     # their own unrelated keypresses (m/z/tab) with no idea it also carries a
     # recompute obligation. Coupling the two meant those arms silently
     # cancelled a pending batch. seeddirty is cleared ONLY where it is
@@ -2415,8 +2329,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # list) now, plus reanchor so the current row's band
                     # tracks the new seed too (its own comment explains why:
                     # nothing else recomputes it). Cheap even when this flash
-                    # came from something else (a hexentry/sliders commit
-                    # already reloaded synchronously) — reload's cache is
+                    # came from something else (a hexentry commit already
+                    # reloaded synchronously) — reload's cache is
                     # keyed on the seed, so an unchanged seed hits cache
                     # instead of paying the 310-800ms batch again. Gated on
                     # seeddirty, not flashfield: see its own declaration
@@ -2780,7 +2694,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_reanchor
     functions -e __tcz_thp_hexentry
-    functions -e __tcz_thp_sliders
     functions -e __tcz_thp_autoapply_now
     set -e __tcz_thp_saved
     stty $saved

@@ -1251,8 +1251,8 @@ t "sel-bg darkened" 1 (test (__tcz_theme sel-bg) = (printf '\e[48;2;25;25;19m');
 set -g THX "#0e190d #4c5620 #6e6e22 #8b8130 #998a3e #b59e59 #ffdeba"
 t "thp_fg hex -> SGR" yes (string match -q '*38;2;14;25;13*' -- (__tcz_thp_fg "#0e190d"); and echo yes; or echo no)
 t "thp_fg non-hex -> empty" 0 (count (__tcz_thp_fg colour238))
-t "thp_row lead is 17 visible cols + name" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
-t "thp_row selected keeps the width" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
+t "thp_row lead is 18 visible cols + name" (math 18 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
+t "thp_row selected keeps the width" (math 18 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
 t "thp_row selected carries the ▌ marker" yes (string match -q '*▌*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
 # __tcz_thp_off_row is retired (picker-second-list Task 3) — its fixed
 # natural-width contract has no equivalent under __tcz_thp_staterow's
@@ -1358,34 +1358,37 @@ functions -e tmux
 t "cells fn exists" 1 (functions -q __tcz_thp_cells; and echo 1; or echo 0)
 t "band fn exists"  1 (functions -q __tcz_thp_band; and echo 1; or echo 0)
 set -g CELLS (__tcz_thp_cells '#112233 #223344 #334455 #445566 #556677 #667788 #778899')
-t "cells is 15 visible cols" 15 (string length --visible -- "$CELLS")
-# Inked cells stay 14 (5+4+2+1+1+1) because the 15th column is the tier gap,
-# so this count CANNOT discriminate the change. Kept only as a non-regression
+# picker-legibility-autoapply Task 6: cells widened 15 -> 16 (active earns a
+# fourth trim cell, now that window-status-current-format reads it).
+t "cells is 16 visible cols" 16 (string length --visible -- "$CELLS")
+# Inked cells move 14 -> 15 (5+4+2+1+1+1+1) now that active is drawn too —
+# the 16th column is the tier gap. This count now DOES discriminate the
+# active-cell addition, on top of its original job as a non-regression
 # guard that the seven-eighths glyph is still what draws a cell.
-t "cells still uses the seven-eighths block" 14 (count (string match -ra '▇' -- "$CELLS"))
+t "cells still uses the seven-eighths block" 15 (count (string match -ra '▇' -- "$CELLS"))
 t "cells sets FOREGROUND, not background" 0 (count (string match -ra '48;2;' -- "$CELLS"))
 t "cells carries each role colour" 1 (string match -q '*38;2;17;34;51*' -- "$CELLS"; and echo 1; or echo 0)
 # a non-hex cell degrades to a blank gap, keeping the strip aligned
-t "cells degrades non-hex to blanks" 15 (string length --visible -- (__tcz_thp_cells '#112233 nope #334455 #445566 #556677 #667788 #778899'))
+t "cells degrades non-hex to blanks" 16 (string length --visible -- (__tcz_thp_cells '#112233 nope #334455 #445566 #556677 #667788 #778899'))
 set -g BAND (__tcz_thp_band '#5f772b')
-t "band is 15 visible cols" 15 (string length --visible -- "$BAND")
+t "band is 16 visible cols" 16 (string length --visible -- "$BAND")
 # band has no tier gap (it is one colour end to end), so unlike the cells
-# glyph-count guard above, this DOES move with the width: 14 -> 15.
-t "band uses the same glyph, now 15 wide" 15 (count (string match -ra '▇' -- "$BAND"))
-t "band blank fallback is 15 visible cols" 15 (string length --visible -- (__tcz_thp_band nope))
+# glyph-count guard above, this DOES move with the width: 15 -> 16.
+t "band uses the same glyph, now 16 wide" 16 (count (string match -ra '▇' -- "$BAND"))
+t "band blank fallback is 16 visible cols" 16 (string length --visible -- (__tcz_thp_band nope))
 
 # --- ordering and widths, asserted on the RENDERED strip -----------------------
 # Each role gets a distinguishable colour so a run length is unambiguous.
-# Order is by on-screen area: tabs bar cap · gap · windows sep text.
+# Order is by on-screen area: tabs bar cap · gap · windows sep text · active.
 set -g W1 (__tcz_thp_cells '#010101 #020202 #030303 #040404 #050505 #060606 #070707')
 set -g W1V (__tcz_strip_sgr "$W1")
 t "strip: tabs leads with 5 cells" 1 (string match -qr '^(\e\[[0-9;]*m)*[^\e]*▇{5}' -- "$W1"; and echo 1; or echo 0)
 # fg colour order proves WHICH role sits where, independent of run length.
 set -g W1SEQ (string join ' ' (string match -ra '38;2;[0-9]+;[0-9]+;[0-9]+' -- "$W1"))
-t "strip: role order is tabs bar cap windows sep text" \
-  "38;2;3;3;3 38;2;1;1;1 38;2;6;6;6 38;2;5;5;5 38;2;2;2;2 38;2;7;7;7" "$W1SEQ"
-t "strip: active (#040404) is absent" 0 (string match -ra '38;2;4;4;4' -- "$W1" | count)
-# The tier gap is 1 column wide per the mapping table (5+4+2+1+1+1+1=15), so
+t "strip: role order is tabs bar cap windows sep text active" \
+  "38;2;3;3;3 38;2;1;1;1 38;2;6;6;6 38;2;5;5;5 38;2;2;2;2 38;2;7;7;7 38;2;4;4;4" "$W1SEQ"
+t "strip: active (#040404) now appears, as the trailing trim cell" 1 (string match -ra '38;2;4;4;4' -- "$W1" | count)
+# The tier gap is 1 column wide per the mapping table (5+4+2+1+1+1+1+1=16), so
 # exactly one blank CHARACTER appears, never two adjacent — a single-space
 # pattern is the only one this can ever match. (Caught pre-implementation:
 # the brief's own draft used a two-space pattern, which cannot match a
@@ -1482,13 +1485,17 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # unreferenced pending Task 5) — a separate loop in a separate function from the
 # ↑↓/pgup/pgdn drain below, which uses a variable gap ($gap) and has its own,
 # differently-scoped pin further down ("picker drain re-asserts non-blocking
-# inside the loop"). picker-seed-section Task 4 adds a SECOND occurrence of the
+# inside the loop"). picker-seed-section Task 4 added a SECOND occurrence of the
 # same gap-less shape — the in-frame edit mode's own ←→ channel-value drain,
-# in the main dispatch rather than the retired popup screen — so the count
-# moves 1->2. This test used to be named as if it covered the ↑↓/pgup/pgdn
-# drain; it never did — renamed to say what it actually checks rather than
-# retired, since the gap-less-drain hang guard has no other cover.
-t "picker gap-less drains re-assert non-blocking each iteration" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+# in the main dispatch rather than the (then still orphaned) popup screen —
+# so the count moved 1->2. picker-legibility-autoapply Task 6 deletes
+# __tcz_thp_sliders outright, taking its own gap-less drain with it, so the
+# count moves back 2->1 — the survivor is the in-frame edit's drain, the
+# only one left. This test used to be named as if it covered the
+# ↑↓/pgup/pgdn drain; it never did — renamed to say what it actually checks
+# rather than retired, since the gap-less-drain hang guard has no other
+# cover.
+t "picker gap-less drains re-assert non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
 # The ↑↓/pgup/pgdn drain must NEVER escalate on the arrow arm: it only breaks
 # on a poll TIMEOUT, so a gap=1 (~100ms) wait never times out while autorepeat
 # keeps delivering faster than that — no redraw, no movement, until release
@@ -1538,13 +1545,20 @@ t "picker b-case uses readchar" yes (string match -q '*__tcz_thp_readchar*' -- (
 # handling (the escape sequence's letter moved the scheme selection). readchar
 # must now mirror __tcz_popup_readkey's non-blocking CSI/SS3 follow-read.
 t "readchar disambiguates bare ESC from CSI" yes (string match -q '*5b*' -- (functions __tcz_thp_readchar | string collect); and string match -q '*min 0 time 1*' -- (functions __tcz_thp_readchar | string collect); and echo yes; or echo no)
-# the entry-paint printf (seed prompt) must open its own DECSET 2026
-# atomically, same as the main frame — pinned to the SPECIFIC printf that
-# begins "2026h...H <bold>seed" (a bare '*2026h*' would also match the main
-# frame's own synchronized-update wrapper and prove nothing). Task 7 grew the
-# title to "seed — this IS the bar color" (bold-wrapped); both the hexentry
-# and sliders screens share this exact opening.
-t "seed entry paints atomically" yes (string match -qr -- '\\\\e\[\?2026h\\\\e\[H \\\\e\[1mseed' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# picker-legibility-autoapply Task 6: "seed entry paints atomically" is
+# retired, not retargeted. It pinned one literal printf shape — DECSET 2026
+# immediately followed by cursor-home, a space, and the bold "seed" open —
+# and its own comment claimed "both the hexentry and sliders screens share
+# this exact opening." Verified false for hexentry even before this
+# deletion: hexentry opens its DECSET separately (`printf
+# '\e[?2026h\e[H'`) from its content, which is built line-by-line via
+# `$helines`/`__tcz_thp_ln` (it grew a real border in picker-seed-section
+# Task 5), so the combined literal never matched hexentry's source — only
+# sliders' single big printf had this exact shape. With sliders gone, the
+# pattern cannot appear anywhere in the picker again; keeping the assertion
+# would just be a permanent, and now misleadingly-named, vacuous "no" ->
+# rewritten to "yes" by deleting the check rather than the coverage it
+# never actually had.
 
 # --- RGB slider seed picker (Task 1): readchar tokens + slider row builder ---
 t "thp_slider width fixed at 39" 39 (string length --visible -- (__tcz_strip_sgr (__tcz_thp_slider R 128 0)))
@@ -1563,10 +1577,31 @@ t "hex entry ignores the new tokens" yes (string match -q '*case hash other t up
 # stays defined but loses its only caller here — expected, not a defect, until
 # Task 5 gives it (and __tcz_thp_hexentry, reachable only through it today)
 # a new one.
-t "picker b no longer opens the old sliders screen" 0 (string match -ra 'case b\s+__tcz_thp_sliders' -- (functions __tcz_theme_picker | string collect) | count)
-t "sliders route t to the hex editor" yes (string match -qr 'case t\s+__tcz_thp_hexentry' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "sliders apply composes a hex" yes (string match -q '*#%02x%02x%02x*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "sliders erased on exit" yes (begin; set -l l (functions __tcz_theme_picker | string collect); string match -q '*functions -e __tcz_thp_sliders*' -- $l; and string match -q '*functions -e __tcz_thp_hexentry*' -- $l; end; and echo yes; or echo no)
+t "hexentry erased on exit" yes (string match -q '*functions -e __tcz_thp_hexentry*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+
+# --- Task 6: dead builders gone, active wired ---------------------------------
+# picker-legibility-autoapply Task 6: __tcz_thp_sliders lost its only caller
+# when picker-seed-section Task 4 moved seed editing in-frame, and
+# __tcz_thp_seedrow lost its only consumer the same way — both are deleted
+# outright here, along with the sliders teardown line. Two reachability
+# greps that used to sit just above ("b no longer opens the old sliders
+# screen", "sliders route t to the hex editor") are retired, not retargeted:
+# once the function itself is gone, grepping for a call to it is checking
+# for something that structurally cannot exist — a permanent vacuous truth,
+# not a live guard. "sliders erased on exit" is retargeted above to just
+# __tcz_thp_hexentry (the only seed screen left to tear down); "sliders
+# apply composes a hex" survives unmodified — the in-frame edit's own commit
+# (~:2553) uses the identical printf shape, so the pattern still exists in
+# the picker body for a different reason now.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+t "sliders builder is gone" 0 (string match -ra 'function __tcz_thp_sliders' -- (cat $catfile | string collect) | count)
+t "seedrow builder is gone" 0 (string match -ra 'function __tcz_thp_seedrow' -- (cat $catfile | string collect) | count)
+t "no teardown for the removed sliders" 0 (string match -ra 'functions -e __tcz_thp_sliders' -- (cat $catfile | string collect) | count)
+# active earns its cell only now that something paints it.
+set -g CELLS7 (__tcz_thp_cells '#010101 #020202 #030303 #040404 #050505 #060606 #070707')
+t "cells is 16 visible cols once active is drawn" 16 (string length --visible -- "$CELLS7")
+t "active (#040404) now appears" 1 (string match -ra '38;2;4;4;4' -- "$CELLS7" | count)
 
 # Grep-guards: the v2 cap-picker cluster and the install-side v2 palette engine
 # it called must both be fully gone from the categorizer file.
@@ -2263,16 +2298,15 @@ t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline i
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
 
-# --- configuration zone: seedrow flash affordance ---
-# The configuration zone renders SEED label + value on one row. The label wears
-# the flash role when the user is editing the seed (flashfield = seed), else muted.
-set -g SRW (__tcz_thp_seedrow seed 'CHIP')
-set -g SRN (__tcz_thp_seedrow '' 'CHIP')
-t "seedrow flashes the label when flagged" 1 (string match -q '*'(__tcz_theme flash)'SEED*' -- "$SRW"; and echo 1; or echo 0)
-t "seedrow label is muted when not flagged" 1 (string match -q '*'(__tcz_theme muted)'SEED*' -- "$SRN"; and echo 1; or echo 0)
-t "seedrow carries no flash SGR when not flagged" 0 (string match -q '*'(__tcz_theme flash)'*' -- "$SRN"; and echo 1; or echo 0)
-t "seedrow flash is width-neutral" (string length --visible -- "$SRN") (string length --visible -- "$SRW")
-t "seedrow shows the value" 1 (string match -q '*CHIP*' -- "$SRN"; and echo 1; or echo 0)
+# --- configuration zone: seedrow flash affordance (RETIRED) ---
+# This section used to unit-test __tcz_thp_seedrow directly — an uppercase
+# "SEED" label beside its value, flashing when flagged. Per the "layout
+# history" note just below, that design was already superseded by
+# picker-seed-section Task 3's __tcz_thp_seedzone (lowercase 'seed'
+# separator, no label on the readout row) — seedrow kept being unit-tested
+# in isolation even though nothing in __tcz_theme_picker called it anymore.
+# picker-legibility-autoapply Task 6 deletes the orphaned builder outright,
+# which retires this block with it.
 
 # ---------------------------------------------------------------------
 # layout history: this section once checked a horizontal SEED-label+value
@@ -2359,10 +2393,12 @@ set -g PK5 (functions __tcz_theme_picker | string collect)
 # Bounded, not whole-body: a plain '*case a*focus = state*' / '*case enter*
 # focus = state*' glob against the WHOLE $PK5 is VACUOUS — verified against
 # the pre-fix body, both read "ok" there. Two reasons: (1) "case enter" occurs
-# THREE times in this function's source — once in the real dispatch, twice
-# more in nested `function ... end` DEFINITIONS earlier in the body
-# (__tcz_thp_hexentry / __tcz_thp_sliders' seed-entry loops) — so a bare
-# substring search can latch onto the wrong one; (2) "focus = state" already
+# TWO times in this function's source (picker-legibility-autoapply Task 6
+# deleted __tcz_thp_sliders' own "case enter" arm — a third occurrence,
+# pre-deletion) — once in the real dispatch, once more in the nested
+# `function ... end` DEFINITION earlier in the body (__tcz_thp_hexentry's
+# seed-entry loop) — so a bare substring search can still latch onto the
+# wrong one; (2) "focus = state" already
 # appears earlier in the body regardless of whether case a/enter were ever
 # fixed (the up/down dispatch and the second-list draw both have it). Bound
 # to the region between "case a" and "case cancel" — both occur EXACTLY ONCE
@@ -2470,17 +2506,30 @@ t "all three case-a previews shadow the seed" 3 (count (string match -ar 'set -g
 set -l cancelblock (string match -r '(?ms)^ *case cancel$.*?^ *end$' -- "$SLB" | string collect)
 t "cancel restores by shadowing the anchor seed" 1 (string match -q "*__tmux_lives_theme_apply_live' \"\$anch_seed\"*" -- "$cancelblock"; and echo 1; or echo 0)
 # saving commits the seed — exactly once, in the EXIT path, never in a seed
-# screen. awk scopes the two seed screens out first (both are NESTED
-# functions indented 4 spaces — verified non-empty below rather than trusted
-# blind); the commit call must survive only outside them.
-set -g SEEDSCREENS (awk '/^    function __tcz_thp_sliders/,/^    end$/' $catfile; awk '/^    function __tcz_thp_hexentry/,/^    end$/' $catfile | string collect)
-t "seed-screen extraction is non-empty (sliders+hexentry)" 1 (test (string length -- "$SEEDSCREENS") -gt 0; and echo 1; or echo 0)
-t "no setup-color commit inside the seed screens" 0 (count (string match -ra 'setup color' -- "$SEEDSCREENS"))
+# screen. awk scopes the seed screen out first (a NESTED function indented 4
+# spaces — verified non-empty below rather than trusted blind); the commit
+# call must survive only outside it.
+#
+# picker-legibility-autoapply Task 6: this used to scope out BOTH seed
+# screens via two awk ranges concatenated in one command substitution
+# (sliders' range first, unpiped; hexentry's range second, piped through
+# `string collect`) — SEEDSCREENS, plural. Deleting __tcz_thp_sliders makes
+# its awk range match nothing, so left as it was the variable would have
+# silently shrunk to the hexentry body alone: still non-empty (the
+# "extraction is non-empty" guard below cannot see a range that starts
+# matching zero lines instead of failing outright), and the "no setup-color
+# commit" guard would keep passing for a reason that no longer has anything
+# to do with sliders. Rather than let coverage quietly halve under an
+# unchanged name, this is re-scoped to hexentry only (the one seed screen
+# left) and renamed singular to say so honestly.
+set -g SEEDSCREEN (awk '/^    function __tcz_thp_hexentry/,/^    end$/' $catfile | string collect)
+t "seed-screen extraction is non-empty (hexentry)" 1 (test (string length -- "$SEEDSCREEN") -gt 0; and echo 1; or echo 0)
+t "no setup-color commit inside the seed screen" 0 (count (string match -ra 'setup color' -- "$SEEDSCREEN"))
 # NB the brief's whole-body version of this check ("seed screens do not run
-# setup color", asserted 0 against $SLB rather than $SEEDSCREENS) is
+# setup color", asserted 0 against $SLB rather than $SEEDSCREEN) is
 # self-contradictory with the very next test below once the exit-path commit
 # exists — $SLB legitimately contains exactly one "setup color" after this
-# fix, not zero. Dropped in favor of the two SEEDSCREENS-scoped checks above,
+# fix, not zero. Dropped in favor of the two SEEDSCREEN-scoped checks above,
 # which is what it actually meant to test.
 t "exactly one setup-color commit in the whole picker" 1 (count (string match -ra 'setup color' -- "$SLB"))
 t "the commit is guarded on a changed seed" 1 (string match -q '*"$seed" != "$anch_seed"*' -- "$SLB"; and echo 1; or echo 0)
@@ -2496,7 +2545,21 @@ t "the commit is guarded on a changed seed" 1 (string match -q '*"$seed" != "$an
 # ---------------------------------------------------------------------
 t "reanchor function exists" 1 (string match -q '*function __tcz_thp_reanchor*' -- "$SLB"; and echo 1; or echo 0)
 t "reanchor runs once at open, right after its own definition" 1 (string match -qr '(?s)function __tcz_thp_reanchor.*?\n    end\n    __tcz_thp_reanchor\n' -- "$SLB"; and echo 1; or echo 0)
-t "both seed screens reanchor immediately after reload" 2 (count (string match -ar '__tcz_thp_reload\n\s*__tcz_thp_reanchor' -- "$SEEDSCREENS"))
+# picker-legibility-autoapply Task 6: the pre-existing "2" here was NOT "one
+# match per screen" the way the old name implied — verified directly. The
+# consuming pattern (reload, a literal embedded \n, then reanchor) makes
+# each match itself span two lines; `count` on a captured `string match`
+# doesn't count matches, it counts LINES in the captured output (fish's
+# command substitution splits on newlines), so hexentry's one real pairing
+# was already being counted as 2 on its own — and sliders' own identical
+# pairing counted as 0, because the old $SEEDSCREENS concatenated sliders'
+# half WITHOUT `string collect`, leaving it a list of individual lines with
+# no embedded newline for a multi-line pattern to span. Two independent
+# quirks landing on the same number by coincidence. Rewritten with a
+# zero-width lookahead (matching the gap-less-drain guard's own technique
+# above) so the match text stays single-line and `count` means what it
+# says: exactly the one real pairing hexentry has.
+t "the seed screen reanchors immediately after reload" 1 (count (string match -ar '__tcz_thp_reload(?=\n\s*__tcz_thp_reanchor)' -- "$SEEDSCREEN"))
 t "reanchor is erased on exit like its seed-screen siblings" 1 (string match -q '*functions -e __tcz_thp_reanchor*' -- "$SLB"; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
@@ -3511,14 +3574,18 @@ set -g T6B (date +%s%N)
 t "one palette is under 150ms" yes (test (math "($T6B - $T6A) / 1000000") -lt 150; and echo yes; or echo no)
 
 # --- Step 4b: strengthen the drain invariant --------------------------------------
-# The suite pins the drain-loop count by exact literal pattern (2 with a literal
-# `time 0`, 1 with `time $gap` — see :1448/:1456 above), which cannot see a NEW
-# drain that omits the mandatory in-loop stty reassertion under some OTHER
-# pattern (e.g. a literal `time 1`). A relative invariant closes that class: of
-# the picker's 4 `while true` loops, exactly 3 are immediately followed, on
+# The suite pins the drain-loop count by exact literal pattern (1 with a literal
+# `time 0`, 1 with `time $gap` — see :1448/:1456 above; picker-legibility-
+# autoapply Task 6 took the literal-`time 0` count from 2 to 1 when it deleted
+# __tcz_thp_sliders' own gap-less drain), which cannot see a NEW drain that
+# omits the mandatory in-loop stty reassertion under some OTHER pattern (e.g.
+# a literal `time 1`). A relative invariant closes that class: of the
+# picker's 3 `while true` loops, exactly 2 are immediately followed, on
 # their own next line, by SOME in-loop `stty min 0 time ...` reassertion — the
 # exception is the main event loop, which does its own timed read further down
-# its body, not on the line right after `while true`.
+# its body, not on the line right after `while true`. (Both counts moved
+# 4->3 / 3->2 with the sliders deletion; the invariant itself — total minus
+# safe — stays 1, verified directly rather than assumed.)
 set -l wt_total (count (string match -ar 'while true' -- (string split \n -- "$EB6")))
 set -l wt_safe (string match -a -r 'while true(?=\n\s+stty min 0 time )' -- "$EB6" | count)
 t "drain invariant: exactly one while-true loop (the main event loop) lacks an immediate in-loop stty reassertion" 1 (math "$wt_total - $wt_safe")

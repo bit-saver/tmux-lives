@@ -179,7 +179,21 @@ t "fragment window-status-format is plain" yes (string match -q "*set -g window-
 t "fragment sets window-status-separator bullet" yes (string match -q '*window-status-separator*•*' -- "$BAR"; and echo yes; or echo no)
 t "fragment drops @tmux_lives_claude_color" no (string match -q '*claude_color*' -- "$BAR"; and echo yes; or echo no)
 t "fragment seeds @tmux_lives_heal_interval" yes (string match -q '*set -g @tmux_lives_heal_interval 120*' -- "$BAR"; and echo yes; or echo no)
-t "fragment current-format keeps bold + text role, no claude tint" yes (string match -q "*set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]#[nobold]'*" -- "$BAR"; and echo yes; or echo no)
+t "fragment current-format keeps bold + active role, no claude tint" yes (string match -q "*set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_active_fg}]#W#[fg=default]#[nobold]'*" -- "$BAR"; and echo yes; or echo no)
+# picker-legibility-autoapply Task 6: active was computed by the engine and
+# pushed to @tmux_lives_active_fg on every apply, but no format string read
+# it — it rendered nowhere in any session. Pointing the current-window
+# format at it (instead of text_fg) gives it a consumer.
+#
+# NB the brief's own draft of this coverage ("current window wears the
+# active role" yes, a bare '*@tmux_lives_active_fg*' substring match against
+# $FRAG) is VACUOUS — proven pre-implementation: @tmux_lives_active_fg is
+# already seeded unconditionally by every fragment render (the role @option
+# assignment a few lines above window-status-current-format), so the
+# substring is present whether or not anything reads it, both before and
+# after this fix. The test above already covers "current window wears the
+# active role" precisely (the byte-exact current-format string), so the
+# vacuous duplicate is dropped rather than kept alongside it.
 t "fragment seeds host-kind + glyph + accent @options" yes (string match -q '*@tmux_lives_host_kind*' -- "$BAR"; and string match -q '*@tmux_lives_glyph_remote*' -- "$BAR"; and string match -q '*@tmux_lives_prefix_color*' -- "$BAR"; and echo yes; or echo no)
 # cap bg is now a flat legacy neutral (theme off / no usable seed) — the v2 palette-accent
 # cap wiring (argv[12..16] cap/vividness/wheel/role) is gone; only bar_bg/status-style remain.
@@ -927,7 +941,7 @@ t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
 t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
 t "on: tabs_color emitted (Phase-2 consumer)" yes (string match -q "*set -g @tmux_lives_tabs_color '$TONPAL[3]'*" -- "$TON"; and echo yes; or echo no)
-t "on: active_fg emitted (provisional)" yes (string match -q "*set -g @tmux_lives_active_fg '$TONPAL[4]'*" -- "$TON"; and echo yes; or echo no)
+t "on: active_fg emitted (paints the current window)" yes (string match -q "*set -g @tmux_lives_active_fg '$TONPAL[4]'*" -- "$TON"; and echo yes; or echo no)
 t "on: cap_bg is the cap sample" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONPAL[6]'*" -- "$TON"; and echo yes; or echo no)
 t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '"(__tmux_lives_contrast_fg $TONPAL[6])"'*" -- "$TON"; and echo yes; or echo no)
 # v3.3: the ✦ mark is the seed's home base, not the cap sample
