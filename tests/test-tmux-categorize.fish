@@ -1948,21 +1948,41 @@ t "picker emits the tab colour on preview/cancel" yes (string match -qr '__tcz_r
 t "picker's recolor calls are force, not dedup" 0 (string match -ra '__tcz_recolor[^\n]*dedup' -- "$PB2" | count)
 
 # --- picker-seed-section Task 3: the seed zone ------------------------------------
-# FIXED height whether idle or editing, so toggling edit mode never makes the
-# scheme list jump. Idle shows readouts in the three rows that become sliders.
+# SUPERSEDED by picker-legibility-autoapply Task 3, immediately below: the FIXED
+# 8-row design (both states padded to 8 so the scheme list never shifted) is what
+# the user reviewed live and rejected in favor of a compact idle zone (more
+# schemes on screen) and a roomy edit zone (real slider breathing room), accepting
+# that the list moves when you press b. `seedzone exists` survives unchanged
+# (a bare existence check); everything else here is replaced by the row-inventory
+# tests below.
 t "seedzone exists" 0 (functions -q __tcz_thp_seedzone; echo $status)
-set -g SZ (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 0 1 95 119 43)
-t "seedzone is exactly 8 rows" 8 (count $SZ)
-for i in (seq 8)
-    set -l v (string replace -ra '\x1b\[[0-9;]*m' '' -- "$SZ[$i]")
-    # w + 2: the border glyphs are part of every row in this frame.
-    t "seedzone row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
-end
-t "seedzone shows the hex when idle" yes (string match -q '*5f772b*' -- (string join ' ' $SZ); and echo yes; or echo no)
-# The anti-jump property: editing must not change the row count.
+
+# --- Task 3: the seed zone is 3 rows idle, 8 editing ---------------------------
+set -g SZI (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 0 1 95 119 43)
 set -g SZE (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 1 1 95 119 43)
-t "seedzone is 8 rows while editing too" 8 (count $SZE)
-t "editing renders bars, idle does not" yes (test "$SZ[6]" != "$SZE[6]"; and echo yes; or echo no)
+t "seedzone idle is 3 rows" 3 (count $SZI)
+t "seedzone editing is 8 rows" 8 (count $SZE)
+for i in (seq 3)
+    set -l v (__tcz_strip_sgr "$SZI[$i]")
+    t "idle row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
+end
+for i in (seq 8)
+    set -l v (__tcz_strip_sgr "$SZE[$i]")
+    t "editing row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
+end
+# Rows 1-3 are identical between states: only the slider block appears.
+t "rows 1-3 are identical in both states" 1 (test "$SZI[1]$SZI[2]$SZI[3]" = "$SZE[1]$SZE[2]$SZE[3]"; and echo 1; or echo 0)
+t "idle shows the hex" 1 (string match -q '*5f772b*' -- (string join ' ' $SZI); and echo 1; or echo 0)
+t "idle shows the readouts beside it" 1 (string match -q '*hue*' -- (string join ' ' $SZI); and echo 1; or echo 0)
+t "the retired copy is gone" 0 (string match -ra 'rendered as-is' -- (string join ' ' $SZE) | count)
+# Blank rows surround the slider group and none divides it.
+set -g SZE4 (__tcz_strip_sgr "$SZE[4]"); set -g SZE8 (__tcz_strip_sgr "$SZE[8]")
+t "row 4 is blank" 1 (string match -qr '^│ *│$' -- "$SZE4"; and echo 1; or echo 0)
+t "row 8 is blank" 1 (string match -qr '^│ *│$' -- "$SZE8"; and echo 1; or echo 0)
+t "rows 5-7 all carry a channel bar" 3 (count (string match -ra 'R|G|B' -- (string join \n $SZE[5..7])))
+# The selected channel tracks chan.
+set -g SZC2 (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 1 2 95 119 43)
+t "chan=1 marks row 5, not row 6" 1 (test "$SZE[5]" != "$SZC2[5]" -a "$SZE[6]" != "$SZC2[6]"; and echo 1; or echo 0)
 
 # --- Task 3: the retired knobs are gone from the picker -------------------------
 # Bounded to the picker body: these names legitimately survive nowhere else in
@@ -2519,10 +2539,33 @@ t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 
 # instead of restating it. The non-empty guard is mandatory: a missed
 # extraction would silently make WIN — and every frame assertion below —
 # garbage rather than merely wrong.
-set -g STATIC9 (string match -rg 'set -l STATIC (\d+)' -- "$SLB")
-t "STATIC extraction is non-empty" 1 (test -n "$STATIC9"; and echo 1; or echo 0)
+#
+# picker-legibility-autoapply Task 3: the seed zone (3 rows idle, 8 editing —
+# see __tcz_thp_seedzone above) makes the static budget MODE-DEPENDENT, so a
+# single STATIC no longer describes the source. Extended from one extraction
+# to two rather than rebuilt: the mechanism (read the real declaration out of
+# the function, guard it non-empty, derive WIN from it inside
+# __t9_frame_rows) is unchanged.
+set -g STATIC9I (string match -rg 'set -l STATIC_IDLE (\d+)' -- "$SLB")
+set -g STATIC9E (string match -rg 'set -l STATIC_EDIT (\d+)' -- "$SLB")
+t "STATIC_IDLE extraction is non-empty" 1 (test -n "$STATIC9I"; and echo 1; or echo 0)
+t "STATIC_EDIT extraction is non-empty" 1 (test -n "$STATIC9E"; and echo 1; or echo 0)
+t "idle static is 16" 16 "$STATIC9I"
+t "editing static is 21" 21 "$STATIC9E"
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from (WIN = rows - STATIC, matching the real function, read out of it rather than restated — see STATIC9 above); defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
+# Entering edit mode costs 5 window rows. A selection near the bottom of the
+# expanded catalog must stay VISIBLE, and sel itself must not be moved to
+# achieve it — the window scrolls, the cursor does not.
+# window <sel> <total> <winsize> -> "<start> <count>"
+set -g CLAMPI (__tcz_thp_window 30 36 31)   # idle:    WIN 52-16 = 36 -> 31 usable
+set -g CLAMPE (__tcz_thp_window 30 36 31)
+set -g WI (string split ' ' -- (__tcz_thp_window 30 36 (math "52 - $STATIC9I")))
+set -g WE (string split ' ' -- (__tcz_thp_window 30 36 (math "52 - $STATIC9E")))
+t "idle window keeps sel=30 visible"    1 (test 30 -ge $WI[1] -a 30 -lt (math "$WI[1] + $WI[2]"); and echo 1; or echo 0)
+t "editing window keeps sel=30 visible" 1 (test 30 -ge $WE[1] -a 30 -lt (math "$WE[1] + $WE[2]"); and echo 1; or echo 0)
+t "the two windows differ (the zone really costs rows)" 1 (test "$WI[2]" != "$WE[2]"; and echo 1; or echo 0)
+
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2533,7 +2576,9 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     test -n "$rows"; or set rows 26
     test -n "$editing"; or set editing 0
     test -n "$chan"; or set chan 1
-    set -l WIN (math "$rows - $STATIC9")
+    set -l static9 $STATIC9I
+    test "$editing" = 1; and set static9 $STATIC9E
+    set -l WIN (math "$rows - $static9")
     set -l host somehost
     set -l chiptitle ''
     set -l note 'a note'
@@ -2667,6 +2712,21 @@ t "frame: emits exactly its height — 24 rows (the floor)"    24 (__t9_frame_ro
 # draws all 14 real rows and the padding branch must fill the remaining 5 with blank
 # framed rows for the total to reach 40 at all.
 t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=19 > n=14)" 40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40)
+
+# --- picker-legibility-autoapply Task 3: the frame proof, extended to BOTH modes --
+# Every size above only ever exercised editing=0 (the harness's own default).
+# STATIC is now mode-dependent, so the frame must still emit exactly its height
+# while editing too — at the same sizes, plus the 40-row idle padding case
+# repeated in editing (WIN 40-21=19 against a 14-row list still exceeds it,
+# so the padding branch is exercised in both modes, not just idle) and a
+# dedicated editing floor (WIN 24-21=3).
+t "frame: 26 rows idle"      26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1)
+t "frame: 26 rows editing"   26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1)
+t "frame: 40 rows idle"      40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 0 1)
+t "frame: 40 rows editing"   40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 1 1)
+t "frame: 52 rows idle"      52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 0 1)
+t "frame: 52 rows editing"   52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 1 1)
+t "frame: 24 rows editing (the floor)" 24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24 1 1)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.
@@ -3013,10 +3073,13 @@ t "case-b body extraction is non-empty" 1 (test -n "$CASEB9"; and echo 1; or ech
 set -g CASEB9WRAP "switch \$tok
 $CASEB9
 end"
-function __t9_caseb --argument-names focus editing seed --description 'eval the REAL case-b toggle body against seeded locals (chan/editseed start at sentinel values so an untouched-vs-touched distinction is visible). Prints "<editing> <chan> <editseed>".'
+function __t9_caseb --argument-names focus editing seed --description 'eval the REAL case-b toggle body against seeded locals (chan/editseed start at sentinel values so an untouched-vs-touched distinction is visible; rows/STATIC_IDLE/STATIC_EDIT are seeded too — picker-legibility-autoapply Task 3s toggle now recomputes WIN on every press, and an unseeded rows/STATIC would make that a math error against undefined locals rather than a clean no-op). Prints "<editing> <chan> <editseed>".'
     set -l tok b
     set -l chan 9
     set -l editseed START
+    set -l rows 52
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
     eval $CASEB9WRAP
     printf '%s %s %s\n' $editing $chan $editseed
 end
@@ -3026,6 +3089,27 @@ set -g R_B_LEAVE (__t9_caseb list 1 '#123456')
 t "case b: a second press while editing clears editing, leaves chan/editseed untouched" "0 9 START" "$R_B_LEAVE"
 set -g R_B_STATE (__t9_caseb state 0 '#123456')
 t "case b: ignored entirely while focus is on the second list" "0 9 START" "$R_B_STATE"
+
+# Task 3 (this plan): the toggle must RECOMPUTE WIN, not leave a stale value —
+# a stale WIN is invisible to the frame proof, which always derives its own.
+# WIN starts at an impossible sentinel (0, which cannot equal either real
+# computed value at rows=52) so any post-eval value proves the arm wrote it,
+# not that it happened to already agree by coincidence.
+function __t9_caseb_win --argument-names editing --description 'eval the REAL case-b toggle body with WIN seeded to a sentinel, to prove the toggle recomputes it rather than leaving it stale. rows/STATIC_IDLE/STATIC_EDIT match the real function via the STATIC9I/STATIC9E extraction above. Prints the resulting $WIN.'
+    set -l tok b
+    set -l focus list
+    set -l chan 9
+    set -l editseed START
+    set -l seed '#5f772b'
+    set -l rows 52
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
+    set -l WIN 0
+    eval $CASEB9WRAP
+    echo $WIN
+end
+t "case b: entering edit mode recomputes WIN (not left stale)" (math "52 - $STATIC9E") (__t9_caseb_win 0)
+t "case b: leaving edit mode recomputes WIN (not left stale)" (math "52 - $STATIC9I") (__t9_caseb_win 1)
 
 # The esc arm's own extraction, but eval-safe rather than grep-safe: $ESCARM4 above
 # (unquoted `string match -r`) is a 10-element LIST — command substitution splits a
@@ -3040,8 +3124,10 @@ t "case b: ignored entirely while focus is on the second list" "0 9 START" "$R_B
 # runnable, but prints an ugly trace on every green run for no reason.
 set -g ESCBODY9 (string match -r '# BEGIN edit-esc(.|\n)*?# END edit-esc' -- "$PB4" | string collect)
 t "edit-esc arm extraction (eval-safe) is non-empty" 1 (test -n "$ESCBODY9"; and echo 1; or echo 0)
-function __t9_esc --argument-names seed editseed anch_seed --description 'eval the REAL edit-esc arm against seeded locals where editseed and anch_seed deliberately differ, so a swap between them is visible. Prints the resulting $seed.'
+function __t9_esc --argument-names seed editseed anch_seed --description 'eval the REAL edit-esc arm against seeded locals where editseed and anch_seed deliberately differ, so a swap between them is visible. rows/STATIC_IDLE are seeded so the arms own WIN recompute (picker-legibility-autoapply Task 3) does not spray a math error against undefined locals. Prints the resulting $seed.'
     set -l editing 1
+    set -l rows 26
+    set -l STATIC_IDLE $STATIC9I
     eval $ESCBODY9
     echo $seed
 end
@@ -3049,6 +3135,23 @@ end
 # `set seed $editseed` for `set seed $anch_seed`): editseed and anch_seed are
 # deliberately different values below, so a swap changes the printed result.
 t "esc restores from editseed, not anch_seed" '#111111' (__t9_esc '#999999' '#111111' '#222222')
+
+# Task 3 (this plan): esc-while-editing must ALSO recompute WIN — the third of
+# the three mode-change sites (b, ⏎, esc). Same sentinel technique as case b's
+# WIN proof above: WIN starts at 0, which cannot equal the real idle value at
+# rows=26, so any other value proves the arm wrote it.
+function __t9_esc_win --description 'eval the REAL edit-esc arm with WIN seeded to a sentinel, to prove it recomputes rather than leaving WIN stale. Prints the resulting $WIN.'
+    set -l editing 1
+    set -l seed '#999999'
+    set -l editseed '#111111'
+    set -l anch_seed '#222222'
+    set -l rows 26
+    set -l STATIC_IDLE $STATIC9I
+    set -l WIN 0
+    eval $ESCBODY9
+    echo $WIN
+end
+t "esc while editing recomputes WIN (not left stale)" (math "26 - $STATIC9I") (__t9_esc_win)
 
 # --- Task 5: typed hex is framed ------------------------------------------------
 # The picker opens with display-popup -B, so tmux draws NO border; every screen
@@ -3567,12 +3670,15 @@ $CASETAB6
 $CASECANCEL6
 end"
 
-function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER the whole sequence settles.'
+function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. rows/STATIC_IDLE/STATIC_EDIT are seeded so a dispatched b (which recomputes WIN — picker-legibility-autoapply Task 3) does not spray a math error against undefined locals. Prints the rendered current-row band AFTER the whole sequence settles.'
     set -l editing 1
     set -l chan 1
     set -l sel 0
     set -l focus list
     set -l editseed ''
+    set -l rows 52
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
     set -l seedr 0
     set -l seedg 0
     set -l seedb 0
@@ -3648,6 +3754,9 @@ function __t6_esc_seq --argument-names old_seed --description 'end to end (Findi
     set -l sel 0
     set -l focus list
     set -l editseed $old_seed
+    set -l rows 52
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
     set -l seedr 0
     set -l seedg 0
     set -l seedb 0
