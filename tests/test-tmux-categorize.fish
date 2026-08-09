@@ -2430,6 +2430,15 @@ set -g PK3 (functions __tcz_theme_picker | string collect)
 # function's own body instead of the old case-a block.
 set -l aabody (string match -r '(?s)function __tcz_thp_autoapply_now.*?\n    end' -- "$PK3" | string collect)
 t "autoapply_now body extraction is non-empty" 1 (test -n "$aabody"; and echo 1; or echo 0)
+# final review (M1): the only existing __tcz_recolor guard (further down this
+# file) greps the WHOLE picker body, so it stays green even with all three
+# calls inside THIS function deleted — case cancel's own __tcz_recolor call
+# satisfies it regardless. Scoped to aabody instead, and to the exact call
+# shape (`and __tcz_recolor "$tabhex"`) rather than a bare substring count —
+# the function's own --description text mentions "__tcz_recolor" too ("Always
+# followed by the same __tcz_recolor tab emit case a always ran."), so a
+# plain substring count over aabody reads 4, not the 3 real call sites.
+t "autoapply_now calls __tcz_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar 'and __tcz_recolor "\$tabhex"' -- (string split \n -- "$aabody")))
 # Bounded to the current-row branch alone (the sel2 -eq 0 arm) so a fix that
 # flips the WRONG branch to previewed 2 can't pass by coincidence.
 set -l currowblock (string match -r '(?ms)sel2 -eq 0\b.*?else\b' -- "$aabody" | string collect)
@@ -2690,7 +2699,7 @@ t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
 t "floor: rows 24 is rejected (Task 5 moved the floor 24 -> 25)" '' (__t9_floor 24)
 t "floor: rows 25 is admitted (the Task-5-updated threshold)" admit (__t9_floor 25)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2707,6 +2716,7 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     set -l host somehost
     set -l chiptitle ''
     set -l note 'a note'
+    test -n "$notearg"; and set note $notearg
     set -l seed '#5f772b'
     set -l seedfg '#f5f5f5'
     set -l phase 0
@@ -2783,7 +2793,66 @@ t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows st
 t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
 t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
 
-# --- Task 2: the selection band must reach the right frame edge, not stop at the
+# --- final review (I1): the note row is structurally incapable of overflowing --
+# Reproduced pre-fix: with the OLD "(current)" wording, __tcz_thp_ln pads short
+# content but never truncates long content, so previewing `current` at a
+# 5-letter relationship (wheat/amber/ember/coral) drew a 51-visible-column note
+# (leading space included) into a 50-column frame -- 53 cols total including both
+# borders, one past the popup's 52 -- which wraps and scrolls the top border off
+# screen. Fixed two ways: the wording was shortened ("(current)" -> "(live)", so
+# every real relationship name now fits with margin) AND the draw site itself now
+# truncates via __tcz_popup_truncate, so no note -- not just today's -- can ever
+# push the row past IW. Proven here directly against the REAL draw block with a
+# note far longer than anything the picker actually emits: the row must still
+# come out at exactly IW+2 (both borders), never more.
+set -g NOTEROWS1 (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 (string repeat -n 200 x))
+set -g NOTEROW1V (__tcz_strip_sgr "$NOTEROWS1[-2]")
+t "an absurdly long note still renders a row of exactly IW+2 (52) visible columns" 52 (string length --visible -- "$NOTEROW1V")
+t "an absurdly long note is truncated with a trailing ellipsis, not silently dropped or wrapped" yes (string match -q '*…*' -- "$NOTEROW1V"; and echo yes; or echo no)
+# A short note (well under IW) must still render byte-for-byte through
+# __tcz_popup_truncate's own fast path (unchanged), not accidentally get
+# clipped by an off-by-one in the new draw-site wrapping.
+set -g NOTEROWS2 (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 'short note')
+set -g NOTEROW2V (__tcz_strip_sgr "$NOTEROWS2[-2]")
+t "a short note still renders in full, unclipped" yes (string match -q '*short note*' -- "$NOTEROW2V"; and echo yes; or echo no)
+t "a short note's row is still exactly IW+2 (52) visible columns (padded, not shrunk)" 52 (string length --visible -- "$NOTEROW2V")
+
+# --- final review (I1): every note the picker can actually emit fits, by
+# construction, not by luck -- enumerated from the SOURCE, not retyped ---------
+# Extracts every literal `set note "..."` the real picker body contains (a
+# future wording tweak changes what this list holds too, so the assertion
+# tracks the actual strings rather than a snapshot of today's). Two of the
+# four contain a $anch_scheme or $rel interpolation -- substituted with the
+# REAL relationship domain (__tmux_lives_theme_relationships, the ONE home of
+# that list) plus "off" (the only non-relationship value $anch_scheme can
+# hold), so a future relationship with a longer name is covered automatically,
+# not just today's set. $seed is substituted with a worst-case 7-char hex
+# literal (every real seed is exactly 7 chars, '#' + 6 hex digits). The draw
+# site always prepends exactly one space (" $MUTED$note$RST"), so that is
+# added before comparing against IW (50) -- this is the exact boundary I1
+# found: the new A-toggle note is 49 raw chars, 50 with the leading space,
+# right at the limit, which is why the check is against the DRAWN width, not
+# the raw note string.
+set -g NOTELITERALS9 (string match -ar 'set note "[^"]*"' -- (string split \n -- "$pk2") | string replace -r '^set note "(.*)"$' '$1')
+t "note-literal extraction found at least the 4 known notes (current/off/scheme/A-on/A-off, minus dupes)" yes (test (count $NOTELITERALS9) -ge 4; and echo yes; or echo no)
+set -g NOTEDOMAIN9 off (__tmux_lives_theme_relationships)
+for tmpl in $NOTELITERALS9
+    set -l worst 0
+    if string match -q '*$anch_scheme*' -- "$tmpl"; or string match -q '*$rel*' -- "$tmpl"
+        for v in $NOTEDOMAIN9
+            set -l s (string replace -a '$anch_scheme' "$v" -- "$tmpl")
+            set s (string replace -a '$rel' "$v" -- "$s")
+            set -l w (math (string length --visible -- "$s")" + 1")
+            test $w -gt $worst; and set worst $w
+        end
+    else if string match -q '*$seed*' -- "$tmpl"
+        set -l s (string replace -a '$seed' '#ffffff' -- "$tmpl")
+        set worst (math (string length --visible -- "$s")" + 1")
+    else
+        set worst (math (string length --visible -- "$tmpl")" + 1")
+    end
+    t "note fits within IW (50) at its worst case, leading space included: \"$tmpl\"" yes (test $worst -le 50; and echo yes; or echo no)
+end
 # end of the name. Extracted from the REAL draw block (__t9_frame_text), asserted
 # on rendered output rather than on the styling source.
 set -g BANDROW (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 | string match -r '.*▌.*')
@@ -2817,7 +2886,8 @@ t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0
 
 # --- picker-seed-section Task 1: WIN is derived from the popup height, not fixed --
 # The real function reads its own popup height via `stty size` and sets
-# WIN = rows - 21; __t9_frame_rows now takes that same rows value and derives WIN
+# WIN = rows - STATIC_IDLE (17, idle mode — every call below is editing=0);
+# __t9_frame_rows now takes that same rows value and derives WIN
 # identically, so these prove the frame still emits EXACTLY its height at sizes
 # other than todays fixed 26. picker-seed-section Task 3 raised STATIC 15->21 (the
 # seed became a fixed 8-row zone) and this harness's own WIN formula + the floor
@@ -2843,10 +2913,10 @@ t "frame: emits exactly its height — 24 rows"    24 (__t9_frame_rows list 0 14
 # total), so Task 1's blank-row padding block (__tcz_theme_picker, the winpad loop
 # right after the scheme window) had lost ALL coverage — deleting it outright still
 # left every assertion above green. This closes that gap directly: n=14 unexpanded
-# (vtotal=14) at rows=40 gives WIN=19, which DOES exceed vtotal, so the window loop
-# draws all 14 real rows and the padding branch must fill the remaining 5 with blank
-# framed rows for the total to reach 40 at all.
-t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=19 > n=14)" 40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40)
+# (vtotal=14) at rows=40 gives WIN=23 (40 - STATIC_IDLE 17), which DOES exceed
+# vtotal, so the window loop draws all 14 real rows and the padding branch must
+# fill the remaining 9 with blank framed rows for the total to reach 40 at all.
+t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=23 > n=14)" 40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40)
 
 # --- picker-legibility-autoapply Task 3: the frame proof, extended to BOTH modes --
 # Every size above only ever exercised editing=0 (the harness's own default).
@@ -4079,6 +4149,80 @@ t "picker body extraction is non-empty" 1 (test -n "$PB9"; and echo 1; or echo 0
 t "picker has an A arm" 1 (string match -qr 'case A\b' -- "$PB9"; and echo 1; or echo 0)
 t "picker reads the autoapply universal" 1 (string match -q '*tmux_lives_theme_autoapply*' -- "$PB9"; and echo 1; or echo 0)
 
+# final review (I4): the two greps just above are the ONLY coverage of the
+# persistence half of A, and both survive a WRONG universal name (a prefix
+# of the real name still contains the real name as a substring). One
+# behavioural round-trip, in its OWN throwaway XDG_CONFIG_HOME (distinct
+# from the suite-wide isolated store the self-re-exec guard at the top of
+# this file already set up, so a write here cannot leak
+# tmux_lives_theme_autoapply=0 into any other test): read the default with
+# NOTHING set (must be 1 -- "Default on when the universal is unset," per
+# __tcz_thp_init's own comment), run the REAL case-A body ($CASEA9WRAP,
+# extracted the same anchor-both-ends way as $CASEM9FULL/$CASEZ9FULL above)
+# once to flip it, then read it back through the REAL __tcz_thp_init (not a
+# second, independent __tmux_lives_key call written by this test — that
+# would only prove MY call reads correctly, not that init's OWN read line
+# does). This one round-trip closes all four mutations the review found: A
+# writing the wrong universal NAME leaves the read-back at the untouched
+# default (still 1, not 0); deleting init's own `init[8]` consumption line
+# leaves $autoapply at its pre-init value regardless of what got persisted;
+# a flipped 1->0 fallback default is caught directly by the first value; and
+# init never reading the universal at all is caught the same way deleting
+# the consume line is.
+# NB the exit pattern is guarded on f (same order SETTLE9 above uses, unlike
+# the unguarded ARROWUD9/CASEM9FULL/etc style) because "case enter$" is NOT
+# unique in this file (a different, unrelated switch has one at line ~1187,
+# well before the picker's own case A) — an unguarded exit pattern fires
+# there first and the whole extraction comes back empty.
+set -g CASEA9 (awk '/^            case A$/{f=1} f && /^            case enter$/{exit} f{print}' $catfile | string collect)
+t "case-A body extraction is non-empty" 1 (test -n "$CASEA9"; and echo 1; or echo 0)
+set -g CASEA9WRAP "switch A
+$CASEA9
+end"
+# The REAL __tcz_thp_init, same awk-range technique $RB7 already uses for
+# __tcz_thp_reload. --no-scope-shadowing means calling it from inside a
+# function that has seed/theme/persisted_phase/legacy/seedfg/place/mode/
+# autoapply declared as locals writes straight into THOSE locals — same
+# mechanism __t9_case_m already relies on for __tcz_thp_reload.
+set -g INIT9 (awk '/function __tcz_thp_init/,/^    end$/' $catfile | string collect)
+t "init body extraction is non-empty" 1 (test -n "$INIT9"; and echo 1; or echo 0)
+function __t9_autoapply_roundtrip --description 'behavioural round-trip for autoapply persistence, entirely through the REAL code: in its own throwaway XDG_CONFIG_HOME (distinct from the suite-wide isolated store), call the REAL __tcz_thp_init ($INIT9) with nothing persisted yet (must read 1), flip it with the REAL case-A body ($CASEA9WRAP), then call the REAL __tcz_thp_init again (a fresh picker-open) to read it back. init''s own embedded `fish -c` needs __tmux_lives_key etc. available in a bare empty XDG_CONFIG_HOME, which production gets for free from the real user''s installed plugin -- here that is faked with a one-line conf.d shim that just sources the real conf.d file, so init''s subprocess resolves exactly like it would live. Prints "<default>\n<afterFlip>".'
+    eval $INIT9
+    set -l d (mktemp -d /tmp/tmux-lives-aa.XXXXXX)
+    if test -z "$d"; or not test -d "$d"
+        echo "FATAL FATAL"
+        return 1
+    end
+    mkdir -p $d/fish/conf.d
+    echo "source $plugindir/conf.d/tmux-lives-install.fish" > $d/fish/conf.d/00-tmux-lives.fish
+    set -lx XDG_CONFIG_HOME $d
+    # Pre-init state: exactly what __tcz_theme_picker sets before calling
+    # __tcz_thp_init for real (see its own decls just above the function).
+    set -l seed ''
+    set -l theme mono
+    set -l persisted_phase 0
+    set -l legacy ''
+    set -l seedfg '#f5f5f5'
+    set -l place bar
+    set -l mode derived
+    set -l autoapply 1
+    __tcz_thp_init
+    set -l default $autoapply
+    set -l tok A
+    set -l note ''
+    eval $CASEA9WRAP
+    # Re-open: reset to the same pre-init default a fresh picker launch would
+    # have, then let the REAL init read whatever case A just persisted.
+    set autoapply 1
+    __tcz_thp_init
+    set -l after $autoapply
+    rm -rf $d
+    printf '%s\n' $default $after
+end
+set -g AA9 (__t9_autoapply_roundtrip)
+t "autoapply defaults to 1 (on) when nothing is persisted yet" 1 $AA9[1]
+t "autoapply round-trips: the REAL init reads back case A's write, flipped to 0" 0 $AA9[2]
+
 # Extract the real settle branch and drive it with a scripted token. Anchored
 # on stable content, not line numbers, and asserted non-empty + checked for
 # the inverse before anything is built on it — same "set -l tok" / "switch
@@ -4102,6 +4246,13 @@ t "picker reads the autoapply universal" 1 (string match -q '*tmux_lives_theme_a
 set -g SETTLE9 (awk '/^        set -l tok$/{f=1} f && /^        switch \$tok$/{exit} f{print}' $catfile | string collect)
 t "settle branch extraction is non-empty" 1 (test -n "$SETTLE9"; and echo 1; or echo 0)
 t "settle extraction stopped at the switch, not EOF" 0 (string match -ra 'case cancel' -- "$SETTLE9" | count)
+# final review (M2): every behavioural harness below stubs `stty` to a no-op,
+# so none of them can see WHAT value the settle poll passes it — only that
+# it's called. Pin the actual dwell length (~500ms; `stty min 0 time 5` is
+# tenths of a second) directly out of the extraction, so a change from 5 to
+# (say) 10 — which every existing assertion in this file lets through green —
+# is caught here instead.
+t "settle poll dwell is pinned at 5 (tenths of a second, ~0.5s), not just present" 5 (string match -rg 'stty min 0 time (\d+)' -- "$SETTLE9")
 
 # <autoapply 0|1> <token the stubbed readkey returns> <editing 0|1> -> number
 # of applies fired. eval, not source: source opens its own local scope, so a
@@ -4285,6 +4436,69 @@ t "idle pgdn arms the dwell"              1 (__t9_arm_applydue pgdn list  0)
 # settle-branch gate above (not this arm) is responsible for catching.
 t "editing down (channel select) does not arm the dwell" 0 (__t9_arm_applydue down list 1)
 t "editing right (slider) does not arm the dwell"         0 (__t9_arm_applydue right list 1)
+
+# final review (I3): z (shake) and m (expand/collapse) can both re-clamp $sel
+# onto a DIFFERENT row than what was on-screen before the reload — the same
+# "cursor landed somewhere new" condition the up/down/pgup/pgdn arm above
+# already arms the dwell for. Driven for real with autoapply on (the default):
+# z jumped the cursor to a random catalog row and left the bar byte-identical,
+# with the note still claiming to preview a scheme that was never applied.
+# tab is the deliberate exception (switches which LIST has focus, not which
+# scheme is selected) and must NOT arm it — landing on `current` would just
+# re-apply what is already live, a guaranteed no-op paid for at 200-400ms.
+# Full-body extractions (not the pre-existing $CASEM9, which awk-ranges only
+# through case m's OLD final line and would not see a line added after it) —
+# each bounded from its own `case X$` through the NEXT case label, same
+# anchor-both-ends technique as $ARROWUD9/$ARROWLR9 above.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+set -g CASEM9FULL (awk '/^            case b$/{exit} /^            case m$/{f=1} f{print}' $catfile | string collect)
+t "case-m full-body extraction is non-empty" 1 (test -n "$CASEM9FULL"; and echo 1; or echo 0)
+set -g CASEZ9FULL (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
+t "case-z full-body extraction is non-empty" 1 (test -n "$CASEZ9FULL"; and echo 1; or echo 0)
+set -g CASETAB9FULL (awk '/^            case a$/{exit} /^            case tab$/{f=1} f{print}' $catfile | string collect)
+t "case-tab full-body extraction is non-empty" 1 (test -n "$CASETAB9FULL"; and echo 1; or echo 0)
+set -g CASEM9FULLWRAP "switch m
+$CASEM9FULL
+end"
+set -g CASEZ9FULLWRAP "switch z
+$CASEZ9FULL
+end"
+set -g CASETAB9FULLWRAP "switch tab
+$CASETAB9FULL
+end"
+function __t9_arm_applydue_mzt --argument-names which --description 'eval the REAL case-m / case-z / case-tab body (via the FULL wraps above, which — unlike $CASEM9WRAP — extend to the next case label so a line added after the pre-existing $CASEM9 range is still included) against a throwaway scope seeded with a small real catalog, and report ONLY whether it armed applydue. seed/phase/expanded/cachekeys/cacheblobs are exactly what the REAL __tcz_thp_reload reads/writes — same locals __t9_case_m already proved sufficient. Re-evals $RB7 itself: by this point in the file, the three __t9_settle_applies-family harnesses above have each stubbed __tcz_thp_reload and then `functions -e`d it WITHOUT restoring the real one (their own convention — nothing after them was expected to need it), so it is no longer safe to assume it is still global.'
+    eval $RB7
+    set -l seed '#5f772b'
+    set -l phase 0
+    set -l expanded 0
+    set -l cachekeys
+    set -l cacheblobs
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    __tcz_thp_reload
+    set -l n (count $toks)
+    set -l sel 0
+    set -l sel2 0
+    set -l focus list
+    set -l editing 0
+    set -l applydue 0
+    set -l flashfield ''
+    switch $which
+        case m
+            eval $CASEM9FULLWRAP
+        case z
+            eval $CASEZ9FULLWRAP
+        case tab
+            eval $CASETAB9FULLWRAP
+    end
+    echo $applydue
+end
+t "m (expand/collapse) arms the dwell"  1 (__t9_arm_applydue_mzt m)
+t "z (shake) arms the dwell"            1 (__t9_arm_applydue_mzt z)
+t "tab (list focus switch) does NOT arm the dwell — a landing on current would just re-apply what is already live" 0 (__t9_arm_applydue_mzt tab)
 
 # fix round 1 (Important 3): the four previewed/note assertions above all
 # grep the FUNCTION body, not case a's own reachable span — proven
