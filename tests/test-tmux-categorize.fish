@@ -1884,8 +1884,17 @@ t "anchor palette call is 5-arg (place+mode, drops rotate)" 1 (string match -q '
 # __tcz_legend_row calls (was 2, itself "was 3" before the gallery rewrite)
 # are folded into ONE __tcz_thp_leg 3-col grid call — see the dedicated
 # section below for the row-count/content coverage that replaces this.
-set -l leglines (string match -r -- "__tcz_thp_leg .*" $pbody)
-t "legend is built via a single __tcz_thp_leg call" 1 (count $leglines)
+# picker-legibility-autoapply Task 4: the footer is now built via TWO
+# __tcz_thp_leg calls, branched on $editing (idle/editing) — this block used
+# to assume a single call. Isolate the idle-branch line (the only one that
+# still names more/shake/place/mode) via a marker unique to it, so the rest
+# of this block keeps testing exactly what it always tested; the editing
+# branch's own content is asserted against the rendered frame further down
+# (LEGI/LEGE).
+set -l leglinesall (string match -ra -- "__tcz_thp_leg .*" $pbody)
+t "legend is built via two __tcz_thp_leg calls (idle/editing)" 2 (count $leglinesall)
+set -l leglines (string match -r -- '.*more.*' $leglinesall)
+t "idle legend line isolated for the checks below" 1 (count $leglines)
 # Gallery rewrite Task 4: place/mode are no longer knobs, so the legend no
 # longer names them (m is repurposed to expand — see "legend names more").
 t "legend drops place" 0 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
@@ -2171,12 +2180,17 @@ t "leg desc muted"  1 (string match -q '*38;2;154;138;114*' -- "$L[1]"; and echo
 # malformed input (odd pair count) guard: no output
 t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
 
-# picker wiring: the legend is now ONE __tcz_thp_leg 3-col call (9 pairs),
+# picker wiring: the footer is __tcz_thp_leg 3-col calls (9 pairs idle),
 # not two fixed-pitch __tcz_legend_row calls — supersedes the pre-gallery-
 # refinement assertions below that grepped for the old call pattern.
+# picker-legibility-autoapply Task 4 split this into TWO calls branched on
+# $editing; isolate the idle-branch one (the only one the checks below were
+# ever about) the same way the $pbody block above does.
 set -l pbody2 (functions __tcz_theme_picker | string collect)
-set -l leggrid (string match -r -- "__tcz_thp_leg 3 .*" $pbody2)
-t "picker legend is a single __tcz_thp_leg 3-col call" 1 (count $leggrid)
+set -l leggridall (string match -ra -- "__tcz_thp_leg 3 .*" $pbody2)
+t "picker legend is built via two __tcz_thp_leg 3-col calls (idle/editing)" 2 (count $leggridall)
+set -l leggrid (string match -r -- '.*more.*' $leggridall)
+t "picker legend (idle branch) is a __tcz_thp_leg 3-col call" 1 (count $leggrid)
 # scoped to the two RETIRED bottom-legend calls specifically (pitch 12/9) —
 # NOT a whole-body absence check, since __tcz_theme_picker's inline seed
 # screens (b/t) still legitimately call the shared __tcz_legend_row at
@@ -2235,7 +2249,12 @@ t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string m
 # the second list now, alongside $offrow — also frame-enclosed, unchanged).
 t "current row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$currow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
 t "off row is frame-enclosed (thp_ln)" 1 (string match -q '*set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)*' -- "$pk2"; and echo 1; or echo 0)
-t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline in \(__tcz_thp_leg.*set -a lines \(__tcz_thp_ln "\$lline" \$IW \$BORDER \$RST\)' -- "$pk2"; and echo 1; or echo 0)
+# picker-legibility-autoapply Task 4: the __tcz_thp_leg call(s) now feed a
+# $leglines var branched on $editing, rather than being wrapped in the for
+# loop's own command substitution directly — match from the for loop that
+# consumes $leglines through the thp_ln emission, not from __tcz_thp_leg
+# itself (which the leggrid/leglines checks above already cover).
+t "legend rows are frame-enclosed (thp_ln)" 1 (string match -qr '(?s)for lline in \$leglines.*set -a lines \(__tcz_thp_ln "\$lline" \$IW \$BORDER \$RST\)' -- "$pk2"; and echo 1; or echo 0)
 set -l allsetlines (string match -ar 'set -a lines.*' -- "$pk2")
 t "bottom border is the last emitted line" 1 (string match -q '*╰*' -- "$allsetlines[-1]"; and echo 1; or echo 0)
 
@@ -2498,7 +2517,7 @@ t "drain restores blocking on exit" 1 (string match -q '*stty min 1 time 0*' -- 
 # coordinator flagged four earlier waves of defective assertions on this
 # branch). All five are individually CORRECT, but four of the five DUPLICATE
 # tests Tasks 4-6 already shipped: "scheme window is 11 rows" (WIN==11),
-# "picker legend is a single __tcz_thp_leg 3-col call" (the legend-cols
+# "picker legend (idle branch) is a __tcz_thp_leg 3-col call" (the legend-cols
 # check), "second list gets its own untitled zsep" (the two-untitled-rules
 # count), and "picker popup is 52x26 (modal open site)" (the height check) —
 # all above in this file. Re-adding them under new names would be bloat with
@@ -2630,6 +2649,12 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     end
     eval $DRAWTEXT9
     set -g __t9_last_lines $lines
+    # picker-legibility-autoapply Task 4: leglines is the real draw block's own
+    # legend-row array (set leglines (…) / set -a leglines … inside DRAWTEXT9,
+    # branched on $editing) — exposed the same way $lines already is, so the
+    # legend's padded row count can be asserted against what the real function
+    # actually produced rather than a second, independent __tcz_thp_leg call.
+    set -g __t9_last_leglines $leglines
     count $lines
 end
 
@@ -2795,6 +2820,42 @@ set -l frameC2raw (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9"
 set -l frameC2 (__tcz_strip_sgr "$frameC2raw")
 t "seed-zone edit render: chan=2 marks the G slider, binding the editing/chan call order" yes (string match -q '*▌G*' -- "$frameC2"; and echo yes; or echo no)
 t "seed-zone edit render: chan=2 does not mark R" no (string match -q '*▌R*' -- "$frameC2"; and echo yes; or echo no)
+
+# --- picker-legibility-autoapply Task 4: the legend tells the truth in each mode --
+# The reported "enter closes the whole picker" bug lives here, not in the
+# dispatch: case enter already gates on $editing and only clears the mode —
+# the dispatch is correct. The footer was STATIC, so while editing it kept
+# advertising ⏎ save / esc close and named none of the channel keys. ⏎
+# silently left edit mode (nothing looked saved), and a second ⏎ then saved
+# and closed for real. Asserted against the RENDERED frame (__t9_frame_text),
+# not source text — see the band/header assertions above for why a source
+# grep would not have caught this class of bug.
+set -g LEGI (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 | string collect)
+set -g LEGE (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1 | string collect)
+# __t9_frame_rows (the last call underlying LEGE, editing=1) also exposes the
+# REAL leglines array the draw block produced, via __t9_last_leglines — so
+# the row-count assertion below binds to what the implementation actually
+# emitted, not a second, independent __tcz_thp_leg call that could drift
+# from it.
+set -g LEGEROWS $__t9_last_leglines
+t "idle legend extraction is non-empty" 1 (test -n "$LEGI"; and echo 1; or echo 0)
+t "editing legend extraction is non-empty" 1 (test -n "$LEGE"; and echo 1; or echo 0)
+t "editing legend names the channel keys" 1 (string match -q '*channel*' -- "$LEGE"; and echo 1; or echo 0)
+t "editing legend names adjust" 1 (string match -q '*adjust*' -- "$LEGE"; and echo 1; or echo 0)
+t "editing legend names type hex" 1 (string match -q '*type hex*' -- "$LEGE"; and echo 1; or echo 0)
+t "editing legend says keep, not save" 1 (string match -q '*keep*' -- "$LEGE"; and echo 1; or echo 0)
+t "editing legend does not advertise close" 0 (string match -ra 'close' -- "$LEGE" | count)
+t "idle legend still advertises save and close" 1 (string match -q '*save*' -- "$LEGI"; and string match -q '*close*' -- "$LEGI"; and echo 1; or echo 0)
+t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" | count)
+
+# ⚠️ the row count is load-bearing, not cosmetic: STATIC_IDLE/STATIC_EDIT
+# (Task 3) each bake in a FIXED 3-row legend, so a legend that grows or
+# shrinks per mode silently breaks the frame's total row count, with the
+# cause hidden three sections away from the symptom. Assert it explicitly so
+# the suite enforces the constraint rather than the next person remembering
+# it.
+t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
+t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
 
 # --- Task 9: collapsing from below the header, run for real -----------------
 # Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT

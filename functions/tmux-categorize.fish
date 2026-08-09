@@ -2301,7 +2301,23 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
-        for lline in (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close)
+        # The legend follows $editing: idle advertises the browsing keys,
+        # editing advertises the seed-editing keys instead — a STATIC footer
+        # was the actual "⏎ closes the picker" bug (case enter already gated
+        # on $editing correctly), since it kept naming save/close and never
+        # the channel/adjust/hex keys while editing. Both branches must cost
+        # the SAME 3 rows: STATIC_IDLE/STATIC_EDIT (Task 3) each bake in a
+        # fixed 3-row legend, so a legend that grows or shrinks per mode
+        # silently breaks the frame's total row count. The editing set is
+        # only 5 pairs (2 rows via __tcz_thp_leg) — padded with one blank
+        # framed row rather than an invented sixth pair.
+        if test "$editing" = 1
+            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex'  '⏎' keep esc revert)
+            set -a leglines ''
+        else
+            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close)
+        end
+        for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
         end
         set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
