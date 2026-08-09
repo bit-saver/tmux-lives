@@ -4036,17 +4036,27 @@ set -g SETTLE9 (awk '/^        set -l tok$/{f=1} f && /^        switch \$tok$/{e
 t "settle branch extraction is non-empty" 1 (test -n "$SETTLE9"; and echo 1; or echo 0)
 t "settle extraction stopped at the switch, not EOF" 0 (string match -ra 'case cancel' -- "$SETTLE9" | count)
 
-# <autoapply 0|1> <token the stubbed readkey returns> -> number of applies
-# fired. eval, not source: source opens its own local scope, so a `set -l`
-# inside the extracted block would not survive the call returning. Wrapped
-# in a bounded for-loop (matching $SETTLE6's own __t6_settle harness above):
-# the extracted body's `continue` on the timeout path is only valid inside a
-# loop — a bare `eval` outside one still runs correctly (continue is the
-# last statement in that branch either way) but sprays "continue: Not
+# <autoapply 0|1> <token the stubbed readkey returns> <editing 0|1> -> number
+# of applies fired. eval, not source: source opens its own local scope, so a
+# `set -l` inside the extracted block would not survive the call returning.
+# Wrapped in a bounded for-loop (matching $SETTLE6's own __t6_settle harness
+# above): the extracted body's `continue` on the timeout path is only valid
+# inside a loop — a bare `eval` outside one still runs correctly (continue is
+# the last statement in that branch either way) but sprays "continue: Not
 # inside of loop" to stderr on every timeout pass; the loop gives it
 # something real to continue out of, same fix already adopted for the
 # picker-seed-section Task 6 harness.
-function __t9_settle_applies --argument-names autoapply tok --description 'drive the REAL settle branch (SETTLE9) with readkey/stty/reload/reanchor/autoapply_now all stubbed; flashfield/seeddirty start clear so only applydue drives the gate. Prints the number of __tcz_thp_autoapply_now calls.'
+#
+# fix round 1: this and every other harness below that stubs
+# __tcz_popup_readkey now leaves it stubbed rather than `functions -e`-ing
+# it away — that erases a real fish FUNCTION with no external-binary
+# fallback (unlike `stty`, safe to erase outright: erasing the shadow just
+# lets the real external binary answer again). The pristine original is
+# saved ONCE here, before any stub exists, and restored ONCE at the very
+# end of this whole section — the same save/eval-restore convention
+# $__t9_real_readkey/$__t6_real_readkey already use elsewhere in this file.
+set -g __t9c_real_readkey (functions __tcz_popup_readkey | string collect)
+function __t9_settle_applies --argument-names autoapply tok editing --description 'drive the REAL settle branch (SETTLE9) with readkey/stty/reload/reanchor/autoapply_now all stubbed; flashfield/seeddirty start clear so only applydue drives the gate. <editing> seeds $editing (fix round 1, Important 1): a settle must not auto-apply while the seed is mid-edit, even if applydue is still armed from before edit mode was entered. Prints the number of __tcz_thp_autoapply_now calls.'
     set -g __t9_applies 0
     set -g __t9_settletok $tok
     function __tcz_popup_readkey; echo $__t9_settletok; end
@@ -4058,20 +4068,192 @@ function __t9_settle_applies --argument-names autoapply tok --description 'drive
     set -l seeddirty 0
     set -l applydue 1
     set -l autoapply $autoapply
+    set -l editing $editing
     set -l lines one
     for _pass in 1 2 3 4 5
         eval $SETTLE9
         break
     end
-    functions -e __tcz_popup_readkey stty __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_autoapply_now
+    functions -e stty __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_autoapply_now
     echo $__t9_applies
 end
 
 # One settle applies exactly once; a key arriving first applies zero times.
-t "settle with autoapply armed applies once" 1 (__t9_settle_applies 1 timeout)
-t "a key arriving before the timeout applies zero times" 0 (__t9_settle_applies 1 down)
-t "settle with autoapply off applies zero times" 0 (__t9_settle_applies 0 timeout)
-t "two consecutive settles do not stack applies" 1 (__t9_settle_applies 1 timeout)
+t "settle with autoapply armed applies once" 1 (__t9_settle_applies 1 timeout 0)
+t "a key arriving before the timeout applies zero times" 0 (__t9_settle_applies 1 down 0)
+t "settle with autoapply off applies zero times" 0 (__t9_settle_applies 0 timeout 0)
+# fix round 1 (Important 1): reproduced live by driving the real extracted
+# arms back to back — ↓ arms applydue (editing=0), b enters edit mode
+# WITHOUT clearing it, → nudges a channel (seeddirty=1, editing stays 1),
+# then the settle fired with editing still 1 and pushed the mid-edit,
+# uncommitted seed to the real bar. Gated on the CONSUMER (here), not the
+# arm site (case b) — a stale applydue can already be sitting armed the
+# moment b runs, which gating the arm site would not catch. Configuration
+# (dragging a seed slider) must never reach the real bar; only settling on
+# a row may.
+t "settle armed but mid-edit (editing=1) applies zero times" 0 (__t9_settle_applies 1 timeout 1)
+
+# Minor 1 fix round: the old duplicate call here reset $__t9_applies to 0 and
+# ran a single eval-then-break pass in a FRESH function scope every time, so
+# it could never observe anything carrying over between two settles. This
+# drives TWO settles back to back in ONE scope, re-arming applydue between
+# them, and checks the cumulative apply count after each pass plus that
+# applydue itself reads back cleared both times — a re-armed dwell applies
+# again exactly once and is never left stuck armed.
+function __t9_settle_stack --description 'drive the REAL settle branch twice in one scope, re-arming applydue between passes, to prove a re-armed dwell applies again exactly once and never stacks. Prints "<applies after pass 1> <applydue after pass 1> <applies after pass 2> <applydue after pass 2>".'
+    set -g __t9_applies 0
+    set -g __t9_settletok timeout
+    function __tcz_popup_readkey; echo $__t9_settletok; end
+    function stty; end
+    function __tcz_thp_reload; end
+    function __tcz_thp_reanchor; end
+    function __tcz_thp_autoapply_now; set -g __t9_applies (math $__t9_applies + 1); end
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l applydue 1
+    set -l autoapply 1
+    set -l editing 0
+    set -l lines one
+    for _pass in 1 2 3 4 5
+        eval $SETTLE9
+        break
+    end
+    set -l after1 $__t9_applies
+    set -l ad1 $applydue
+    set applydue 1
+    for _pass in 1 2 3 4 5
+        eval $SETTLE9
+        break
+    end
+    set -l after2 $__t9_applies
+    set -l ad2 $applydue
+    functions -e stty __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_autoapply_now
+    printf '%s %s %s %s\n' $after1 $ad1 $after2 $ad2
+end
+set -g STACK9 (__t9_settle_stack)
+set -g stackf9 (string split ' ' -- "$STACK9")
+t "first settle in a re-armed sequence applies once"                            1 "$stackf9[1]"
+t "applydue is cleared after the first settle"                                  0 "$stackf9[2]"
+t "second settle in a re-armed sequence applies exactly once more, not stacked" 2 "$stackf9[3]"
+t "applydue is cleared after the second settle too"                            0 "$stackf9[4]"
+
+# The re-arm-and-repeat pair above does NOT actually discriminate clear-
+# before-apply from clear-after-apply — checked directly: with a SYNCHRONOUS
+# stub, `set applydue 0; call` and `call; set applydue 0` leave IDENTICAL
+# observable state once the settle branch returns (applies+1, applydue=0),
+# no matter how many times the sequence repeats, because there is no point
+# in a single-threaded eval where anything else can observe the in-between
+# state. Proven by mutating the real source to clear AFTER the apply and
+# re-running the whole suite (including the pair above): ALL PASS, exactly
+# the false confidence the brief warned about. The only way to actually see
+# the ordering is to look INSIDE the apply call, at the instant it runs, for
+# whether applydue has already been cleared — which needs the stub itself to
+# share the caller's scope. __no-scope-shadowing on the STUB (not just the
+# real function) is what makes that possible: called this way, `$applydue`
+# inside the stub IS the caller's live variable, not a copy.
+function __t9_clear_order --description 'stub __tcz_thp_autoapply_now with --no-scope-shadowing (so it reads the callers live $applydue, not a copy) and record its value at the instant the settle branch invokes it. Prints that recorded value.'
+    set -g __t9_applydue_at_call unset
+    function __tcz_popup_readkey; echo timeout; end
+    function stty; end
+    function __tcz_thp_reload; end
+    function __tcz_thp_reanchor; end
+    function __tcz_thp_autoapply_now --no-scope-shadowing
+        set -g __t9_applydue_at_call $applydue
+    end
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l applydue 1
+    set -l autoapply 1
+    set -l editing 0
+    set -l lines one
+    for _pass in 1 2 3 4 5
+        eval $SETTLE9
+        break
+    end
+    functions -e stty __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_autoapply_now
+    echo $__t9_applydue_at_call
+end
+t "applydue is already cleared by the time the apply runs, not after" 0 (__t9_clear_order)
+
+# fix round 1 (Important 2): the movement arm's own `set applydue 1` was
+# bound by NOTHING — deleting it left 8/8 ALL PASS, install 635 (the same
+# "correct line bound by nothing" class the Task 3 review already found
+# once in this file: eyes are not a test). A SIBLING to $__t9_arrow, not a
+# rewrite: reuses $ARROW9WRAP (already extracted and proven non-empty
+# earlier in this file) and reports ONLY applydue, so none of __t9_arrow's
+# own ~15 whole-string assertions can move.
+function __t9_arm_applydue --argument-names tok focus editing --description 'eval the REAL up/down/pgup/pgdn + left/right dispatch (via $ARROW9WRAP) against a throwaway scope seeded with one real catalog recipe, and report ONLY whether it armed applydue.'
+    set -l chan 1
+    set -l seed '#000000'
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l sel 0
+    set -l sel2 0
+    set -l n 3
+    set -l WIN 5
+    set -l applydue 0
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l recipes 'mono|bar|derived'
+    set -l pals 'stale stale stale stale stale stale stale'
+    set -l fgs '#000000'
+    set -l tabsfgs '#000000'
+    set -l focus $focus
+    set -l editing $editing
+    set -l tok $tok
+    function __tcz_popup_readkey; echo other; end
+    function stty; end
+    eval $ARROW9WRAP
+    functions -e stty
+    echo $applydue
+end
+t "idle down, focus=list arms the dwell"  1 (__t9_arm_applydue down list  0)
+t "idle down, focus=state arms the dwell" 1 (__t9_arm_applydue down state 0)
+t "idle pgdn arms the dwell"              1 (__t9_arm_applydue pgdn list  0)
+# Also Important 1's own guard, worth having regardless: editing mode's
+# arrows are channel-select / seed-slider, never list movement, so the arm
+# site itself must never set applydue there — the only way it survives into
+# edit mode is as a stale carry-over from before b was pressed, which the
+# settle-branch gate above (not this arm) is responsible for catching.
+t "editing down (channel select) does not arm the dwell" 0 (__t9_arm_applydue down list 1)
+t "editing right (slider) does not arm the dwell"         0 (__t9_arm_applydue right list 1)
+
+# fix round 1 (Important 3): the four previewed/note assertions above all
+# grep the FUNCTION body, not case a's own reachable span — proven
+# insufficient with two one-token mutations, neither of which touches the
+# function's own text: (a) replacing case a's body with `true` (the `a` key
+# silently dead) and (b) dropping `--no-scope-shadowing` off
+# __tcz_thp_autoapply_now's definition (both `a` and auto-apply become
+# erroring no-ops, since the function then gets its own fresh scope and
+# can no longer reach the caller's $focus/$sel/$previewed/$note at all).
+t "case a calls __tcz_thp_autoapply_now" 1 (string match -qr '(?ms)^ *case a$\n *__tcz_thp_autoapply_now$' -- "$PB9"; and echo 1; or echo 0)
+# Behavioural, not another grep: eval the REAL extracted function body
+# ($aabody, from the "current is a live-state readout" section above) and
+# call it for real, with fish/__tcz_tab_color/__tcz_recolor stubbed so no
+# subprocess or live OSC emission actually fires. Checking that $previewed/
+# $note change IN THE CALLER'S OWN SCOPE is what only --no-scope-shadowing
+# makes possible — without it this whole block still runs, but previewed
+# and note stay exactly as seeded (previewed 0 vs error, both wrong).
+function fish; end
+function __tcz_tab_color; echo ''; end
+function __tcz_recolor; end
+eval $aabody
+set -l focus list
+set -l sel 0
+set -l seed '#5f772b'
+set -l phase 0
+set -l recipes 'mono|bar|derived'
+set -l previewed 0
+set -l note ''
+__tcz_thp_autoapply_now
+t "calling the real autoapply_now changes previewed in the caller (proves --no-scope-shadowing)" 1 "$previewed"
+t "calling the real autoapply_now changes note in the caller too" 1 (test -n "$note"; and echo 1; or echo 0)
+functions -e __tcz_thp_autoapply_now fish __tcz_tab_color __tcz_recolor
+
+# Minor 2 fix round: restore the PRISTINE original, not a stub — every
+# harness above left __tcz_popup_readkey stubbed rather than erasing it.
+eval $__t9c_real_readkey
 
 
 if test $FAIL -eq 0

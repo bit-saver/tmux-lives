@@ -2434,8 +2434,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # otherwise stack). Only actually applies when the
                     # toggle is on; the flag is cleared either way, matching
                     # seeddirty's own always-cleared-on-settle shape above.
+                    # fix round 1 (Important 1): also gated on editing != 1
+                    # here, not at case b where applydue is armed — a stale
+                    # applydue can still be sitting armed when b is pressed
+                    # within the dwell window (arrow, then b, then a channel
+                    # nudge, all inside 500ms), and gating the ARM site would
+                    # miss that: the settle fires later, still inside edit
+                    # mode, with the flag already set from before b was ever
+                    # pressed. Gating the CONSUMER instead covers every path
+                    # into edit mode (b, t/hexentry, any future one) with one
+                    # check, and while editing arrows are channel-select, so
+                    # applydue can only ever be a stale carry-over there —
+                    # dragging a seed slider must never push the mid-edit,
+                    # uncommitted seed to the real bar.
                     set applydue 0
-                    test "$autoapply" = 1; and __tcz_thp_autoapply_now
+                    test "$autoapply" = 1; and test "$editing" != 1; and __tcz_thp_autoapply_now
                 end
                 continue
             end
