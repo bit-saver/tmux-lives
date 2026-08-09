@@ -445,9 +445,9 @@ Expected: the five editing-legend assertions fail, because the editing frame cur
 
 ⚠️ **Both legends must occupy the same number of rows, and this task must not change that number.** `STATIC_IDLE` and `STATIC_EDIT` from Task 3 each account for a fixed legend height, so a legend that grows breaks the frame in both modes with the cause hidden three sections away.
 
-Measured: `__tcz_thp_leg 3` lays out three pairs per row, and the browsing legend's **10 pairs produce 3 rows**. The editing set above is 5 pairs, which produces 2. **Pad the editing legend to 3 rows.**
+Measured: `__tcz_thp_leg 3` lays out three pairs per row, and the browsing legend's **9 pairs produce 3 rows**. The editing set above is 5 pairs, which produces 2. **Pad the editing legend to 3 rows.**
 
-Do NOT add `A auto` here. It is the eleventh pair, **11 pairs produce 4 rows**, and that extra row belongs to Task 5 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
+Do NOT add `A auto` here. It is the tenth pair, and **10 pairs produce 4 rows**, and that extra row belongs to Task 5 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
 
 ```fish
 t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
@@ -553,9 +553,9 @@ Arm the dwell by setting a pending flag on every movement arm that lands on a ne
 
 - [ ] **Step 5: Add `A auto` to the browsing legend — and pay for the row it costs**
 
-Add `A auto` as the eleventh pair of the browsing legend, so the toggle has visible feedback showing its current state.
+Add `A auto` as the tenth pair of the browsing legend, so the toggle has visible feedback showing its current state.
 
-⚠️ **This adds a legend row, and `STATIC` must move with it.** Measured: 10 pairs render 3 rows, 11 pairs render 4. Task 4 deliberately left `A auto` out and asserted 3 rows precisely so this cost lands here, in the task that causes it.
+⚠️ **This adds a legend row, and `STATIC` must move with it.** Measured: **9 pairs render 3 rows, 10 pairs render 4.** The shipped browsing legend has 9, so `A auto` is the tenth and tips it. Task 4 deliberately left it out and asserted 3 rows precisely so this cost lands here, in the task that causes it.
 
 So this step also:
 1. Bumps `STATIC_IDLE` 16 → **17** and `STATIC_EDIT` 21 → **22**.
