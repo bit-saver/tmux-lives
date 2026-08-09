@@ -2557,13 +2557,38 @@ t "editing static is 21" 21 "$STATIC9E"
 # expanded catalog must stay VISIBLE, and sel itself must not be moved to
 # achieve it — the window scrolls, the cursor does not.
 # window <sel> <total> <winsize> -> "<start> <count>"
-set -g CLAMPI (__tcz_thp_window 30 36 31)   # idle:    WIN 52-16 = 36 -> 31 usable
-set -g CLAMPE (__tcz_thp_window 30 36 31)
 set -g WI (string split ' ' -- (__tcz_thp_window 30 36 (math "52 - $STATIC9I")))
 set -g WE (string split ' ' -- (__tcz_thp_window 30 36 (math "52 - $STATIC9E")))
 t "idle window keeps sel=30 visible"    1 (test 30 -ge $WI[1] -a 30 -lt (math "$WI[1] + $WI[2]"); and echo 1; or echo 0)
 t "editing window keeps sel=30 visible" 1 (test 30 -ge $WE[1] -a 30 -lt (math "$WE[1] + $WE[2]"); and echo 1; or echo 0)
 t "the two windows differ (the zone really costs rows)" 1 (test "$WI[2]" != "$WE[2]"; and echo 1; or echo 0)
+
+# --- picker-legibility-autoapply Task 3, review fix round: the open-time floor
+# must guard BOTH modes, not just the one the picker opens in --------------
+# Gating on STATIC_IDLE alone admits rows 19-20 (idle's WIN is comfortably >=3
+# there), but pressing b immediately recomputes WIN against STATIC_EDIT and
+# goes negative — the window and padding math both collapse and the frame
+# overflows a 19- or 20-row popup, scrolling its own top border away. The
+# real fix has to be read out of the source, not re-implemented: extract the
+# real floor-check block (BEGIN/END floor-check) and eval it with rows/
+# STATIC_IDLE/STATIC_EDIT seeded from the STATIC9I/STATIC9E extraction above,
+# for real popup heights.
+set -g FLOORBLOCK9 (string match -r '# BEGIN floor-check(.|\n)*?# END floor-check' -- "$SLB" | string collect)
+t "floor-check extraction is non-empty" 1 (test -n "$FLOORBLOCK9"; and echo 1; or echo 0)
+function __t9_floor --argument-names rows --description 'eval the REAL open-time floor-check block (BEGIN/END floor-check, extracted from __tcz_theme_picker) against the given popup height, with STATIC_IDLE/STATIC_EDIT seeded from the real STATIC9I/STATIC9E source extraction. saved is seeded empty (stty "" 2>/dev/null errors quietly to /dev/null — harmless, since only the admit/reject signal matters, not the terminal-restore side effect). The evald block itself is stdout-redirected to /dev/null so its own "window too short" printf (a real, intentional side effect of the reject path) does not leak into the captured result — only the echo below, OUTSIDE the redirected eval, is what the caller sees. Prints "admit" if the block falls through (the picker would open); prints nothing if it return 0s (the picker would refuse to open, exactly like the real too-short bail) — a bare `return` inside an evald block returns from the enclosing function, same as if it were written here directly.'
+    set -l saved ''
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
+    eval $FLOORBLOCK9 >/dev/null
+    echo admit
+end
+# The direct discriminator: at rows 19/20/23 the OLD (STATIC_IDLE-only) gate
+# admits, which is the bug — pressing b at those sizes then overflows. Rows 24
+# is the restored pre-Task-3 floor (STATIC_EDIT + 3) and must still admit.
+t "floor: rows 19 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 19)
+t "floor: rows 20 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 20)
+t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
+t "floor: rows 24 is admitted (the restored pre-Task-3 threshold)" admit (__t9_floor 24)
 
 function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
     set -l BORDER (__tcz_theme border)
@@ -2727,6 +2752,18 @@ t "frame: 40 rows editing"   40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0
 t "frame: 52 rows idle"      52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 0 1)
 t "frame: 52 rows editing"   52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 1 1)
 t "frame: 24 rows editing (the floor)" 24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24 1 1)
+
+# --- review fix round: rows 19/20 editing, supplementary evidence -----------
+# NOT a discriminator for the open-time floor fix (the floor check lives
+# OUTSIDE this draw-only extraction — see the FLOORBLOCK9/__t9_floor tests
+# above, which are the real before/after proof). This is a fixed structural
+# fact of the widget instead, unchanged by the floor fix either way: below
+# STATIC_EDIT, editing's window AND padding math both go negative, so the
+# frame collapses to exactly STATIC_EDIT (21) rows regardless of how far
+# under it <rows> falls — which is exactly why the floor above must refuse
+# these sizes rather than let the picker ever reach them.
+t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
+t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.
@@ -3152,6 +3189,26 @@ function __t9_esc_win --description 'eval the REAL edit-esc arm with WIN seeded 
     echo $WIN
 end
 t "esc while editing recomputes WIN (not left stale)" (math "26 - $STATIC9I") (__t9_esc_win)
+
+# review fix round: the identical hole existed at the THIRD mode-change site,
+# case enter's editing branch (⏎ while editing) — found not by a test but by
+# re-reading the diff, which is not a substitute for one. None of the 28
+# `eval $…` sites in this file extracted that sub-range, so nothing would
+# have caught it: commenting out its WIN recompute left both this suite and
+# test-tmux-install.fish fully green. Same extraction technique as case b/esc
+# — BEGIN/END markers around just the editing=1 branch (not the else, which
+# ends in `break` and cannot be eval'd standalone outside a loop).
+set -g ENTERBODY9 (string match -r '# BEGIN enter-edit(.|\n)*?# END enter-edit' -- "$SLB" | string collect)
+t "enter-edit arm extraction is non-empty" 1 (test -n "$ENTERBODY9"; and echo 1; or echo 0)
+function __t9_enter_win --description 'eval the REAL enter-while-editing arm (BEGIN/END enter-edit) with WIN seeded to a sentinel, to prove it recomputes rather than leaving WIN stale — same sentinel technique as case b/esc above. Prints the resulting $WIN.'
+    set -l editing 1
+    set -l rows 26
+    set -l STATIC_IDLE $STATIC9I
+    set -l WIN 0
+    eval $ENTERBODY9
+    echo $WIN
+end
+t "enter while editing recomputes WIN (not left stale)" (math "26 - $STATIC9I") (__t9_enter_win)
 
 # --- Task 5: typed hex is framed ------------------------------------------------
 # The picker opens with display-popup -B, so tmux draws NO border; every screen

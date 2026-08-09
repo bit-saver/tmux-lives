@@ -1517,7 +1517,7 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
-function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — MODE-DEPENDENT height: 3 rows idle, 8 rows editing (picker-legibility-autoapply Task 3, replacing the earlier FIXED-8 design the user reviewed live and rejected — compact idle, roomy editing, the scheme list below is allowed to move on b). Row 1 is the zone separator (label seed). Rows 2-3 are a 2-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip; 2 rows over ~12 cols reads roughly square, terminal cells running about 2:1) — row 2 carries the bold hex + muted hue/L/C readouts to its right (the row already had empty space there), row 3 is block only. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text. Every row is exactly w+2 visible cols, border glyphs included (like __tcz_thp_zsep/__tcz_thp_ln); rows 1-3 are IDENTICAL in both states. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
+function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — MODE-DEPENDENT height: 3 rows idle, 8 rows editing (picker-legibility-autoapply Task 3, replacing the earlier FIXED-8 design the user reviewed live and rejected — compact idle, roomy editing, the scheme list below is allowed to move on b). Row 1 is the zone separator (label seed). Rows 2-3 are a 2-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip; 2 rows over ~12 cols reads roughly square, terminal cells running about 2:1) — row 2 carries the bold hex + muted hue/L/C readouts to its right (the row already had empty space there), row 3 is block only. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text. Rows 1 and 3-8 honour w exactly (w+2 visible cols, border glyphs included, like __tcz_thp_zsep/__tcz_thp_ln — __tcz_thp_ln pads SHORT content but never truncates). Row 2 does NOT: its content is a FIXED 12-col block + 2 + a 7-char hex + 2 + the hue/L/C readout, which comes to exactly 50 visible columns at the example values — so row 2 only honours w at w >= 50 (below that it overflows w+2, same class of bug the old fixed-8-row version already had). rows 1-3 are IDENTICAL in both states. The only caller passes w=50 (IW), so this is not reachable today. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
     set -l BORDER (__tcz_theme border)
     set -l RST (__tcz_theme reset)
     set -l MUT (__tcz_theme muted)
@@ -1652,7 +1652,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 21 static chrome/seed-zone/second-list/legend rows + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - 21, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 16 static chrome/seed-zone/second-list/legend rows idle, 21 editing (the seed zone is 3 rows idle / 8 editing; see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -2027,30 +2027,46 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # editing (see __tcz_thp_seedzone) — the user reviewed the earlier FIXED
     # 8-row zone live and chose a compact idle zone (more schemes visible) over
     # a scheme list that never moves, accepting that the window shrinks when b
-    # is pressed. So the static row budget is mode-dependent too. The old zone
-    # was 8 rows inside a STATIC of 21: idle 21 − 8 + 3 = 16, editing
-    # 21 − 8 + 8 = 21 (unchanged — the editing zone is still 8 rows).
-    # The seed zone is 3 rows idle and 8 editing (see __tcz_thp_seedzone), so the
-    # static row count depends on mode. Both names are read directly by the frame
-    # proof, which derives its own WIN from them rather than restating a literal —
-    # a wrong value here used to keep the whole gate green while the frame
-    # overflowed the popup and scrolled its own top border away.
+    # is pressed. So the static row budget is mode-dependent too: the old zone
+    # was 8 rows inside a STATIC of 21, so idle is 21 − 8 + 3 = 16 and editing
+    # stays 21 − 8 + 8 = 21 (unchanged — the editing zone is still 8 rows).
+    # Both names are read directly by the frame proof, which derives its own
+    # WIN from them rather than restating a literal — a wrong value here used
+    # to keep the whole gate green while the frame overflowed the popup and
+    # scrolled its own top border away.
     set -l STATIC_IDLE 16
     set -l STATIC_EDIT 21
     set -l dims (stty size 2>/dev/null | string split ' ')
     set -l rows 26
     test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
     # The picker always OPENS idle (editing is 0 above, before this block runs),
-    # so the open-time floor check is always against STATIC_IDLE — the same
-    # value the b/enter/esc arms below fall back to when they leave edit mode.
+    # so the initial WIN (what the first, idle draw actually uses) is computed
+    # from STATIC_IDLE — the same value the b/enter/esc arms below fall back to
+    # when they leave edit mode.
     set -l WIN (math "$rows - $STATIC_IDLE")
-    if test $WIN -lt 3
-        # Too short to draw a usable list. Say so plainly rather than rendering a
-        # frame that overflows and scrolls its own top border away.
-        printf '\e[2J\e[H tmux-lives: window too short for the theme picker\n (needs %s rows, has %s)\n' (math "$STATIC_IDLE + 3") $rows
+    # BEGIN floor-check
+    # The OPEN-TIME ADMISSION gate must guard the STRICTER of the two modes,
+    # not the one the picker happens to open in: gating on STATIC_IDLE alone
+    # admits rows 19-20 (idle's WIN is a comfortable 3-4 there), but the first
+    # b press recomputes WIN against STATIC_EDIT and goes NEGATIVE — the
+    # windowed list draws zero rows and no padding branch can help (both the
+    # window count and the padding delta come out negative too), so the frame
+    # collapses to exactly the STATIC_EDIT row count regardless of how far
+    # under it rows falls, overflowing a 19- or 20-row popup and scrolling its
+    # own top border away — the exact defect this task's own brief names.
+    # Checking the floor against STATIC_EDIT instead guarantees the frame
+    # fits in BOTH modes before the picker ever opens, and costs nothing: it
+    # restores the pre-Task-3 admission threshold EXACTLY (rows >= 24, since
+    # STATIC_EDIT 21 is what the single STATIC constant used to be).
+    if test (math "$rows - $STATIC_EDIT") -lt 3
+        # Too short to draw a usable list in either mode. Say so plainly
+        # rather than rendering a frame that overflows and scrolls its own
+        # top border away.
+        printf '\e[2J\e[H tmux-lives: window too short for the theme picker\n (needs %s rows, has %s)\n' (math "$STATIC_EDIT + 3") $rows
         stty $saved 2>/dev/null
         return 0
     end
+    # END floor-check
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -2127,13 +2143,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
         set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
-        # picker-seed-section Task 3: the seed is a FIXED 8-row section (zsep +
-        # 4-row swatch + 3 readout/slider rows), not the old single zsep+row —
-        # see __tcz_thp_seedzone. Task 4 wires the real in-place edit-mode
-        # toggle (editing/chan below), so this call now passes the live
-        # state instead of a literal 0/1. hue/L/C and r/g/b are recomputed
-        # from $seed every redraw (in-process fish math, no subprocess
-        # spawn) — Task 3's own point in doing this was that the edit-mode
+        # picker-legibility-autoapply Task 3: the seed is a MODE-DEPENDENT
+        # section — 3 rows idle (zsep + 2-row colour block with the hex/hue/L/C
+        # readouts beside it), 8 rows editing (the same 3 + a blank + the 3
+        # R/G/B sliders + a blank) — see __tcz_thp_seedzone. This call passes
+        # the live editing/chan state (picker-seed-section Task 4's wiring).
+        # hue/L/C and r/g/b are recomputed from $seed every redraw (in-process
+        # fish math, no subprocess spawn) — the point in doing this is that the edit-mode
         # flip needs no extra plumbing here, and that holds: a ←→ channel
         # move (below) mutates $seed itself, and this block picks it up on
         # the very next redraw. The zone arrives already framed (zsep +
@@ -2157,10 +2173,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # (current + off) is pinned below, always drawn. sel can never exceed
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
         # clamp for an off/anchor cursor position — that clamp is dead, removed.
-        # The frame is 21 static rows (border/chip/preview/seed-zone[zsep+
-        # swatch×4+3 readout-or-slider rows]/schemes-zsep/second-list-zsep/
-        # current/off/blank-zsep/legend×3/note/bottom-border) + WIN scheme
-        # rows = rows (the popup's own reported height, see STATIC above).
+        # The frame is STATIC_IDLE (16) or STATIC_EDIT (21) static rows
+        # (border/chip/preview/seed-zone[zsep+3-or-8 rows, mode-dependent]/
+        # schemes-zsep/second-list-zsep/current/off/blank-zsep/legend×3/note/
+        # bottom-border) + WIN scheme rows = rows (the popup's own reported
+        # height, see STATIC_IDLE/STATIC_EDIT above).
         # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
         # SCHEMES only, so it can never land on the header and vismap needs no change:
         # stepping over it falls out of the model instead of being a special case that
@@ -2211,7 +2228,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
             end
         end
-        # WIN is now derived from the popup's own height (see STATIC/rows above), so
+        # WIN is derived from the popup's own height and mode (see
+        # STATIC_IDLE/STATIC_EDIT/rows above), so
         # it routinely exceeds the list — __tcz_thp_window returns "0 <total>" (fewer
         # than WIN rows) whenever total <= WIN, and the loop above then draws fewer
         # than WIN rows with nothing to fill the rest. Pad with blank framed rows so
@@ -2597,6 +2615,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
             case enter
                 if test "$editing" = 1
+                    # BEGIN enter-edit
                     # ⏎ while editing keeps the change and leaves edit mode —
                     # nothing more to do: every ←→ move already committed
                     # straight into $seed, so there is no staged value to
@@ -2607,6 +2626,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # comment for why this recompute (not a $sel adjustment) is
                     # what keeps the selection visible.
                     set WIN (math "$rows - $STATIC_IDLE")
+                    # END enter-edit
                 else
                     if test $focus = state
                         if test $sel2 -eq 0
