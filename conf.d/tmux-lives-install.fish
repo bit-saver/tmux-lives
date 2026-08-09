@@ -128,7 +128,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # every knob is a live-tunable @option so `tmux set -g @tmux_lives_*` retints with no re-render.
     # claude windows render like any other (coloring removed 2026-07-21; the ✦ presence mark remains)
     set -a f "set -g window-status-format '#W'"
-    set -a f "set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_text_fg}]#W#[fg=default]#[nobold]'"
+    # picker-legibility-autoapply Task 6: active was computed on every apply
+    # and pushed to @tmux_lives_active_fg, but nothing read it — it rendered
+    # nowhere in any session. The current window is exactly what it was
+    # evidently meant to colour; text_fg keeps its own consumer (centre
+    # identity, below).
+    set -a f "set -g window-status-current-format '#[bold]#[fg=#{@tmux_lives_active_fg}]#W#[fg=default]#[nobold]'"
     set -a f "set -g window-status-separator ' #[fg=#{@tmux_lives_sep_fg}]•#[fg=default] '"
     # cap/accent colors. Themed: bar/cap are gradient samples. Legacy (theme off / no usable
     # seed): bar bg = the ShellFish-derived status bg; the cap is a flat neutral (the v2
@@ -152,9 +157,9 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     if test $themed -eq 1
         set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep = accent-ring sample; the • separators
         set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = kin of bar+cap (v3.3); Phase 2 wires ShellFish OSC
-        set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; provisional use
+        set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; the current window's name
         set -a f "set -g @tmux_lives_mark_fg '$seedhex'"          # the ✦ mark = the seed's home base
-        set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; current window + centre identity
+        set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; centre identity
     else
         set -a f "set -g @tmux_lives_sep_fg default"
         set -a f "set -g @tmux_lives_tabs_color ''"

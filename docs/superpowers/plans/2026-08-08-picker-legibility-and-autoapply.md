@@ -31,11 +31,11 @@
 
 | File | Responsibility | Tasks |
 |---|---|---|
-| `functions/tmux-categorize.fish` | every picker builder and the interactive loop | 1, 2, 3, 4, 5, 6, 7 |
-| `conf.d/tmux-lives-install.fish` | the `window-status-current-format` line | 7 |
-| `tests/test-tmux-categorize.fish` | picker assertions, the frame proof | 1, 2, 3, 4, 5, 6, 7 |
-| `tests/test-tmux-install.fish` | fragment assertions | 7 |
-| `README.md`, `CLAUDE.md` | docs | 8 |
+| `functions/tmux-categorize.fish` | every picker builder and the interactive loop | 1, 2, 3, 4, 5, 6 |
+| `conf.d/tmux-lives-install.fish` | the `window-status-current-format` line | 6 |
+| `tests/test-tmux-categorize.fish` | picker assertions, the frame proof | 1, 2, 3, 4, 5, 6 |
+| `tests/test-tmux-install.fish` | fragment assertions | 6 |
+| `README.md`, `CLAUDE.md` | docs | 7 |
 
 ---
 
@@ -60,7 +60,7 @@
 | 6 | 2 | `sep` | 1 |
 | 7 | 7 | `text` | 1 |
 
-`tabs` leads because it covers roughly 1.8× the area of `bar` on the user's screen. `active` is dropped because `@tmux_lives_active_fg` is pushed on every apply and no format string reads it — Task 7 wires it and adds its cell back.
+`tabs` leads because it covers roughly 1.8× the area of `bar` on the user's screen. `active` is dropped because `@tmux_lives_active_fg` is pushed on every apply and no format string reads it — Task 6 wires it and adds its cell back.
 
 ⚠️ **The existing `▇`-count assertion will pass unchanged and prove nothing.** Inked cells go 14 → 14 (5+4+2+1+1+1), because the fifteenth column is the blank gap. Only the *width* moves. Assert width and per-role runs; do not lean on the glyph count.
 
@@ -91,7 +91,7 @@ set -g W1SEQ (string join ' ' (string match -ra '38;2;[0-9]+;[0-9]+;[0-9]+' -- "
 t "strip: role order is tabs bar cap windows sep text" \
   "38;2;3;3;3 38;2;1;1;1 38;2;6;6;6 38;2;5;5;5 38;2;2;2;2 38;2;7;7;7" "$W1SEQ"
 t "strip: active (#040404) is absent" 0 (string match -ra '38;2;4;4;4' -- "$W1" | count)
-t "strip: exactly one blank tier column" 1 (string match -ra '  ' -- "$W1V" | count)
+t "strip: exactly one blank tier column" 1 (string match -ra ' ' -- "$W1V" | count)
 ```
 
 - [ ] **Step 2: Run and confirm the right things fail**
@@ -202,9 +202,12 @@ set -g BANDROW (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 | string m
 t "band row extraction is non-empty" 1 (test -n "$BANDROW"; and echo 1; or echo 0)
 set -g BANDVIS (__tcz_strip_sgr "$BANDROW")
 t "selected row is exactly the inner width plus both borders" 52 (string length --visible -- "$BANDVIS")
-# sel-bg must still be the active background when the final inner column is drawn:
-# no reset may appear between the last content and the closing border.
-t "band survives to the right border" 0 (string match -ra '\e\[0m│' -- "$BANDROW" | count)
+# sel-bg must still be the active background when the final inner column is drawn.
+# NB the signature to look for is a reset followed by PADDING, not a reset
+# followed by the border glyph: __tcz_thp_ln's printf emits the border SGR
+# immediately before the closing border, so a reset can never sit directly
+# against it and that form of the assertion is unsatisfiable at both ends.
+t "band survives to the right border" 0 (string match -ra '\e\[0m ' -- "$BANDROW" | count)
 ```
 
 Mutation-check this: revert Step 4 only, confirm `band survives to the right border` fails, restore, confirm it passes.
@@ -286,33 +289,21 @@ Emit row 1 with `__tcz_thp_zsep $w seed $BORDER $RST`. Build the two block rows 
 
 Guard the non-hex case: a seed that fails to parse must still emit 3 or 8 rows of the right width, with a blank block.
 
-- [ ] **Step 4: Run the full gate and commit**
+- [ ] **Step 4: Do NOT commit yet — the gate is red until `STATIC` follows**
 
-The picker call site still passes literal `0` for `editing`, so the zone renders idle and the frame is 5 rows short of the popup. **The frame proof will fail here, and that is expected** — Task 4 fixes `STATIC`. Commit anyway so the two changes stay reviewable apart, and say plainly in your report which frame assertions fail and why.
+Changing the zone from 8 rows to 3 leaves the frame 5 rows short of the popup, so the frame proof fails. That is correct and expected: the zone height and `STATIC` are one change, and this plan never commits a red gate. Continue straight into Step 5. Record which frame assertions failed here, because that failure is your evidence the zone really moved.
 
-```bash
-git commit -m "feat(picker): seed zone is 3 rows idle, 8 editing"
-```
+**Additionally modify, from Step 5 on:** `functions/tmux-categorize.fish` — `set -l STATIC 21` (2004), the `WIN` derivation (2008), the seed-zone call site, the key dispatch's mode changes; and `tests/test-tmux-categorize.fish` — `__t9_frame_rows` and the frame assertions.
 
----
+**`STATIC` becomes 16 idle and 21 editing.** `WIN = rows − STATIC`. The draw must emit exactly `rows` lines in both states.
 
-### Task 4: Mode-dependent `STATIC`, and a harness that reads it
-
-**Files:**
-- Modify: `functions/tmux-categorize.fish` — `set -l STATIC 21` (2004), the `WIN` derivation (2008), the seed-zone call site, the key dispatch's mode changes
-- Test: `tests/test-tmux-categorize.fish` — `__t9_frame_rows` and the frame assertions
-
-**Interfaces:**
-- Consumes: the 3/8-row zone from Task 3.
-- Produces: `STATIC` is 16 idle and 21 editing. `WIN = rows − STATIC`. The draw emits exactly `rows` lines in both states.
-
-**These two numbers are not final.** Task 6 adds an eleventh legend pair, which costs a legend row and raises them to 17 and 22. They are correct as of this task, and Task 6 owns the change. Do not pre-empt it here — the frame assertions you write now must pass at 16/21.
+**These two numbers are not final.** Task 5 adds an eleventh legend pair, which costs a legend row and raises them to 17 and 22. They are correct as of this task, and Task 5 owns the change. Do not pre-empt it here — the frame assertions you write now must pass at 16/21.
 
 **The arithmetic.** The old zone was 8 rows inside a `STATIC` of 21. Idle: `21 − 8 + 3 = 16`. Editing: `21 − 8 + 8 = 21`. On a 52-row popup that shows **36 schemes idle** and 31 editing, against 31 today.
 
 ⚠️ **`STATIC` is currently bound by no test.** It lives *above* the frame proof's extraction range (`awk '/set -l curpal/,/╰/'`), and `__t9_frame_rows` restates the number instead of reading it. Changing 21 to 20 keeps all eight suites green while the frame overflows its popup and scrolls the top border away — the 2026-07-14 defect. The previous plan claimed the frame proof was this number's authority; it was not. **Fix that first, in Step 1, before touching the source.**
 
-- [ ] **Step 1: Make the harness read `STATIC` from the source**
+- [ ] **Step 5: Make the harness read `STATIC` from the source**
 
 ```fish
 # The frame proof must derive WIN from the REAL STATIC, not restate it.
@@ -331,11 +322,11 @@ t "editing static is 21" 21 "$STATIC9E"
 
 Then inside `__t9_frame_rows`, replace `set -l WIN (math "$rows - 21")` with a derivation from `$STATIC9I`/`$STATIC9E` selected by the harness's `editing` parameter (added by the previous branch's final fix wave — it is already there).
 
-- [ ] **Step 2: Run and confirm the extractions fail**
+- [ ] **Step 6: Run and confirm the extractions fail**
 
 Expected: `STATIC_IDLE extraction is non-empty => got [0]` and `STATIC_EDIT … => got [0]`, because the source still declares a single `STATIC`. The two non-empty guards failing FIRST is the point — they prove the value assertions beneath them cannot pass vacuously.
 
-- [ ] **Step 3: Split `STATIC` in the source**
+- [ ] **Step 7: Split `STATIC` in the source**
 
 Replace `set -l STATIC 21` with two declarations and a mode-selected current value:
 
@@ -351,7 +342,7 @@ Replace `set -l STATIC 21` with two declarations and a mode-selected current val
 
 Derive `WIN` from whichever applies, and recompute it wherever `editing` changes — the `b` toggle, the `⏎`-while-editing arm, and the `esc`-while-editing arm. `WIN` is read by both the draw loop and the paging dispatch, so one value must serve both.
 
-- [ ] **Step 4: Re-clamp the window on every mode change**
+- [ ] **Step 8: Re-clamp the window on every mode change**
 
 Growing the zone costs 5 window rows, which can push the selected row out of view. After each `WIN` change, clamp the window so the selected row stays visible. `__tcz_thp_window` already returns a start that keeps `sel` inside the window; call it with the new `WIN` rather than adjusting `sel`.
 
@@ -373,7 +364,7 @@ t "the two windows differ (the zone really costs rows)" 1 (test "$WI[2]" != "$WE
 
 Then confirm behaviourally that the dispatch re-derives `WIN` rather than leaving a stale one: extract the `case b` arm, `eval` it against a seeded `WIN`, and assert `WIN` changed. A stale `WIN` is the failure mode here, and it is invisible to the frame proof, which computes its own.
 
-- [ ] **Step 5: Extend the frame proof to both modes**
+- [ ] **Step 9: Extend the frame proof to both modes**
 
 Assert the draw emits exactly `rows` in each mode, at several popup heights:
 
@@ -389,7 +380,7 @@ t "frame: 24 rows editing (the floor)" 24 (__t9_frame_rows list 0 14 0 0 mono "$
 
 Note the 40-row idle case drives the padding branch (`WIN` 24 against a 14-row list), which is the branch a previous task lost coverage of when `STATIC` rose. Keep at least one padding case in each mode.
 
-- [ ] **Step 6: Prove the proof is sensitive, in both modes and at both `STATIC` values**
+- [ ] **Step 10: Prove the proof is sensitive, in both modes and at both `STATIC` values**
 
 Three mutations, each restored byte-identically and verified with `diff`:
 1. Inject one extra `set -a lines` into the draw block. **Every** size in **both** modes must report one too many. A proof that only catches one mode is worse than the constant it replaced.
@@ -398,29 +389,31 @@ Three mutations, each restored byte-identically and verified with `diff`:
 
 Report the observed counts for all three. Mutation 2 and 3 are the ones proving the harness genuinely reads the source.
 
-- [ ] **Step 7: Run the full gate and commit**
+- [ ] **Step 11: Run the full gate and commit**
+
+One commit for the whole task: the zone and `STATIC` land together, gate green.
 
 ```bash
-git commit -m "feat(picker): derive the window from a mode-dependent static count"
+git commit -m "feat(picker): seed zone is 3 rows idle, 8 editing; the static count follows the mode"
 ```
 
 ---
 
-### Task 5: Mode-aware legend
+### Task 4: Mode-aware legend
 
 **Files:**
 - Modify: `functions/tmux-categorize.fish` — the legend loop (2228)
 - Test: `tests/test-tmux-categorize.fish`
 
 **Interfaces:**
-- Consumes: `editing` from Task 4.
+- Consumes: `editing` from Task 3.
 
 **Why this task exists.** The user reported that pressing `⏎` in the seed editor "closes the whole picker." `case enter` already gates on `editing` and only clears the mode — the dispatch is correct. The **footer is static**, so while editing it advertises `⏎ save` and `esc close` and names none of the channel keys. Pressing `⏎` silently left edit mode, nothing looked saved, and a second `⏎` saved and closed. The bug is the legend.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
-# --- Task 5: the legend tells the truth in each mode ---------------------------
+# --- Task 4: the legend tells the truth in each mode ---------------------------
 # The reported "enter closes the picker" bug lives here, not in the dispatch:
 # a static footer advertised save/close while editing and never named ←→ or t.
 set -g LEGI (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 | string collect)
@@ -450,11 +443,11 @@ Expected: the five editing-legend assertions fail, because the editing frame cur
         end
 ```
 
-⚠️ **Both legends must occupy the same number of rows, and this task must not change that number.** `STATIC_IDLE` and `STATIC_EDIT` from Task 4 each account for a fixed legend height, so a legend that grows breaks the frame in both modes with the cause hidden three sections away.
+⚠️ **Both legends must occupy the same number of rows, and this task must not change that number.** `STATIC_IDLE` and `STATIC_EDIT` from Task 3 each account for a fixed legend height, so a legend that grows breaks the frame in both modes with the cause hidden three sections away.
 
-Measured: `__tcz_thp_leg 3` lays out three pairs per row, and the browsing legend's **10 pairs produce 3 rows**. The editing set above is 5 pairs, which produces 2. **Pad the editing legend to 3 rows.**
+Measured: `__tcz_thp_leg 3` lays out three pairs per row, and the browsing legend's **9 pairs produce 3 rows**. The editing set above is 5 pairs, which produces 2. **Pad the editing legend to 3 rows.**
 
-Do NOT add `A auto` here. It is the eleventh pair, **11 pairs produce 4 rows**, and that extra row belongs to Task 6 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
+Do NOT add `A auto` here. It is the tenth pair, and **10 pairs produce 4 rows**, and that extra row belongs to Task 5 along with the `STATIC` adjustment it forces. Assert the row count so the constraint is enforced rather than remembered:
 
 ```fish
 t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
@@ -469,10 +462,10 @@ git commit -m "fix(picker): the legend follows the mode"
 
 ---
 
-### Task 6: Auto-apply on dwell
+### Task 5: Auto-apply on dwell
 
 **Files:**
-- Modify: `functions/tmux-categorize.fish` — `__tcz_popup_readkey` (882), the settle branch (2241-2280), the movement arms, the legend from Task 5
+- Modify: `functions/tmux-categorize.fish` — `__tcz_popup_readkey` (882), the settle branch (2241-2280), the movement arms, the legend from Task 4
 - Test: `tests/test-tmux-categorize.fish`
 
 **Interfaces:**
@@ -489,7 +482,7 @@ git commit -m "fix(picker): the legend follows the mode"
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
-# --- Task 6: auto-apply on dwell -----------------------------------------------
+# --- Task 5: auto-apply on dwell -----------------------------------------------
 # A is absent from readkey's OUTER switch. Assert the mapping behaviourally:
 # grepping `case 41` finds the ESC-branch arrow handler and misleads.
 t "readkey maps 0x41 to A" A (printf A | __tcz_popup_readkey)
@@ -560,16 +553,16 @@ Arm the dwell by setting a pending flag on every movement arm that lands on a ne
 
 - [ ] **Step 5: Add `A auto` to the browsing legend — and pay for the row it costs**
 
-Add `A auto` as the eleventh pair of the browsing legend, so the toggle has visible feedback showing its current state.
+Add `A auto` as the tenth pair of the browsing legend, so the toggle has visible feedback showing its current state.
 
-⚠️ **This adds a legend row, and `STATIC` must move with it.** Measured: 10 pairs render 3 rows, 11 pairs render 4. Task 5 deliberately left `A auto` out and asserted 3 rows precisely so this cost lands here, in the task that causes it.
+⚠️ **This adds a legend row, and `STATIC` must move with it.** Measured: **9 pairs render 3 rows, 10 pairs render 4.** The shipped browsing legend has 9, so `A auto` is the tenth and tips it. Task 4 deliberately left it out and asserted 3 rows precisely so this cost lands here, in the task that causes it.
 
 So this step also:
 1. Bumps `STATIC_IDLE` 16 → **17** and `STATIC_EDIT` 21 → **22**.
 2. Pads the editing legend from 3 rows to **4**, keeping both modes equal.
-3. Updates Task 5's two legend row-count assertions from 3 to 4, and Task 4's `idle static is 16` / `editing static is 21` to 17 and 22.
+3. Updates Task 4's two legend row-count assertions from 3 to 4, and Task 3's `idle static is 16` / `editing static is 21` to 17 and 22.
 
-The frame proof reads `STATIC` out of the source, so it will follow automatically — but the two value assertions are literals and will fail until you update them. **That failure is the proof working.** Do not adjust the harness to paper over it; change the expected values and re-run the sensitivity mutations from Task 4 Step 6 at the new numbers.
+The frame proof reads `STATIC` out of the source, so it will follow automatically — but the two value assertions are literals and will fail until you update them. **That failure is the proof working.** Do not adjust the harness to paper over it; change the expected values and re-run the sensitivity mutations from Task 3 Step 10 at the new numbers.
 
 On a 52-row popup the visible scheme count becomes 35 idle and 30 editing, against 31 today.
 
@@ -581,7 +574,7 @@ git commit -m "feat(picker): apply a scheme automatically once the cursor settle
 
 ---
 
-### Task 7: Cleanup and the `active` role
+### Task 6: Cleanup and the `active` role
 
 **Files:**
 - Modify: `functions/tmux-categorize.fish` — delete `__tcz_thp_sliders` (1838) and `__tcz_thp_seedrow` (1403), their teardown lines, and `__tcz_thp_cells`
@@ -596,7 +589,7 @@ git commit -m "feat(picker): apply a scheme automatically once the cursor settle
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
-# --- Task 7: dead builders gone, active wired ---------------------------------
+# --- Task 6: dead builders gone, active wired ---------------------------------
 t "sliders builder is gone" 0 (string match -ra 'function __tcz_thp_sliders' -- (cat $catfile | string collect) | count)
 t "seedrow builder is gone" 0 (string match -ra 'function __tcz_thp_seedrow' -- (cat $catfile | string collect) | count)
 t "no teardown for the removed sliders" 0 (string match -ra 'functions -e __tcz_thp_sliders' -- (cat $catfile | string collect) | count)
@@ -634,7 +627,7 @@ git commit -m "refactor(picker): drop the dead seed builders; paint the active r
 
 ---
 
-### Task 8: Documentation
+### Task 7: Documentation
 
 **Files:**
 - Modify: `README.md` (the picker subsection, ~105-115), `CLAUDE.md`
@@ -645,7 +638,7 @@ Document the mode-dependent seed zone and that the visible scheme count differs 
 
 - [ ] **Step 2: Add the CLAUDE.md paragraph**
 
-House style: a bolded lead-in naming the change, the date, and the branch, then one dense paragraph. Record the configuration-versus-adoption principle and that it is the user's; the measured 1.8× tabs-to-bar area ratio that reordered the strip; `active` having been unpainted in every session until now; `STATIC` splitting into **17 idle / 22 editing** and the frame proof finally *reading* it out of the source rather than restating a literal; that the eleventh legend pair costs a whole legend row, which is why both numbers are one higher than the zone arithmetic alone suggests; the `▌`-for-`▐` swap and why a half-width swatch cell was rejected; the 500 ms dwell shared with the flash and seed-batch timers; and that the reported ENTER bug was a lying legend rather than a broken dispatch.
+House style: a bolded lead-in naming the change, the date, and the branch, then one dense paragraph. Record the configuration-versus-adoption principle and that it is the user's; the measured 1.8× tabs-to-bar area ratio that reordered the strip; `active` having been unpainted in every session until now; `STATIC` splitting into **17 idle / 22 editing** and the frame proof finally *reading* it out of the source rather than restating a literal; that the tenth legend pair costs a whole legend row, which is why both numbers are one higher than the zone arithmetic alone suggests; the `▌`-for-`▐` swap and why a half-width swatch cell was rejected; the 500 ms dwell shared with the flash and seed-batch timers; and that the reported ENTER bug was a lying legend rather than a broken dispatch.
 
 - [ ] **Step 3: Commit**
 
