@@ -1275,7 +1275,7 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
-        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        set marker (__tcz_theme brand)'▌'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
     # The current entry is marked by its NAME, in brand bold — the same language as
@@ -1290,7 +1290,7 @@ function __tcz_thp_staterow --argument-names w cells name label selected live --
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
-        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        set marker (__tcz_theme brand)'▌'(__tcz_theme reset)
         set namecol (__tcz_theme sel-fg)(printf '\e[1m')
     end
     set -l labcol (__tcz_theme muted)
@@ -1457,7 +1457,10 @@ function __tcz_thp_slider --argument-names label value selected --description 'p
     set -l marker ' '
     set -l labcol (__tcz_theme muted)
     if test "$selected" = 1
-        set marker (__tcz_theme brand)'▐'(__tcz_theme reset)
+        # Same glyph as __tcz_thp_row/__tcz_thp_staterow — all three markers sit in
+        # column 1 of the same frame, so a mismatched half-block here would read as
+        # a bug even though this row's own layout doesn't need the clearance.
+        set marker (__tcz_theme brand)'▌'(__tcz_theme reset)
         set labcol (__tcz_theme key)
     end
     set -l valtxt (string pad -w 3 -- $value)
@@ -2178,8 +2181,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
                 if test $selflag -eq 1
+                    # Pad to $IW BEFORE wrapping in SELBG: __tcz_thp_ln pads to the
+                    # frame width AFTER this returns, and its own padstr carries no
+                    # color, so the band used to stop at the end of the name with
+                    # bare spaces between it and the right border. Padding here first
+                    # means __tcz_thp_ln's own pad comes out to 0 and adds nothing
+                    # unstyled — the band reaches the last inner column instead.
+                    set -l rowpad (math "$IW - "(string length --visible -- (__tcz_strip_sgr "$row")))
+                    test $rowpad -lt 0; and set rowpad 0
+                    set -l rowpadstr (string repeat -n $rowpad ' ')
                     set row (string replace -a -- "$RST" "$RST$SELBG" "$row")
-                    set row "$SELBG$row$RST"
+                    set row "$SELBG$row$rowpadstr$RST"
                 end
                 set -a lines (__tcz_thp_ln "$row" $IW $BORDER $RST)
             end
@@ -2232,16 +2244,27 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test -n "$ari"; and set anchname $toks[$ari]
         set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anchname" current $curflag2 $islive)
         if test $curflag2 -eq 1
+            # See the scheme-row band comment above: pad to $IW before wrapping so
+            # __tcz_thp_ln's own pad comes out to 0 and the band reaches the right
+            # border. __tcz_thp_staterow already fills $IW on its own, so rowpad is
+            # normally 0 here — kept generic rather than assumed, so a future
+            # staterow change can't silently reopen this gap.
+            set -l rowpad (math "$IW - "(string length --visible -- (__tcz_strip_sgr "$currow")))
+            test $rowpad -lt 0; and set rowpad 0
+            set -l rowpadstr (string repeat -n $rowpad ' ')
             set currow (string replace -a -- "$RST" "$RST$SELBG" "$currow")
-            set currow "$SELBG$currow$RST"
+            set currow "$SELBG$currow$rowpadstr$RST"
         end
         set -a lines (__tcz_thp_ln "$currow" $IW $BORDER $RST)
         set -l offflag 0
         test $focus = state; and test $sel2 -eq 1; and set offflag 1
         set -l offrow (__tcz_thp_staterow $IW (__tcz_thp_band "$legacy") 'legacy look' off $offflag 0)
         if test $offflag -eq 1
+            set -l rowpad (math "$IW - "(string length --visible -- (__tcz_strip_sgr "$offrow")))
+            test $rowpad -lt 0; and set rowpad 0
+            set -l rowpadstr (string repeat -n $rowpad ' ')
             set offrow (string replace -a -- "$RST" "$RST$SELBG" "$offrow")
-            set offrow "$SELBG$offrow$RST"
+            set offrow "$SELBG$offrow$rowpadstr$RST"
         end
         set -a lines (__tcz_thp_ln "$offrow" $IW $BORDER $RST)
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)

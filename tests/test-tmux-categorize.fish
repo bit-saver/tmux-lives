@@ -1253,7 +1253,7 @@ t "thp_fg hex -> SGR" yes (string match -q '*38;2;14;25;13*' -- (__tcz_thp_fg "#
 t "thp_fg non-hex -> empty" 0 (count (__tcz_thp_fg colour238))
 t "thp_row lead is 17 visible cols + name" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 0)))
 t "thp_row selected keeps the width" (math 17 + 4) (string length --visible -- (__tcz_strip_sgr (__tcz_thp_row "$THX" warm 1)))
-t "thp_row selected carries the ▐ marker" yes (string match -q '*▐*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
+t "thp_row selected carries the ▌ marker" yes (string match -q '*▌*' -- (__tcz_thp_row "$THX" warm 1); and echo yes; or echo no)
 # __tcz_thp_off_row is retired (picker-second-list Task 3) — its fixed
 # natural-width contract has no equivalent under __tcz_thp_staterow's
 # always-exactly-w model; that invariant is covered by the staterow block
@@ -1409,9 +1409,9 @@ t "staterow live label wears brand" 1 (string match -q '*'(__tcz_theme brand)'cu
 set -g SRD (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'mono soft' current 0 0)
 t "staterow not-live label wears muted" 1 (string match -q '*'(__tcz_theme muted)'current*' -- "$SRD"; and echo 1; or echo 0)
 t "staterow not-live is still w cols" 50 (string length --visible -- "$SRD")
-# selection puts the ▐ marker in brand and brightens the name
+# selection puts the ▌ marker in brand and brightens the name
 set -g SRS (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'legacy look' off 1 0)
-t "staterow selected shows the marker" 1 (string match -q '*▐*' -- "$SRS"; and echo 1; or echo 0)
+t "staterow selected shows the marker" 1 (string match -q '*▌*' -- "$SRS"; and echo 1; or echo 0)
 t "staterow selected is still w cols" 50 (string length --visible -- "$SRS")
 # width holds for a long name and a short label, and vice versa
 t "staterow long name still w cols" 50 (string length --visible -- (__tcz_thp_staterow 50 (__tcz_thp_band '#5f772b') 'a-very-long-scheme-name-here' off 0 0))
@@ -1429,6 +1429,26 @@ t "staterow accepts a 7-role strip" 50 (string length --visible -- (__tcz_thp_st
 # the suite, so pin it locally here rather than forward-reference it)
 set -l catfile $plugindir/functions/tmux-categorize.fish
 t "off_row builder is gone" 0 (grep -c '__tcz_thp_off_row' $catfile)
+
+# --- Task 2: marker glyph and band extent ---------------------------------------
+# ▌ (U+258C, LEFT half block) replaces ▐ (U+2590, RIGHT half). Same width and
+# height; the ink moves to the left of the cell, which buys half a column of
+# clearance from the first swatch without spending a column on it.
+set -g R2 (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 1 0)
+t "row: selected marker is the left half block" 1 (string match -q '*▌*' -- "$R2"; and echo 1; or echo 0)
+t "row: the right half block is gone" 0 (string match -ra '▐' -- "$R2" | count)
+set -g S2 (__tcz_thp_staterow 50 (__tcz_thp_band '#112233') current live 1 1)
+t "staterow: selected marker is the left half block" 1 (string match -q '*▌*' -- "$S2"; and echo 1; or echo 0)
+t "staterow: the right half block is gone" 0 (string match -ra '▐' -- "$S2" | count)
+# Unselected rows must carry no marker ink at all, only its column.
+set -g R2U (__tcz_thp_row '#112233 #223344 #334455 #445566 #556677 #667788 #778899' demo 0 0)
+t "row: unselected row has no marker glyph" 0 (string match -ra '▌|▐' -- "$R2U" | count)
+# __tcz_thp_slider carries the identical marker line — all three sit in column 1
+# of the same frame (scheme row, state row, slider row), so a mismatched glyph
+# in any one of them would read as a bug even though the slider's own layout
+# doesn't need the extra clearance.
+t "thp_slider selected marker is the left half block" 1 (string match -q '*▌*' -- (__tcz_thp_slider R 10 1); and echo 1; or echo 0)
+t "thp_slider: the right half block is gone" 0 (string match -ra '▐' -- (__tcz_thp_slider R 10 1) | count)
 
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
@@ -1532,7 +1552,7 @@ t "thp_slider width holds at extremes+selected" 78 (math (string length --visibl
 t "thp_slider gap cells at 0" 32 (string match -a -r '·' -- (__tcz_strip_sgr (__tcz_thp_slider R 0 0)) | count)
 t "thp_slider gap cells at 128" 16 (string match -a -r '·' -- (__tcz_strip_sgr (__tcz_thp_slider R 128 0)) | count)
 t "thp_slider gap cells at 255" 0 (string match -a -r '·' -- (__tcz_strip_sgr (__tcz_thp_slider R 255 0)) | count)
-t "thp_slider selected carries ▐" yes (string match -q '*▐*' -- (__tcz_thp_slider R 10 1); and echo yes; or echo no)
+t "thp_slider selected carries ▌" yes (string match -q '*▌*' -- (__tcz_thp_slider R 10 1); and echo yes; or echo no)
 t "readchar classifies arrows + t" yes (begin; set -l l (functions __tcz_thp_readchar | string collect); string match -q '*case 41; echo up*' -- $l; and string match -q '*case 44; echo left*' -- $l; and string match -q '*case 74; echo t*' -- $l; end; and echo yes; or echo no)
 t "hex entry ignores the new tokens" yes (string match -q '*case hash other t up down left right*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 
@@ -2587,6 +2607,25 @@ t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows st
 t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
 t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
 
+# --- Task 2: the selection band must reach the right frame edge, not stop at the
+# end of the name. Extracted from the REAL draw block (__t9_frame_text), asserted
+# on rendered output rather than on the styling source.
+set -g BANDROW (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 | string match -r '.*▌.*')
+t "band row extraction is non-empty" 1 (test -n "$BANDROW"; and echo 1; or echo 0)
+set -g BANDVIS (__tcz_strip_sgr "$BANDROW")
+t "selected row is exactly the inner width plus both borders" 52 (string length --visible -- "$BANDVIS")
+# sel-bg must still be the active background when the final inner column is drawn.
+# __tcz_thp_ln unconditionally re-asserts the FRAME border color right before the
+# closing │ (its own printf format), so a reset is NEVER literally adjacent to │
+# regardless of whether the band reaches the edge — "\e[0m│" is unsatisfiable and
+# would pass vacuously on both sides of this fix (proven: mutation-checked below).
+# The real signature of the bug is unstyled padding: a bare reset directly
+# followed by a plain SPACE, with no color escape between them. sel-bg re-asserts
+# right after every internal reset (the existing replace-all pass), so the ONLY
+# place a reset can be followed straight by a space is the trailing pad — exactly
+# where the pre-fix code left it unstyled.
+t "band survives to the right border" 0 (string match -ra '\e\[0m ' -- "$BANDROW" | count)
+
 # --- Task 8: frame stays 26 with the header, and the header exists only expanded --
 # The harness evals the REAL draw block, so it cannot drift from the implementation.
 t "frame: 26 rows — expanded, header on screen"     26 (__t9_frame_rows list 0 35 13 0 mono "$PAL9" '' 1 14)
@@ -2652,13 +2691,13 @@ t "header absent when expanded and scrolled past" 0 (__t9_frame_text list 0 35 3
 # symptom exactly ("←→ silently keeps moving the now-invisible channel").
 set -l frameC1raw (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1))
 set -l frameC1 (__tcz_strip_sgr "$frameC1raw")
-t "seed-zone edit render: chan=1 marks the R slider" yes (string match -q '*▐R*' -- "$frameC1"; and echo yes; or echo no)
-t "seed-zone edit render: chan=1 does not mark G" no (string match -q '*▐G*' -- "$frameC1"; and echo yes; or echo no)
+t "seed-zone edit render: chan=1 marks the R slider" yes (string match -q '*▌R*' -- "$frameC1"; and echo yes; or echo no)
+t "seed-zone edit render: chan=1 does not mark G" no (string match -q '*▌G*' -- "$frameC1"; and echo yes; or echo no)
 
 set -l frameC2raw (string join \n -- (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 2))
 set -l frameC2 (__tcz_strip_sgr "$frameC2raw")
-t "seed-zone edit render: chan=2 marks the G slider, binding the editing/chan call order" yes (string match -q '*▐G*' -- "$frameC2"; and echo yes; or echo no)
-t "seed-zone edit render: chan=2 does not mark R" no (string match -q '*▐R*' -- "$frameC2"; and echo yes; or echo no)
+t "seed-zone edit render: chan=2 marks the G slider, binding the editing/chan call order" yes (string match -q '*▌G*' -- "$frameC2"; and echo yes; or echo no)
+t "seed-zone edit render: chan=2 does not mark R" no (string match -q '*▌R*' -- "$frameC2"; and echo yes; or echo no)
 
 # --- Task 9: collapsing from below the header, run for real -----------------
 # Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT
