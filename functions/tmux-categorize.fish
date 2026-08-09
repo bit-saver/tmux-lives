@@ -1564,7 +1564,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
         case 0d 0a; echo enter; return
         case 7f 08; echo back; return
         case 23; echo hash; return
-        case 74; echo t; return                       # t (slider screen: type hex)
+        case 74; echo t; return                       # t (edit mode: type hex)
     end
     if test "$b" = 1b                                # ESC
         # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read,
@@ -1573,8 +1573,8 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
         # bytes, which the outer picker's loop then read as an ↑↓ keystroke
         # and moved the scheme selection out from under seed entry. Arrows are
         # now CLASSIFIED (up/down/left/right); the hex editor still ignores
-        # them (ignore-case below), while the slider screen consumes them. A
-        # genuine bare ESC still aborts entry.
+        # them (ignore-case below), while edit mode's R/G/B sliders consume
+        # them. A genuine bare ESC still aborts entry.
         stty min 0 time 1 2>/dev/null
         set -l b2 ''
         dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b2
@@ -2042,7 +2042,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -l tabhex (__tcz_tab_color '')
                 test -n "$tabhex"; and __tcz_recolor "$tabhex"
                 set previewed 2
-                set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
+                set note "● previewing $anch_scheme (live) — ⏎ save · esc revert"
             else
                 fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
                 set -l tabhex (__tcz_tab_color '')
@@ -2291,7 +2291,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
         end
-        set -a lines (__tcz_thp_ln " $MUTED$note$RST" $IW $BORDER $RST)
+        # I1 fix: __tcz_thp_ln pads short content but never truncates long
+        # content, so a note whose visible width (leading space included)
+        # exceeds $IW would push the printed row past the popup's width and
+        # wrap, scrolling the top border off-screen. $note is free text
+        # (relationship names vary in length; a future wording tweak could
+        # push any of these over again) — truncating HERE, at the one draw
+        # site, makes an overlong note structurally incapable of overflowing
+        # the frame regardless of what text ever lands in $note. Capture into
+        # a var and interpolate quoted: __tcz_popup_truncate on already-short
+        # content returns it unchanged via `echo --`, but a would-be-empty
+        # result used as a bare argument VANISHES from the arg list rather
+        # than passing through as an empty string, which has broken real
+        # printf calls in this file before.
+        set -l noterow (__tcz_popup_truncate " $MUTED$note$RST" $IW)
+        set -a lines (__tcz_thp_ln "$noterow" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
         # Synchronized update (DECSET 2026): commit the whole frame atomically so a
         # redraw never flickers mid-paint (the __tcz_popup_draw pattern; unsupported
@@ -2531,6 +2545,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $lastrow -lt 0; and set lastrow 0
                 test $sel -gt $lastrow; and set sel $lastrow
                 set flashfield ''
+                # I3 fix: expand/collapse can re-clamp $sel onto a DIFFERENT
+                # scheme than the one that was on-screen before the reload —
+                # same reasoning as the up/down/pgup/pgdn arm above, so the
+                # settle poll should treat this as a landing too.
+                set applydue 1
             case b
                 # Toggles the seedzone between readouts and its R/G/B sliders —
                 # ignored while focus is on the second list, which has no seed
@@ -2588,6 +2607,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set sel $zi
                 set focus list
                 set flashfield ''
+                # I3 fix: shake's entire purpose is landing on a row you
+                # wouldn't have picked yourself — with auto-apply on (the
+                # default), NOT arming the dwell here left the bar untouched
+                # and the note misreporting what was actually live.
+                set applydue 1
             case tab
                 # move between the two lists. `c` is retired: a key meaning "current"
                 # that lands on current, from which you arrow to off, promises one
