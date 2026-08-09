@@ -1614,8 +1614,12 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # only reload the in-process preview — so those 2 sites drop out. A single
 # NEW site takes their place: the exit path now commits the seed once, on
 # save, only if it moved. Net -2 +1 = 9 -> 8.
-t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
-# 8 = init + a-current + a-off + a-list + esc-revert + seed-commit-on-save + 2 saves (case-a's 3 branches are 3 textual sites, still one subprocess per press)
+# picker-legibility-autoapply Task 5: case a's three apply-preview sites moved
+# verbatim into __tcz_thp_autoapply_now (shared with the settle-timeout auto-
+# apply — same text, same count, just relocated), and the new A toggle adds
+# ONE new site (the set -U write). Net +1 = 8 -> 9.
+t "guard: exactly 9 action-site subprocesses" 9 (count (string match -ar 'fish -c' -- "$pbody"))
+# 9 = init + a-current + a-off + a-list (now inside __tcz_thp_autoapply_now) + esc-revert + seed-commit-on-save + 2 saves + A-toggle-write
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Task 7: the reload composes, it does not swap the row source ----------------
@@ -2180,7 +2184,8 @@ t "leg desc muted"  1 (string match -q '*38;2;154;138;114*' -- "$L[1]"; and echo
 # malformed input (odd pair count) guard: no output
 t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
 
-# picker wiring: the footer is __tcz_thp_leg 3-col calls (9 pairs idle),
+# picker wiring: the footer is __tcz_thp_leg 3-col calls (10 pairs idle since
+# picker-legibility-autoapply Task 5 added A auto),
 # not two fixed-pitch __tcz_legend_row calls — supersedes the pre-gallery-
 # refinement assertions below that grepped for the old call pattern.
 # picker-legibility-autoapply Task 4 split this into TWO calls branched on
@@ -2382,17 +2387,22 @@ t "no surviving reads of the retired sel range" 0 (count (string match -ra 'sel 
 # ---------------------------------------------------------------------
 set -g PK3 (functions __tcz_theme_picker | string collect)
 # previewed is three-valued: 0 none, 1 a LISTED scheme, 2 the current row.
-# Bounded to the current-row branch alone (case a's sel2 -eq 0 arm) so a fix
-# that flips the WRONG branch to previewed 2 can't pass by coincidence — a
-# bare `case a\b` substring is unsafe here: a comment two arms up literally
-# reads "case a/enter" and would be matched instead of the real case label.
-set -l currowblock (string match -r '(?ms)^ *case a$.*?sel2 -eq 0\b.*?else\b' -- "$PK3" | string collect)
+# picker-legibility-autoapply Task 5 moved this whole apply-preview body OUT
+# of case a and into __tcz_thp_autoapply_now (shared with the settle-timeout
+# auto-apply, so the two paths cannot drift apart) — case a is now a
+# one-line call site and no longer contains any of this logic. Bound to the
+# function's own body instead of the old case-a block.
+set -l aabody (string match -r '(?s)function __tcz_thp_autoapply_now.*?\n    end' -- "$PK3" | string collect)
+t "autoapply_now body extraction is non-empty" 1 (test -n "$aabody"; and echo 1; or echo 0)
+# Bounded to the current-row branch alone (the sel2 -eq 0 arm) so a fix that
+# flips the WRONG branch to previewed 2 can't pass by coincidence.
+set -l currowblock (string match -r '(?ms)sel2 -eq 0\b.*?else\b' -- "$aabody" | string collect)
 t "current-row preview sets previewed 2"           1 (string match -q '*set previewed 2*' -- "$currowblock"; and echo 1; or echo 0)
 t "current-row preview no longer sets previewed 1" 0 (string match -q '*set previewed 1*' -- "$currowblock"; and echo 1; or echo 0)
 # the off row and the listed-scheme branch both still set previewed 1 —
-# exactly twice across the whole apply arm now that the current row moved
+# exactly twice across the whole function now that the current row moved
 # to 2 (regression guard: the two OTHER sites must stay put).
-set -l applyarm (string match -r '(?ms)^ *case a$.*?^ *case enter$' -- "$PK3" | string collect)
+set -l applyarm $aabody
 t "off and listed-scheme previews both stay at previewed 1" 2 (count (string match -ar 'set previewed 1' -- (string split \n -- "$applyarm")))
 t "exactly one site sets previewed 2"                        1 (count (string match -ar 'set previewed 2' -- (string split \n -- "$applyarm")))
 # islive is computed from previewed, not the Task 5 placeholder alone. A
@@ -2447,11 +2457,15 @@ set -g SLB (functions __tcz_theme_picker | string collect)
 t "anchor snapshot captures the seed" 1 (string match -q '*set -l anch_seed $seed*' -- "$SLB"; and echo 1; or echo 0)
 # live preview shadows the universal in the child rather than writing it
 t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$SLB"; and echo 1; or echo 0)
-# Bounded, not whole-body: same vacuity risk as the earlier "dispatch_tail"
-# checks — a bare '*case a*' substring would also catch the "(case a/enter"
-# comment inside the z-shake key's explanation, two arms up. Anchored to the
-# whole line instead ("^ *case a$"), which only the real dispatch arm is.
-set -l casea (string match -r '(?ms)^ *case a$.*?^ *case cancel$' -- "$SLB" | string collect)
+# picker-legibility-autoapply Task 5 moved all three preview call sites out
+# of case a and into __tcz_thp_autoapply_now (case a is now a one-line call;
+# the settle-timeout auto-apply calls the same function, so the two paths
+# cannot drift apart) — bound to the function body directly rather than the
+# old "case a...case cancel" span, which no longer contains this logic at
+# all (the vacuity risk the old comment warned about — a bare '*case a*'
+# substring also catching the "(case a/enter" comment two arms up — does not
+# apply to a function-name anchor).
+set -l casea (string match -r '(?s)function __tcz_thp_autoapply_now.*?\n    end' -- "$SLB" | string collect)
 t "all three case-a previews shadow the seed" 3 (count (string match -ar 'set -g tmux_lives_bar_color' -- "$casea"))
 set -l cancelblock (string match -r '(?ms)^ *case cancel$.*?^ *end$' -- "$SLB" | string collect)
 t "cancel restores by shadowing the anchor seed" 1 (string match -q "*__tmux_lives_theme_apply_live' \"\$anch_seed\"*" -- "$cancelblock"; and echo 1; or echo 0)
@@ -2569,8 +2583,8 @@ set -g STATIC9I (string match -rg 'set -l STATIC_IDLE (\d+)' -- "$SLB")
 set -g STATIC9E (string match -rg 'set -l STATIC_EDIT (\d+)' -- "$SLB")
 t "STATIC_IDLE extraction is non-empty" 1 (test -n "$STATIC9I"; and echo 1; or echo 0)
 t "STATIC_EDIT extraction is non-empty" 1 (test -n "$STATIC9E"; and echo 1; or echo 0)
-t "idle static is 16" 16 "$STATIC9I"
-t "editing static is 21" 21 "$STATIC9E"
+t "idle static is 17" 17 "$STATIC9I"
+t "editing static is 22" 22 "$STATIC9E"
 
 # Entering edit mode costs 5 window rows. A selection near the bottom of the
 # expanded catalog must stay VISIBLE, and sel itself must not be moved to
@@ -2602,12 +2616,16 @@ function __t9_floor --argument-names rows --description 'eval the REAL open-time
     echo admit
 end
 # The direct discriminator: at rows 19/20/23 the OLD (STATIC_IDLE-only) gate
-# admits, which is the bug — pressing b at those sizes then overflows. Rows 24
-# is the restored pre-Task-3 floor (STATIC_EDIT + 3) and must still admit.
+# admits, which is the bug — pressing b at those sizes then overflows.
+# picker-legibility-autoapply Task 5 moved STATIC_EDIT 21 -> 22 (the extra
+# legend row for A auto), which moves the floor itself: rows 24, previously
+# the admitted pre-Task-3 threshold, is now BELOW STATIC_EDIT + 3 (24-22=2)
+# and must reject; rows 25 is the new threshold and must still admit.
 t "floor: rows 19 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 19)
 t "floor: rows 20 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 20)
 t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
-t "floor: rows 24 is admitted (the restored pre-Task-3 threshold)" admit (__t9_floor 24)
+t "floor: rows 24 is rejected (Task 5 moved the floor 24 -> 25)" '' (__t9_floor 24)
+t "floor: rows 25 is admitted (the Task-5-updated threshold)" admit (__t9_floor 25)
 
 function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them.'
     set -l BORDER (__tcz_theme border)
@@ -2750,7 +2768,11 @@ t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0
 t "frame: emits exactly its height — 26 rows (today's size)" 26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26)
 t "frame: emits exactly its height — 39 rows"                39 (__t9_frame_rows list 0 35 0 1 mono "$PAL9" '' 1 14 39)
 t "frame: emits exactly its height — 52 rows"                52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52)
-t "frame: emits exactly its height — 24 rows (the floor)"    24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24)
+# picker-legibility-autoapply Task 5 moved the real admission floor to 25
+# (STATIC_EDIT 21 -> 22); 24 is no longer it, but this call is idle mode
+# (WIN = 24 - STATIC_IDLE = 7, comfortably positive) so it stays a plain
+# non-collapsed size check, unaffected either way.
+t "frame: emits exactly its height — 24 rows"    24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24)
 
 # --- picker-seed-section Task 3 (review fix): restore coverage for the padding branch --
 # None of the four sizes above satisfies vtotal <= WIN any more (raising STATIC
@@ -2767,16 +2789,18 @@ t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=1
 # Every size above only ever exercised editing=0 (the harness's own default).
 # STATIC is now mode-dependent, so the frame must still emit exactly its height
 # while editing too — at the same sizes, plus the 40-row idle padding case
-# repeated in editing (WIN 40-21=19 against a 14-row list still exceeds it,
+# repeated in editing (WIN 40-22=18 against a 14-row list still exceeds it,
 # so the padding branch is exercised in both modes, not just idle) and a
-# dedicated editing floor (WIN 24-21=3).
+# dedicated editing floor (WIN 24-22=2; Task 5 moved STATIC_EDIT 21 -> 22).
 t "frame: 26 rows idle"      26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1)
 t "frame: 26 rows editing"   26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1)
 t "frame: 40 rows idle"      40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 0 1)
 t "frame: 40 rows editing"   40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 1 1)
 t "frame: 52 rows idle"      52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 0 1)
 t "frame: 52 rows editing"   52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 1 1)
-t "frame: 24 rows editing (the floor)" 24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24 1 1)
+# 24-22=2, still positive (not collapsed) even at the new STATIC_EDIT — 25 is
+# now the real floor (see the FLOORBLOCK9/__t9_floor tests), not 24.
+t "frame: 24 rows editing"             24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24 1 1)
 
 # --- review fix round: rows 19/20 editing, supplementary evidence -----------
 # NOT a discriminator for the open-time floor fix (the floor check lives
@@ -2784,11 +2808,12 @@ t "frame: 24 rows editing (the floor)" 24 (__t9_frame_rows list 0 14 0 0 mono "$
 # above, which are the real before/after proof). This is a fixed structural
 # fact of the widget instead, unchanged by the floor fix either way: below
 # STATIC_EDIT, editing's window AND padding math both go negative, so the
-# frame collapses to exactly STATIC_EDIT (21) rows regardless of how far
-# under it <rows> falls — which is exactly why the floor above must refuse
-# these sizes rather than let the picker ever reach them.
-t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
-t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
+# frame collapses to exactly STATIC_EDIT (22 — picker-legibility-autoapply
+# Task 5 moved it from 21) rows regardless of how far under it <rows> falls
+# — which is exactly why the floor above must refuse these sizes rather than
+# let the picker ever reach them.
+t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
+t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.
@@ -2849,13 +2874,16 @@ t "idle legend still advertises save and close" 1 (string match -q '*save*' -- "
 t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" | count)
 
 # ⚠️ the row count is load-bearing, not cosmetic: STATIC_IDLE/STATIC_EDIT
-# (Task 3) each bake in a FIXED 3-row legend, so a legend that grows or
+# (Task 3) each bake in a FIXED legend row count, so a legend that grows or
 # shrinks per mode silently breaks the frame's total row count, with the
 # cause hidden three sections away from the symptom. Assert it explicitly so
 # the suite enforces the constraint rather than the next person remembering
-# it.
-t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
-t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
+# it. picker-legibility-autoapply Task 5 added A auto as the browsing
+# legend's tenth pair — measured: 9 pairs render 3 rows at cols=3, 10 spill
+# a partial row and render 4 — so both modes moved 3 -> 4 (editing's own pad
+# grew from one blank row to two to match).
+t "browsing legend is 4 rows" 4 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close 'A' auto))
+t "editing legend is padded to the same 4 rows" 4 (count $LEGEROWS)
 
 # --- Task 9: collapsing from below the header, run for real -----------------
 # Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT
@@ -3954,6 +3982,96 @@ t "→ esc then settle: a scheme strip also reverts to the pre-edit seed, not th
 eval $__t6_real_readkey
 functions -e stty
 functions -e __tcz_thp_reanchor
+
+# --- picker-legibility-autoapply Task 5: auto-apply on dwell -----------------
+# A (byte 0x41) is absent from readkey's OUTER switch. Assert the mapping
+# behaviourally: grepping `case 41` finds TWO existing hits, both inside the
+# ESC-branch's own SEPARATE switch, where 0x41 is the final byte of ESC [ A —
+# the up arrow — and would wrongly suggest A is already wired there.
+t "readkey maps 0x41 to A" A (printf A | __tcz_popup_readkey)
+
+# The paired convention guard every shared-reader token gets (c and ⇥ both
+# have it; t shipped without it last branch and the whole feature proved
+# deletable by removing one line with all eight suites green). Scoped
+# through the switcher's OWN body (functions __tcz_popup), not an
+# indentation-anchored awk range — an indentation anchor matches the
+# switcher's own earlier cases too and produced a collateral failure for the
+# wrong reason last branch.
+set -g POPBODY9 (functions __tcz_popup | string collect)
+t "switcher body extraction is non-empty" 1 (test -n "$POPBODY9"; and echo 1; or echo 0)
+# NB: NOT `case A$` — $PB9/$POPBODY9 are multi-line strings (functions | string
+# collect keeps every embedded newline), and fish's `string match -r` anchors
+# `$` to the END OF THE WHOLE STRING, not end-of-line, without an (?m) flag —
+# verified directly: `case A$` fails to match even against the picker body
+# AFTER `case A` was added. `\b` (word boundary) does not have that problem.
+t "switcher has no case A (readkey's A token is a safe no-op there)" 0 (string match -qr 'case A\b' -- "$POPBODY9"; and echo 1; or echo 0)
+
+# The picker must have a toggle arm and consult the universal.
+set -g PB9 (functions __tcz_theme_picker | string collect)
+t "picker body extraction is non-empty" 1 (test -n "$PB9"; and echo 1; or echo 0)
+t "picker has an A arm" 1 (string match -qr 'case A\b' -- "$PB9"; and echo 1; or echo 0)
+t "picker reads the autoapply universal" 1 (string match -q '*tmux_lives_theme_autoapply*' -- "$PB9"; and echo 1; or echo 0)
+
+# Extract the real settle branch and drive it with a scripted token. Anchored
+# on stable content, not line numbers, and asserted non-empty + checked for
+# the inverse before anything is built on it — same "set -l tok" / "switch
+# $tok" anchors the picker-seed-section Task 6 SETTLE6 extraction above
+# already proved unique in this file, reused here under a fresh name
+# (SETTLE9, matching this plan's own __t9_ convention) rather than
+# overwriting $SETTLE6 the earlier section still has live callers for.
+#
+# The task brief's own suggested anchor
+# (`/if test -n "\$flashfield".../,/^        else\$/`) extracts an
+# INCOMPLETE if/else fragment: the range stops AT the bare `else` line, so
+# the outer `if` this settle branch opens is never closed within the
+# extraction (the matching `end` sits past the range's own boundary).
+# `eval`ing that is not a partial execution, it is a parse error and NOTHING
+# inside runs — verified directly against a minimal repro of the exact
+# shape (nested if closed by its own `end`, outer `if` still open, string
+# ends at `else`): fish reports "Missing end to balance this if statement"
+# and the whole eval aborts before any of the body's side effects fire. The
+# complete-block anchors below (matching $SETTLE6's own technique) avoid
+# that trap.
+set -g SETTLE9 (awk '/^        set -l tok$/{f=1} f && /^        switch \$tok$/{exit} f{print}' $catfile | string collect)
+t "settle branch extraction is non-empty" 1 (test -n "$SETTLE9"; and echo 1; or echo 0)
+t "settle extraction stopped at the switch, not EOF" 0 (string match -ra 'case cancel' -- "$SETTLE9" | count)
+
+# <autoapply 0|1> <token the stubbed readkey returns> -> number of applies
+# fired. eval, not source: source opens its own local scope, so a `set -l`
+# inside the extracted block would not survive the call returning. Wrapped
+# in a bounded for-loop (matching $SETTLE6's own __t6_settle harness above):
+# the extracted body's `continue` on the timeout path is only valid inside a
+# loop — a bare `eval` outside one still runs correctly (continue is the
+# last statement in that branch either way) but sprays "continue: Not
+# inside of loop" to stderr on every timeout pass; the loop gives it
+# something real to continue out of, same fix already adopted for the
+# picker-seed-section Task 6 harness.
+function __t9_settle_applies --argument-names autoapply tok --description 'drive the REAL settle branch (SETTLE9) with readkey/stty/reload/reanchor/autoapply_now all stubbed; flashfield/seeddirty start clear so only applydue drives the gate. Prints the number of __tcz_thp_autoapply_now calls.'
+    set -g __t9_applies 0
+    set -g __t9_settletok $tok
+    function __tcz_popup_readkey; echo $__t9_settletok; end
+    function stty; end
+    function __tcz_thp_reload; end
+    function __tcz_thp_reanchor; end
+    function __tcz_thp_autoapply_now; set -g __t9_applies (math $__t9_applies + 1); end
+    set -l flashfield ''
+    set -l seeddirty 0
+    set -l applydue 1
+    set -l autoapply $autoapply
+    set -l lines one
+    for _pass in 1 2 3 4 5
+        eval $SETTLE9
+        break
+    end
+    functions -e __tcz_popup_readkey stty __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_autoapply_now
+    echo $__t9_applies
+end
+
+# One settle applies exactly once; a key arriving first applies zero times.
+t "settle with autoapply armed applies once" 1 (__t9_settle_applies 1 timeout)
+t "a key arriving before the timeout applies zero times" 0 (__t9_settle_applies 1 down)
+t "settle with autoapply off applies zero times" 0 (__t9_settle_applies 0 timeout)
+t "two consecutive settles do not stack applies" 1 (__t9_settle_applies 1 timeout)
 
 
 if test $FAIL -eq 0

@@ -879,7 +879,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|t|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|A|r|b|t|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -927,6 +927,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 50; echo P; return                      # P (theme-picker: cycle placement backward)
         case 6d; echo m; return                      # m (theme-picker: toggle mode)
         case 4d; echo M; return                      # M (theme-picker: toggle mode, same as m)
+        case 41; echo A; return                      # A (theme-picker: toggle auto-apply on dwell — NOT the ESC-branch up-arrow case 41 below, a separate switch)
     end
     if test "$b" = 1b                                # ESC
         # bare ESC vs CSI (\e[…) / SS3 (\eO…) arrow: non-blocking follow-read
@@ -1652,7 +1653,7 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 16 static chrome/seed-zone/second-list/legend rows idle, 21 editing (the seed zone is 3 rows idle / 8 editing; see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 3 rows idle / 8 editing; the browsing legend is 4 rows, A auto being its tenth pair — picker-legibility-autoapply Task 5; see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -1684,6 +1685,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l place bar
     set -l mode derived
     set -l previewed 0
+    # picker-legibility-autoapply Task 5: whether settling on a row (the
+    # dwell — see the settle branch below) applies it live automatically.
+    # Default on when the universal is unset; A toggles it and persists the
+    # flip. Like tmux_lives_cursor_style, this one has no `setup` CLI setter
+    # — set -U only, written through a config-loaded child at the same
+    # action-site tier as every other write in this function.
+    set -l autoapply 1
     function __tcz_thp_init --no-scope-shadowing
         # Universal reads MUST go through a config-loaded child: this process
         # runs --no-config, which neither READS nor WRITES universal variables
@@ -1696,7 +1704,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
             echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))
             echo (__tmux_lives_key tmux_lives_theme_place bar)
-            echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
+            echo (__tmux_lives_key tmux_lives_theme_mode derived)
+            echo (__tmux_lives_key tmux_lives_theme_autoapply 1)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
         # $phase stays pinned at 0 — hidden knob, so every SCHEME row previews and
@@ -1713,6 +1722,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # comment on the `place`/`mode` decls).
         test (count $init) -ge 6; and test -n "$init[6]"; and set place $init[6]
         test (count $init) -ge 7; and test -n "$init[7]"; and set mode $init[7]
+        test (count $init) -ge 8; and test -n "$init[8]"; and set autoapply $init[8]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -2028,14 +2038,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # 8-row zone live and chose a compact idle zone (more schemes visible) over
     # a scheme list that never moves, accepting that the window shrinks when b
     # is pressed. So the static row budget is mode-dependent too: the old zone
-    # was 8 rows inside a STATIC of 21, so idle is 21 − 8 + 3 = 16 and editing
-    # stays 21 − 8 + 8 = 21 (unchanged — the editing zone is still 8 rows).
+    # was 8 rows inside a STATIC of 21, so idle was 21 − 8 + 3 = 16 and editing
+    # stayed 21 − 8 + 8 = 21 (unchanged — the editing zone is still 8 rows).
+    # picker-legibility-autoapply Task 5 adds a tenth browsing-legend pair
+    # (A auto), which tips the legend from 3 rows to 4 in BOTH modes — the
+    # editing legend is padded an extra blank row to match, so both budgets
+    # move by the same +1: idle 16 -> 17, editing 21 -> 22.
     # Both names are read directly by the frame proof, which derives its own
     # WIN from them rather than restating a literal — a wrong value here used
     # to keep the whole gate green while the frame overflowed the popup and
     # scrolled its own top border away.
-    set -l STATIC_IDLE 16
-    set -l STATIC_EDIT 21
+    set -l STATIC_IDLE 17
+    set -l STATIC_EDIT 22
     set -l dims (stty size 2>/dev/null | string split ' ')
     set -l rows 26
     test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
@@ -2056,8 +2070,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # own top border away — the exact defect this task's own brief names.
     # Checking the floor against STATIC_EDIT instead guarantees the frame
     # fits in BOTH modes before the picker ever opens, and costs nothing: it
-    # restores the pre-Task-3 admission threshold EXACTLY (rows >= 24, since
-    # STATIC_EDIT 21 is what the single STATIC constant used to be).
+    # restored the pre-Task-3 admission threshold EXACTLY (rows >= 24, since
+    # STATIC_EDIT 21 is what the single STATIC constant used to be) — Task 5's
+    # extra legend row moves STATIC_EDIT 21 -> 22, so the floor is now 25.
     if test (math "$rows - $STATIC_EDIT") -lt 3
         # Too short to draw a usable list in either mode. Say so plainly
         # rather than rendering a frame that overflows and scrolls its own
@@ -2093,9 +2108,47 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # cancelled a pending batch. seeddirty is cleared ONLY where it is
     # consumed, in the settle block below.
     set -l seeddirty 0
+    # picker-legibility-autoapply Task 5: a scheme/state-row apply is owed
+    # once the cursor settles on it. Set by the movement arm below whenever
+    # it lands on a new row; consumed (and ALWAYS cleared, whether or not
+    # autoapply is on) by the settle block below, the same timed poll
+    # flashfield/seeddirty already use — one timer serving three purposes
+    # beats three separate ones. Independent of flashfield/seeddirty for the
+    # same reason those two are independent of each other (see the comment
+    # above): an arm that clears flashfield on its own unrelated keypress
+    # must not silently cancel an apply that is still owed.
+    set -l applydue 0
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     set -l apply ''
+    function __tcz_thp_autoapply_now --no-scope-shadowing --description 'apply whatever the cursor is currently on, live — the exact body case a used to run inline, now shared by the a arm and the settle-timeout auto-apply (Task 5) so the two paths cannot drift apart. A scheme/off row previews its own recipe at the live phase; the current row re-previews its own frozen snapshot. Always followed by the same __tcz_recolor tab emit case a always ran.'
+        if test $focus = state
+            if test $sel2 -eq 0
+                fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
+                set -l tabhex (__tcz_tab_color '')
+                test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                set previewed 2
+                set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
+            else
+                fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
+                set -l tabhex (__tcz_tab_color '')
+                test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                set previewed 1
+                set note "● previewing off — ⏎ save · esc revert"
+            end
+        else
+            set -l pi (math $sel + 1)
+            set -l rc (string split '|' -- $recipes[$pi])
+            set -l rel $rc[1]
+            set -l rplace $rc[2]
+            set -l rmode $rc[3]
+            fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
+            set -l tabhex (__tcz_tab_color '')
+            test -n "$tabhex"; and __tcz_recolor "$tabhex"
+            set previewed 1
+            set note "● previewing $rel — ⏎ save · esc revert"
+        end
+    end
     while true
         # cursor row palette — two lists, two lookups. focus=list: sel is
         # LINEAR 0..n-1 into $pals/$fgs/$tabsfgs (1-indexed, so capture sel+1
@@ -2173,9 +2226,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # (current + off) is pinned below, always drawn. sel can never exceed
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
         # clamp for an off/anchor cursor position — that clamp is dead, removed.
-        # The frame is STATIC_IDLE (16) or STATIC_EDIT (21) static rows
+        # The frame is STATIC_IDLE (17) or STATIC_EDIT (22) static rows
         # (border/chip/preview/seed-zone[zsep+3-or-8 rows, mode-dependent]/
-        # schemes-zsep/second-list-zsep/current/off/blank-zsep/legend×3/note/
+        # schemes-zsep/second-list-zsep/current/off/blank-zsep/legend×4/note/
         # bottom-border) + WIN scheme rows = rows (the popup's own reported
         # height, see STATIC_IDLE/STATIC_EDIT above).
         # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
@@ -2306,16 +2359,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # was the actual "⏎ closes the picker" bug (case enter already gated
         # on $editing correctly), since it kept naming save/close and never
         # the channel/adjust/hex keys while editing. Both branches must cost
-        # the SAME 3 rows: STATIC_IDLE/STATIC_EDIT (Task 3) each bake in a
-        # fixed 3-row legend, so a legend that grows or shrinks per mode
+        # the SAME row count: STATIC_IDLE/STATIC_EDIT (Task 3) each bake in a
+        # fixed legend height, so a legend that grows or shrinks per mode
         # silently breaks the frame's total row count. The editing set is
-        # only 5 pairs (2 rows via __tcz_thp_leg) — padded with one blank
-        # framed row rather than an invented sixth pair.
+        # only 5 pairs (2 rows via __tcz_thp_leg) — padded with blank framed
+        # rows rather than invented pairs. picker-legibility-autoapply Task 5
+        # adds `A auto` as the browsing legend's TENTH pair (measured: 9
+        # pairs render 3 rows at cols=3, 10 render 4 — the tenth spills into
+        # a partial row), so idle grew 3 -> 4 rows; editing's own pad grew
+        # from 1 blank row to 2 to match (its 5 real pairs are untouched).
         if test "$editing" = 1
             set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex'  '⏎' keep esc revert)
-            set -a leglines ''
+            set -a leglines '' ''
         else
-            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close)
+            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close 'A' auto)
         end
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
@@ -2330,18 +2387,22 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         printf '%s\e[K' $lines[-1]
         printf '\e[J\e[?2026l'
         set -l tok
-        if test -n "$flashfield"; or test "$seeddirty" = 1
-            # flash active and/or a batch reload is owed: wait up to ~0.5s;
-            # on timeout clear the flash and/or run the owed batch. A real
-            # key is handled exactly like the blocking read. seeddirty must
-            # be checked here TOO (not just flashfield) — picker-seed-section
-            # Task 6 fix round 1: m/z/tab clear flashfield on their own
+        if test -n "$flashfield"; or test "$seeddirty" = 1; or test "$applydue" = 1
+            # flash active, and/or a batch reload is owed, and/or a settled-row
+            # apply is owed: wait up to ~0.5s; on timeout clear the flash and/or
+            # run the owed batch and/or auto-apply the settled row. A real key
+            # is handled exactly like the blocking read. seeddirty/applydue
+            # must be checked here TOO (not just flashfield) — picker-seed-
+            # section Task 6 fix round 1: m/z/tab clear flashfield on their own
             # unrelated keypresses, and if this branch were gated on
             # flashfield alone, clearing it would also stop the timed poll
-            # from ever running again, so a batch left owed after one of
-            # those arms would never fire — the picker falls to a plain
-            # blocking read instead and the deferred catch-up is silently
-            # lost until the next seed edit (or never, if none comes).
+            # from ever running again, so a batch (or an apply) left owed
+            # after one of those arms would never fire — the picker falls to
+            # a plain blocking read instead and the deferred catch-up is
+            # silently lost until the next seed edit (or never, if none
+            # comes). picker-legibility-autoapply Task 5: applydue joins on
+            # the same reasoning — one timed poll serving three purposes,
+            # not three separate timers with three separate dwell lengths.
             stty min 0 time 5 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
             stty min 1 time 0 2>/dev/null
@@ -2363,6 +2424,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     __tcz_thp_reload
                     __tcz_thp_reanchor
                     set seeddirty 0
+                end
+                if test "$applydue" = 1
+                    # picker-legibility-autoapply Task 5: input has settled on
+                    # a row — no key arrived within ~0.5s of the last move.
+                    # Clear BEFORE the apply, not after, so a slow apply
+                    # cannot leave a second one armed (a settle that fires
+                    # while __tcz_thp_autoapply_now is still running would
+                    # otherwise stack). Only actually applies when the
+                    # toggle is on; the flag is cleared either way, matching
+                    # seeddirty's own always-cleared-on-settle shape above.
+                    set applydue 0
+                    test "$autoapply" = 1; and __tcz_thp_autoapply_now
                 end
                 continue
             end
@@ -2431,6 +2504,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                             set sel (__tcz_thp_vismap $sel $n $dir)
                         end
                     end
+                    # picker-legibility-autoapply Task 5: the cursor landed on a
+                    # (possibly new) row — arm the dwell. Joins the settle gate
+                    # below via the same timed poll flashfield/seeddirty already
+                    # use, not a second timer.
+                    set applydue 1
                 end
             # ←→ move the seed's selected R/G/B channel, but ONLY while editing —
             # outside edit mode they stay unbound, same as they were when phase
@@ -2603,31 +2681,23 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             # theme on the bar — so `current` stays lit. It is never reset: `cancel`
             # needs it to know a revert is owed.
             case a
-                if test $focus = state
-                    if test $sel2 -eq 0
-                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
-                        set -l tabhex (__tcz_tab_color '')
-                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
-                        set previewed 2
-                        set note "● previewing $anch_scheme (current) — ⏎ save · esc revert"
-                    else
-                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
-                        set -l tabhex (__tcz_tab_color '')
-                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
-                        set previewed 1
-                        set note "● previewing off — ⏎ save · esc revert"
-                    end
+                __tcz_thp_autoapply_now
+            case A
+                # picker-legibility-autoapply Task 5: toggle whether settling on a
+                # row (below, the movement arm + settle branch) applies it live on
+                # its own. The user's own principle: configuration is cheap and
+                # private, adoption touches the real bar — settling on a row
+                # already means "this is a candidate," dragging a seed slider does
+                # not, so this toggle governs the former only. Written through the
+                # same config-loaded-child tier every other universal write in
+                # this function uses; there is no `setup` CLI flag for it (like
+                # tmux_lives_cursor_style, set -U only).
+                test "$autoapply" = 1; and set autoapply 0; or set autoapply 1
+                fish -c 'set -U tmux_lives_theme_autoapply $argv[1]' "$autoapply" >/dev/null 2>&1
+                if test "$autoapply" = 1
+                    set note "auto-apply on — settling on a row applies it live"
                 else
-                    set -l pi (math $sel + 1)
-                    set -l rc (string split '|' -- $recipes[$pi])
-                    set -l rel $rc[1]
-                    set -l rplace $rc[2]
-                    set -l rmode $rc[3]
-                    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
-                    set -l tabhex (__tcz_tab_color '')
-                    test -n "$tabhex"; and __tcz_recolor "$tabhex"
-                    set previewed 1
-                    set note "● previewing $rel — ⏎ save · esc revert"
+                    set note "auto-apply off — press a or ⏎ to apply"
                 end
             case enter
                 if test "$editing" = 1
@@ -2698,6 +2768,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_reanchor
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_sliders
+    functions -e __tcz_thp_autoapply_now
     set -e __tcz_thp_saved
     stty $saved
     printf '\e[?25h\e[2J\e[H'
