@@ -1746,11 +1746,12 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # call's argument text (everything between the function name and the closing
 # paren of its command substitution) and count space-separated tokens, rather
 # than a substring match, so this guard actually goes red if either call
-# loses an arg. picker-seed-section Task 6 added a third call (a direct
-# per-keystroke recompute in case left/right) alongside the batch reload and
-# the anchor, so the count below is 3, not the original 2.
+# loses an arg. picker-seed-section Task 6 briefly added a third call (a
+# direct per-keystroke recompute in case left/right); drop-autoapply-
+# debounce-seed Task 2 removed it outright — a channel keypress now costs
+# zero palette calls — so the count below is back to 2.
 set -l palcalls (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pbody"))
-t "picker has exactly 3 palette calls" 3 (count $palcalls)
+t "picker has exactly 2 palette calls" 2 (count $palcalls)
 for pc in $palcalls
     set -l argtail (string replace -r '.*__tmux_lives_theme_palette ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
@@ -2045,8 +2046,9 @@ t "picker: no contrast local"   0 (string match -ra 'set -l contrast ' -- "$PBOD
 t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | count)
 # Positive counterpart: the palette calls must still EXIST, so the guards above
 # cannot be satisfied by deleting the calls outright. picker-seed-section
-# Task 6 added a third (case left/right's direct per-keystroke recompute).
-t "picker: still has exactly 3 palette calls" 3 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
+# Task 6's third (case left/right's direct per-keystroke recompute) is gone
+# again — drop-autoapply-debounce-seed Task 2 removed it, back to 2.
+t "picker: still has exactly 2 palette calls" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -2477,10 +2479,10 @@ t "the islive placeholder is gone" 0 (string match -qr 'set -l islive 1\s*\n\s*s
 # by tab); the retired axis keys/functions stay gone; the titled current zsep
 # is retired along with it (superseded by the second list's own untitled
 # zsep + __tcz_thp_leg wiring, both in place); vismap never hands back n (off
-# left the walk entirely, not just n+1); the palette call-site count is now
-# 3 (picker-seed-section Task 6 added a direct per-keystroke call in case
-# left/right, alongside the batch reload and the anchor; arity is pinned
-# separately by the per-call arg-count loop at ~line 1654).
+# left the walk entirely, not just n+1); the palette call-site count is back
+# to 2 (picker-seed-section Task 6's direct per-keystroke call in case
+# left/right is gone again — drop-autoapply-debounce-seed Task 2; arity is
+# pinned separately by the per-call arg-count loop at ~line 1654).
 t "consolidated guard: case c retired (superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no case p (retired)"  0 (string match -qr 'case p\b' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: no theme_ring"        0 (string match -q '*__tmux_lives_theme_ring*' -- "$pk2"; and echo 1; or echo 0)
@@ -2489,7 +2491,7 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-t "consolidated guard: exactly 3 palette call sites" 3 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+t "consolidated guard: exactly 2 palette call sites" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -3631,26 +3633,28 @@ t "case tab: editing=0 still toggles list->state (non-regression)" state (__t9_c
 t "case tab: editing=0 still toggles state->list (non-regression)" list (__t9_casetab 0 state)
 
 # =====================================================================
-# picker-seed-section Task 6: live regeneration — the cursor's own scheme
-# recomputes as the seed moves; the remaining strips catch up once input
-# settles. Measured costs driving the split: one palette ~40ms; the 14-row
-# curated batch 310-400ms; all 35 rows 700-800ms — per-keystroke full
-# regeneration is not affordable, so only the cursor's own row may be
-# recomputed inline; everything else waits for a pause in input.
+# drop-autoapply-debounce-seed Task 2: a channel keypress costs a redraw and
+# NOTHING else. picker-seed-section Task 6 (superseded here) had a channel
+# keypress recompute the cursor's OWN scheme inline (~40ms) on top of the
+# redraw; the user tried the resulting build live and found even that felt
+# sluggish stacked on the frame cost, and asked to debounce the seed
+# entirely instead — zero palette work until input actually pauses. The
+# batch (all visible strips + the anchor row) still runs once, but only
+# after a 700ms settle poll (was 500ms).
 # =====================================================================
 set -l catfile $plugindir/functions/tmux-categorize.fish
 
-# --- Step 1: live regeneration is scoped to one palette --------------------------
-# A full batch is 310-800ms; one palette is ~40ms. The per-keystroke path must
-# compute ONE palette, not call the batch reload.
+# --- Step 1: the per-keystroke palette recompute is gone -------------------------
+# picker-seed-section Task 6 added a third call site (a direct per-keystroke
+# recompute in case left/right); drop-autoapply-debounce-seed Task 2 removes
+# it outright, back to the original 2 (the batch reload and the anchor).
 set -g EB6 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
 t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0)
 # Count call sites rather than pattern-matching across lines. A multiline regex over
-# a 700-line body is fragile and hard to prove non-vacuous; a count is neither. The
-# picker had exactly 2 palette calls (the batch reload and the anchor); the live
-# channel path adds a third, and it must be a DIRECT call, not another reload.
-t "picker now has exactly 3 palette call sites" 3 (string match -ra '__tmux_lives_theme_palette ' -- "$EB6" | count)
-# Perf fence: one palette must stay well under a redraw budget.
+# a 700-line body is fragile and hard to prove non-vacuous; a count is neither.
+t "picker back to exactly 2 palette call sites" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$EB6" | count)
+# Perf fence retained: one palette call must stay well under a redraw budget —
+# still relevant to the batch's own cost, just no longer paid per keystroke.
 set -g T6A (date +%s%N)
 __tmux_lives_theme_palette '#5f772b' amber bar derived 0 >/dev/null
 set -g T6B (date +%s%N)
@@ -3707,6 +3711,15 @@ set -g SETTLE6 (awk '/^        set -l tok$/{f=1} f && /^        switch \$tok$/{e
 t "settle-block extraction is non-empty (task 6)" 1 (test -n "$SETTLE6"; and echo 1; or echo 0)
 t "settle-block extraction stopped before the main switch (did not run to EOF)" 0 (string match -q '*case m*' -- "$SETTLE6"; and echo 1; or echo 0)
 t "settle-block extraction did not run all the way to the picker's teardown" 0 (string match -q '*functions -e __tcz_thp_reload*' -- "$SETTLE6"; and echo 1; or echo 0)
+# drop-autoapply-debounce-seed Task 2: pin the debounce VALUE, not merely
+# that some stty reassertion exists — the drain-invariant guard above (and
+# Task 4's DR4 below) only count occurrences of "stty min 0 time", which
+# would pass just as happily on a `time 5` -> `time 10` slip as on the
+# intended `time 5` -> `time 7` move. A literal substring on the extracted
+# block is exact: "time 7 2>/dev/null" cannot also match "time 70 ..." or
+# "time 5 ...", so this is sensitive to the actual tenths-of-a-second value.
+t "settle poll is the new 700ms value (time 7)" 1 (string match -q '*stty min 0 time 7 2>/dev/null*' -- "$SETTLE6"; and echo 1; or echo 0)
+t "settle poll is no longer the old 500ms value (time 5)" 0 (string match -q '*stty min 0 time 5 2>/dev/null*' -- "$SETTLE6"; and echo 1; or echo 0)
 
 # Stub __tcz_popup_readkey (queue-based, same convention as $ARROW9WRAP's own
 # harness above) and stty (no-op — no real tty to assert on under the
@@ -3733,7 +3746,22 @@ function __tcz_thp_reload --description 'test stub (picker-seed-section Task 6):
     set -g __t6_reload_calls (math $__t6_reload_calls + 1)
 end
 
-function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-6-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>\x1e<seeddirty>".'
+# __tmux_lives_theme_palette ALSO stubbed as a call counter here — this IS
+# the Task 2 discriminator: a channel keypress must cost ZERO palette calls,
+# not merely skip the batch reload. A mistaken implementation that still
+# recomputed the cursor row inline would leave pals[1] looking plausible
+# while still failing this count, which is why it is a dedicated counter and
+# not inferred from pals[1] alone. The real engine implementation is
+# captured first and restored immediately after the two assertion blocks
+# below (RES6A/RES6B), before anything downstream needs a real result.
+set -g __t6_real_palette (functions __tmux_lives_theme_palette | string collect)
+t "captured the real engine palette function before stubbing it" 1 (test -n "$__t6_real_palette"; and echo 1; or echo 0)
+set -g __t6_pal_calls 0
+function __tmux_lives_theme_palette --description 'test stub (drop-autoapply-debounce-seed Task 2): counts calls instead of computing a palette.'
+    set -g __t6_pal_calls (math $__t6_pal_calls + 1)
+end
+
+function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-2-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>\x1e<seeddirty>\x1e<pal_calls>".'
     set -l editing 1
     set -l chan 1
     set -l sel 0
@@ -3755,35 +3783,48 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
     set -l fgs '#000000'
     set -l tabsfgs '#000000'
     set -g __t6_reload_calls 0
+    set -g __t6_pal_calls 0
     set -g __t6_rkq $argv[3..-1]
     eval $ARROWLR6WRAP
-    printf '%s\x1e%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls" "$seeddirty"
+    printf '%s\x1e%s\x1e%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls" "$seeddirty" "$__t6_pal_calls"
 end
 
 set -g RES6A (__t6_arrow right '#000000')
 set -g f6a (string split \x1e -- $RES6A)
-t "channel edit overwrites the stale placeholder palette" no (test "$f6a[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
-set -g expected6a (string join ' ' (__tmux_lives_theme_palette $f6a[3] mono bar derived 0))
-t "channel edit's cursor-row palette matches a direct call for the new seed" "$expected6a" "$f6a[1]"
+# drop-autoapply-debounce-seed Task 2: the cursor's own scheme strip is no
+# longer touched by a channel keypress at all — it stays on the stale
+# placeholder until a real batch reload runs (the settle tests below).
+t "channel edit leaves the scheme strip untouched (stale placeholder survives)" yes (test "$f6a[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
 t "channel edit sets flashfield to seed (drives the settle timeout below)" seed "$f6a[2]"
-t "channel edit's seed reflects the +8 delta" '#080000' "$f6a[3]"
+t "channel edit's seed reflects the +8 delta (the redraw-only part still works)" '#080000' "$f6a[3]"
 t "channel edit does not call the batch reload" 0 "$f6a[4]"
-# fix round 1 (Important 1): the batch is now owed via a DEDICATED flag, not
-# flashfield alone — flashfield is cleared by other arms (m/z/tab) that have
-# no idea it also carries this obligation, which used to silently cancel the
-# deferred reload+reanchor. Assert the dedicated flag directly.
+# fix round 1 (Important 1, still true): the batch is owed via a DEDICATED
+# flag, not flashfield alone — flashfield is cleared by other arms (m/z/tab)
+# that have no idea it also carries this obligation, which would otherwise
+# silently cancel the deferred reload+reanchor. Assert the dedicated flag
+# directly.
 t "channel edit marks the seed dirty (independent of flashfield)" 1 "$f6a[5]"
+# THE discriminator: zero palette calls, not just "no batch reload call" —
+# a mistaken implementation could skip the batch while still recomputing the
+# cursor row inline, which only this count catches.
+t "channel edit calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6a[6]"
 
-# A held key: the drain coalesces 3 presses into ONE net delta and this arm
-# still recomputes exactly once — there is only one call site in the arm
-# regardless of burst size, which is what keeps a hold cheap.
+# A held key: the drain coalesces 3 presses into ONE net delta, and the arm
+# still costs zero palette calls regardless of burst size — the whole point
+# of debouncing is that a hold is exactly as cheap as a single tap.
 set -g RES6B (__t6_arrow right '#000000' right right)
 set -g f6b (string split \x1e -- $RES6B)
 t "a 3-press coalesced burst sums to +24, not three separate +8s" '#180000' "$f6b[3]"
-set -g expected6b (string join ' ' (__tmux_lives_theme_palette $f6b[3] mono bar derived 0))
-t "a coalesced burst's cursor-row palette matches the summed seed" "$expected6b" "$f6b[1]"
+t "a coalesced burst still leaves the scheme strip untouched" yes (test "$f6b[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
 t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
 t "a coalesced burst also marks the seed dirty" 1 "$f6b[5]"
+t "a coalesced burst still calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6b[6]"
+
+# Restore the real engine palette function before anything downstream needs
+# a real result — the settle-block/BAND/e2e tests further down all depend on
+# it, via the real reload/reanchor once those are restored in their own turn.
+functions -e __tmux_lives_theme_palette
+eval $__t6_real_palette
 
 # --- Step 4: input settling triggers exactly one batch reload + reanchor --------
 set -g __t6_reanchor_calls 0
@@ -3806,8 +3847,8 @@ end
 
 set -g RES6T (__t6_settle seed 1 timeout)
 set -g f6t (string split ' ' -- $RES6T)
-t "settle (no key within ~0.5s) calls the batch reload exactly once" 1 "$f6t[1]"
-t "settle (no key within ~0.5s) calls reanchor exactly once"         1 "$f6t[2]"
+t "settle (no key within ~0.7s) calls the batch reload exactly once" 1 "$f6t[1]"
+t "settle (no key within ~0.7s) calls reanchor exactly once"         1 "$f6t[2]"
 t "settle clears flashfield"                                         '' "$f6t[3]"
 t "settle clears seeddirty"                                          0 "$f6t[4]"
 
