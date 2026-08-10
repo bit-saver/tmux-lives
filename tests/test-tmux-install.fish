@@ -1135,6 +1135,26 @@ end
 t "migrate_v51 is silent when there is nothing to erase" '' "$_m51"
 t "post_update chains migrate_v51" yes (string match -q '*__tmux_lives_migrate_v51*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 
+# --- drop-autoapply-debounce-seed Task 1: retire tmux_lives_theme_autoapply ------
+# Auto-apply-on-dwell (the theme-picker A toggle) was cancelled outright, not
+# defaulted off — the user tried it live and found it too disruptive. A
+# session that pressed A left tmux_lives_theme_autoapply set; erase it.
+t "migrate_v52 exists" 0 (functions -q __tmux_lives_migrate_v52; echo $status)
+set -U tmux_lives_theme_autoapply 0
+__tmux_lives_migrate_v52 >/dev/null 2>&1
+t "migrate_v52 erases the autoapply universal" 0 (set -q tmux_lives_theme_autoapply; and echo 1; or echo 0)
+# Guarded by `functions -q`, matching the migrate_v51 pattern above: an undefined
+# function inside a command substitution aborts the assignment silently, leaving
+# $_m52 UNSET — and an unset var expands to '' in double quotes, which would
+# spuriously equal the expected '' below and pass for the wrong reason.
+if functions -q __tmux_lives_migrate_v52
+    set -g _m52 (__tmux_lives_migrate_v52 2>&1 | string collect)
+else
+    set -g _m52 __migrate_v52_missing__
+end
+t "migrate_v52 is silent when there is nothing to erase (idempotent)" '' "$_m52"
+t "post_update chains migrate_v52" yes (string match -q '*__tmux_lives_migrate_v52*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
+
 set -e tmux_lives_bar_color
 t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'

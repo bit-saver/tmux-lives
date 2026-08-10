@@ -1448,6 +1448,13 @@ function __tmux_lives_migrate_v51 --description 'v5 -> v5.1: vividness/shape/eas
     return 0
 end
 
+function __tmux_lives_migrate_v52 --description 'v5.1 -> v5.2: auto-apply-on-dwell (theme-picker A toggle) is retired outright — the user tried it live and found it too disruptive, not merely defaulted off — so tmux_lives_theme_autoapply is now dead weight if a session ever pressed A. Erase it, scope-less like v51 (a scoped `set -e -U` silently no-ops under `fish --no-config`). Idempotent; runs on fisher update.'
+    set -q tmux_lives_theme_autoapply; or return 0
+    set -e tmux_lives_theme_autoapply
+    echo "tmux-lives: theme-picker auto-apply retired — press a or ⏎ to apply a scheme"
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -1457,6 +1464,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     __tmux_lives_migrate_v4
     __tmux_lives_migrate_v41
     __tmux_lives_migrate_v51
+    __tmux_lives_migrate_v52
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment
