@@ -4212,7 +4212,7 @@ t "browsing legend no longer names A auto" 0 (string match -ra "'A' auto" -- "$P
 # insufficient with two one-token mutations, neither of which touches the
 # function's own text: (a) replacing case a's body with `true` (the `a` key
 # silently dead) and (b) dropping `--no-scope-shadowing` off
-# __tcz_thp_apply_now's definition (both `a` and auto-apply become
+# __tcz_thp_apply_now's definition (the `a` arm, its only caller, becomes
 # erroring no-ops, since the function then gets its own fresh scope and
 # can no longer reach the caller's $focus/$sel/$previewed/$note at all).
 t "case a calls __tcz_thp_apply_now" 1 (string match -qr '(?ms)^ *case a$\n *__tcz_thp_apply_now$' -- "$PB9"; and echo 1; or echo 0)
