@@ -1970,4 +1970,17 @@ if test (count $fish_function_path) -gt 0
 end
 set -e tmux_lives_isolation_probe
 
+# --- Task 1: the idle predicate ---------------------------------------------
+t "is_idle: function exists" 1 (functions -q __tmux_lives_shell_is_idle; and echo 1; or echo 0)
+# No controlling tty -> tpgid is -1 -> must report NOT idle. "Unsure" has to mean
+# "do not print", because every wrong answer here corrupts someone's editor frame.
+set -g __t1_notty (fish --no-config -c "set -g tmux_categorize_test 1; source $plugindir/conf.d/tmux-lives-install.fish; __tmux_lives_shell_is_idle; and echo IDLE; or echo BUSY" 2>/dev/null)
+t "is_idle: no controlling tty reports BUSY" BUSY "$__t1_notty"
+
+# At a prompt the shell owns the tty; inside a foreground child it does not.
+# `timeout` is mandatory: an interactive fish outlives its -C command and a
+# bare wait would hang the suite.
+set -g __t1_pty (timeout 20 script -qfec "fish --no-config -i -C 'set -g tmux_categorize_test 1; source $plugindir/conf.d/tmux-lives-install.fish; __tmux_lives_shell_is_idle; and echo AT-PROMPT-IDLE; or echo AT-PROMPT-BUSY; exit'" /dev/null 2>/dev/null | tr -d '\r')
+t "is_idle: at a prompt with a tty reports IDLE" 1 (string match -q '*AT-PROMPT-IDLE*' -- "$__t1_pty"; and echo 1; or echo 0)
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

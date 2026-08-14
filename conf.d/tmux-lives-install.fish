@@ -1131,6 +1131,31 @@ function __tmux_lives_stale_shells --description 'pure: session names of tmux pa
     end
 end
 
+function __tmux_lives_shell_is_idle --description 'True when this shell owns its terminal — no foreground child is running. Compares the ttys foreground process group against the shells own pgid: Linux reads /proc/<pid>/stat, macOS falls back to ps, mirroring the __tcz_pid_comm/__tcz_pid_cmdline split. With no controlling tty (tpgid -1) it returns FALSE ON PURPOSE: the only consumer is a notice printed to a live terminal, so "unsure" must mean "do not print". Known edge, accepted: a long-running fish FUNCTION forks nothing, so fish itself stays in the foreground and reads as idle — fish dispatches events between statements, so the window is small.'
+    set -l pid $fish_pid
+    set -l tp ''
+    set -l pg ''
+    if test -r /proc/$pid/stat
+        # comm (field 2) is parenthesised and may itself contain spaces, so strip
+        # through the LAST ") " before splitting. What remains is
+        # [1]=state [2]=ppid [3]=pgrp [4]=session [5]=tty_nr [6]=tpgid
+        set -l rest (string replace -r '^.*\) ' '' < /proc/$pid/stat)
+        set -l f (string split ' ' -- $rest)
+        set pg "$f[3]"
+        set tp "$f[6]"
+    else
+        set -l out (ps -o tpgid=,pgid= -p $pid 2>/dev/null | string trim | string split -n ' ')
+        set tp "$out[1]"
+        set pg "$out[2]"
+    end
+    # Guard the numeric compares: a non-numeric field would make `test -gt` error
+    # to stderr, and this runs inside an event handler where that lands on the tty.
+    string match -qr '^-?[0-9]+$' -- "$tp"; or return 1
+    string match -qr '^-?[0-9]+$' -- "$pg"; or return 1
+    test "$tp" -gt 0; or return 1
+    test "$tp" = "$pg"
+end
+
 function __tmux_lives_update_note --argument-names refreshed removed sessions --description 'pure: the post-update advice. `removed`/`sessions` are space-separated. exec fish is recommended HERE only when a function was removed (sourcing cannot unset one); other shells are named because exec fish does not reach them.'
     if test "$refreshed" -eq 1
         echo '✓ tmux-lives updated — tmux config refreshed + reloaded.'
