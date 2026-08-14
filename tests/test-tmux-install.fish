@@ -2020,6 +2020,13 @@ end
 command tmux -L $idlesock kill-server 2>/dev/null
 set -l idleout (test -e $idleresult; and cat $idleresult; or echo '')
 rm -f $idleready $idleresult
+# Review fix N-1: $idlefn and $idleps are both extracted from this SAME
+# $idleout, so a harness that produces no output (pane never came up,
+# send-keys missed, job control unavailable) leaves both empty and "" = ""
+# would otherwise pass -- the same blind-spot class as I-1, relocated onto
+# harness failure instead of a field index. Assert non-empty first, so a
+# dead harness fails loudly here instead of vacuously agreeing below.
+t "is_idle: pty harness produced output" 1 (test -n "$idleout"; and echo 1; or echo 0)
 set -l idlefn (string match -r 'FN=(\w+)' -- "$idleout")[2]
 set -l idleps (string match -r 'PS=(\w+)' -- "$idleout")[2]
 t "is_idle: /proc field parse agrees with an independent ps -o tpgid=,pgid= reading" "$idleps" "$idlefn"
