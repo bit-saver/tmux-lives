@@ -27,11 +27,17 @@ Verified directly in an isolated `XDG_CONFIG_HOME`, not assumed:
 | fact | measured |
 |---|---|
 | `--on-variable` fires in an **already-running** shell | yes |
-| it fires **while a foreground child is running** | yes — one firing while a 12 s `sleep` held the terminal |
-| firings per single `set -U` | **2** — idempotency is mandatory |
+| it fires **while a foreground child is running** | **NO — deferred until the child exits** |
+| firings per single `set -U`, **in a given shell** | **once** |
 | setting the **same value** still fires | yes — change-detection must live in the emitter |
 | `/proc/<pid>/stat` with no tty | `tpgid -1` → predicate must report "not idle" |
 | at a prompt with a tty | `tpgid == pgid` → idle |
+
+> **⚠️ Rows 2 and 3 were WRONG when this plan was written, and both came from the same flawed probe.** It registered its handler in `conf.d`, so the separate `fish -c 'set -U …'` process that fired the event loaded the same handler and fired it on *itself* — its firing was miscounted as the shell's. Re-measured with per-pid logging: fish is single-threaded and defers **all** handler dispatch until control returns to its main loop, and each shell fires exactly once.
+>
+> **Consequences for Tasks 3 and 4:** a shell running Claude refreshes when Claude *exits*, not immediately — so the note must not promise instant refresh. Idempotency is still required, but because the handler re-sources the file that defines it, not because of any double-fire.
+>
+> Task text below may still read as though the original rows held. **The table above governs.**
 
 ## File Structure
 
