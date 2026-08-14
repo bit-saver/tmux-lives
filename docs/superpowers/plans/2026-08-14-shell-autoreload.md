@@ -89,7 +89,7 @@ Expected: every `is_idle:` line FAILS — the function does not exist. Confirm t
 Add to `conf.d/tmux-lives-install.fish`:
 
 ```fish
-function __tmux_lives_shell_is_idle --description 'True when this shell owns its terminal — no foreground child is running. Compares the ttys foreground process group against the shells own pgid: Linux reads /proc/<pid>/stat, macOS falls back to ps, mirroring the __tcz_pid_comm/__tcz_pid_cmdline split. With no controlling tty (tpgid -1) it returns FALSE ON PURPOSE: the only consumer is a notice printed to a live terminal, so "unsure" must mean "do not print". Known edge, accepted: a long-running fish FUNCTION forks nothing, so fish itself stays in the foreground and reads as idle — fish dispatches events between statements, so the window is small.'
+function __tmux_lives_shell_is_idle --description 'True when this shell owns its terminal — no foreground child is running. Compares the ttys foreground process group against the shells own pgid: Linux reads /proc/<pid>/stat, macOS falls back to ps, mirroring the __tcz_pid_comm/__tcz_pid_cmdline split. With no controlling tty (tpgid -1) it returns FALSE ON PURPOSE: the only consumer is a notice printed to a live terminal, so "unsure" must mean "do not print". Known edge, accepted: a long-running fish FUNCTION or loop that forks no child holds fish own dispatch loop for that statements ENTIRE runtime, not a small window — fish will not invoke ANY handler, this one included, until it returns to a between-jobs checkpoint. That deferral, not this predicate, is what actually keeps a notice from landing mid-foreground-command; by the time any handler (and so this check) runs at all, fish itself already guarantees nothing else is in the foreground. What this predicate still covers is narrower: the no-tty case above, and whatever tty state exists at the moment dispatch does happen (verified against a real pty; see the task-1 report for the transcript).'
     set -l pid $fish_pid
     set -l tp ''
     set -l pg ''
@@ -115,13 +115,13 @@ function __tmux_lives_shell_is_idle --description 'True when this shell owns its
 end
 ```
 
-- [ ] **Step 4: Prove the BUSY case with a pty — this is the assertion that matters**
+- [ ] **Step 4: RETRACTED as originally scoped — prove the field parse instead**
 
-The no-tty and at-prompt cases above are already verified. The case the whole design rests on — *the predicate reports BUSY when called while a foreground child holds the terminal* — has **not** been verified and is yours to prove. Build a pty harness in which the predicate is called from inside a `--on-variable` handler while a `sleep` holds the foreground, and assert it reports BUSY.
+> **⚠️ This step asked for something that turned out not to exist.** As written it wanted a pty harness in which the predicate is called from inside a `--on-variable` handler while a `sleep` still holds the foreground, asserting BUSY. Once Rows 2–3 of the facts table above were retracted, that moment stopped existing: fish will not invoke the handler *at all* until the foreground child has already exited, so there is no point at which a handler can observe a still-running child. The premise, not just the measurement, was wrong.
+>
+> What actually shipped in its place proves the part of the predicate that *is* still load-bearing — correct field selection, not foreground-detection-during-dispatch: a real pty running a genuinely job-controlled nested `fish -c` (so it has its own pgrp, distinct from the pane's session id, with a positive tpgid), cross-checking the `/proc/<pid>/stat` field parse against an independent `ps -o tpgid=,pgid=` reading of the same process. See `tests/test-tmux-install.fish`, "is_idle: /proc field parse agrees with an independent ps -o tpgid=,pgid= reading". Combined with the no-tty (BUSY) and at-prompt (IDLE) cases above, that is the full proof that shipped for Task 1.
 
-Shape that is known to work (from this plan's own research): start `timeout 25 script -qfec "fish -i -C 'touch <marker>; sleep 12'" /dev/null &`, poll for the marker, then set the universal from a second fish with the same `XDG_CONFIG_HOME`. Have the handler append the predicate's verdict to a file and assert it says BUSY.
-
-**If it reports IDLE while a child is running, stop and report it** — that would invalidate the "print when idle" decision, and the fallback is an always-silent handler.
+**If the field parse ever disagrees with the `ps` reading, stop and report it** — that would mean the wrong `/proc` field is being read, corrupting every verdict downstream.
 
 - [ ] **Step 5: Run the tests and the full gate**
 
@@ -179,8 +179,11 @@ t "reload: gates the notice on the idle predicate" 1 (string match -q '*__tmux_l
 Those are structural. The behavioural half is a pty harness and is the real test:
 
 ```fish
-# Fires in an ALREADY-RUNNING shell, re-sources for real, and does it ONCE even
-# though a single `set -U` was measured firing the handler twice.
+# Fires in an ALREADY-RUNNING shell, re-sources for real, and does it ONCE per
+# token value -- not because a `set -U` fires the handler twice (retracted; see
+# the facts-table correction above), but because re-sourcing this file
+# redefines the very handler that is running it, re-registering the
+# --on-variable binding mid-dispatch.
 ```
 
 Build it as: an isolated `XDG_CONFIG_HOME`; a `conf.d` copy of the plugin; an interactive fish held open by `timeout`; a marker function whose definition is changed on disk mid-run; then `set -U tmux_lives_reload_token …` from a second fish. Assert (a) the changed definition is live in the running shell afterwards, and (b) the notice appears exactly **once**.
@@ -193,7 +196,7 @@ Expected: every `reload:` line FAILS.
 - [ ] **Step 3: Implement**
 
 ```fish
-function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself. Fires in shells that are ALREADY RUNNING, including ones whose foreground is Claude — measured: the event is delivered even while a foreground child holds the terminal, so no send-keys is needed and nothing is ever typed into a pane. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
+function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself, in shells that are ALREADY RUNNING -- including ones whose foreground is Claude. Fish defers ALL handler dispatch (this one included) until control returns to its own main loop, so such a shell fires once whatever is in its foreground exits, not while it is running; see __tmux_lives_shell_is_idle for the corrected framing. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. This handler re-sources the very file that defines it, which re-registers this --on-variable binding mid-dispatch -- that, not a double-fire (no set -U was ever observed firing a shell twice; that was a measurement artefact and is retracted), is why the dedup marker below exists. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
     status is-interactive; or return
     test "$tmux_lives_autoreload" = 0; and return
     # RETRACTED: the "fires TWICE" claim was a measurement artefact (each shell fires

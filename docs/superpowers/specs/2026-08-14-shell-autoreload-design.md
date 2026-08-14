@@ -1,7 +1,7 @@
 # Auto-refreshing stale shells after an update — Design
 
 **Date:** 2026-08-14
-**Status:** approved, not built
+**Status:** approved, built (`feat/shell-autoreload`, 14 commits; a whole-branch review found only test-isolation and doc-accuracy issues, fixed in one follow-up wave with no production change)
 
 ## Problem
 
@@ -50,7 +50,7 @@ Returns true when the shell owns its terminal, i.e. no child is in the foregroun
 
 **With no controlling tty (`tpgid` of `-1`) it returns false.** "Unsure" must mean "do not print" — every failure of this predicate is a corrupted frame in someone's editor.
 
-Known edge, accepted: a long-running fish *function* forks nothing, so fish itself stays in the foreground and the shell reads as idle. Fish dispatches events between statements, so the window is small.
+Known edge, accepted: a long-running fish *function* or loop that forks no child holds fish's own dispatch loop for that statement's entire runtime — not a small window, but the entire runtime, since (per the correction above) fish will not invoke *any* handler, this one included, until control returns to a between-jobs checkpoint. That deferral, not this predicate, is what actually keeps a notice from landing mid-foreground-command; by the time any handler runs at all, fish already guarantees nothing else is in the foreground. What this predicate still covers is narrower: the no-tty case above, and whatever tty state exists at the moment dispatch does happen.
 
 ### 2. `__tmux_lives_shell_reload` — the handler
 

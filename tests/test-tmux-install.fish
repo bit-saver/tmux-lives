@@ -20,6 +20,25 @@ source $plugindir/conf.d/tmux-lives-install.fish
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
 
+# I-3 (whole-branch review): protect two REAL host files this suite must never write
+# to from any future call site that forgets to seam its path -- both have already
+# been hit by exactly that class of bug once (the funcs-file truncation caught in
+# the Task 4 review, C-1; the fish-history leak caught here as I-1). The isolation
+# guard above only redirects $XDG_CONFIG_HOME (the universal-variable store); $HOME
+# itself is untouched, so both of these real paths resolve the same way inside this
+# run as outside it -- which is exactly why they need their own protection. Recorded
+# once here, before any test below can run; asserted unchanged at the very bottom of
+# the file. Shape-independent (an md5sum, not a byte-diff) and fails closed: a file
+# that goes missing changes its sum too, it does not silently drop out of the check.
+function __ti_guard_sum --argument-names p
+    test -f "$p"; or return
+    md5sum "$p" | string split -f1 ' '
+end
+set -g __ti_guard_funcs "$HOME/.config/tmux/tmux-lives-funcs"
+set -g __ti_guard_history "$HOME/.local/share/fish/fish_history"
+set -g __ti_guard_funcs_before (__ti_guard_sum $__ti_guard_funcs)
+set -g __ti_guard_history_before (__ti_guard_sum $__ti_guard_history)
+
 # Start a private, config-free server; optionally source $conf into it; attach a real pty
 # client; report whether tmux granted that client the Sync capability. Capabilities are
 # resolved at ATTACH and never revisited, so the config MUST be sourced before attaching —
@@ -849,6 +868,27 @@ set -e tmux_lives_prefix_key
 set -g tmux_lives_funcs_file /tmp/tli-pu-funcs-$fish_pid
 rm -f $tmux_lives_funcs_file
 
+# I-2 (whole-branch review): __tmux_lives_stale_sessions (called both directly by
+# _tmux_lives_post_update below and via __tmux_lives_update -> __tmux_lives_update_note
+# in the e2e cases further down) has no test seam of its own -- the ONE seam that
+# exists, tmux_lives_tmux_socket, is BROKEN (conf.d/tmux-lives-install.fish:1209 builds
+# `set -l tm "command tmux -L $sock"` as a single quoted string, and fish does not
+# word-split it, so `$tm list-panes ...` tries to run a command literally named
+# "command tmux -L <sock>" and fails with "Unknown command" -- confirmed, and isolated
+# to this one function; every other seam site in the file uses the correct
+# `if set -q ...; and set tm "command tmux -L $sock"` form split across two lines). So
+# every call in this whole section queries the REAL default tmux server. On a clean
+# host, in CI, or any time `tmux kill-server` has been run, that returns nothing, and
+# the note's entire "Other shells ..." line goes missing -- failing three positive
+# assertions below outright and making two negative ones pass VACUOUSLY (nothing
+# printed, not "the right thing was printed and this phrase wasn't in it"). Fixed the
+# test-only way, per the review: stub the wrapper with a fixed, host-independent
+# two-name list for this whole block, restored once the block is done.
+functions -c __tmux_lives_stale_sessions __tl_ss_bak 2>/dev/null
+function __tmux_lives_stale_sessions
+    printf '%s\n' alpha beta
+end
+
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
 t "install msg names tmux-lives setup install" 1 (string match -q '*tmux-lives setup install*' -- "$inst"; and echo 1; or echo 0)
@@ -935,6 +975,11 @@ function fisher
 end
 set -l u_e2e1 (__tmux_lives_update | string collect)
 t "wrapper e2e: token pre-existing + real change -> reports auto-refresh" 1 (string match -q '*refreshed automatically*' -- "$u_e2e1"; and echo 1; or echo 0)
+# Precondition for the negative check below (I-2): without this, an empty stale-
+# sessions list (real tmux, no server/panes) would make the whole "Other shells"
+# line vanish, and the negative check would pass for the wrong reason -- nothing
+# printed at all, not the right thing printed minus this one phrase.
+t "wrapper e2e: note actually names the stale sessions (precondition)" 1 (string match -q '*alpha*' -- "$u_e2e1"; and echo 1; or echo 0)
 t "wrapper e2e: does not send you to restart shells that already refreshed" 0 (string match -q '*in each*' -- "$u_e2e1"; and echo 1; or echo 0)
 t "wrapper e2e: carrier does not leak past the call" 0 (set -q _tmux_lives_autoreloaded; and echo 1; or echo 0)
 functions -e fisher
@@ -962,6 +1007,8 @@ end
 set -l u_e2e2 (__tmux_lives_update | string collect)
 t "wrapper e2e: no-new-change case still reports the update happened" 1 (string match -q '*updated*' -- "$u_e2e2"; and echo 1; or echo 0)
 t "wrapper e2e: no-new-change case keeps the old exec-fish advice"    1 (string match -q '*in each*' -- "$u_e2e2"; and echo 1; or echo 0)
+# Precondition for the negative check below (I-2) -- see Case 1's comment above.
+t "wrapper e2e: no-new-change note actually names the stale sessions (precondition)" 1 (string match -q '*alpha*' -- "$u_e2e2"; and echo 1; or echo 0)
 t "wrapper e2e: no-new-change case does not claim a refresh"          0 (string match -q '*refreshed automatically*' -- "$u_e2e2"; and echo 1; or echo 0)
 t "wrapper e2e: token truly unchanged (no NEW auto-reload signal)"    "$e2e2_y" "$tmux_lives_reload_token"
 functions -e fisher
@@ -986,6 +1033,8 @@ function fisher
 end
 set -l u_e2e3 (__tmux_lives_update | string collect)
 set -l e2e3_new (__tmux_lives_digest $tmux_lives_update_files)
+# Precondition for the negative check below (I-2) -- see Case 1's comment above.
+t "wrapper e2e: opted-out note actually names the stale sessions (precondition)" 1 (string match -q '*alpha*' -- "$u_e2e3"; and echo 1; or echo 0)
 t "wrapper e2e: opted out -> does not claim a refresh"       0 (string match -q '*refreshed automatically*' -- "$u_e2e3"; and echo 1; or echo 0)
 t "wrapper e2e: opted out -> keeps the old exec-fish advice" 1 (string match -q '*in each*' -- "$u_e2e3"; and echo 1; or echo 0)
 t "wrapper e2e: opted out -> token still bumps (harmless)"   "$e2e3_new" "$tmux_lives_reload_token"
@@ -997,6 +1046,12 @@ rm -f /tmp/tli-upd-e2e3-$fish_pid
 
 set -e tmux_lives_funcs_file
 rm -f /tmp/tli-pu-funcs-$fish_pid
+
+# Restore the real __tmux_lives_stale_sessions (I-2 stub) now that the post-update
+# note tests are done.
+functions -e __tmux_lives_stale_sessions
+functions -c __tl_ss_bak __tmux_lives_stale_sessions
+functions -e __tl_ss_bak
 
 # Restore the real write_fragment now that the post-update note tests are done.
 functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
@@ -2242,7 +2297,16 @@ printf '\nfunction __tli_reload_probe\n    echo V1\nend\n' >> $shhome/fish/conf.
 set -l shready /tmp/tli-shreload-ready-$fish_pid
 set -l shrc /tmp/tli-shreload-rc-$fish_pid
 rm -f $shready $shrc
-command tmux -L $shsock -f /dev/null new-session -d -x 100 -y 30 "env XDG_CONFIG_HOME=$shhome fish -i -C 'touch $shready'" 2>/dev/null
+# I-1 (whole-branch review): fish history lives under $XDG_DATA_HOME, which this
+# suite's own outer isolation guard does not redirect (it only redirects
+# $XDG_CONFIG_HOME, for the universal-variable store). This reader is plain
+# `fish` on purpose -- deliberately NOT --no-config, so it autoloads the handler
+# from conf.d -- and every `send-keys` below lands real keystrokes, so without
+# this it writes into the developer's REAL ~/.local/share/fish/fish_history on
+# every run (measured: 99 hits for the marker name before this fix). Task 1's
+# own pty harness never hit this because it uses `fish --no-config -i`, which
+# fish never persists history for.
+command tmux -L $shsock -f /dev/null new-session -d -x 100 -y 30 "env XDG_CONFIG_HOME=$shhome XDG_DATA_HOME=$shhome/data fish -i -C 'touch $shready'" 2>/dev/null
 set -l n 0
 while not test -e $shready; and test $n -lt 100
     sleep 0.1
@@ -2381,5 +2445,12 @@ set -e tmux_lives_fragment_file
 set -e tmux_lives_funcs_file
 rm -f /tmp/tli-t3upd-$fish_pid /tmp/tli-t3frag-$fish_pid.conf /tmp/tli-t3funcs-$fish_pid
 functions -e __t3_lineno
+
+# I-3 guard, closing the bracket opened at the top of this file: neither real file
+# may have moved across the whole run, no matter which call site (existing or
+# future) forgot to seam its path.
+t "guard: real tmux-lives-funcs untouched by this run" "$__ti_guard_funcs_before" (__ti_guard_sum $__ti_guard_funcs)
+t "guard: real fish_history untouched by this run" "$__ti_guard_history_before" (__ti_guard_sum $__ti_guard_history)
+functions -e __ti_guard_sum
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
