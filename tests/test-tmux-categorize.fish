@@ -3507,6 +3507,39 @@ t "frame: moving the cursor reuses the swatch cache for the two now-dirty rows (
 functions --erase __tcz_thp_cells_uncached
 functions --copy __t3_real3 __tcz_thp_cells_uncached
 
+# I-1 guard 6 (anchcells cachekey, Task 3 fix round): the second-lists own
+# "current" row swatch (functions/tmux-categorize.fish:~2359, `test -n
+# "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal" anchcells)`) was
+# LEFT OUT of Task 3s original scope and shipped uncached -- it fired on
+# every single redraw whenever a theme is set (anchpal non-empty), which is
+# the live case for this user. Fixed with the exact __tcz_thp_band "$legacy"
+# band precedent two lines above it: a FRAME-CONSTANT key ("anchcells") is
+# correct because anchpal only ever changes inside __tcz_thp_reanchor, and
+# every one of its three call sites (the hex-entry commit, the picker-open
+# init, and the debounced seed-edit settle) is immediately preceded by
+# __tcz_thp_reload, whose own first line is __tcz_thp_cacheclear -- so any
+# stale __tcz_cc_anchcells entry is always erased in the same beat anchpal
+# moves to a new value; verified by reading every reanchor call site, not
+# assumed. A two-frame walk, cache never cleared, anchpal UNCHANGED between
+# frames (a plain redraw with no reload in between -- the common case):
+# frame A populates __tcz_cc_anchcells, frame B must reuse it, not rebuild
+# it. Proven live below (see the report): reverting the call site to
+# `__tcz_thp_cells "$anchpal"` (dropping the key) makes frame B rebuild it
+# every time.
+set -g __t3b_calls 0
+functions --copy __tcz_thp_cells_uncached __t3b_real
+function __tcz_thp_cells_uncached
+    set -g __t3b_calls (math $__t3b_calls + 1)
+    __t3b_real $argv
+end
+__tcz_thp_cacheclear
+__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '' >/dev/null
+set -g __t3b_calls 0
+__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '' >/dev/null
+t "frame: the current rows swatch is reused across an unchanged-anchpal redraw (anchcells key guard)" 0 $__t3b_calls
+functions --erase __tcz_thp_cells_uncached
+functions --copy __t3b_real __tcz_thp_cells_uncached
+
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
 # not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its
 # early-return paths (non-hex tabshex — every non-ShellFish client — or an

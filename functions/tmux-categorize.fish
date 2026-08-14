@@ -2356,7 +2356,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l curflag2 0
         test $focus = state; and test $sel2 -eq 0; and set curflag2 1
         set -l anchcells (__tcz_thp_band "$legacy" band)
-        test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
+        test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal" anchcells)
         # The state row names the CATALOG ENTRY (e.g. "mono soft"), not the bare
         # relationship (e.g. "mono") — several catalog rows share a relationship,
         # so the row whose whole job is "what do I have" would otherwise be
