@@ -52,7 +52,7 @@ Returns true when the shell owns its terminal, i.e. no child is in the foregroun
 
 Known edge, accepted: a long-running fish *function* forks nothing, so fish itself stays in the foreground and the shell reads as idle. Fish dispatches events between statements, so the window is small.
 
-### 2. `__tmux_lives_reload` — the handler
+### 2. `__tmux_lives_shell_reload` — the handler
 
 Registered `--on-variable tmux_lives_reload_token`. In order:
 

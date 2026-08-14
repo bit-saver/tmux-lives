@@ -135,7 +135,7 @@ live terminal, so 'unsure' must mean 'do not print'."
 
 ---
 
-### Task 2: `__tmux_lives_reload` — the handler
+### Task 2: `__tmux_lives_shell_reload` — the handler
 
 **Files:**
 - Modify: `conf.d/tmux-lives-install.fish` — add immediately after `__tmux_lives_shell_is_idle`
@@ -143,7 +143,7 @@ live terminal, so 'unsure' must mean 'do not print'."
 
 **Interfaces:**
 - Consumes: `__tmux_lives_shell_is_idle` (Task 1).
-- Produces: `__tmux_lives_reload`, registered `--on-variable tmux_lives_reload_token`. Reads the universal `tmux_lives_autoreload` (`0` disables) and the global `__tmux_lives_reloaded_at` (its own dedup marker).
+- Produces: `__tmux_lives_shell_reload`, registered `--on-variable tmux_lives_reload_token`. Reads the universal `tmux_lives_autoreload` (`0` disables) and the global `__tmux_lives_reloaded_at` (its own dedup marker).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -187,7 +187,7 @@ Expected: every `reload:` line FAILS.
 - [ ] **Step 3: Implement**
 
 ```fish
-function __tmux_lives_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself. Fires in shells that are ALREADY RUNNING, including ones whose foreground is Claude — measured: the event is delivered even while a foreground child holds the terminal, so no send-keys is needed and nothing is ever typed into a pane. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
+function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself. Fires in shells that are ALREADY RUNNING, including ones whose foreground is Claude — measured: the event is delivered even while a foreground child holds the terminal, so no send-keys is needed and nothing is ever typed into a pane. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
     status is-interactive; or return
     test "$tmux_lives_autoreload" = 0; and return
     # One `set -U` was measured firing this handler TWICE, so both the re-source
@@ -206,7 +206,7 @@ end
 
 - [ ] **Step 4: Verify the self-redefinition is safe**
 
-Re-sourcing `tmux-lives-install.fish` **redefines `__tmux_lives_reload` while it is executing.** Confirm fish completes the running invocation with the old body rather than erroring or re-entering. If it does not, the fix is to source into a subshell or defer, and that is a real finding to report — do not paper over it.
+Re-sourcing `tmux-lives-install.fish` **redefines `__tmux_lives_shell_reload` while it is executing.** Confirm fish completes the running invocation with the old body rather than erroring or re-entering. If it does not, the fix is to source into a subshell or defer, and that is a real finding to report — do not paper over it.
 
 - [ ] **Step 5: Run the tests and the full gate**
 
@@ -424,7 +424,7 @@ everywhere, since sourcing cannot unset one."
 
 **Placeholder scan:** Tasks 1 Step 4, 2 Step 1 and 3 Step 1 describe pty/behavioural harnesses by shape rather than giving complete code. That is deliberate — the working shape is given, and a verbatim harness would encourage copying over verifying — but it is the weakest part of this plan and the implementer should expect to iterate there.
 
-**Type consistency:** `__tmux_lives_shell_is_idle` (no args, exit status) and `__tmux_lives_reload` are named identically in Tasks 1, 2 and their assertions. The note's 4th argument is `autoreloaded` in Tasks 3 and 4 and in the call site.
+**Type consistency:** `__tmux_lives_shell_is_idle` (no args, exit status) and `__tmux_lives_shell_reload` are named identically in Tasks 1, 2 and their assertions. The note's 4th argument is `autoreloaded` in Tasks 3 and 4 and in the call site.
 
 **Known risk, stated rather than hidden:** Task 2's handler re-sources the file that defines it, while it is running. Step 4 exists to verify fish tolerates that. If it does not, Task 2 needs redesign and Tasks 3–4 are unaffected.
 
