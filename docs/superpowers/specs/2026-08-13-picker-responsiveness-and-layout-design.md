@@ -51,6 +51,8 @@ Measured, row loop, 35 schemes:
 | memoize `__tcz_thp_cells` | 12.5 ms | 10.8× |
 | **+ cache the rendered row** | **2.2 ms** | **61×** |
 
+**These are row-loop numbers, not frame numbers** — the frame also pays for the static chrome, seed zone, tab strip, and preview bar around the rows, so the 61× above is easily misread as a frame-level result and is not one. Measured whole-frame, at the user's real geometry (35 schemes): 167 ms → 35 ms shipped, a **4.8×** improvement — smaller than 61× because the row loop is only part of what a frame does, not because the row cache is less effective than measured.
+
 Rebuilding one genuinely-dirty row costs 0.66 ms. A cursor move dirties exactly two.
 
 ## Design
@@ -86,7 +88,7 @@ Summing is what makes the slider skip renders and overshoot: intermediate values
 
 **The drain invariant is load-bearing and already tested:** every `while true` in the picker except the main event loop must re-assert `stty min 0 time …` *inside* the loop, on the very next line. `__tcz_popup_readkey`'s CSI branch leaves the tty blocking on return, and a drain read after it hangs — this was hit for real once. The existing test asserts that (total `while true` loops − compliant ones) equals 1. A compliant new drain leaves that figure at 1; the assertion's expected value does not change, which is the point of it.
 
-**Direction-blindness is deliberately left alone.** The drain's `case up down` matches both tokens and discards either, so a queued `up` is swallowed while a `down` is being processed. At today's 128–266 ms frames this is a real contributor to "keeps going down before going up". At single-digit-ms frames a reversal will essentially always land in its own frame, so the added branch would be dead weight. Revisit only if the symptom survives the performance work.
+**Direction-blindness is deliberately left alone.** The drain's `case up down` matches both tokens and discards either, so a queued `up` is swallowed while a `down` is being processed. At today's 128–266 ms frames this is a real contributor to "keeps going down before going up". Measured after the fix, frames are **31–35 ms** — about 4× the "single-digit-ms" figure this section originally assumed, and worth correcting rather than carrying forward — but the conclusion still holds: at that cost a reversal still essentially always lands in its own frame (verified correct down to a 30 ms tap interval, well past any human tap rate), so the added branch would still be dead weight. Revisit only if the symptom survives the performance work.
 
 ### 3. Seed zone — colour block 2 rows → 3
 

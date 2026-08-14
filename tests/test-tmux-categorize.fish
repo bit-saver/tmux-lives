@@ -3156,6 +3156,12 @@ end
 # produce; every other positional keeps __t9_frame_rows own defaulting
 # exactly.
 function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg seedarg
+    # review M-3: this local-scope setup is a SECOND, independent copy of
+    # __t9_frame_rows's own (this one adds only <seedarg> and drops the
+    # __tcz_thp_cacheclear call). Nothing ties them together — a future task
+    # that adds a local the real draw block (DRAWTEXT9) reads must update
+    # BOTH functions by hand, or this one silently evals against a stale
+    # scope and gives a confidently-wrong reading with no signal.
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -3480,7 +3486,7 @@ t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" 
 # drop-autoapply-debounce-seed Task 1 removed auto-apply and that pair with
 # it, so browsing is back to 9 pairs / 3 rows and editing's pad is back to
 # one blank row.
-t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
+t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z shake '⇥' current/off  a apply '⏎' save esc close))
 t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
 
 # --- review I-1: the six draw-block cache keys, unguarded --------------------
@@ -5107,6 +5113,59 @@ set -g __t7_legnew (string match -a -r 'm curated' -- "$SLB7" | count)
 t "legend says m curated" 1 $__t7_legnew
 set -g __t7_legold (string match -a -r 'm more' -- "$SLB7" | count)
 t "legend no longer says m more" 0 $__t7_legold
+
+# --- whole-branch review (33a0fc2..19ae7bc), I-1: the reload invariant has
+# no test ---------------------------------------------------------------
+# The spec (docs/superpowers/specs/2026-08-13-picker-responsiveness-and-
+# layout-design.md:73) names this explicitly and says "It gets its own
+# test" — the plan's self-review wrongly credited Task 1 Step 5 with
+# covering it; Step 5 only wires __tcz_thp_cacheclear into
+# __tcz_thp_reload's first line, it adds no assertion. The reviewer proved
+# it consequential by mutation: adding one line inside `case tab` that
+# writes `set pals[1] '...'` directly makes the picker render stale colours
+# indefinitely (the row cache misses on the selflag flip that follows a tab
+# press, but the swatch-cell cache — keyed by the unchanged scheme INDEX —
+# still hits, so both layers serve old ink), while the whole pre-existing
+# suite stays ALL PASS. Not a shipped bug — every real assignment site was
+# traced and is correct — but a missing guard on the invariant that is what
+# makes the bare-integer cache key legal in the first place.
+#
+# __tcz_thp_reload is a NESTED closure inside __tcz_theme_picker, so a
+# "picker body" extraction CONTAINS the reload body verbatim, and every
+# assignment inside reload is counted twice if compared naively. The
+# invariant instead holds iff the whole-picker-body count of qualifying
+# assignment LINES equals the reload-body-only count — i.e. there are ZERO
+# such lines anywhere in the picker OUTSIDE __tcz_thp_reload. Both regions
+# are bounded the same way $RB7 already is above: an awk range ending at
+# the column-0 `end` for the outer function, or the 4-space-indented `end`
+# that closes a --no-scope-shadowing nested one (this file's own
+# indentation convention: a function's closing `end` sits at the same
+# indent as its own `function` keyword). Each extracted region is then
+# split into real lines before matching, so `^...` anchors against every
+# individual line — no (?m) multiline mode needed, and no risk of a
+# multi-line blob silently matching only at its very start.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+set -l RWPBODY (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+t "I-1: picker body extraction is non-empty" 1 (test -n "$RWPBODY"; and echo 1; or echo 0)
+set -l RWRBODY (awk '/function __tcz_thp_reload/,/^    end$/' $catfile | string collect)
+t "I-1: reload body extraction is non-empty" 1 (test -n "$RWRBODY"; and echo 1; or echo 0)
+set -l RWPLINES (string split -- \n -- "$RWPBODY")
+set -l RWRLINES (string split -- \n -- "$RWRBODY")
+set -l RWPCOUNT (count (string match -ar '^\s*set (?:-a )?(?:toks|pals|fgs|tabsfgs|recipes)\b' -- $RWPLINES))
+set -l RWRCOUNT (count (string match -ar '^\s*set (?:-a )?(?:toks|pals|fgs|tabsfgs|recipes)\b' -- $RWRLINES))
+t "I-1: reload invariant — every toks/pals/fgs/tabsfgs/recipes write is inside __tcz_thp_reload" yes (test "$RWPCOUNT" -eq "$RWRCOUNT"; and echo yes; or echo no)
+
+# Companion pin: anchpal is the same shape of hazard — its readers elsewhere
+# in the picker assume it is always freshly computed for the current
+# anchor, which is only true if every write is confined to
+# __tcz_thp_reanchor itself. Its three call sites (~:1981, :2041, :2497)
+# may only CALL it, never assign anchpal directly.
+set -l RWANCHORBODY (awk '/function __tcz_thp_reanchor/,/^    end$/' $catfile | string collect)
+t "I-1: reanchor body extraction is non-empty" 1 (test -n "$RWANCHORBODY"; and echo 1; or echo 0)
+set -l RWANCHORLINES (string split -- \n -- "$RWANCHORBODY")
+set -l RWPANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWPLINES))
+set -l RWRANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWANCHORLINES))
+t "I-1: anchpal writes are confined to __tcz_thp_reanchor" yes (test "$RWPANCHCOUNT" -eq "$RWRANCHCOUNT"; and echo yes; or echo no)
 
 
 if test $FAIL -eq 0

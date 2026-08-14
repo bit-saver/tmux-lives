@@ -2278,8 +2278,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
         # clamp for an off/anchor cursor position — that clamp is dead, removed.
         # The frame is STATIC_IDLE (17) or STATIC_EDIT (22) static rows
-        # (border/chip/preview/seed-zone[zsep+4-or-9 rows, mode-dependent]/
-        # schemes-zsep/second-list-zsep/current/off/blank-zsep/legend×3/note/
+        # (border/chip/preview/seed-zone[4-or-9 rows, mode-dependent, already
+        # includes its own zsep]/schemes-zsep/second-list-zsep/current/off/
+        # blank-zsep/legend×3/note/
         # bottom-border) + WIN scheme rows = rows (the popup's own reported
         # height, see STATIC_IDLE/STATIC_EDIT above).
         # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
@@ -2689,7 +2690,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 if test $focus != state
                     if test "$editing" = 1
                         set editing 0
-                        # Leaving: the zone shrinks 8 -> 3, so the window grows.
+                        # Leaving: the zone shrinks 9 -> 4, so the window grows.
                         # WIN is read by both the draw loop and the paging
                         # dispatch (see its own declaration comment above) —
                         # recomputing it here, not adjusting $sel, is what lets
@@ -2700,7 +2701,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         set editing 1
                         set chan 1
                         set editseed $seed
-                        # Entering: the zone grows 3 -> 8, so the window shrinks.
+                        # Entering: the zone grows 4 -> 9, so the window shrinks.
                         set WIN (math "$rows - $STATIC_EDIT")
                     end
                 end
@@ -2765,7 +2766,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # apply here (the esc/q arm just below IS different — it
                     # does have something to undo).
                     set editing 0
-                    # The zone shrinks 8 -> 3 on the way out — see case b's own
+                    # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is
                     # what keeps the selection visible.
                     set WIN (math "$rows - $STATIC_IDLE")
@@ -2801,7 +2802,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set editing 0
                     set seeddirty 1
                     set note ''
-                    # The zone shrinks 8 -> 3 on the way out — see case b's own
+                    # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is
                     # what keeps the selection visible.
                     set WIN (math "$rows - $STATIC_IDLE")
