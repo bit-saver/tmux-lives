@@ -646,7 +646,11 @@ t "fragment: path honors seam" "$tmux_lives_fragment_file" (__tmux_lives_fragmen
 functions --copy __tmux_lives_write_fragment __tmux_lives_wf_real
 function __tmux_lives_write_fragment; set -g _wf_called 1; end
 set -g _tmux_lives_updating 1    # suppress the post-update note during the test
-rm -f $tmux_lives_fragment_file
+# _tmux_lives_post_update calls __tmux_lives_write_funcs UNCONDITIONALLY, and its default
+# path falls back to the REAL $HOME/.config/tmux/tmux-lives-funcs -- this seam is what
+# keeps every direct call below off the real host file (see C-1 in the Task 4 review).
+set -g tmux_lives_funcs_file /tmp/tli-pufrag-funcs-$fish_pid
+rm -f $tmux_lives_fragment_file $tmux_lives_funcs_file
 set -g _wf_called 0
 _tmux_lives_post_update
 t "post-update: no fragment -> no re-render" 0 $_wf_called
@@ -658,8 +662,9 @@ set -e _tmux_lives_updating
 functions -e __tmux_lives_write_fragment
 functions --copy __tmux_lives_wf_real __tmux_lives_write_fragment
 functions -e __tmux_lives_wf_real
-rm -f $tmux_lives_fragment_file
+rm -f $tmux_lives_fragment_file $tmux_lives_funcs_file
 set -e tmux_lives_fragment_file
+set -e tmux_lives_funcs_file
 
 set -l u (__tmux_lives_save_unit_text alice 1234 | string collect)
 t "unit uid"       1 (string match -q '*user@1234.service*' -- "$u"; and echo 1; or echo 0)
@@ -836,6 +841,14 @@ set -e tmux_lives_prefix_key
 # ~/.config/tmux/tmux-lives.conf + reloads the user's running tmux server. The note/handler
 # tests don't need a real render. Restored after the last _tmux_lives_post_update call.
 
+# _tmux_lives_post_update calls __tmux_lives_write_funcs UNCONDITIONALLY, and its default
+# path falls back to the REAL $HOME/.config/tmux/tmux-lives-funcs -- seamed here for every
+# direct call in this whole section (through the end-to-end wrapper cases below), not just
+# the ones a reviewer happened to name (see C-1 in the Task 4 review: an unseamed call here
+# silently truncates the real ~209-name record, defeating removal-detection on a live host).
+set -g tmux_lives_funcs_file /tmp/tli-pu-funcs-$fish_pid
+rm -f $tmux_lives_funcs_file
+
 # Content — call handlers directly (fish does NOT capture emit handler stdout).
 set -l inst (_tmux_lives_post_install | string collect)
 t "install msg names tmux-lives setup install" 1 (string match -q '*tmux-lives setup install*' -- "$inst"; and echo 1; or echo 0)
@@ -905,10 +918,9 @@ set -e _tmux_lives_updating
 # `fisher update` -- so these fisher stubs call the REAL _tmux_lives_post_update
 # themselves to reproduce that, rather than asserting on the carrier variable in
 # isolation. __tmux_lives_write_fragment is still the no-op stub from above;
-# funcs_file is seamed so __tmux_lives_write_funcs (unconditional, inside the
-# handler) never touches the real ~/.config/tmux/tmux-lives-funcs.
-set -g tmux_lives_funcs_file /tmp/tli-upd-e2e-funcs-$fish_pid
-rm -f $tmux_lives_funcs_file
+# tmux_lives_funcs_file is still the seam set above this whole section, so
+# __tmux_lives_write_funcs (unconditional, inside the handler) never touches the
+# real ~/.config/tmux/tmux-lives-funcs here either.
 
 # Case 1: a token already exists (other shells carry the handler) and the
 # update genuinely changes the watched files -- the wrapper's note must say
@@ -956,8 +968,35 @@ functions -e fisher
 set -e tmux_lives_reload_token
 set -e tmux_lives_update_files
 rm -f /tmp/tli-upd-e2e2-$fish_pid
+
+# Case 3: the universal opt-out (tmux_lives_autoreload = 0) is set -- shared by
+# every one of the user's shells, including this one, per
+# __tmux_lives_shell_reload. A real digest change still flows through the real
+# handler and the token still bumps (harmless: every handler no-ops on it while
+# opted out), but NO shell's handler will actually re-source while it's active,
+# so the note must not claim one did. Reproduced by the Task 4 review: before
+# this fix the wrapper still printed "refreshed automatically" here.
+set -U tmux_lives_autoreload 0
+set -g tmux_lives_update_files /tmp/tli-upd-e2e3-$fish_pid
+printf 'one\n' > $tmux_lives_update_files
+set -U tmux_lives_reload_token (__tmux_lives_digest $tmux_lives_update_files)
+function fisher
+    printf 'two\n' >> $tmux_lives_update_files
+    _tmux_lives_post_update >/dev/null 2>&1
+end
+set -l u_e2e3 (__tmux_lives_update | string collect)
+set -l e2e3_new (__tmux_lives_digest $tmux_lives_update_files)
+t "wrapper e2e: opted out -> does not claim a refresh"       0 (string match -q '*refreshed automatically*' -- "$u_e2e3"; and echo 1; or echo 0)
+t "wrapper e2e: opted out -> keeps the old exec-fish advice" 1 (string match -q '*in each*' -- "$u_e2e3"; and echo 1; or echo 0)
+t "wrapper e2e: opted out -> token still bumps (harmless)"   "$e2e3_new" "$tmux_lives_reload_token"
+functions -e fisher
+set -e tmux_lives_autoreload
+set -e tmux_lives_reload_token
+set -e tmux_lives_update_files
+rm -f /tmp/tli-upd-e2e3-$fish_pid
+
 set -e tmux_lives_funcs_file
-rm -f /tmp/tli-upd-e2e-funcs-$fish_pid
+rm -f /tmp/tli-pu-funcs-$fish_pid
 
 # Restore the real write_fragment now that the post-update note tests are done.
 functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
@@ -2301,9 +2340,14 @@ t "trigger: fires ABOVE the _tmux_lives_updating early return" 1 (test "$__t3_to
 # seam is pointed at a path that does not exist, so __tmux_lives_write_fragment
 # never runs — this must never touch the real ~/.config/tmux/tmux-lives.conf —
 # and _tmux_lives_updating is set around every direct call so the generic note
-# (which shells out to tmux for stale-session names) never fires either.
+# (which shells out to tmux for stale-session names) never fires either. The
+# funcs seam is the same protection for __tmux_lives_write_funcs, which runs
+# UNCONDITIONALLY inside the handler and otherwise falls back to the REAL
+# ~/.config/tmux/tmux-lives-funcs (see C-1 in the Task 4 review).
 set -g tmux_lives_fragment_file /tmp/tli-t3frag-$fish_pid.conf
 rm -f $tmux_lives_fragment_file
+set -g tmux_lives_funcs_file /tmp/tli-t3funcs-$fish_pid
+rm -f $tmux_lives_funcs_file
 set -g tmux_lives_update_files /tmp/tli-t3upd-$fish_pid
 printf 'one\n' > $tmux_lives_update_files
 set -l __t3_dg1 (__tmux_lives_digest $tmux_lives_update_files)
@@ -2334,7 +2378,8 @@ t "trigger: absent token gets set" "$__t3_dg2" "$tmux_lives_reload_token"
 set -e tmux_lives_reload_token
 set -e tmux_lives_update_files
 set -e tmux_lives_fragment_file
-rm -f /tmp/tli-t3upd-$fish_pid /tmp/tli-t3frag-$fish_pid.conf
+set -e tmux_lives_funcs_file
+rm -f /tmp/tli-t3upd-$fish_pid /tmp/tli-t3frag-$fish_pid.conf /tmp/tli-t3funcs-$fish_pid
 functions -e __t3_lineno
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

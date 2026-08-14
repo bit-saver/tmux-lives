@@ -1555,7 +1555,15 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
         # A previously-set token means the other shells carry the handler. An
         # ABSENT one means this is the first update shipping the feature, so they
         # do not — and the old `exec fish` advice is still correct for them.
-        test -n "$had"; and set autoreloaded 1
+        # tmux_lives_autoreload is a universal opt-out, shared by every one of the
+        # user's shells including this one (see __tmux_lives_shell_reload) -- when
+        # it's 0, no shell's handler will actually re-source on this token bump,
+        # so the note must not claim they did. The token itself still bumps
+        # either way (harmless: every handler no-ops on it while opted out, and
+        # it's what a later opt-back-in would want to already reflect).
+        if test -n "$had"; and test "$tmux_lives_autoreload" != 0
+            set autoreloaded 1
+        end
         set -U tmux_lives_reload_token $dg
     end
     if set -q _tmux_lives_updating
