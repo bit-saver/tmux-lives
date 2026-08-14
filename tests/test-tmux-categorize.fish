@@ -3852,13 +3852,15 @@ t "editing=1: left moves the R channel by -8"  "1 0 0 0 #000000 0 0" "$R_LR_LEFT
 set -g R_LR_RIGHT0 (__t9_arrow right 0 1 '#000000' list 0 0)
 t "editing=0: right is a no-op — seed unchanged" "1 0 0 0 #000000 0 0" "$R_LR_RIGHT0"
 
-# ±8 per press (item) is the single-press cases directly above (8 and -8). The
-# coalescing sum (item): a held key queues more of the same token, which the drain
-# swallows into ONE net delta rather than moving once per queued token individually
-# — three "right" presses (the initial one plus two queued) sum to +24, not three
-# separate +8 redraws.
+# ±8 per press (item) is the single-press cases directly above (8 and -8).
+# picker-responsiveness Task 5: the coalescing drain used to SUM each queued
+# token into delta (three "right" presses summing to +24), which meant a
+# burst applied one large jump with no intermediate value ever drawn — there
+# was nothing to stop on. It now DISCARDS the queued tokens instead, so a
+# held key steps exactly once per frame regardless of burst depth: three
+# coalesced right presses still move only +8, identical to a single press.
 set -g R_LR_COALESCE (__t9_arrow right 1 1 '#000000' list 0 0 right right)
-t "editing=1: three coalesced right presses sum to +24, not three separate +8s" "1 24 0 0 #180000 0 0" "$R_LR_COALESCE"
+t "editing=1: three coalesced right presses still move only +8, not +24" "1 8 0 0 #080000 0 0" "$R_LR_COALESCE"
 
 # Both clamps (item), plus hex well-formedness after each (item) — this is the
 # direct discriminator for the reviewer's mutation 3 (255 -> 9999): an unclamped
@@ -4347,12 +4349,14 @@ t "channel edit marks the seed dirty (independent of flashfield)" 1 "$f6a[5]"
 # cursor row inline, which only this count catches.
 t "channel edit calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6a[6]"
 
-# A held key: the drain coalesces 3 presses into ONE net delta, and the arm
-# still costs zero palette calls regardless of burst size — the whole point
-# of debouncing is that a hold is exactly as cheap as a single tap.
+# A held key: the drain now DISCARDS queued presses rather than summing them
+# (picker-responsiveness Task 5 — see the R_LR_COALESCE test above for the
+# same fix on the $ARROW9WRAP harness), and the arm still costs zero palette
+# calls regardless of burst size — the whole point of debouncing is that a
+# hold is exactly as cheap as a single tap.
 set -g RES6B (__t6_arrow right '#000000' right right)
 set -g f6b (string split \x1e -- $RES6B)
-t "a 3-press coalesced burst sums to +24, not three separate +8s" '#180000' "$f6b[3]"
+t "a 3-press coalesced burst still moves only +8, not +24" '#080000' "$f6b[3]"
 t "a coalesced burst still leaves the scheme strip untouched" yes (test "$f6b[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
 t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
 t "a coalesced burst also marks the seed dirty" 1 "$f6b[5]"
@@ -4910,6 +4914,108 @@ set -g __t4_res (string split ' ' -- (__t4_run))
 t "editarm: chan advances exactly one step for a held burst" 2 "$__t4_res[1]"
 t "editarm: the drain consumed the whole queued burst" 5 "$__t4_res[2]"
 functions -e __t4_readkey __t4_run
+
+# --- Task 5: the slider drain must DISCARD, not accumulate ------------------
+# The seed's ←→ channel-value drain (added by Task 4 alongside the editing-mode
+# ↑↓ channel-select drain) reads queued autorepeat but ACCUMULATES each queued
+# key into delta (`set delta (math "$delta - 8")` / `+ 8`), so a burst applies
+# one large jump and no intermediate value is ever drawn -- there is nothing
+# to stop on. The list's own drain (case up down, non-editing) already
+# discards instead of summing (see its 2026-07-29 fix, "accumulated meant a
+# held key scrolls faster" above); this task makes the seed slider follow the
+# same rule: exactly one 8-unit step per frame regardless of queue depth.
+#
+# dispatcher-caught defect: the brief's own extraction range-matches on TWO
+# bare `case` lines (`/^case left right$/,/^case m$/`), which is not valid
+# fish outside a switch block ("'case' builtin not inside of switch block"),
+# and `eval` still returns status 0 on that parse error -- so a plain non-
+# empty/contains check would PASS VACUOUSLY while nothing underneath the
+# range ever actually ran. Skip the opening case line and stop before the
+# closing one instead, the same technique Task 4 used for EDITARM.
+set -g LRARM (awk '/^            case left right$/{f=1;next} /^            case m$/{exit} f' $catfile | string collect)
+t "lrarm extraction is non-empty" 1 (test -n "$LRARM"; and echo 1; or echo 0)
+t "lrarm extraction does not begin with a bare case line (the range-match trap)" 0 (string match -qr '^\s*case\b' -- (string split \n -- "$LRARM")[1]; and echo 1; or echo 0)
+t "lrarm extraction stopped before case m (did not run past the arm)" 0 (string match -q '*case m*' -- "$LRARM"; and echo 1; or echo 0)
+
+# The accumulating forms must be gone from the drain body.
+set -g __t5_acc (string match -a -r 'set delta \(math' -- "$LRARM" | count)
+t "lrarm: the drain no longer accumulates delta" 0 $__t5_acc
+
+# Prove the extraction actually evals as a real switch-body fragment, not just
+# that it is non-empty text -- same discriminator Task 4 established: $status
+# after an in-process `eval` does NOT see a parse error (fish routes it
+# through the interpreter's own error channel, not the calling command's
+# stderr fd), so this shells out to a throwaway `fish --no-config` child (a
+# real subprocess, so `2>` on it captures real stderr) with stubs for every
+# production function/local the extracted body touches.
+function __t5_evalcheck --argument-names body --description 'run <body> as a real child fish --no-config process and print the byte count captured from its stderr -- 0 means it parsed and ran cleanly, nonzero means a parse/runtime error fired.'
+    set -l scriptfile (mktemp)
+    set -l errfile (mktemp)
+    printf '%s\n' \
+        'set -l editing 1' \
+        'set -l chan 1' \
+        'set -l tok right' \
+        'set -l seedr 100' \
+        'set -l seedg 100' \
+        'set -l seedb 100' \
+        'set -l seed "#646464"' \
+        'set -l flashfield ""' \
+        'set -l seeddirty 0' \
+        'function __tcz_popup_readkey; echo cancel; end' \
+        'function stty; end' \
+        >$scriptfile
+    printf '%s\n' $body >>$scriptfile
+    fish --no-config $scriptfile 2>$errfile
+    set -l errbytes (wc -c <$errfile | string trim)
+    command rm -f $scriptfile $errfile
+    echo $errbytes
+end
+t "lrarm extraction evals cleanly in a real child process (zero stderr bytes)" 0 (__t5_evalcheck "$LRARM")
+functions -e __t5_evalcheck
+
+# Behavioural half: drive the REAL extracted arm with a stubbed reader holding
+# four queued `right`s, and assert the channel moved by exactly one 8-unit
+# step rather than five. Genuine discriminator: pre-fix (summing) this yields
+# 140 -- seedr starts at 100, delta initialises to 8 (tok=right), and four
+# queued rights each add 8 more (100 + 8 + 8*4 = 140); post-fix (discarding)
+# it yields 108 (100 + 8, the queued rights swallowed without effect).
+set -g __t5_queue right right right right
+set -g __t5_fed 0
+function __t5_readkey
+    set -g __t5_fed (math $__t5_fed + 1)
+    if test $__t5_fed -le (count $__t5_queue)
+        echo $__t5_queue[$__t5_fed]
+    else
+        echo cancel
+    end
+end
+function __t5_run
+    # dispatcher-caught defect: `functions --copy OLD NEW` errors if NEW
+    # already exists -- erase the live __tcz_popup_readkey before copying the
+    # stub over it (Task 4 hit and fixed the same trap for EDITARM's harness).
+    functions --copy __tcz_popup_readkey __t5_saved_readkey
+    functions -e __tcz_popup_readkey
+    functions --copy __t5_readkey __tcz_popup_readkey
+    function stty; end
+    set -l editing 1
+    set -l chan 1
+    set -l tok right
+    set -l seedr 100
+    set -l seedg 100
+    set -l seedb 100
+    set -l seed '#646464'
+    set -l flashfield ''
+    set -l seeddirty 0
+    eval $LRARM
+    functions -e stty
+    functions -e __tcz_popup_readkey
+    functions --copy __t5_saved_readkey __tcz_popup_readkey
+    functions -e __t5_saved_readkey
+    echo $seedr
+end
+set -g __t5_r (__t5_run)
+t "lrarm: a held burst moves the channel one step, not five" 108 "$__t5_r"
+functions -e __t5_readkey __t5_run
 
 
 if test $FAIL -eq 0

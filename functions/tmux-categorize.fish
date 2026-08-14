@@ -2587,12 +2587,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 if test "$editing" = 1
                     set -l delta -8
                     test "$tok" = right; and set delta 8
+                    # Drain queued autorepeat WITHOUT counting it -- same rule as the
+                    # list's own ↑↓ drain and the editing-mode channel-select drain
+                    # just above. The old form summed each queued key into delta
+                    # (2026-08-09), so a burst applied one large jump and no
+                    # intermediate value was ever drawn -- there was nothing to stop
+                    # on. Swallowing instead means exactly one 8-unit step per frame:
+                    # a held key steps at whatever rate the terminal can actually
+                    # paint, and release stops on the last value you saw.
                     while true
                         stty min 0 time 0 2>/dev/null
                         set -l k2 (__tcz_popup_readkey)
                         switch "$k2"
-                            case left;  set delta (math "$delta - 8")
-                            case right; set delta (math "$delta + 8")
+                            case left right
                             case '*';   break
                         end
                     end
