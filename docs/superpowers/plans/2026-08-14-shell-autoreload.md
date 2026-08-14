@@ -196,7 +196,7 @@ Expected: every `reload:` line FAILS.
 - [ ] **Step 3: Implement**
 
 ```fish
-function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself, in shells that are ALREADY RUNNING -- including ones whose foreground is Claude. Fish defers ALL handler dispatch (this one included) until control returns to its own main loop, so such a shell fires once whatever is in its foreground exits, not while it is running; see __tmux_lives_shell_is_idle for the corrected framing. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. This handler re-sources the very file that defines it, which re-registers this --on-variable binding mid-dispatch -- that, not a double-fire (no set -U was ever observed firing a shell twice; that was a measurement artefact and is retracted), is why the dedup marker below exists. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
+function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself, in shells that are ALREADY RUNNING -- including ones whose foreground is Claude. A shell receiving a FOREIGN notification defers handler dispatch until control returns to its own main loop, so such a shell fires once whatever is in its foreground exits, not while it is running. NB narrower than it first reads: a set -U in the SAME shell fires its own handler INLINE, mid-statement (verified), which is why the updating shell re-sources redundantly and prints from inside the fisher job. See __tmux_lives_shell_is_idle for the corrected framing. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. This handler re-sources the very file that defines it, which re-registers this --on-variable binding mid-dispatch -- that, not a double-fire (no set -U was ever observed firing a shell twice; that was a measurement artefact and is retracted), is why the dedup marker below exists. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
     status is-interactive; or return
     test "$tmux_lives_autoreload" = 0; and return
     # RETRACTED: the "fires TWICE" claim was a measurement artefact (each shell fires
@@ -424,7 +424,7 @@ everywhere, since sourcing cannot unset one."
 |---|---|
 | §1 `__tmux_lives_shell_is_idle`, fail-safe with no tty | 1 |
 | §2 handler: interactive-only, opt-out, re-source two files, idle-gated notice | 2 |
-| §2 idempotency (measured double-fire) | 2 Step 3 |
+| §2 idempotency (handler re-sources its own defining file) | 2 Step 3 |
 | §2 why the categorizer is excluded | 2 Step 1 (asserted absent) |
 | §3 trigger above the early return | 3 |
 | §3 digest gating | 3 |
