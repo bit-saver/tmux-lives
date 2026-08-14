@@ -2309,32 +2309,40 @@ t "picker's recolor calls are force, not dedup" 0 (string match -ra '__tcz_recol
 # tests below.
 t "seedzone exists" 0 (functions -q __tcz_thp_seedzone; echo $status)
 
-# --- Task 3: the seed zone is 3 rows idle, 8 editing ---------------------------
+# --- picker-responsiveness-and-layout Task 6: the seed zone is 4 rows idle,
+# 9 editing (up from 3/8 — the colour block itself grew 2 -> 3 rows so the
+# hex could move off the block's right side and into its own centre) -------
 set -g SZI (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 0 1 95 119 43)
 set -g SZE (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 1 1 95 119 43)
-t "seedzone idle is 3 rows" 3 (count $SZI)
-t "seedzone editing is 8 rows" 8 (count $SZE)
-for i in (seq 3)
+t "seedzone idle is 4 rows" 4 (count $SZI)
+t "seedzone editing is 9 rows" 9 (count $SZE)
+for i in (seq 4)
     set -l v (__tcz_strip_sgr "$SZI[$i]")
     t "idle row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
 end
-for i in (seq 8)
+for i in (seq 9)
     set -l v (__tcz_strip_sgr "$SZE[$i]")
     t "editing row $i is exactly 52 visible cols" 52 (string length --visible -- "$v")
 end
-# Rows 1-3 are identical between states: only the slider block appears.
-t "rows 1-3 are identical in both states" 1 (test "$SZI[1]$SZI[2]$SZI[3]" = "$SZE[1]$SZE[2]$SZE[3]"; and echo 1; or echo 0)
+# Rows 1-4 are identical between states: only the slider block appears.
+t "rows 1-4 are identical in both states" 1 (test "$SZI[1]$SZI[2]$SZI[3]$SZI[4]" = "$SZE[1]$SZE[2]$SZE[3]$SZE[4]"; and echo 1; or echo 0)
 t "idle shows the hex" 1 (string match -q '*5f772b*' -- (string join ' ' $SZI); and echo 1; or echo 0)
 t "idle shows the readouts beside it" 1 (string match -q '*hue*' -- (string join ' ' $SZI); and echo 1; or echo 0)
 t "the retired copy is gone" 0 (string match -ra 'rendered as-is' -- (string join ' ' $SZE) | count)
+# The hex renders INSIDE the middle block row (row 3 of the zone), not beside
+# it: stripped of SGR, it must be preceded by only the block's own left
+# padding (<=3 cols of whitespace after the border), not by the whole 12-col
+# block plus a gap the way the old (row 2) placement was.
+set -g SZI3 (__tcz_strip_sgr "$SZI[3]")
+t "seedzone: the hex sits inside the block" 1 (string match -qr '^.\s{0,3}#5f772b' -- "$SZI3"; and echo 1; or echo 0)
 # Blank rows surround the slider group and none divides it.
-set -g SZE4 (__tcz_strip_sgr "$SZE[4]"); set -g SZE8 (__tcz_strip_sgr "$SZE[8]")
-t "row 4 is blank" 1 (string match -qr '^│ *│$' -- "$SZE4"; and echo 1; or echo 0)
-t "row 8 is blank" 1 (string match -qr '^│ *│$' -- "$SZE8"; and echo 1; or echo 0)
-t "rows 5-7 all carry a channel bar" 3 (count (string match -ra 'R|G|B' -- (string join \n $SZE[5..7])))
+set -g SZE5 (__tcz_strip_sgr "$SZE[5]"); set -g SZE9 (__tcz_strip_sgr "$SZE[9]")
+t "row 5 is blank" 1 (string match -qr '^│ *│$' -- "$SZE5"; and echo 1; or echo 0)
+t "row 9 is blank" 1 (string match -qr '^│ *│$' -- "$SZE9"; and echo 1; or echo 0)
+t "rows 6-8 all carry a channel bar" 3 (count (string match -ra 'R|G|B' -- (string join \n $SZE[6..8])))
 # The selected channel tracks chan.
 set -g SZC2 (__tcz_thp_seedzone 50 '#5f772b' 123 0.47 0.078 1 2 95 119 43)
-t "chan=1 marks row 5, not row 6" 1 (test "$SZE[5]" != "$SZC2[5]" -a "$SZE[6]" != "$SZC2[6]"; and echo 1; or echo 0)
+t "chan=1 marks row 6, not row 7" 1 (test "$SZE[6]" != "$SZC2[6]" -a "$SZE[7]" != "$SZC2[7]"; and echo 1; or echo 0)
 
 # --- Task 3: the retired knobs are gone from the picker -------------------------
 # Bounded to the picker body: these names legitimately survive nowhere else in
@@ -2967,13 +2975,17 @@ t "frame: draw-block extraction is non-empty" 1 (test -n "$DRAWTEXT9"; and echo 
 # single STATIC no longer describes the source. Extended from one extraction
 # to two rather than rebuilt: the mechanism (read the real declaration out of
 # the function, guard it non-empty, derive WIN from it inside
-# __t9_frame_rows) is unchanged.
+# __t9_frame_rows) is unchanged. picker-responsiveness-and-layout Task 6 grew
+# the seed zone by one more row (3 -> 4 idle, 8 -> 9 editing — the colour
+# block itself grew 2 -> 3 rows so the hex could move off the block's right
+# side and into its own centre), moving STATIC_IDLE 16 -> 17 and STATIC_EDIT
+# 21 -> 22 again — same numbers Task 5 briefly used, for an unrelated reason.
 set -g STATIC9I (string match -rg 'set -l STATIC_IDLE (\d+)' -- "$SLB")
 set -g STATIC9E (string match -rg 'set -l STATIC_EDIT (\d+)' -- "$SLB")
 t "STATIC_IDLE extraction is non-empty" 1 (test -n "$STATIC9I"; and echo 1; or echo 0)
 t "STATIC_EDIT extraction is non-empty" 1 (test -n "$STATIC9E"; and echo 1; or echo 0)
-t "idle static is 16" 16 "$STATIC9I"
-t "editing static is 21" 21 "$STATIC9E"
+t "idle static is 17" 17 "$STATIC9I"
+t "editing static is 22" 22 "$STATIC9E"
 
 # Entering edit mode costs 5 window rows. A selection near the bottom of the
 # expanded catalog must stay VISIBLE, and sel itself must not be moved to
@@ -3010,11 +3022,16 @@ end
 # extra legend row for A auto), which moved the floor to rows 25.
 # drop-autoapply-debounce-seed Task 1 removed that pair and put STATIC_EDIT
 # back to 21, restoring the pre-Task-5 threshold: rows 24 (STATIC_EDIT + 3)
-# is the admitted floor once more, one row lower than the Task-5 threshold.
+# was the admitted floor once more, one row lower than the Task-5 threshold.
+# picker-responsiveness-and-layout Task 6 grows STATIC_EDIT 21 -> 22 again —
+# same new number as Task 5's, but for an unrelated reason (a third
+# seed-block row, not a legend pair) — moving the floor back to 25: rows 24
+# now REJECTS (it used to be the admitted floor) and 25 is admitted instead.
 t "floor: rows 19 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 19)
 t "floor: rows 20 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 20)
 t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
-t "floor: rows 24 is admitted (Task 1 restored the floor 25 -> 24)" admit (__t9_floor 24)
+t "floor: rows 24 is rejected (below STATIC_EDIT + 3, Task 6 raised the floor 24 -> 25)" '' (__t9_floor 24)
+t "floor: rows 25 is admitted (Task 6 raised the floor 24 -> 25)" admit (__t9_floor 25)
 
 function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
     # Task 1's row cache is keyed by index alone, and this harness reuses the
@@ -3293,8 +3310,11 @@ t "frame: emits exactly its height — 39 rows"                39 (__t9_frame_ro
 t "frame: emits exactly its height — 52 rows"                52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52)
 # picker-legibility-autoapply Task 5 briefly moved the real admission floor
 # to 25 (STATIC_EDIT 21 -> 22); drop-autoapply-debounce-seed Task 1 restored
-# it to 24. This call is idle mode either way (WIN = 24 - STATIC_IDLE = 8,
-# comfortably positive) so it stays a plain non-collapsed size check.
+# it to 24, and picker-responsiveness-and-layout Task 6 moved it back to 25
+# (STATIC_EDIT 21 -> 22 again, for an unrelated reason — a third seed-block
+# row, not a legend pair). This call is idle mode either way (WIN = 24 -
+# STATIC_IDLE = 7, comfortably positive) so it stays a plain non-collapsed
+# size check regardless of where the admission floor itself sits.
 t "frame: emits exactly its height — 24 rows"    24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24)
 
 # --- picker-seed-section Task 3 (review fix): restore coverage for the padding branch --
@@ -3312,18 +3332,20 @@ t "frame: emits exactly its height — 40 rows (drives the padding branch, WIN=2
 # Every size above only ever exercised editing=0 (the harness's own default).
 # STATIC is now mode-dependent, so the frame must still emit exactly its height
 # while editing too — at the same sizes, plus the 40-row idle padding case
-# repeated in editing (WIN 40-21=19 against a 14-row list still exceeds it,
+# repeated in editing (WIN 40-22=18 against a 14-row list still exceeds it,
 # so the padding branch is exercised in both modes, not just idle) and a
-# dedicated editing floor (WIN 24-21=3; drop-autoapply-debounce-seed Task 1
-# restored STATIC_EDIT to 21, its pre-Task-5 value).
+# dedicated editing floor (WIN 24-22=2; picker-responsiveness-and-layout
+# Task 6 moved STATIC_EDIT back to 22, for an unrelated reason).
 t "frame: 26 rows idle"      26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1)
 t "frame: 26 rows editing"   26 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1)
 t "frame: 40 rows idle"      40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 0 1)
 t "frame: 40 rows editing"   40 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 40 1 1)
 t "frame: 52 rows idle"      52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 0 1)
 t "frame: 52 rows editing"   52 (__t9_frame_rows list 0 35 34 0 mono "$PAL9" '' 1 14 52 1 1)
-# 24-21=3, still positive (not collapsed) even at the restored STATIC_EDIT —
-# 24 is once again the real floor (see the FLOORBLOCK9/__t9_floor tests).
+# 24-22=2, still positive (not collapsed) even at STATIC_EDIT 22 — but 24 is
+# no longer the real admission floor: Task 6 moved it to 25 (see the
+# FLOORBLOCK9/__t9_floor tests above). This harness has no floor check of its
+# own, so it still draws a (real-picker-unreachable) 24-row frame correctly.
 t "frame: 24 rows editing"             24 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 24 1 1)
 
 # --- review fix round: rows 19/20 editing, supplementary evidence -----------
@@ -3334,11 +3356,13 @@ t "frame: 24 rows editing"             24 (__t9_frame_rows list 0 14 0 0 mono "$
 # STATIC_EDIT, editing's window AND padding math both go negative, so the
 # frame collapses to exactly STATIC_EDIT (21 — picker-legibility-autoapply
 # Task 5 briefly moved it to 22; drop-autoapply-debounce-seed Task 1 restored
-# it to 21) rows regardless of how far under it <rows> falls — which is
-# exactly why the floor above must refuse these sizes rather than let the
-# picker ever reach them.
-t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
-t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 21 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
+# it to 21; picker-responsiveness-and-layout Task 6 moved it back to 22, for
+# an unrelated reason — a third seed-block row, not a legend pair) rows
+# regardless of how far under it <rows> falls — which is exactly why the
+# floor above must refuse these sizes rather than let the picker ever reach
+# them.
+t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
+t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
 
 # The header must appear ONLY when expanded, and only while it's still inside
 # the scrolled window — this is the fix-discriminator.
