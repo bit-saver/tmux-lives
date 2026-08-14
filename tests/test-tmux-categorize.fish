@@ -1504,6 +1504,186 @@ t "rowcache: cacheclear forces a rebuild" 1 $__t1_calls
 functions --erase __tcz_thp_row_uncached
 functions --copy __t1_real __tcz_thp_row_uncached
 
+# --- Task 2: the static-row cache ------------------------------------------
+# Once scheme rows are cached (Task 1), the FRAME-CONSTANT rows dominate a
+# redraw: the preview bar, the tab chip, the seed zone, the legend, the two
+# second-list rows, and the legacy band feeding two of those. Same
+# discriminator as Task 1 throughout: a call COUNT, not a grep.
+set -g __t2_pal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+
+# -- preview: hexes capfg host name w [cachekey] --
+set -g __t2_calls 0
+functions --copy __tcz_thp_preview_uncached __t2_prev_real
+function __tcz_thp_preview_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_prev_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_a (__t2_prev_real "$__t2_pal" '#f5f5f5' somehost Monitoring 50 | string escape)
+set -g __t2_b (__tcz_thp_preview "$__t2_pal" '#f5f5f5' somehost Monitoring 50 k1 | string escape)
+t "staticcache: preview cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_preview "$__t2_pal" '#f5f5f5' somehost Monitoring 50 k1 >/dev/null
+t "staticcache: preview hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_preview "$__t2_pal" '#f5f5f5' somehost Monitoring 50 >/dev/null
+__tcz_thp_preview "$__t2_pal" '#f5f5f5' somehost Monitoring 50 >/dev/null
+t "staticcache: preview omitting the key bypasses the cache" 2 $__t2_calls
+functions --erase __tcz_thp_preview_uncached
+functions --copy __t2_prev_real __tcz_thp_preview_uncached
+
+# -- tabstrip: tabshex tabsfg title w [cachekey] --
+# tabstrip's uncached builder returns STATUS 1 (not 0) on its early-return
+# paths (non-hex tabshex, empty title) — the common non-ShellFish case. Proved
+# live before this shipped: `test -z "$cachekey"; and BUILDER; and return`
+# (Task 1's exact `and`-chain shape) silently falls through to the cache-WRITE
+# branch whenever BUILDER returns nonzero, even with cachekey empty — which
+# would have broken "no key -> always uncached" on every non-ShellFish redraw.
+# The two blocks below cover the normal path and that early-return path
+# separately.
+set -g __t2_calls 0
+functions --copy __tcz_thp_tabstrip_uncached __t2_tab_real
+function __tcz_thp_tabstrip_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_tab_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_a (__t2_tab_real '#98b3a0' '#f5f5f5' my-session 50 | string escape)
+set -g __t2_b (__tcz_thp_tabstrip '#98b3a0' '#f5f5f5' my-session 50 k1 | string escape)
+t "staticcache: tabstrip cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_tabstrip '#98b3a0' '#f5f5f5' my-session 50 k1 >/dev/null
+t "staticcache: tabstrip hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_tabstrip '#98b3a0' '#f5f5f5' my-session 50 >/dev/null
+__tcz_thp_tabstrip '#98b3a0' '#f5f5f5' my-session 50 >/dev/null
+t "staticcache: tabstrip omitting the key bypasses the cache" 2 $__t2_calls
+# the early-return (status 1) path, unkeyed: must still call through every time
+set -g __t2_calls 0
+__tcz_thp_tabstrip notahex '#f5f5f5' my-session 50 >/dev/null
+__tcz_thp_tabstrip notahex '#f5f5f5' my-session 50 >/dev/null
+t "staticcache: tabstrip early-return path still bypasses cache unkeyed" 2 $__t2_calls
+functions --erase __tcz_thp_tabstrip_uncached
+functions --copy __t2_tab_real __tcz_thp_tabstrip_uncached
+
+# -- seedzone: w hex hue L C editing chan r g b [cachekey] --
+set -g __t2_calls 0
+functions --copy __tcz_thp_seedzone_uncached __t2_sz_real
+function __tcz_thp_seedzone_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_sz_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_a (__t2_sz_real 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 | string escape)
+set -g __t2_b (__tcz_thp_seedzone 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 k1 | string escape)
+t "staticcache: seedzone cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_seedzone 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 k1 >/dev/null
+t "staticcache: seedzone hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_seedzone 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 >/dev/null
+__tcz_thp_seedzone 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 >/dev/null
+t "staticcache: seedzone omitting the key bypasses the cache" 2 $__t2_calls
+functions --erase __tcz_thp_seedzone_uncached
+functions --copy __t2_sz_real __tcz_thp_seedzone_uncached
+
+# -- staterow: w cells name label selected live [cachekey] --
+set -g __t2_calls 0
+functions --copy __tcz_thp_staterow_uncached __t2_sr_real
+function __tcz_thp_staterow_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_sr_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_cells (__tcz_thp_cells "$__t2_pal")
+set -g __t2_a (__t2_sr_real 50 "$__t2_cells" 'mono soft' current 1 1 | string escape)
+set -g __t2_b (__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 1 1 cur_1_1 | string escape)
+t "staticcache: staterow cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 1 1 cur_1_1 >/dev/null
+t "staticcache: staterow hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 1 1 >/dev/null
+__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 1 1 >/dev/null
+t "staticcache: staterow omitting the key bypasses the cache" 2 $__t2_calls
+functions --erase __tcz_thp_staterow_uncached
+functions --copy __t2_sr_real __tcz_thp_staterow_uncached
+# collision proof: both production call sites (currow/offrow) can carry
+# selected=0 live=0 AT ONCE (browsing the scheme list, no preview active)
+# despite different cells/name/label — a bare "<selected>_<live>" cachekey
+# (the brief's literal formula) would let one serve the other's cached
+# content. The call sites prefix a row-identity token ("cur_"/"off_")
+# instead; this proves that actually separates them.
+__tcz_thp_cacheclear
+set -g __t2_cur (__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 0 0 cur_0_0 | string escape)
+set -g __t2_off (__tcz_thp_staterow 50 (__tcz_thp_band '#444444') 'legacy look' off 0 0 off_0 | string escape)
+t "staticcache: staterow cur/off share no slot despite equal selected_live" no (test "$__t2_cur" = "$__t2_off"; and echo yes; or echo no)
+
+# -- band: hex [cachekey] --
+set -g __t2_calls 0
+functions --copy __tcz_thp_band_uncached __t2_band_real
+function __tcz_thp_band_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_band_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_a (__t2_band_real '#444444' | string escape)
+set -g __t2_b (__tcz_thp_band '#444444' band | string escape)
+t "staticcache: band cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_band '#444444' band >/dev/null
+t "staticcache: band hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_band '#444444' >/dev/null
+__tcz_thp_band '#444444' >/dev/null
+t "staticcache: band omitting the key bypasses the cache" 2 $__t2_calls
+functions --erase __tcz_thp_band_uncached
+functions --copy __t2_band_real __tcz_thp_band_uncached
+
+# -- leg: cols <key desc>... [--cachekey=X] --
+# leg's uncached builder ALSO returns nonzero (status 1) whenever the pair
+# count divides evenly into <cols> with no trailing partial row — proved
+# live for the exact browsing-legend shape below (9 pairs / cols 3). Same
+# and-chain hazard as tabstrip, plus a second hazard the brief's own key
+# formula ran into: an odd/even PARITY test cannot tell "1 pair + a trailing
+# key" apart from a genuinely malformed odd pair count with no key intended,
+# and a pre-existing test ("leg guards odd pair count") already covers that
+# malformed case — an unambiguous "--cachekey=X" sentinel is used instead.
+set -g __t2_calls 0
+functions --copy __tcz_thp_leg_uncached __t2_leg_real
+function __tcz_thp_leg_uncached
+    set -g __t2_calls (math $__t2_calls + 1)
+    __t2_leg_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t2_a (__t2_leg_real 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close | string escape)
+set -g __t2_b (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close --cachekey=0 | string escape)
+t "staticcache: leg cached output matches uncached" "$__t2_a" "$__t2_b"
+set -g __t2_calls 0
+__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close --cachekey=0 >/dev/null
+t "staticcache: leg hit calls the builder zero times" 0 $__t2_calls
+set -g __t2_calls 0
+__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close >/dev/null
+__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close >/dev/null
+t "staticcache: leg omitting the key bypasses the cache" 2 $__t2_calls
+# the pre-existing malformed-input guard must still work: an odd pair count
+# with no --cachekey= sentinel is NOT mistaken for a keyed call.
+t "staticcache: leg still guards a genuinely odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
+functions --erase __tcz_thp_leg_uncached
+functions --copy __t2_leg_real __tcz_thp_leg_uncached
+
+# -- cacheclear reaches every new __tcz_sc_ cache, not just some of them --
+__tcz_thp_cacheclear
+__tcz_thp_preview "$__t2_pal" '#f5f5f5' somehost Monitoring 50 k1 >/dev/null
+__tcz_thp_tabstrip '#98b3a0' '#f5f5f5' my-session 50 k1 >/dev/null
+__tcz_thp_seedzone 50 '#5f772b' 96 0.42 0.054 0 1 95 119 43 k1 >/dev/null
+__tcz_thp_staterow 50 "$__t2_cells" 'mono soft' current 1 1 cur_1_1 >/dev/null
+__tcz_thp_band '#444444' band >/dev/null
+__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed m more z shake '⇥' current/off a apply '⏎' save esc close --cachekey=0 >/dev/null
+t "staticcache: all six builders populate __tcz_sc_ entries" 6 (count (set --names | string match -er '^__tcz_sc_'))
+__tcz_thp_cacheclear
+t "staticcache: cacheclear erases every __tcz_sc_ entry" 0 (count (set --names | string match -er '^__tcz_sc_'))
+
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 # Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
@@ -2192,7 +2372,10 @@ t "persisted phase is loaded from init" 1 (string match -q '*set persisted_phase
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---
 t "guard: preview coral gone" 0 (string match -q '*D97757*' -- (cat $catfile | string collect); and echo 1; or echo 0)
-set -l pvbody (functions __tcz_thp_preview | string collect)
+# staticcache: the rendering logic (and everything these two guards check)
+# now lives in __tcz_thp_preview_uncached; __tcz_thp_preview itself is the
+# memoizing front and would make both assertions vacuous if inspected instead.
+set -l pvbody (functions __tcz_thp_preview_uncached | string collect)
 t "guard: preview no longer defines a coral var" 0 (string match -q '*coral*' -- "$pvbody"; and echo 1; or echo 0)
 t "preview claude segment uses the windows-role fg" 1 (string match -q '*"$barbg $winfg""claude*' -- "$pvbody"; and echo 1; or echo 0)
 

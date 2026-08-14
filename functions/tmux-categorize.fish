@@ -1272,7 +1272,7 @@ function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme 
     printf '%s\n' "$cells"
 end
 
-function __tcz_thp_band --argument-names hex --description 'pure: a 16-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 16 blanks.'
+function __tcz_thp_band_uncached --argument-names hex --description 'pure: a 16-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 16 blanks.'
     set -l fg (__tcz_thp_fg "$hex")
     if test -z "$fg"
         set -l blank (string repeat -n 16 ' ')
@@ -1280,6 +1280,16 @@ function __tcz_thp_band --argument-names hex --description 'pure: a 16-col band 
         return
     end
     printf '%s\n' "$fg"(string repeat -n 16 ▇)(printf '\e[0m')
+end
+function __tcz_thp_band --argument-names hex cachekey --description 'memoizing front for __tcz_thp_band_uncached. Both production call sites pass $legacy, which __tcz_thp_init sets exactly once at picker open and nothing thereafter mutates, so a CONSTANT cachekey is correct here (same reasoning as the tab chip) — the two call sites (anchcells default, offrow cells) share one cache slot. Without <cachekey>, uncached and byte-identical. Uses an if-block, not an `and`-chain: __tcz_thp_band_uncached happens to always return 0, but __tcz_thp_tabstrip/__tcz_thp_leg below do NOT (both have a real early-return-nonzero path, proved live), where `test -z "$cachekey"; and BUILDER; and return` silently falls through to the cache-WRITE branch even with no key -- one shape, used everywhere, is what makes that provably impossible rather than merely unlikely here.'
+    if test -z "$cachekey"
+        __tcz_thp_band_uncached "$hex"
+        return
+    end
+    set -l k "__tcz_sc_band_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_band_uncached "$hex")
+    printf '%s\n' $$k
 end
 
 function __tcz_thp_row_uncached --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
@@ -1305,7 +1315,7 @@ function __tcz_thp_row --argument-names hexes name selected current cachekey --d
     set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current")
     printf '%s\n' $$k
 end
-function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
+function __tcz_thp_staterow_uncached --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
@@ -1351,7 +1361,17 @@ function __tcz_thp_staterow --argument-names w cells name label selected live --
         "$padstr" \
         "$labon$labcol" "$label" (__tcz_theme reset)
 end
-function __tcz_thp_preview --argument-names hexes capfg host name w --description 'pure: the fake status-bar row from 7 role hexes (bar sep tabs active windows cap text) + cap fg — host cap, windows, ✦ identity, clock cap; EXACTLY <w> visible cols (host/name truncated, gaps computed)'
+function __tcz_thp_staterow --argument-names w cells name label selected live cachekey --description 'memoizing front for __tcz_thp_staterow_uncached. <cachekey> is an OPAQUE caller-built string, not just "<selected>_<live>" verbatim — the two production call sites (currow/offrow) both draw <selected>=0 <live>=0 at once (e.g. browsing the scheme list with no preview active), and a bare "<selected>_<live>" key would let one clobber the others cache slot despite different <cells>/<name>/<label>; callers prefix a row-identity token (e.g. "cur_"/"off_") to keep the two rows in separate slots. Without <cachekey>, uncached and byte-identical. if-block, not an `and`-chain — see __tcz_thp_band for why.'
+    if test -z "$cachekey"
+        __tcz_thp_staterow_uncached "$w" "$cells" "$name" "$label" "$selected" "$live"
+        return
+    end
+    set -l k "__tcz_sc_staterow_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_staterow_uncached "$w" "$cells" "$name" "$label" "$selected" "$live")
+    printf '%s\n' $$k
+end
+function __tcz_thp_preview_uncached --argument-names hexes capfg host name w --description 'pure: the fake status-bar row from 7 role hexes (bar sep tabs active windows cap text) + cap fg — host cap, windows, ✦ identity, clock cap; EXACTLY <w> visible cols (host/name truncated, gaps computed)'
     set -l p (string split ' ' -- "$hexes")
     set -l slR (printf '\U0000e0b0')
     set -l slL (printf '\U0000e0b2')
@@ -1388,6 +1408,16 @@ function __tcz_thp_preview --argument-names hexes capfg host name w --descriptio
     # backstop clamps to exactly w visible cols; the gap math lands there already
     __tcz_popup_truncate "$row" $w
 end
+function __tcz_thp_preview --argument-names hexes capfg host name w cachekey --description 'memoizing front for __tcz_thp_preview_uncached. <cachekey> should be the cursor identity that selected <hexes>/<capfg> (both lists — focus+sel+sel2, not sel alone: the second list (current/off) drives its own selection independently of the scheme lists sel), since host/name/w are frame-constant. Without <cachekey>, uncached and byte-identical. if-block, not an `and`-chain — see __tcz_thp_band for why.'
+    if test -z "$cachekey"
+        __tcz_thp_preview_uncached "$hexes" "$capfg" "$host" "$name" "$w"
+        return
+    end
+    set -l k "__tcz_sc_preview_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_preview_uncached "$hexes" "$capfg" "$host" "$name" "$w")
+    printf '%s\n' $$k
+end
 function __tcz_thp_ln --argument-names content w od t --description 'pad ALREADY-COLORED content to visible width w and wrap it in the themed frame (│…│)'
     set -l vis (__tcz_strip_sgr "$content")
     set -l pad (math "$w - "(string length --visible -- "$vis"))
@@ -1421,7 +1451,7 @@ function __tcz_thp_grouphdr --argument-names w label --description 'pure: an in-
     set -l fillstr (string repeat -n $fill ─)
     printf ' %s──%s \e[1m%s%s\e[22m%s %s%s %s' $MUT $RST $TIT "$label" $RST $MUT "$fillstr" $RST
 end
-function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
+function __tcz_thp_tabstrip_uncached --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
     set -l bg (__tcz_thp_bg "$tabshex")
     test -n "$bg"; or return
     test -n "$title"; or return
@@ -1438,6 +1468,16 @@ function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w --descriptio
     test $pad -lt 0; and set pad 0
     set -l padstr (string repeat -n $pad ' ')
     printf '%s%s %s%s%s %s│ ⋯ │ ⋯ %s%s%s' "$bg" "$fgS" "$B1" "$title" "$NI" "$FA" "$NI" "$padstr" "$RST"
+end
+function __tcz_thp_tabstrip --argument-names tabshex tabsfg title w cachekey --description 'memoizing front for __tcz_thp_tabstrip_uncached. <tabshex>/<tabsfg> track the SAME cursor-selection branch as __tcz_thp_preview (curtabs/curtabsfg are pulled from the same curpal/curfg assignment) -- NOT frame-constant despite chiptitle/w being fixed at picker-open -- so <cachekey> must be the same cursor identity used for the preview (focus+sel+sel2). if-block, not an `and`-chain: __tcz_thp_tabstrip_uncached returns 1 (not 0) on its early-return paths (non-hex tabshex, the common non-ShellFish case; empty title) -- proved live -- so `test -z "$cachekey"; and BUILDER; and return` would silently fall through to the cache-WRITE branch on every uncached non-ShellFish call. Without <cachekey>, uncached and byte-identical.'
+    if test -z "$cachekey"
+        __tcz_thp_tabstrip_uncached "$tabshex" "$tabsfg" "$title" "$w"
+        return
+    end
+    set -l k "__tcz_sc_tabstrip_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_tabstrip_uncached "$tabshex" "$tabsfg" "$title" "$w")
+    printf '%s\n' $$k
 end
 function __tcz_thp_shellfish --description 'true iff any attached client is ShellFish — the production detection (__tcz_client_is_shellfish; tmux_lives_fake_environ seam applies), checked ONCE at picker open.'
     for pid in (tmux list-clients -F '#{client_pid}' 2>/dev/null)
@@ -1531,7 +1571,7 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
-function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — MODE-DEPENDENT height: 3 rows idle, 8 rows editing (picker-legibility-autoapply Task 3, replacing the earlier FIXED-8 design the user reviewed live and rejected — compact idle, roomy editing, the scheme list below is allowed to move on b). Row 1 is the zone separator (label seed). Rows 2-3 are a 2-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip; 2 rows over ~12 cols reads roughly square, terminal cells running about 2:1) — row 2 carries the bold hex + muted hue/L/C readouts to its right (the row already had empty space there), row 3 is block only. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text. Rows 1 and 3-8 honour w exactly (w+2 visible cols, border glyphs included, like __tcz_thp_zsep/__tcz_thp_ln — __tcz_thp_ln pads SHORT content but never truncates). Row 2 does NOT: its content is a FIXED 12-col block + 2 + a 7-char hex + 2 + the hue/L/C readout, which comes to exactly 50 visible columns at the example values — so row 2 only honours w at w >= 50 (below that it overflows w+2, same class of bug the old fixed-8-row version already had). rows 1-3 are IDENTICAL in both states. The only caller passes w=50 (IW), so this is not reachable today. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
+function __tcz_thp_seedzone_uncached --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — MODE-DEPENDENT height: 3 rows idle, 8 rows editing (picker-legibility-autoapply Task 3, replacing the earlier FIXED-8 design the user reviewed live and rejected — compact idle, roomy editing, the scheme list below is allowed to move on b). Row 1 is the zone separator (label seed). Rows 2-3 are a 2-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip; 2 rows over ~12 cols reads roughly square, terminal cells running about 2:1) — row 2 carries the bold hex + muted hue/L/C readouts to its right (the row already had empty space there), row 3 is block only. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text. Rows 1 and 3-8 honour w exactly (w+2 visible cols, border glyphs included, like __tcz_thp_zsep/__tcz_thp_ln — __tcz_thp_ln pads SHORT content but never truncates). Row 2 does NOT: its content is a FIXED 12-col block + 2 + a 7-char hex + 2 + the hue/L/C readout, which comes to exactly 50 visible columns at the example values — so row 2 only honours w at w >= 50 (below that it overflows w+2, same class of bug the old fixed-8-row version already had). rows 1-3 are IDENTICAL in both states. The only caller passes w=50 (IW), so this is not reachable today. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
     set -l BORDER (__tcz_theme border)
     set -l RST (__tcz_theme reset)
     set -l MUT (__tcz_theme muted)
@@ -1566,6 +1606,16 @@ function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b --
         set -a lines (__tcz_thp_ln '' $w $BORDER $RST)
     end
     printf '%s\n' $lines
+end
+function __tcz_thp_seedzone --argument-names w hex hue L C editing chan r g b cachekey --description 'memoizing front for __tcz_thp_seedzone_uncached. <cachekey> must encode everything that varies: editing/chan plus the seed itself -- r/g/b are used rather than <hex> verbatim because they are already-parsed plain integers (no string replace needed to build the key), and are a lossless stand-in for <hex> here since the seed is always stored/typed lowercase (__tcz_thp_reload / the hex-entry screen both lower-case it before use) and the row renders nothing hex-derived at all when <hex> fails to parse (r=g=b=0 uniformly in that case, matching the uncached builders own blank-block fallback). <hue>/<L>/<C> are pure functions of r/g/b so they need no separate key component. if-block, not an `and`-chain — see __tcz_thp_band for why. Without <cachekey>, uncached and byte-identical.'
+    if test -z "$cachekey"
+        __tcz_thp_seedzone_uncached "$w" "$hex" "$hue" "$L" "$C" "$editing" "$chan" "$r" "$g" "$b"
+        return
+    end
+    set -l k "__tcz_sc_seedzone_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_seedzone_uncached "$w" "$hex" "$hue" "$L" "$C" "$editing" "$chan" "$r" "$g" "$b")
+    printf '%s\n' $$k
 end
 function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash|back|enter|esc|up|down|left|right|t|other (dd HEAD-of-pipeline; tty already raw)'
     set -l b ''
@@ -1613,7 +1663,7 @@ function __tcz_thp_readchar --description 'seed-entry raw byte -> <hexchar>|hash
     echo other
 end
 
-function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-aligned legend grid — argv[2..] = <key> <desc> pairs, `cols` pairs per row, row-major. Column widths are the MAX key/desc visible-width over ALL rows (not per-row) — the fix for the old __tcz_legend_row-per-row wiring, where each rows cell widths were sized independently and column 3 landed at a different x on every row. Each cell = key (key color, padded to the columns keyw) + 1 space + desc (muted, padded to the columns descw); cells joined by a 3-space gap; each row prefixed by 1 space. Prints one line per grid row.'
+function __tcz_thp_leg_uncached --argument-names cols --description 'pure: cross-row-aligned legend grid — argv[2..] = <key> <desc> pairs, `cols` pairs per row, row-major. Column widths are the MAX key/desc visible-width over ALL rows (not per-row) — the fix for the old __tcz_legend_row-per-row wiring, where each rows cell widths were sized independently and column 3 landed at a different x on every row. Each cell = key (key color, padded to the columns keyw) + 1 space + desc (muted, padded to the columns descw); cells joined by a 3-space gap; each row prefixed by 1 space. Prints one line per grid row.'
     set -l pairs $argv[2..-1]
     set -l n (count $pairs)
     test (math "$n % 2") -eq 0; or return 1     # malformed: odd key/desc count
@@ -1664,6 +1714,22 @@ function __tcz_thp_leg --argument-names cols --description 'pure: cross-row-alig
         end
     end
     test "$line" != ' '; and printf '%s\n' "$line"    # trailing partial row, if any
+end
+function __tcz_thp_leg --argument-names cols --description 'memoizing front for __tcz_thp_leg_uncached. cachekey is trailing but __tcz_thp_leg_uncached is variadic (argv[2..] = an even-count run of key/desc pairs), so a plain 7th-positional slot does not exist to give it, and an odd-vs-even PARITY trick (an earlier draft of this function) is unsound: "leg guards odd pair count" (__tcz_thp_leg 3 a b c) already covers a genuinely malformed ODD pair count with no key intended, which parity cannot tell apart from "1 pair + a trailing key" -- caught by that pre-existing test regressing before this shipped. Instead the trailing arg is only ever treated as a cachekey when it carries the unambiguous "--cachekey=<key>" sentinel, which no real key/desc pair token can collide with; anything else (including a bare odd leftover) passes straight through to __tcz_thp_leg_uncached and hits its normal malformed-input handling. Without the sentinel, uncached and byte-identical.'
+    set -l rest $argv[2..-1]
+    set -l cachekey ''
+    if test (count $rest) -gt 0; and string match -q -- '--cachekey=*' -- "$rest[-1]"
+        set cachekey (string sub -s 12 -- "$rest[-1]")
+        set rest $rest[1..-2]
+    end
+    if test -z "$cachekey"
+        __tcz_thp_leg_uncached $cols $rest
+        return
+    end
+    set -l k "__tcz_sc_leg_$cachekey"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_leg_uncached $cols $rest)
+    printf '%s\n' $$k
 end
 
 function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of CURATED catalog entries (14 default, m expands to all 35) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, expanding first), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 16 static chrome/seed-zone/second-list/legend rows idle, 21 editing (the seed zone is 3 rows idle / 8 editing; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
@@ -2096,6 +2162,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         set -l ptoks (string split ' ' -- $curpal)
         set -l curtabs "$ptoks[3]"
+        # staticcache: the cursor identity that picked $curpal/$curfg/$curtabs/
+        # $curtabsfg above -- both lists share it (focus disambiguates which of
+        # sel/sel2 is live), so the SAME key caches both the tab chip and the
+        # preview bar. NOT just $sel: the second list (current/off) has its own
+        # cursor sel2, independent of the scheme lists sel (see the if/else
+        # above) -- a key of $sel alone would let a current<->off move (which
+        # changes curpal) hit a stale cache slot keyed only by whatever $sel
+        # happened to be left at.
+        set -l curidx "$focus"_"$sel"_"$sel2"
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -2107,9 +2182,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # VANISHES from the arg list, so __tcz_thp_ln would silently get 3 args
         # instead of 4 (content=$IW, w=$BORDER, ...) and spray math/test errors into
         # the popup on every redraw. Capture into a var first, then quote it.
-        set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW)
+        set -l chip (__tcz_thp_tabstrip "$curtabs" "$curtabsfg" "$chiptitle" $IW $curidx)
         set -a lines (__tcz_thp_ln "$chip" $IW $BORDER $RST)
-        set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW) $IW $BORDER $RST)
+        set -a lines (__tcz_thp_ln (__tcz_thp_preview "$curpal" "$curfg" "$host" Monitoring $IW $curidx) $IW $BORDER $RST)
         # picker-legibility-autoapply Task 3: the seed is a MODE-DEPENDENT
         # section — 3 rows idle (zsep + 2-row colour block with the hex/hue/L/C
         # readouts beside it), 8 rows editing (the same 3 + a blank + the 3
@@ -2135,7 +2210,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l seedoklch (__tmux_lives_rgb_to_oklch $seedrgb01[1] $seedrgb01[2] $seedrgb01[3])
         set -l seedro (printf '%.0f %.2f %.3f' $seedoklch[3] $seedoklch[1] $seedoklch[2])
         set -l seedrop (string split ' ' -- "$seedro")
-        set -a lines (__tcz_thp_seedzone $IW "$seed" "$seedrop[1]" "$seedrop[2]" "$seedrop[3]" $editing $chan $seedr $seedg $seedb)
+        # staticcache: editing/chan plus the parsed r/g/b fully determine the
+        # zone's content (hue/L/C are pure functions of r/g/b; a non-hex seed
+        # renders identically for every non-hex value, and always parses to
+        # r=g=b=0 above, so those collapse to one cache slot too, matching the
+        # uncached builder's own blank-block fallback).
+        set -l seedkey "$editing"_"$chan"_"$seedr"_"$seedg"_"$seedb"
+        set -a lines (__tcz_thp_seedzone $IW "$seed" "$seedrop[1]" "$seedrop[2]" "$seedrop[3]" $editing $chan $seedr $seedg $seedb $seedkey)
         # Windowed scrolling list: only the SCHEME rows scroll; the second list
         # (current + off) is pinned below, always drawn. sel can never exceed
         # n-1 (vismap clamps it there), so the window anchor no longer needs a
@@ -2228,7 +2309,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
         set -l curflag2 0
         test $focus = state; and test $sel2 -eq 0; and set curflag2 1
-        set -l anchcells (__tcz_thp_band "$legacy")
+        set -l anchcells (__tcz_thp_band "$legacy" band)
         test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal")
         # The state row names the CATALOG ENTRY (e.g. "mono soft"), not the bare
         # relationship (e.g. "mono") — several catalog rows share a relationship,
@@ -2242,7 +2323,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l anchrecipe "$anch_scheme|$anch_place|$anch_mode"
         set -l ari (contains -i -- "$anchrecipe" $recipes)
         test -n "$ari"; and set anchname $toks[$ari]
-        set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anchname" current $curflag2 $islive)
+        # staticcache: "cur_"/"off_" prefixes below are load-bearing, not
+        # decorative -- browsing the scheme list (focus=list) drives BOTH
+        # curflag2=0 and offflag=0 at once, and islive is frequently 0 too, so
+        # a bare "<selected>_<live>" key ("0_0") would be shared by this row
+        # and the off row despite different content; see __tcz_thp_staterow.
+        set -l currow (__tcz_thp_staterow $IW "$anchcells" "$anchname" current $curflag2 $islive "cur_$curflag2"_"$islive")
         if test $curflag2 -eq 1
             # See the scheme-row band comment above: pad to $IW before wrapping so
             # __tcz_thp_ln's own pad comes out to 0 and the band reaches the right
@@ -2258,7 +2344,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_ln "$currow" $IW $BORDER $RST)
         set -l offflag 0
         test $focus = state; and test $sel2 -eq 1; and set offflag 1
-        set -l offrow (__tcz_thp_staterow $IW (__tcz_thp_band "$legacy") 'legacy look' off $offflag 0)
+        set -l offrow (__tcz_thp_staterow $IW (__tcz_thp_band "$legacy" band) 'legacy look' off $offflag 0 "off_$offflag")
         if test $offflag -eq 1
             set -l rowpad (math "$IW - "(string length --visible -- (__tcz_strip_sgr "$offrow")))
             test $rowpad -lt 0; and set rowpad 0
@@ -2285,10 +2371,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # removed auto-apply and that pair with it, so browsing is back to 9
         # pairs / 3 rows and editing's pad is back to 1 blank row.
         if test "$editing" = 1
-            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex'  '⏎' keep esc revert)
+            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex'  '⏎' keep esc revert "--cachekey=$editing")
             set -a leglines ''
         else
-            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close)
+            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
         end
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
