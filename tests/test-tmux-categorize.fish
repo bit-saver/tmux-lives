@@ -1684,6 +1684,73 @@ t "staticcache: all six builders populate __tcz_sc_ entries" 6 (count (set --nam
 __tcz_thp_cacheclear
 t "staticcache: cacheclear erases every __tcz_sc_ entry" 0 (count (set --names | string match -er '^__tcz_sc_'))
 
+# --- Task 3: the swatch-strip cache -----------------------------------------
+# __tcz_thp_cells costs 5.4ms and is 96% of an uncached scheme row (5.6ms).
+# After Task 1 it only runs for the two ROWS a cursor move leaves row-cache
+# dirty (their <selected> changed, not their <hexes>) -- this task memoizes
+# it too so those two rows stop paying the swatch-strip cost on every move.
+# Same discriminator as Tasks 1/2: a call COUNT, not a grep.
+set -g __t3_calls 0
+functions --copy __tcz_thp_cells_uncached __t3_real
+function __tcz_thp_cells_uncached
+    set -g __t3_calls (math $__t3_calls + 1)
+    __t3_real $argv
+end
+__tcz_thp_cacheclear
+set -g __t3_pal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+set -g __t3_a (__t3_real "$__t3_pal" | string escape)
+set -g __t3_b (__tcz_thp_cells "$__t3_pal" 3 | string escape)
+set -g __t3_c (__tcz_thp_cells "$__t3_pal" 3 | string escape)
+t "cellcache: cached matches uncached (miss)" "$__t3_a" "$__t3_b"
+t "cellcache: cached matches uncached (hit)"  "$__t3_a" "$__t3_c"
+set -g __t3_calls 0
+__tcz_thp_cells "$__t3_pal" 3 >/dev/null
+t "cellcache: a hit calls the builder zero times" 0 $__t3_calls
+set -g __t3_calls 0
+__tcz_thp_cells "$__t3_pal" >/dev/null
+__tcz_thp_cells "$__t3_pal" >/dev/null
+t "cellcache: omitting the key bypasses the cache" 2 $__t3_calls
+# invalidation: clearing forces a rebuild (Task 1/2 convention)
+__tcz_thp_cacheclear
+set -g __t3_calls 0
+__tcz_thp_cells "$__t3_pal" 3 >/dev/null
+t "cellcache: cacheclear forces a rebuild" 1 $__t3_calls
+# __tcz_thp_cacheclear's regex ('^__tcz_(?:cc|rc|sc)_') already anticipated a
+# "cc" (cells cache) namespace before this task existed -- prove it actually
+# reaches a real __tcz_cc_ entry rather than assuming the regex was right.
+__tcz_thp_cacheclear
+__tcz_thp_cells "$__t3_pal" 3 >/dev/null
+t "cellcache: populates a __tcz_cc_ entry" 1 (count (set --names | string match -er '^__tcz_cc_'))
+__tcz_thp_cacheclear
+t "cellcache: cacheclear erases every __tcz_cc_ entry" 0 (count (set --names | string match -er '^__tcz_cc_'))
+functions --erase __tcz_thp_cells_uncached
+functions --copy __t3_real __tcz_thp_cells_uncached
+
+# real call-site guard: __tcz_thp_row_uncached must pass its OWN <cachekey>
+# straight through to __tcz_thp_cells -- a test that hand-builds a key and
+# calls __tcz_thp_cells directly (all the cellcache: assertions above) cannot
+# see whether the ACTUAL call site inside __tcz_thp_row_uncached does this
+# (Task 2s review found exactly this class of gap: six correct wrappers,
+# four call-site mutations that still passed every hand-keyed test). Two row
+# calls at the SAME index but a DIFFERENT <selected> are both ROW-cache
+# MISSES (Task 1 keys rows by index_selected_current), yet <hexes> for that
+# index is unchanged, so the cells builder should still run only once.
+# Proven live: reverting __tcz_thp_row_uncacheds call site to
+# `__tcz_thp_cells "$hexes"` (dropping the key) makes this 2, with every
+# cellcache: assertion above still ALL PASS.
+set -g __t3_calls2 0
+functions --copy __tcz_thp_cells_uncached __t3_real2
+function __tcz_thp_cells_uncached
+    set -g __t3_calls2 (math $__t3_calls2 + 1)
+    __t3_real2 $argv
+end
+__tcz_thp_cacheclear
+__tcz_thp_row "$__t3_pal" schemeA 0 0 7 >/dev/null
+__tcz_thp_row "$__t3_pal" schemeA 1 0 7 >/dev/null
+t "cellcache: row_uncached forwards its cachekey to cells (call-site guard)" 1 $__t3_calls2
+functions --erase __tcz_thp_cells_uncached
+functions --copy __t3_real2 __tcz_thp_cells_uncached
+
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 # Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
@@ -3405,6 +3472,40 @@ __tcz_thp_cacheclear
 __t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '' >/dev/null
 set -l editRows (__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 1 1 '')
 t "frame: switching to editing after browsing still emits exactly 52 rows (leg key guard)" 52 $editRows
+
+# I-1 guard 5 (cells cachekey passthrough, Task 3): a two-frame walk, cache
+# never cleared -- frame A renders the full 14-row scheme list at sel=5
+# (populating a __tcz_cc_ entry for every index). Frame B moves the cursor
+# to sel=6 with everything else unchanged: exactly two rows (indices 6 and
+# 7, 1-based) become ROW-cache MISSES (their <selected> flag flipped, Task
+# 1s own index_selected_current key), but neither index's <hexes> changed,
+# so __tcz_thp_row_uncacheds OWN __tcz_thp_cells lookup should HIT the
+# __tcz_cc_ slot frame A already populated for those same indices -- this is
+# the entire saving Task 3 exists for (the brief's "still runs for the two
+# genuinely-dirty rows on every cursor move" cost this closes). anch_scheme=
+# off / anchpal='' keeps the second-lists OWN uncached __tcz_thp_cells call
+# (functions/tmux-categorize.fish, the "current" rows anchcells line, outside
+# Task 3s scope) from also incrementing the spy every frame and confounding
+# the count -- with anchpal non-empty this test would need to expect 1, not
+# 0, and could not tell "always uncached" apart from "cached correctly plus
+# one unrelated always-uncached call" as cleanly. Proven live: reverting
+# __tcz_thp_row_uncacheds call site to `__tcz_thp_cells "$hexes"` (dropping
+# the key) makes frame B rebuild cells for both dirty rows (count 2) while
+# every direct cellcache: assertion above still stays ALL PASS -- proof this
+# guard catches what a hand-keyed direct call cannot.
+set -g __t3_calls3 0
+functions --copy __tcz_thp_cells_uncached __t3_real3
+function __tcz_thp_cells_uncached
+    set -g __t3_calls3 (math $__t3_calls3 + 1)
+    __t3_real3 $argv
+end
+__tcz_thp_cacheclear
+__t9_draw_nocc list 0 14 5 0 off '' '' '' '' 52 0 1 '' >/dev/null
+set -g __t3_calls3 0
+__t9_draw_nocc list 0 14 6 0 off '' '' '' '' 52 0 1 '' >/dev/null
+t "frame: moving the cursor reuses the swatch cache for the two now-dirty rows (cells key guard)" 0 $__t3_calls3
+functions --erase __tcz_thp_cells_uncached
+functions --copy __t3_real3 __tcz_thp_cells_uncached
 
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
 # not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its

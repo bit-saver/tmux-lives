@@ -1240,7 +1240,7 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
 
-function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme swatch strip, 16 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then the trim roles windows(1) sep(1) text(1), then active(1) as a fourth trim cell (picker-legibility-autoapply Task 6: window-status-current-format now reads @tmux_lives_active_fg, so it finally paints somewhere and earns a cell). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned.'
+function __tcz_thp_cells_uncached --argument-names hexes --description 'pure: the scheme swatch strip, 16 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then the trim roles windows(1) sep(1) text(1), then active(1) as a fourth trim cell (picker-legibility-autoapply Task 6: window-status-current-format now reads @tmux_lives_active_fg, so it finally paints somewhere and earns a cell). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned. Memoized by __tcz_thp_cells below — this is the ~17-command-substitution pure engine, 96% of an uncached scheme row.'
     set -l pal (string split ' ' -- "$hexes")
     set -l RST (printf '\e[0m')
     set -l cells ''
@@ -1271,6 +1271,21 @@ function __tcz_thp_cells --argument-names hexes --description 'pure: the scheme 
     end
     printf '%s\n' "$cells"
 end
+function __tcz_thp_cells --argument-names hexes cachekey --description 'memoizing front for __tcz_thp_cells_uncached. <cachekey> should be the SAME identity __tcz_thp_row already keys its own cache on (the scheme index) — a schemes hexes cannot change without a reload, and every reload goes through __tcz_thp_cacheclear, so the row cachekey already uniquely identifies the palette this call renders; __tcz_thp_row_uncached passes its own <cachekey> straight through rather than deriving a second one. This is the saving Task 3 exists for: after Task 1, a cursor move leaves exactly two ROWS row-cache-dirty (the old and new selected index), but those two indices hexes are unchanged, so their cells lookup here hits a slot __tcz_thp_cells already populated the first time that index was drawn — the 5.4ms/row swatch-strip cost (96% of an uncached row) is paid once per index per reload generation, not once per cursor move. Without <cachekey>, uncached and byte-identical. if-block on BOTH miss and hit (review M-1 pattern, see __tcz_thp_band): a keyed call whose result is a genuinely empty list must re-emit zero bytes, not one via `printf %s\n` given no arguments -- __tcz_thp_cells_uncached never actually produces empty output in practice (even an all-non-hex <hexes> still emits 16 blank columns) but the shape is shared with the other five memoizing fronts, where it IS reachable, and "one shape, not one-and-a-half" is the point made throughout this file.'
+    if test -z "$cachekey"
+        __tcz_thp_cells_uncached "$hexes"
+        return
+    end
+    set -l k "__tcz_cc_$cachekey"
+    if set -q $k
+        set -l cached $$k
+        test (count $cached) -gt 0; and printf '%s\n' $cached
+        return
+    end
+    set -g $k (__tcz_thp_cells_uncached "$hexes")
+    set -l fresh $$k
+    test (count $fresh) -gt 0; and printf '%s\n' $fresh
+end
 
 function __tcz_thp_band_uncached --argument-names hex --description 'pure: a 16-col band in one colour, drawn with the same ▇ top gap as __tcz_thp_cells so the second list lines up with the scheme list. Non-hex -> 16 blanks.'
     set -l fg (__tcz_thp_fg "$hex")
@@ -1298,8 +1313,8 @@ function __tcz_thp_band --argument-names hex cachekey --description 'memoizing f
     test (count $fresh) -gt 0; and printf '%s\n' $fresh
 end
 
-function __tcz_thp_row_uncached --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
-    set -l cells (__tcz_thp_cells "$hexes")
+function __tcz_thp_row_uncached --argument-names hexes name selected current cachekey --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins. <cachekey> (Task 3) is NOT used to cache this functions own output — __tcz_thp_row above already owns that — it is forwarded verbatim to __tcz_thp_cells so the swatch strip can be memoized by the SAME scheme-index identity independently of whether this row itself was a cache hit or miss: a cursor move dirties this rows own __tcz_rc_ entry (selected changed) without changing <hexes>, so the cells lookup below still hits the __tcz_cc_ slot an earlier draw of this same index already populated.'
+    set -l cells (__tcz_thp_cells "$hexes" "$cachekey")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
     if test "$selected" = 1
@@ -1314,11 +1329,11 @@ function __tcz_thp_row_uncached --argument-names hexes name selected current --d
     end
     printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
 end
-function __tcz_thp_row --argument-names hexes name selected current cachekey --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild).'
-    test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current"; and return
+function __tcz_thp_row --argument-names hexes name selected current cachekey --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild). Task 3: <cachekey> is ALSO forwarded straight through to __tcz_thp_row_uncached, which forwards it again to __tcz_thp_cells — both branches below pass it (empty in the first, the real key in the second), so an uncached call stays fully uncached at the cells layer too, and a cached call lets a row-cache MISS still hit the cells cache when only <selected>/<current> changed.'
+    test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey"; and return
     set -l k "__tcz_rc_$cachekey"_"$selected"_"$current"
     set -q $k; and printf '%s\n' $$k; and return
-    set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current")
+    set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey")
     printf '%s\n' $$k
 end
 function __tcz_thp_staterow_uncached --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
