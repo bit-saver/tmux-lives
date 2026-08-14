@@ -1205,14 +1205,31 @@ function __tmux_lives_update_note --argument-names refreshed removed sessions au
 end
 
 function __tmux_lives_stale_sessions --description 'session names of tmux pane shells other than this one — the shells an update did NOT reach. Empty outside tmux or when tmux is unreachable.'
-    set -l tm tmux
-    set -q tmux_lives_tmux_socket; and set tm "command tmux -L $tmux_lives_tmux_socket"
-    set -l lines ($tm list-panes -a -F '#{pane_pid} #{session_name} #{pane_current_command}' 2>/dev/null)
+    # Build the invocation with an if/else, matching every other seam site in this
+    # file (:698, :916, :1252). The variable form this used to carry was broken TWO
+    # different ways, and both are worth recording because each looks fine:
+    #   set -l tm "command tmux -L $sock"  -> fish does NOT word-split, so the whole
+    #       string became the command name: `Unknown command: 'command tmux -L …'`
+    #   set -l tm command tmux -L $sock    -> a correct list, but fish refuses a
+    #       KEYWORD arriving via expansion: `The expanded command is a keyword.`
+    # There is no variable form that works, which is why the rest of the file
+    # spells the command out in both branches.
+    set -l lines
+    if set -q tmux_lives_tmux_socket
+        set lines (command tmux -L $tmux_lives_tmux_socket list-panes -a -F '#{pane_pid} #{session_name} #{pane_current_command}' 2>/dev/null)
+    else
+        set lines (tmux list-panes -a -F '#{pane_pid} #{session_name} #{pane_current_command}' 2>/dev/null)
+    end
     test -n "$lines[1]"; or return
     # Ask tmux which pane we are in rather than assuming fish is the pane's own shell —
     # it is not when this runs from a nested or non-login shell, and then our own session
     # would be reported as stale. Fall back to $fish_pid outside tmux.
-    set -l own ($tm display-message -p '#{pane_pid}' 2>/dev/null)
+    set -l own
+    if set -q tmux_lives_tmux_socket
+        set own (command tmux -L $tmux_lives_tmux_socket display-message -p '#{pane_pid}' 2>/dev/null)
+    else
+        set own (tmux display-message -p '#{pane_pid}' 2>/dev/null)
+    end
     test -n "$own"; or set own $fish_pid
     __tmux_lives_stale_shells $own $lines
 end

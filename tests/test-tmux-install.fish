@@ -1053,6 +1053,45 @@ functions -e __tmux_lives_stale_sessions
 functions -c __tl_ss_bak __tmux_lives_stale_sessions
 functions -e __tl_ss_bak
 
+# --- the tmux_lives_tmux_socket seam actually works here ---------------------
+# It did not. The function built `set -l tm "command tmux -L $sock"` as ONE
+# STRING and then ran `$tm list-panes`; fish does not word-split, so the whole
+# string became the command name and every seamed call died with
+# `Unknown command: 'command tmux -L …'` plus a stack trace to stderr, returning
+# empty. Every OTHER seam site in this file uses the correct `if set -q` form, so
+# this one function was the odd one out -- and it is the only mechanism that can
+# point stale-session detection at a test server instead of the user's real one.
+# TWO sessions, deliberately. With only one, `display-message -p '#{pane_pid}'`
+# on an unattached server returns that sole session's own pane pid, so the
+# function correctly excludes it as "ours" and reports nothing — which looks
+# like the seam failing when it is actually working.
+set -g __ti_seam_sock tli-seam-$fish_pid
+command tmux -L $__ti_seam_sock -f /dev/null new-session -d -s SeamProbe 'sleep 120' 2>/dev/null
+command tmux -L $__ti_seam_sock new-session -d -s SeamOther 'sleep 120' 2>/dev/null
+set -g tmux_lives_tmux_socket $__ti_seam_sock
+
+# 1. It must not spray fish diagnostics. A real child process is needed to
+#    capture them: an in-process 2> redirect does not catch fish's own errors.
+set -g __ti_seam_err (fish --no-config -c "set -g tmux_categorize_test 1
+    source $plugindir/conf.d/tmux-lives-install.fish
+    set -g tmux_lives_tmux_socket $__ti_seam_sock
+    __tmux_lives_stale_sessions" 2>&1 >/dev/null | string collect)
+t "seam: stale_sessions produces no fish diagnostics when seamed" "" "$__ti_seam_err"
+
+# 2. And it must actually reach the seamed server. Asking for panes other than
+#    our own on a server whose only pane IS ours yields nothing, so the positive
+#    signal is that the call succeeds and the session is visible to that socket.
+set -g __ti_seam_sees (command tmux -L $__ti_seam_sock list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
+t "seam: the probe server is reachable on the seamed socket" SeamOther,SeamProbe "$__ti_seam_sees"
+set -g __ti_seam_out (__tmux_lives_stale_sessions 2>/dev/null | string collect)
+t "seam: stale_sessions reaches the SEAMED server, not the real one" 1 (string match -qr 'Seam(Probe|Other)' -- "$__ti_seam_out"; and echo 1; or echo 0)
+# And it must NOT be quietly reporting the user's real server instead — the
+# failure this whole fix exists to prevent was a seam that silently did nothing.
+t "seam: no session from the real default server leaks in" 0 (string match -q '*Checkup*' -- "$__ti_seam_out"; and echo 1; or echo 0)
+
+set -e tmux_lives_tmux_socket
+command tmux -L $__ti_seam_sock kill-server 2>/dev/null
+
 # Restore the real write_fragment now that the post-update note tests are done.
 functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
 
@@ -2452,5 +2491,19 @@ functions -e __t3_lineno
 t "guard: real tmux-lives-funcs untouched by this run" "$__ti_guard_funcs_before" (__ti_guard_sum $__ti_guard_funcs)
 t "guard: real fish_history untouched by this run" "$__ti_guard_history_before" (__ti_guard_sum $__ti_guard_history)
 functions -e __ti_guard_sum
+
+# --- socket hygiene ---------------------------------------------------------
+# Every `-L` server this suite starts is killed, but tmux leaves the SOCKET FILE
+# behind, and this file starts ~20 of them per run. They accumulated to 1543 in
+# /tmp/tmux-<uid>/ before anyone noticed. Killing a server does not unlink its
+# socket, so the sweep has to be explicit. Every socket this suite creates
+# carries $fish_pid, which is this (re-exec'd) process, so the glob cannot touch
+# another run's files or the user's own `default`.
+set -l __ti_sockdir /tmp/tmux-(id -u)
+rm -f $__ti_sockdir/*$fish_pid* 2>/dev/null
+# Self-checking: prove the sweep actually matched this run's names rather than
+# silently globbing nothing (the failure mode that let this go unnoticed).
+set -l __ti_leftover (count (string match -r ".*$fish_pid.*" -- (ls $__ti_sockdir 2>/dev/null)))
+t "hygiene: this run leaves no tmux socket files behind" 0 $__ti_leftover
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
