@@ -23,12 +23,16 @@ Fish fires `--on-variable` handlers on a **universal** variable in shells that a
 |---|---|
 | Does the handler fire in an already-running idle shell? | **Yes** |
 | Does it fire while the shell has a **foreground child**? | **No — deferred until the child exits** |
-| How many times does one `set -U` fire it? | **2** in the observed run — so the handler must be idempotent |
+| How many times does one `set -U` fire it **in a given shell**? | **Once** |
 | Does setting the **same value** still fire it? | **Yes** — the event gives no free change-detection |
 
 > **⚠️ The second row was WRONG in the first version of this spec, and the correction changes what a user observes.** It originally read "Yes — one firing while a 12 s `sleep` held the foreground", and the design was built on a Claude pane refreshing *immediately*. That measurement was a **false positive**: the probe registered its handler in `conf.d`, so the separate `fish -c 'set -U …'` process that fired the event **loaded the same handler and fired it on itself**. The firing counted as "during" came from the setter, not from the shell under test.
 >
 > Caught by Task 1's implementer, who could not reproduce the result with a handler defined only in the live session, and confirmed independently by logging `$fish_pid` in the handler: during the job only the setter's pid appears; the interactive shell's pid appears 13 s later, when `sleep 15` finished. The implementer also ruled out a notification-latency explanation by repeating it with `--on-signal USR1`, a mechanistically different delivery path, and seeing the same deferral. **Fish is single-threaded and dispatches no handler of any kind until control returns to its main loop.**
+>
+> **The same flawed probe contaminated a second row.** The firing count originally read "**2** in the observed run — so the handler must be idempotent". Re-measured with per-pid logging, one `set -U` fires each shell **exactly once**; the two firings were the setter and the shell, two processes, not one shell twice. One bad harness produced two independent false claims, which is the argument for logging *which process* did a thing rather than only *that* it happened.
+>
+> Idempotency is still worth having, for a different and real reason — see §2.
 
 **What the correction does and does not change.** The feature still works and still needs no `send-keys`: a shell running Claude refreshes **the moment Claude exits**, with no user action. What changes is the timing claim — *"refreshes immediately"* was wrong — and the justification for the idle check.
 
@@ -61,7 +65,7 @@ Registered `--on-variable tmux_lives_reload_token`. In order:
    Worth recording because it is unintuitive and was verified rather than assumed: **fish does not reload an autoloaded function when its file changes on disk.** A shell that had autoloaded the categorizer would keep the old definitions for its whole life. That is not reachable today, but it is the reason this decision must be revisited if any call site ever switches to the bare function name.
 4. If `__tmux_lives_shell_is_idle`, print one line and `commandline -f repaint` so fish redraws its prompt beneath the notice. Otherwise print nothing.
 
-**Idempotency is a requirement, not a nicety** — one `set -U` was measured firing the handler twice.
+**Idempotency is still required, but not for the reason first given.** The original justification — "one `set -U` fires the handler twice" — was a measurement artefact and is retracted; each shell fires exactly once. The real reason is structural: **step 3 re-sources the file that defines this handler, while the handler is running.** That re-registers the `--on-variable` binding mid-dispatch, and a handler that is safe to run twice costs one comparison. Task 2 must verify fish tolerates the self-redefinition at all; the dedup marker is the cheap insurance either way.
 
 ### 3. The trigger
 
