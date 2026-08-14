@@ -2061,17 +2061,23 @@ t "shell_reload: bails when not interactive" 1 (string match -q '*status is-inte
 t "shell_reload: honours the opt-out" 1 (string match -q '*tmux_lives_autoreload*' -- "$__t2_body"; and echo 1; or echo 0)
 # It must re-source the two conf.d files and NOT functions/tmux-categorize.fish,
 # which is only ever invoked as a script (see the spec for why).
-t "shell_reload: re-sources tmux.fish" 1 (string match -q '*conf.d/tmux.fish*' -- "$__t2_body"; and echo 1; or echo 0)
-t "shell_reload: re-sources the install file" 1 (string match -q '*tmux-lives-install.fish*' -- "$__t2_body"; and echo 1; or echo 0)
-# `functions <name>` prints the DESCRIPTION as well as the body, so this
-# assertion would be defeated if the handler's own description spelled the
-# categorizer's filename. The description below refers to it without the
-# literal path, and this assertion strips the description line before
-# matching (the describe-a-banned-shape trap, hit nine times in this repo).
+# `functions <name>` prints the DESCRIPTION as well as the body, so a raw
+# $__t2_body match is defeated by any coincidental self-mention -- not only in
+# the description (the categorizer-filename trap this repo has hit nine
+# times), but also in an ordinary explanatory COMMENT inside the body itself:
+# the comment two lines below the dedup marker literally says "Re-sourcing
+# tmux-lives-install.fish below redefines THIS function...", which alone
+# satisfies a raw *tmux-lives-install.fish* match even with the real
+# reference deleted from the for-loop -- proven by mutation while fixing this
+# review round (see the task-2 report). $__t2_bodyonly strips every comment
+# line (`^\s*#`) and the description line, leaving only the executable code,
+# so both file-reference assertions below use it.
 set -g __t2_bodyonly (functions __tmux_lives_shell_reload | string match -v -r '^\s*#|--description' | string collect)
+t "shell_reload: re-sources tmux.fish" 1 (string match -q '*conf.d/tmux.fish*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
+t "shell_reload: re-sources the install file" 1 (string match -q '*tmux-lives-install.fish*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
 t "shell_reload: body-only extraction is non-empty" 1 (test -n "$__t2_bodyonly"; and echo 1; or echo 0)
 t "shell_reload: does NOT source the categorizer" 0 (string match -q '*tmux-categorize*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
-t "shell_reload: gates the notice on the idle predicate" 1 (string match -q '*__tmux_lives_shell_is_idle*' -- "$__t2_body"; and echo 1; or echo 0)
+t "shell_reload: gates the notice on the idle predicate" 1 (string match -q '*__tmux_lives_shell_is_idle*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
 # The controller's original justification for idempotency ("one set -U fires
 # the handler twice") was a measurement artefact and has been retracted -- see
 # the spec. The real reason is structural: step 3 re-sources the file that
