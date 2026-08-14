@@ -885,7 +885,80 @@ rm -f $_tld
 # the generic post-update note is silenced while `tmux-lives update` reports for itself
 set -g _tmux_lives_updating 1
 t "post-update note silent under flag"  "" (_tmux_lives_post_update | string collect)
+# Under the flag the handler hands its verdict to the wrapper via a plain global
+# instead of printing -- confirm it actually got set, then clear it so it can't
+# leak into anything below (mirrors how _tmux_lives_updating itself is cleared).
+t "post-update: hands autoreloaded to the wrapper via a plain global" 1 (set -q _tmux_lives_autoreloaded; and echo 1; or echo 0)
+set -e _tmux_lives_autoreloaded
 set -e _tmux_lives_updating
+
+# ---------------------------------------------------------------------
+# End-to-end: __tmux_lives_update (the `tmux-lives update` wrapper) must ALSO
+# report the handler's autoreload verdict in the note IT prints -- not just the
+# generic one _tmux_lives_post_update prints directly (proven above). Before
+# this fix the wrapper always called __tmux_lives_update_note with only 3 args,
+# so even though the token bump (and therefore the real auto-reload in other
+# shells) happens unconditionally inside the handler, the wrapper's own note
+# kept telling the user to restart shells that had already refreshed.
+#
+# Real fisher emits the update event SYNCHRONOUSLY, in the same shell, mid-
+# `fisher update` -- so these fisher stubs call the REAL _tmux_lives_post_update
+# themselves to reproduce that, rather than asserting on the carrier variable in
+# isolation. __tmux_lives_write_fragment is still the no-op stub from above;
+# funcs_file is seamed so __tmux_lives_write_funcs (unconditional, inside the
+# handler) never touches the real ~/.config/tmux/tmux-lives-funcs.
+set -g tmux_lives_funcs_file /tmp/tli-upd-e2e-funcs-$fish_pid
+rm -f $tmux_lives_funcs_file
+
+# Case 1: a token already exists (other shells carry the handler) and the
+# update genuinely changes the watched files -- the wrapper's note must say
+# so, in the qualified wording (never the unqualified "refreshed", which is
+# the whole reason this task exists: a busy pane hasn't re-sourced yet).
+set -g tmux_lives_update_files /tmp/tli-upd-e2e1-$fish_pid
+printf 'one\n' > $tmux_lives_update_files
+set -U tmux_lives_reload_token (__tmux_lives_digest $tmux_lives_update_files)
+function fisher
+    printf 'two\n' >> $tmux_lives_update_files
+    _tmux_lives_post_update >/dev/null 2>&1
+end
+set -l u_e2e1 (__tmux_lives_update | string collect)
+t "wrapper e2e: token pre-existing + real change -> reports auto-refresh" 1 (string match -q '*refreshed automatically*' -- "$u_e2e1"; and echo 1; or echo 0)
+t "wrapper e2e: does not send you to restart shells that already refreshed" 0 (string match -q '*in each*' -- "$u_e2e1"; and echo 1; or echo 0)
+t "wrapper e2e: carrier does not leak past the call" 0 (set -q _tmux_lives_autoreloaded; and echo 1; or echo 0)
+functions -e fisher
+set -e tmux_lives_reload_token
+set -e tmux_lives_update_files
+rm -f /tmp/tli-upd-e2e1-$fish_pid
+
+# Case 2: the WRAPPER's own before/after digest sees a real change (so it still
+# prints a note), but the HANDLER's own digest check finds nothing NEW relative
+# to the already-stored token (pre-seeded here to match what the file is about
+# to become, as if a previous run had already recorded it) -- so no NEW
+# auto-reload signal actually went out. The note must still give the old
+# advice: the carrier must not go stale and falsely claim a refresh just
+# because *something* changed and a note got printed.
+set -g tmux_lives_update_files /tmp/tli-upd-e2e2-$fish_pid
+printf 'aaa\n' > $tmux_lives_update_files
+printf 'bbb\n' >> $tmux_lives_update_files
+set -l e2e2_y (__tmux_lives_digest $tmux_lives_update_files)
+set -U tmux_lives_reload_token $e2e2_y   # pre-caught-up
+printf 'aaa\n' > $tmux_lives_update_files   # revert so the wrapper's before != after
+function fisher
+    printf 'bbb\n' >> $tmux_lives_update_files   # aaa -> aaa+bbb again, mid "update"
+    _tmux_lives_post_update >/dev/null 2>&1
+end
+set -l u_e2e2 (__tmux_lives_update | string collect)
+t "wrapper e2e: no-new-change case still reports the update happened" 1 (string match -q '*updated*' -- "$u_e2e2"; and echo 1; or echo 0)
+t "wrapper e2e: no-new-change case keeps the old exec-fish advice"    1 (string match -q '*in each*' -- "$u_e2e2"; and echo 1; or echo 0)
+t "wrapper e2e: no-new-change case does not claim a refresh"          0 (string match -q '*refreshed automatically*' -- "$u_e2e2"; and echo 1; or echo 0)
+t "wrapper e2e: token truly unchanged (no NEW auto-reload signal)"    "$e2e2_y" "$tmux_lives_reload_token"
+functions -e fisher
+set -e tmux_lives_reload_token
+set -e tmux_lives_update_files
+rm -f /tmp/tli-upd-e2e2-$fish_pid
+set -e tmux_lives_funcs_file
+rm -f /tmp/tli-upd-e2e-funcs-$fish_pid
+
 # Restore the real write_fragment now that the post-update note tests are done.
 functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; functions -c __tl_wf_bak __tmux_lives_write_fragment; end
 

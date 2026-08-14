@@ -1373,6 +1373,14 @@ function __tmux_lives_update --description 'Update the tmux-lives plugin via fis
     fisher update bit-saver/tmux-lives >$log 2>&1
     set -l rc $status
     set -e _tmux_lives_updating
+    # The handler (which ran synchronously above, mid-`fisher update`) leaves the
+    # autoreload verdict here for us -- see its docstring for why it can't just be
+    # recomputed after the fact. Read it once and erase it immediately: `set -e` on an
+    # unset var is silent (verified), so this is safe even when fisher failed before
+    # the handler ran (rc -ne 0 below), and it can never leak into the next invocation.
+    set -l autoreloaded 0
+    set -q _tmux_lives_autoreloaded; and set autoreloaded $_tmux_lives_autoreloaded
+    set -e _tmux_lives_autoreloaded
     if test $rc -ne 0
         cat $log >&2                # surface fisher's error
         rm -f $log
@@ -1384,8 +1392,9 @@ function __tmux_lives_update --description 'Update the tmux-lives plugin via fis
         cat $log                    # release fisher's output — something changed
         # The post-update handler already ran (fisher fired the event mid-`fisher update`)
         # and recorded the new function set, so removals are reported from there. Here we
-        # only need to say which OTHER shells the update did not reach.
-        __tmux_lives_update_note 0 "" "$(__tmux_lives_stale_sessions)"
+        # only need to say which OTHER shells the update did not reach, and whether they
+        # already refreshed themselves (autoreloaded, handed over above).
+        __tmux_lives_update_note 0 "" "$(__tmux_lives_stale_sessions)" $autoreloaded
     end
     rm -f $log
 end
@@ -1549,7 +1558,18 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
         test -n "$had"; and set autoreloaded 1
         set -U tmux_lives_reload_token $dg
     end
-    set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
+    if set -q _tmux_lives_updating
+        # `tmux-lives update` reports the result itself (below, via __tmux_lives_update),
+        # but $autoreloaded is a local here and gone by the time that call runs -- fisher
+        # has already returned and this function has already returned with it. Hand it
+        # over the same way `_tmux_lives_updating` itself is handed the OTHER direction:
+        # a plain global the wrapper reads once and erases immediately, so it can never
+        # leak past this one `tmux-lives update` invocation or go stale for the next.
+        # This runs every time (the event fires even on a no-op update, per above), so
+        # it is always the CURRENT $autoreloaded -- 0 on a no-op, never a leftover 1.
+        set -g _tmux_lives_autoreloaded $autoreloaded
+        return
+    end
     __tmux_lives_update_note $refreshed "$removed" "$(__tmux_lives_stale_sessions)" $autoreloaded
     __tmux_lives_help_hint
 end
