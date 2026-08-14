@@ -2503,6 +2503,28 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         case down
                             test $chan -lt 3; and set chan (math $chan + 1)
                     end
+                    # Drain queued autorepeat the same way the non-editing
+                    # branch below does, and for the same reason: without
+                    # this, every autorepeat byte gets its own full-frame
+                    # rebuild, and chan clamps at 1-3 after two steps -- read
+                    # live as "jerk a couple times and then go dark until you
+                    # let go". Swallow without counting; re-assert non-
+                    # blocking INSIDE the loop (readkey's CSI branch leaves
+                    # the tty blocking on return, and a drain read after it
+                    # hangs -- hit for real once). Do not escalate the poll
+                    # timeout here: the loop only breaks on a poll timeout,
+                    # so a longer wait would never time out while autorepeat
+                    # keeps arriving faster than it (see the non-editing
+                    # drain's own comment for the measured cost of that).
+                    while true
+                        stty min 0 time 0 2>/dev/null
+                        set -l k2 (__tcz_popup_readkey)
+                        switch "$k2"
+                            case up down
+                            case '*'; break
+                        end
+                    end
+                    stty min 1 time 0 2>/dev/null
                 else
                     # Drain, then move ONE row. The drain is what prevents the original
                     # defect — an unbounded redraw backlog that kept scrolling for seconds

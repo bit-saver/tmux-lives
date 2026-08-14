@@ -1792,8 +1792,11 @@ t "picker frame: last row printed without newline" yes (string match -q '*$lines
 # only one left. This test used to be named as if it covered the
 # ↑↓/pgup/pgdn drain; it never did — renamed to say what it actually checks
 # rather than retired, since the gap-less-drain hang guard has no other
-# cover.
-t "picker gap-less drains re-assert non-blocking each iteration" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
+# cover. picker-responsiveness Task 4 adds a SECOND occurrence again — the
+# edit-mode ↑↓ channel-select drain, which the defect report required to
+# stay gap-less (no `gap 1` escalation, same reasoning as the ↑↓/pgup/pgdn
+# arm's own arrow case just below) — so the count moves 1->2 once more.
+t "picker gap-less drains re-assert non-blocking each iteration" 2 (string match -a -r 'while true(?=\n\s+stty min 0 time 0)' -- (functions __tcz_theme_picker | string collect) | count)
 # The ↑↓/pgup/pgdn drain must NEVER escalate on the arrow arm: it only breaks
 # on a poll TIMEOUT, so a gap=1 (~100ms) wait never times out while autorepeat
 # keeps delivering faster than that — no redraw, no movement, until release
@@ -4773,6 +4776,116 @@ __tcz_thp_apply_now
 t "calling the real apply_now changes previewed in the caller (proves --no-scope-shadowing)" 1 "$previewed"
 t "calling the real apply_now changes note in the caller too" 1 (test -n "$note"; and echo 1; or echo 0)
 functions -e __tcz_thp_apply_now fish __tcz_tab_color __tcz_recolor
+
+# --- Task 4: edit-mode ↑↓ channel select must drain -------------------------
+# The non-editing branch of `case up down pgup pgdn` already drains held
+# repeats (see its own in-source comment); the editing branch (↑↓ picks the
+# R/G/B channel) did not, so every autorepeat byte got its own full-frame
+# rebuild. `chan` clamps at 1-3, which is why it read live as "jerk a
+# couple times and then go dark until you let go".
+set -l catfile $plugindir/functions/tmux-categorize.fish
+
+# dispatcher-caught defect #1: the brief's own extraction range-matched on
+# TWO bare `case` lines (`/case up down pgup pgdn/,/^            case left
+# right$/`), which is not valid fish outside a switch block ("'case'
+# builtin not inside of switch block") -- and `eval` still returns status 0
+# on that parse error, so a plain non-empty check would PASS VACUOUSLY
+# while the body underneath never ran at all. Skip the opening case line
+# and stop before the closing one instead.
+set -g EDITARM (awk '/^            case up down pgup pgdn$/{f=1;next} /^            case left right$/{exit} f' $catfile | string collect)
+t "editarm extraction is non-empty" 1 (test -n "$EDITARM"; and echo 1; or echo 0)
+t "editarm extraction does not begin with a bare case line (the range-match trap)" 0 (string match -qr '^\s*case\b' -- (string split \n -- "$EDITARM")[1]; and echo 1; or echo 0)
+t "editarm extraction stopped before case left right (did not run past the arm)" 0 (string match -q '*case left right*' -- "$EDITARM"; and echo 1; or echo 0)
+# Prove the extraction actually evals as a real switch-body fragment, not
+# just that it is non-empty text -- the whole point of the trap above.
+# __tcz_popup_readkey and stty are saved and restored around the probe so a
+# parse error (or any other surprise) cannot leave either erased for the
+# rest of the suite.
+set -g __t4_saved_readkey_probe (functions __tcz_popup_readkey | string collect)
+function __tcz_popup_readkey; echo cancel; end
+function stty; end
+function __t4_evalcheck
+    set -l editing 0
+    set -l chan 1
+    set -l tok up
+    set -l focus list
+    set -l sel 0
+    set -l sel2 0
+    set -l n 1
+    set -l WIN 1
+    eval $EDITARM
+    echo ok
+end
+t "editarm extraction evals without error" ok (__t4_evalcheck)
+functions -e __t4_evalcheck stty
+functions -e __tcz_popup_readkey
+eval $__t4_saved_readkey_probe
+
+# dispatcher-caught defect #2: the brief's own drain-count assertion counts
+# "while true" + immediate "stty min 0 time " matches across the WHOLE arm
+# ($EDITARM), which already contains the NON-editing branch's own
+# pre-existing, compliant drain -- so the count reads 1 before a single
+# line of this task lands, and `t ... 1 $__t4_drains` PASSES VACUOUSLY
+# pre-fix. Confirmed directly against the pre-fix source. Worse, once the
+# editing branch gets its OWN compliant drain the arm-wide count becomes 2,
+# so the brief's literal assertion (still expecting 1) would then FAIL
+# post-fix -- backwards. Scope the count to the editing branch alone
+# (between its own `if test "$editing" = 1` and the matching `else`) so it
+# only reads a drain if THIS branch has one.
+set -g EDITONLY (awk '
+    /^            case up down pgup pgdn$/ {arm=1}
+    arm && /^                if test "\$editing" = 1$/ {f=1; next}
+    f && /^                else$/ {exit}
+    f {print}
+' $catfile | string collect)
+t "editonly extraction is non-empty" 1 (test -n "$EDITONLY"; and echo 1; or echo 0)
+t "editonly extraction stopped before the else (did not spill into the non-editing branch)" 0 (string match -q '*Drain, then move ONE row*' -- "$EDITONLY"; and echo 1; or echo 0)
+set -g __t4_drains (string match -a -r 'while true(?=\n\s+stty min 0 time )' -- "$EDITONLY" | count)
+t "editing branch itself has a compliant drain" 1 $__t4_drains
+
+# Behavioural half: drive the REAL extracted arm with a stubbed reader that
+# hands it a queued burst, and assert both that the burst was consumed and
+# that `chan` advanced only once. Genuine discriminator: pre-fix the arm
+# never reads past the first key, so the stub still has queued tokens left.
+set -g __t4_queue down down down down
+set -g __t4_fed 0
+function __t4_readkey
+    set -g __t4_fed (math $__t4_fed + 1)
+    if test $__t4_fed -le (count $__t4_queue)
+        echo $__t4_queue[$__t4_fed]
+    else
+        echo cancel
+    end
+end
+function __t4_run
+    # dispatcher-caught defect #3: `functions --copy OLD NEW` errors if NEW
+    # already exists ("Function 'NEW' already exists. Cannot create copy of
+    # 'OLD'") -- confirmed directly. The brief's harness copied the stub
+    # straight over the still-live __tcz_popup_readkey without erasing it
+    # first, which would abort here rather than swap the reader in.
+    functions --copy __tcz_popup_readkey __t4_saved_readkey
+    functions -e __tcz_popup_readkey
+    functions --copy __t4_readkey __tcz_popup_readkey
+    function stty; end
+    set -l editing 1
+    set -l chan 1
+    set -l tok down
+    set -l focus list
+    set -l sel 0
+    set -l sel2 0
+    set -l n 35
+    set -l WIN 31
+    eval $EDITARM
+    functions -e stty
+    functions -e __tcz_popup_readkey
+    functions --copy __t4_saved_readkey __tcz_popup_readkey
+    functions -e __t4_saved_readkey
+    echo "$chan $__t4_fed"
+end
+set -g __t4_res (string split ' ' -- (__t4_run))
+t "editarm: chan advances exactly one step for a held burst" 2 "$__t4_res[1]"
+t "editarm: the drain consumed the whole queued burst" 5 "$__t4_res[2]"
+functions -e __t4_readkey __t4_run
 
 
 if test $FAIL -eq 0
