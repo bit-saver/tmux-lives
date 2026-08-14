@@ -4798,28 +4798,52 @@ t "editarm extraction does not begin with a bare case line (the range-match trap
 t "editarm extraction stopped before case left right (did not run past the arm)" 0 (string match -q '*case left right*' -- "$EDITARM"; and echo 1; or echo 0)
 # Prove the extraction actually evals as a real switch-body fragment, not
 # just that it is non-empty text -- the whole point of the trap above.
-# __tcz_popup_readkey and stty are saved and restored around the probe so a
-# parse error (or any other surprise) cannot leave either erased for the
-# rest of the suite.
-set -g __t4_saved_readkey_probe (functions __tcz_popup_readkey | string collect)
-function __tcz_popup_readkey; echo cancel; end
-function stty; end
-function __t4_evalcheck
-    set -l editing 0
-    set -l chan 1
-    set -l tok up
-    set -l focus list
-    set -l sel 0
-    set -l sel2 0
-    set -l n 1
-    set -l WIN 1
-    eval $EDITARM
-    echo ok
+#
+# fix (coordinator review): checking `$status` after `eval` does NOT
+# discriminate here. `eval` runs its argument IN-PROCESS (no subprocess is
+# forked), and fish routes a parse-time diagnostic through its own
+# interpreter error channel rather than through the calling command's
+# stderr fd -- confirmed directly: `eval "not_a_real_command_xyz"
+# 2>$errfile` still prints the error to the real terminal and leaves the
+# captured file at 0 bytes, for a broken body exactly as much as a clean
+# one. The original version of this guard only asserted the probe printed
+# "ok", which it did unconditionally regardless of whether the eval
+# actually parsed -- fed the brief's own broken range-match extraction, it
+# still printed "ok". Real fd redirection only works against a genuine
+# child PROCESS, so this shells out to a throwaway `fish --no-config`
+# child (a true subprocess, so `2>` on it captures real stderr) and
+# asserts its captured stderr is empty. The child gets its own seed locals
+# (same shape as the in-process behavioural harness below) plus stubs for
+# every production function the extracted body calls: __tcz_popup_readkey,
+# stty, and __tcz_thp_vismap -- the last one is needed ONLY here, since a
+# --no-config child has no autoload path back into this plugin's own
+# functions/ directory the way the rest of this suite (which sources it)
+# does. Because the child is fully isolated, there is nothing of the
+# parent's to save/restore around it, unlike the old in-process version.
+function __t4_evalcheck --argument-names body --description 'run <body> as a real child fish --no-config process and print the byte count captured from its stderr -- 0 means it parsed and ran cleanly, nonzero means a parse/runtime error fired.'
+    set -l scriptfile (mktemp)
+    set -l errfile (mktemp)
+    printf '%s\n' \
+        'set -l editing 0' \
+        'set -l chan 1' \
+        'set -l tok up' \
+        'set -l focus list' \
+        'set -l sel 0' \
+        'set -l sel2 0' \
+        'set -l n 1' \
+        'set -l WIN 1' \
+        'function __tcz_popup_readkey; echo cancel; end' \
+        'function stty; end' \
+        'function __tcz_thp_vismap; echo 0; end' \
+        >$scriptfile
+    printf '%s\n' $body >>$scriptfile
+    fish --no-config $scriptfile 2>$errfile
+    set -l errbytes (wc -c <$errfile | string trim)
+    command rm -f $scriptfile $errfile
+    echo $errbytes
 end
-t "editarm extraction evals without error" ok (__t4_evalcheck)
-functions -e __t4_evalcheck stty
-functions -e __tcz_popup_readkey
-eval $__t4_saved_readkey_probe
+t "editarm extraction evals cleanly in a real child process (zero stderr bytes)" 0 (__t4_evalcheck "$EDITARM")
+functions -e __t4_evalcheck
 
 # dispatcher-caught defect #2: the brief's own drain-count assertion counts
 # "while true" + immediate "stty min 0 time " matches across the WHOLE arm
