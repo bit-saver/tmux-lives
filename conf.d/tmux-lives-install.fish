@@ -1516,6 +1516,30 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     # linger here silently.
     set -l removed (__tmux_lives_removed_functions (__tmux_lives_read_funcs) (__tmux_lives_shipped_functions | string join \n))
     __tmux_lives_write_funcs
+    # Announce the update to every other running shell. MUST sit above the
+    # `_tmux_lives_updating` early return: below it, plain `fisher update` would
+    # refresh other shells while `tmux-lives update` silently would not, and the
+    # divergence would be invisible until someone noticed the two paths disagree.
+    # The event fires even when the value is unchanged (measured), so the digest
+    # comparison here is the only thing stopping a no-op update — and fisher
+    # always re-fetches, so no-op updates are the common case — from refreshing
+    # every shell and printing in every idle one.
+    set -l files $tmux_lives_update_files
+    test -n "$files"; or set files \
+        $__fish_config_dir/conf.d/tmux.fish \
+        $__fish_config_dir/conf.d/tmux-lives-install.fish \
+        $__fish_config_dir/functions/tmux-categorize.fish
+    set -l dg (__tmux_lives_digest $files)
+    set -l had ''
+    set -q tmux_lives_reload_token; and set had $tmux_lives_reload_token
+    set -l autoreloaded 0
+    if test "$dg" != "$had"
+        # A previously-set token means the other shells carry the handler. An
+        # ABSENT one means this is the first update shipping the feature, so they
+        # do not — and the old `exec fish` advice is still correct for them.
+        test -n "$had"; and set autoreloaded 1
+        set -U tmux_lives_reload_token $dg
+    end
     set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
     __tmux_lives_update_note $refreshed "$removed" "$(__tmux_lives_stale_sessions)"
     __tmux_lives_help_hint

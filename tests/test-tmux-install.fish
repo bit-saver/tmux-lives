@@ -2178,4 +2178,76 @@ command tmux -L $shsock kill-server 2>/dev/null
 rm -rf $shhome $shready $shrc
 functions -e __t2_notice_count
 
+# --- Task 3: the update trigger ---------------------------------------------
+# Line-number helper. The obvious idiom for this — measuring the length of a
+# lazy `(?s)^.*?needle` match — is BROKEN: `string match -r` returns more than
+# one element there, so `string length` yields a LIST and the numeric compare
+# dies with "Integer 5 in '5 30' followed by non-digit". Verified before this
+# plan shipped; do not "simplify" back to it.
+function __t3_lineno --argument-names hay needle
+    set -l ls (string split \n -- $hay)
+    for i in (seq (count $ls))
+        if string match -q "*$needle*" -- $ls[$i]
+            echo $i
+            return
+        end
+    end
+    echo 0
+end
+
+set -g __t3_body (functions _tmux_lives_post_update | string collect)
+t "trigger: sets the reload token" 1 (string match -q '*set -U tmux_lives_reload_token*' -- "$__t3_body"; and echo 1; or echo 0)
+t "trigger: only sets when the digest changed" 1 (string match -q '*__tmux_lives_digest*' -- "$__t3_body"; and echo 1; or echo 0)
+
+# PLACEMENT IS LOAD-BEARING: below the _tmux_lives_updating early return, plain
+# `fisher update` would refresh other shells while `tmux-lives update` silently
+# would not. Both line numbers must be FOUND (0 means "not present", which would
+# make the ordering compare true for the wrong reason).
+set -g __t3_tok (__t3_lineno "$__t3_body" 'set -U tmux_lives_reload_token')
+set -g __t3_ret (__t3_lineno "$__t3_body" 'set -q _tmux_lives_updating')
+t "trigger: the token line was found" 1 (test "$__t3_tok" -gt 0; and echo 1; or echo 0)
+t "trigger: the early-return line was found" 1 (test "$__t3_ret" -gt 0; and echo 1; or echo 0)
+t "trigger: fires ABOVE the _tmux_lives_updating early return" 1 (test "$__t3_tok" -gt 0 -a "$__t3_ret" -gt 0 -a "$__t3_tok" -lt "$__t3_ret"; and echo 1; or echo 0)
+
+# Behavioural pair, run under this suite's own isolated universal store (the
+# outer XDG_CONFIG_HOME re-exec guard at the top of the file). The fragment
+# seam is pointed at a path that does not exist, so __tmux_lives_write_fragment
+# never runs — this must never touch the real ~/.config/tmux/tmux-lives.conf —
+# and _tmux_lives_updating is set around every direct call so the generic note
+# (which shells out to tmux for stale-session names) never fires either.
+set -g tmux_lives_fragment_file /tmp/tli-t3frag-$fish_pid.conf
+rm -f $tmux_lives_fragment_file
+set -g tmux_lives_update_files /tmp/tli-t3upd-$fish_pid
+printf 'one\n' > $tmux_lives_update_files
+set -l __t3_dg1 (__tmux_lives_digest $tmux_lives_update_files)
+
+# already equal to the current digest -> invoking the trigger must NOT change it
+set -U tmux_lives_reload_token $__t3_dg1
+set -g _tmux_lives_updating 1
+_tmux_lives_post_update >/dev/null 2>&1
+set -e _tmux_lives_updating
+t "trigger: unchanged digest leaves the token alone" "$__t3_dg1" "$tmux_lives_reload_token"
+
+# digest now differs (file content changed) -> invoking the trigger must update it
+printf 'two\n' >> $tmux_lives_update_files
+set -l __t3_dg2 (__tmux_lives_digest $tmux_lives_update_files)
+t "trigger: file change actually changes the digest" 1 (test "$__t3_dg1" != "$__t3_dg2"; and echo 1; or echo 0)
+set -g _tmux_lives_updating 1
+_tmux_lives_post_update >/dev/null 2>&1
+set -e _tmux_lives_updating
+t "trigger: changed digest updates the token" "$__t3_dg2" "$tmux_lives_reload_token"
+
+# token absent entirely (first update shipping the feature) -> trigger must set it
+set -e tmux_lives_reload_token
+set -g _tmux_lives_updating 1
+_tmux_lives_post_update >/dev/null 2>&1
+set -e _tmux_lives_updating
+t "trigger: absent token gets set" "$__t3_dg2" "$tmux_lives_reload_token"
+
+set -e tmux_lives_reload_token
+set -e tmux_lives_update_files
+set -e tmux_lives_fragment_file
+rm -f /tmp/tli-t3upd-$fish_pid /tmp/tli-t3frag-$fish_pid.conf
+functions -e __t3_lineno
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
