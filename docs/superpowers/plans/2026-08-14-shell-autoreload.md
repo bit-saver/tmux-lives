@@ -155,8 +155,8 @@ live terminal, so 'unsure' must mean 'do not print'."
 
 ```fish
 # --- Task 2: the reload handler ---------------------------------------------
-t "reload: handler exists" 1 (functions -q __tmux_lives_reload; and echo 1; or echo 0)
-set -g __t2_body (functions __tmux_lives_reload | string collect)
+t "reload: handler exists" 1 (functions -q __tmux_lives_shell_reload; and echo 1; or echo 0)
+set -g __t2_body (functions __tmux_lives_shell_reload | string collect)
 t "reload: registered on the token variable" 1 (string match -q '*--on-variable tmux_lives_reload_token*' -- "$__t2_body"; and echo 1; or echo 0)
 t "reload: bails when not interactive" 1 (string match -q '*status is-interactive*' -- "$__t2_body"; and echo 1; or echo 0)
 t "reload: honours the opt-out" 1 (string match -q '*tmux_lives_autoreload*' -- "$__t2_body"; and echo 1; or echo 0)
@@ -170,7 +170,7 @@ t "reload: re-sources the install file" 1 (string match -q '*tmux-lives-install.
 # against correct code. This repo has hit the describe-a-banned-shape trap nine
 # times. The description below therefore refers to it WITHOUT the literal path,
 # and this assertion strips the description line before matching.
-set -g __t2_bodyonly (functions __tmux_lives_reload | string match -v -r '^\s*#|--description' | string collect)
+set -g __t2_bodyonly (functions __tmux_lives_shell_reload | string match -v -r '^\s*#|--description' | string collect)
 t "reload: body-only extraction is non-empty" 1 (test -n "$__t2_bodyonly"; and echo 1; or echo 0)
 t "reload: does NOT source the categorizer" 0 (string match -q '*tmux-categorize*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
 t "reload: gates the notice on the idle predicate" 1 (string match -q '*__tmux_lives_shell_is_idle*' -- "$__t2_body"; and echo 1; or echo 0)
@@ -196,7 +196,9 @@ Expected: every `reload:` line FAILS.
 function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself. Fires in shells that are ALREADY RUNNING, including ones whose foreground is Claude — measured: the event is delivered even while a foreground child holds the terminal, so no send-keys is needed and nothing is ever typed into a pane. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
     status is-interactive; or return
     test "$tmux_lives_autoreload" = 0; and return
-    # One `set -U` was measured firing this handler TWICE, so both the re-source
+    # RETRACTED: the "fires TWICE" claim was a measurement artefact (each shell fires
+    # once). Idempotency is still required because this handler re-sources the file
+    # that DEFINES it, re-registering its own binding mid-dispatch -- so the re-source
     # and the notice must be idempotent per token value.
     test "$__tmux_lives_reloaded_at" = "$tmux_lives_reload_token"; and return
     set -g __tmux_lives_reloaded_at $tmux_lives_reload_token
