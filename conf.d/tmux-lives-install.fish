@@ -1156,6 +1156,22 @@ function __tmux_lives_shell_is_idle --description 'True when this shell owns its
     test "$tp" = "$pg"
 end
 
+function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --description 'Re-source this plugins conf.d files in place when an update announces itself, in shells that are ALREADY RUNNING -- including ones whose foreground is Claude. Fish defers ALL handler dispatch (this one included) until control returns to its own main loop, so such a shell fires once whatever is in its foreground exits, not while it is running; see __tmux_lives_shell_is_idle for the corrected framing. Only the two conf.d files are re-sourced; the categorizer under functions/ is deliberately excluded because it is only ever invoked as a script, never autoloaded (see the design doc). NB that exclusion is asserted by a test that greps this function, so do NOT name that file literally here. This handler re-sources the very file that defines it, which re-registers this --on-variable binding mid-dispatch -- that, not a double-fire (no set -U was ever observed firing a shell twice; that was a measurement artefact and is retracted), is why the dedup marker below exists. Prints ONLY when the shell is idle: the handler shares its stdout with whatever is drawing on the tty.'
+    status is-interactive; or return
+    test "$tmux_lives_autoreload" = 0; and return
+    # Re-sourcing tmux-lives-install.fish below redefines THIS function while it
+    # is still running, re-registering the --on-variable binding mid-dispatch.
+    # That is the real reason this must be idempotent -- see the docstring.
+    test "$__tmux_lives_reloaded_at" = "$tmux_lives_reload_token"; and return
+    set -g __tmux_lives_reloaded_at $tmux_lives_reload_token
+    for f in $__fish_config_dir/conf.d/tmux.fish $__fish_config_dir/conf.d/tmux-lives-install.fish
+        test -r $f; and source $f
+    end
+    __tmux_lives_shell_is_idle; or return
+    echo '↻ tmux-lives reloaded'
+    commandline -f repaint
+end
+
 function __tmux_lives_update_note --argument-names refreshed removed sessions --description 'pure: the post-update advice. `removed`/`sessions` are space-separated. exec fish is recommended HERE only when a function was removed (sourcing cannot unset one); other shells are named because exec fish does not reach them.'
     if test "$refreshed" -eq 1
         echo '✓ tmux-lives updated — tmux config refreshed + reloaded.'

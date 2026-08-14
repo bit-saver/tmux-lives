@@ -2042,4 +2042,134 @@ t "is_idle: no controlling tty reports BUSY" BUSY "$__t1_notty"
 set -g __t1_pty (timeout 20 script -qfec "fish --no-config -i -C 'set -g tmux_categorize_test 1; source $plugindir/conf.d/tmux-lives-install.fish; __tmux_lives_shell_is_idle; and echo AT-PROMPT-IDLE; or echo AT-PROMPT-BUSY; exit'" /dev/null 2>/dev/null | tr -d '\r')
 t "is_idle: at a prompt with a tty reports IDLE" 1 (string match -q '*AT-PROMPT-IDLE*' -- "$__t1_pty"; and echo 1; or echo 0)
 
+# --- Task 2: the reload handler ----------------------------------------------
+# NAMED __tmux_lives_shell_reload, NOT __tmux_lives_reload. The plan's own text
+# names it __tmux_lives_reload, but that name is ALREADY TAKEN (~line 282 of
+# conf.d/tmux-lives-install.fish) by "source the tmux conf into a running
+# server", called from __tmux_lives_write_fragment on every `setup color`/`setup
+# theme`/etc. Defining a second `function __tmux_lives_reload` would silently
+# REDEFINE it -- fish does not error on function redefinition -- breaking live
+# tmux reloads for every config command with no symptom until someone noticed
+# their bar stopped updating. Confirmed by grep before this task was built; see
+# the task-2 report. The guard below pins that the pre-existing function is
+# untouched.
+t "shell_reload: did not clobber the pre-existing tmux-conf reload" 1 (string match -q '*tmux source-file*' -- (functions __tmux_lives_reload | string collect); and echo 1; or echo 0)
+t "shell_reload: handler exists" 1 (functions -q __tmux_lives_shell_reload; and echo 1; or echo 0)
+set -g __t2_body (functions __tmux_lives_shell_reload | string collect)
+t "shell_reload: registered on the token variable" 1 (string match -q '*--on-variable tmux_lives_reload_token*' -- "$__t2_body"; and echo 1; or echo 0)
+t "shell_reload: bails when not interactive" 1 (string match -q '*status is-interactive*' -- "$__t2_body"; and echo 1; or echo 0)
+t "shell_reload: honours the opt-out" 1 (string match -q '*tmux_lives_autoreload*' -- "$__t2_body"; and echo 1; or echo 0)
+# It must re-source the two conf.d files and NOT functions/tmux-categorize.fish,
+# which is only ever invoked as a script (see the spec for why).
+t "shell_reload: re-sources tmux.fish" 1 (string match -q '*conf.d/tmux.fish*' -- "$__t2_body"; and echo 1; or echo 0)
+t "shell_reload: re-sources the install file" 1 (string match -q '*tmux-lives-install.fish*' -- "$__t2_body"; and echo 1; or echo 0)
+# `functions <name>` prints the DESCRIPTION as well as the body, so this
+# assertion would be defeated if the handler's own description spelled the
+# categorizer's filename. The description below refers to it without the
+# literal path, and this assertion strips the description line before
+# matching (the describe-a-banned-shape trap, hit nine times in this repo).
+set -g __t2_bodyonly (functions __tmux_lives_shell_reload | string match -v -r '^\s*#|--description' | string collect)
+t "shell_reload: body-only extraction is non-empty" 1 (test -n "$__t2_bodyonly"; and echo 1; or echo 0)
+t "shell_reload: does NOT source the categorizer" 0 (string match -q '*tmux-categorize*' -- "$__t2_bodyonly"; and echo 1; or echo 0)
+t "shell_reload: gates the notice on the idle predicate" 1 (string match -q '*__tmux_lives_shell_is_idle*' -- "$__t2_body"; and echo 1; or echo 0)
+# The controller's original justification for idempotency ("one set -U fires
+# the handler twice") was a measurement artefact and has been retracted -- see
+# the spec. The real reason is structural: step 3 re-sources the file that
+# DEFINES this handler, while it is running, re-registering the --on-variable
+# binding mid-dispatch. The body must not repeat the retracted claim.
+t "shell_reload: body does not repeat the retracted double-fire claim" 0 (string match -qi '*measured*firing*handler*twice*' -- "$__t2_body"; and echo 1; or echo 0)
+
+# The structural checks above cannot see event delivery, re-source effects, or
+# self-redefinition safety (Task 2 Step 4) -- that needs a real pty and a
+# second fish process sharing the same universal-variable store.
+#
+# A dedicated, isolated $XDG_CONFIG_HOME (fish/conf.d holding copies of the two
+# plugin conf.d files) is required here -- distinct from this whole suite's own
+# outer isolation guard -- because the READER shell must actually autoload the
+# handler from conf.d for the event to have anywhere to land. It shares nothing
+# with the outer suite's universal store.
+#
+# The reader is a real interactive fish attached to an isolated -L tmux pane
+# (this suite's established pattern for genuine pty behaviour, e.g. the
+# is_idle cross-check above). A marker function is appended to the reader's
+# OWN COPY of tmux-lives-install.fish and its definition changed ON DISK mid
+# run, so "the changed body is live afterwards" proves a real re-source
+# happened, not just that the handler ran. The setter is a config-loaded (NOT
+# --no-config -- a no-config `set -U` is process-local and invisible to every
+# other fish, proven above at "no-config set -U is invisible cross-process")
+# `fish -c` sharing the same XDG_CONFIG_HOME, run OUTSIDE the pane so its own
+# stdout can never land in the captured pane output -- it also loads the
+# handler and fires it on itself, but `status is-interactive; or return` bails
+# before it does anything observable.
+set -l shsock tli-shreload-$fish_pid
+set -l shhome (mktemp -d /tmp/tli-shreload-home.XXXXXX)
+mkdir -p $shhome/fish/conf.d
+cp $plugindir/conf.d/tmux.fish $shhome/fish/conf.d/tmux.fish
+cp $plugindir/conf.d/tmux-lives-install.fish $shhome/fish/conf.d/tmux-lives-install.fish
+printf '\nfunction __tli_reload_probe\n    echo V1\nend\n' >> $shhome/fish/conf.d/tmux-lives-install.fish
+set -l shready /tmp/tli-shreload-ready-$fish_pid
+set -l shrc /tmp/tli-shreload-rc-$fish_pid
+rm -f $shready $shrc
+command tmux -L $shsock -f /dev/null new-session -d -x 100 -y 30 "env XDG_CONFIG_HOME=$shhome fish -i -C 'touch $shready'" 2>/dev/null
+set -l n 0
+while not test -e $shready; and test $n -lt 100
+    sleep 0.1
+    set n (math $n + 1)
+end
+t "shell_reload: reader pane reached an interactive prompt" 1 (test -e $shready; and echo 1; or echo 0)
+
+# Change the marker on disk, THEN fire the token -- the order that matters:
+# capabilities/definitions must be stale on disk before the event, or the test
+# cannot tell "re-sourced" from "loaded fresh".
+sed -i 's/echo V1/echo V2/' $shhome/fish/conf.d/tmux-lives-install.fish
+env XDG_CONFIG_HOME=$shhome fish -c 'set -U tmux_lives_reload_token T1' 2>/dev/null
+
+function __t2_notice_count --argument-names sock
+    set -l cap (command tmux -L $sock capture-pane -p -S -100 -t 0:0.0 2>/dev/null)
+    string match -a '*↻ tmux-lives reloaded*' -- $cap | count
+end
+
+# Poll for the notice, then ask the still-running reader (via send-keys, this
+# suite's established mechanism for a genuinely-typed follow-up command -- see
+# the is_idle cross-check) to report its OWN live definition of the marker.
+set -l n2 0
+while test (__t2_notice_count $shsock) -lt 1; and test $n2 -lt 60
+    sleep 0.2
+    set n2 (math $n2 + 1)
+end
+command tmux -L $shsock send-keys -t 0:0.0 "echo MARKER=(__tli_reload_probe) > $shrc" Enter 2>/dev/null
+set -l n3 0
+while not test -e $shrc; and test $n3 -lt 60
+    sleep 0.1
+    set n3 (math $n3 + 1)
+end
+t "shell_reload: pty harness produced a marker readback" 1 (test -e $shrc; and echo 1; or echo 0)
+set -l shmarker (test -e $shrc; and cat $shrc; or echo '')
+t "shell_reload: the changed definition is live in the already-running shell" "MARKER=V2" "$shmarker"
+t "shell_reload: notice appears exactly once for one real token change" 1 (__t2_notice_count $shsock)
+
+# Idempotency, for its real reason: re-sourcing this file redefines the
+# handler WHILE IT RUNS, re-registering the --on-variable binding mid
+# dispatch (Step 4). Setting the SAME value again must not re-notice --
+# proves the dedup marker actually gates, not just that it exists in the body.
+env XDG_CONFIG_HOME=$shhome fish -c 'set -U tmux_lives_reload_token T1' 2>/dev/null
+sleep 1
+t "shell_reload: repeating the SAME value does not re-notice" 1 (__t2_notice_count $shsock)
+
+# And Step 4's actual question: did the self-redefinition survive intact, or
+# did fish error/re-enter/lose the binding? A GENUINELY new value must still
+# notice -- if it does not, the handler died silently the first time it
+# redefined itself.
+env XDG_CONFIG_HOME=$shhome fish -c 'set -U tmux_lives_reload_token T2' 2>/dev/null
+set -l n4 0
+while test (__t2_notice_count $shsock) -lt 2; and test $n4 -lt 60
+    sleep 0.2
+    set n4 (math $n4 + 1)
+end
+t "shell_reload: self-redefinition survives -- a later value still notices" 2 (__t2_notice_count $shsock)
+
+command tmux -L $shsock kill-server 2>/dev/null
+rm -rf $shhome $shready $shrc
+functions -e __t2_notice_count
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
