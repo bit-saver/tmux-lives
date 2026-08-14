@@ -2236,13 +2236,20 @@ t "anchor palette call is 5-arg (place+mode, drops rotate)" 1 (string match -q '
 # (LEGI/LEGE).
 set -l leglinesall (string match -ra -- "__tcz_thp_leg .*" $pbody)
 t "legend is built via two __tcz_thp_leg calls (idle/editing)" 2 (count $leglinesall)
-set -l leglines (string match -r -- '.*more.*' $leglinesall)
+# Isolate via `shake` rather than the old `more` marker: picker-responsiveness-
+# and-layout Task 7 renamed the idle branch's `m` pair to `curated` (m now
+# collapses to the curated 14 by default; the picker opens on the full 35),
+# so `more` no longer appears anywhere in the idle line. `shake` is untouched
+# by that rename and still unique to the idle branch (absent from editing's).
+set -l leglines (string match -r -- '.*shake.*' $leglinesall)
 t "idle legend line isolated for the checks below" 1 (count $leglines)
 # Gallery rewrite Task 4: place/mode are no longer knobs, so the legend no
-# longer names them (m is repurposed to expand — see "legend names more").
+# longer names them (m was repurposed to expand, then Task 7 flipped the
+# default to open expanded and repurposed m again, to collapse — see
+# "legend names curated").
 t "legend drops place" 0 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
 t "legend drops mode"  0 (string match -q '*mode*'  -- $leglines; and echo 1; or echo 0)
-t "legend names more"  1 (string match -q '*more*' -- $leglines; and echo 1; or echo 0)
+t "legend names curated" 1 (string match -q '*curated*' -- $leglines; and echo 1; or echo 0)
 t "legend names shake" 1 (string match -q '*shake*' -- $leglines; and echo 1; or echo 0)
 t "legend drops contrast"  0 (string match -qr 'contrast' -- $leglines; and echo 1; or echo 0)
 t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo 1; or echo 0)
@@ -2588,7 +2595,7 @@ t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
 set -l pbody2 (functions __tcz_theme_picker | string collect)
 set -l leggridall (string match -ra -- "__tcz_thp_leg 3 .*" $pbody2)
 t "picker legend is built via two __tcz_thp_leg 3-col calls (idle/editing)" 2 (count $leggridall)
-set -l leggrid (string match -r -- '.*more.*' $leggridall)
+set -l leggrid (string match -r -- '.*shake.*' $leggridall)
 t "picker legend (idle branch) is a __tcz_thp_leg 3-col call" 1 (count $leggrid)
 # scoped to the two RETIRED bottom-legend calls specifically (pitch 12/9) —
 # NOT a whole-body absence check, since __tcz_theme_picker's inline seed
@@ -2601,7 +2608,9 @@ t "picker legend names nav (up/down move)" 1 (string match -q '*↑↓*move*' --
 # picker-second-list Task 5: the c key is retired; the legend now advertises
 # ⇥ for current/off (the second list), not a bare "current" reached by c.
 t "picker legend names current/off (tab)" 1 (string match -q '*current/off*' -- "$leggrid"; and echo 1; or echo 0)
-t "picker legend still names more"  1 (string match -q '*more*' -- "$leggrid"; and echo 1; or echo 0)
+# picker-responsiveness-and-layout Task 7: m's label moved more -> curated
+# (the picker now opens expanded; m collapses to the curated 14).
+t "picker legend names curated"     1 (string match -q '*curated*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still names shake" 1 (string match -q '*shake*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops place" 0 (string match -q '*place*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; and echo 1; or echo 0)
@@ -5083,6 +5092,21 @@ end
 set -g __t5_r (__t5_run)
 t "lrarm: a held burst moves the channel one step, not five" 108 "$__t5_r"
 functions -e __t5_readkey __t5_run
+
+# --- picker-responsiveness-and-layout Task 7: the picker opens on the full
+# catalog (35), m now collapses to the curated 14 instead of expanding to 35.
+# The brief's own legend assertion (grepping for the quoted literal 'm
+# expand') is vacuous: the real pair is `m more` (unquoted, bare words), so
+# that pattern matches nothing before OR after this change. Assert against
+# the real text instead: the new pair must read `m curated`, and the old `m
+# more` must be gone.
+set -g SLB7 (functions __tcz_theme_picker | string collect)
+set -g __t7_init (string match -rg 'set -l expanded (\d)' -- "$SLB7")
+t "picker opens expanded" 1 "$__t7_init"
+set -g __t7_legnew (string match -a -r 'm curated' -- "$SLB7" | count)
+t "legend says m curated" 1 $__t7_legnew
+set -g __t7_legold (string match -a -r 'm more' -- "$SLB7" | count)
+t "legend no longer says m more" 0 $__t7_legold
 
 
 if test $FAIL -eq 0

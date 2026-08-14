@@ -114,11 +114,11 @@ Moving a channel redraws only the seed zone — the slider bar and the hex/hue/L
 
 The keys are:
 
-`↑↓` move · `⇞⇟` page · `b` edit seed · `m` more · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close.
+`↑↓` move · `⇞⇟` page · `b` edit seed · `m` curated · `z` shake · `⇥` current/off · `a` apply · `⏎` save · `esc` close.
 
 `a` applies a scheme live without saving it, so you can audition; `⏎` commits. Outside edit mode, `esc` reverts whatever you were previewing — including an uncommitted seed change — and closes. A seed edit never reaches the real bar on its own: dragging a channel only ever updates the picker's own scheme strips (after the ~700ms pause above), and only an explicit `a` or `⏎` counts as adoption — configuration stays private until you ask for it. A ShellFish/iTerm2 tab's colour updates the moment you preview or revert, rather than lagging behind the ~15-second status-bar tick in either direction.
 
-The list opens on a curated 14 (5 bar-placed, 7 tabs-placed, 2 cap-placed). **`m` does not replace that list** — it appends the remaining 21 below a `More Schemes` header, so the curated rows keep their positions instead of being reshuffled. `z` jumps to a random row anywhere in the full catalog.
+The list opens on the full 35-entry catalog; a `More Schemes` header still marks where the curated 14 (5 bar-placed, 7 tabs-placed, 2 cap-placed) end and the other 21 begin, so you can always see which rows are curated. **`m` now collapses the list down to just the curated 14** rather than expanding it — press it again to bring the rest back. `z` jumps to a random row anywhere in the full catalog, expanding first if you'd collapsed.
 
 Your current theme and the `off` entry live in a second, untitled list at the bottom, reached with `⇥`. The current row is a live readout: its label is highlighted only while the theme you have saved is genuinely what is on the bar. Select it and press `a` to flip back to it for comparison against whatever you are auditioning.
 
