@@ -2372,10 +2372,15 @@ t "persisted phase is loaded from init" 1 (string match -q '*set persisted_phase
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---
 t "guard: preview coral gone" 0 (string match -q '*D97757*' -- (cat $catfile | string collect); and echo 1; or echo 0)
-# staticcache: the rendering logic (and everything these two guards check)
-# now lives in __tcz_thp_preview_uncached; __tcz_thp_preview itself is the
-# memoizing front and would make both assertions vacuous if inspected instead.
-set -l pvbody (functions __tcz_thp_preview_uncached | string collect)
+# staticcache: the rendering logic lives in __tcz_thp_preview_uncached now,
+# not __tcz_thp_preview (the memoizing front) — but review M-4 caught that
+# inspecting ONLY _uncached would let a stray "coral" reappear in the 8-line
+# wrapper itself and go unseen. Concatenate both bodies: the coral-absence
+# check still means what it says for either function, and the claude-segment
+# substring search below is unaffected either way (it's a plain substring
+# match, not an exact-body comparison, so the wrapper's own text can't hide
+# or fake a match).
+set -l pvbody (functions __tcz_thp_preview __tcz_thp_preview_uncached | string collect)
 t "guard: preview no longer defines a coral var" 0 (string match -q '*coral*' -- "$pvbody"; and echo 1; or echo 0)
 t "preview claude segment uses the windows-role fg" 1 (string match -q '*"$barbg $winfg""claude*' -- "$pvbody"; and echo 1; or echo 0)
 
@@ -3000,6 +3005,73 @@ function __t9_frame_text --description 'same eval as __t9_frame_rows, but return
     printf '%s\n' $__t9_last_lines
 end
 
+# --- review I-1: a NO-CACHECLEAR draw harness, for two-frame walks -----------
+# __t9_frame_rows clears the cache at the top of every call, which is correct
+# for the isolation it was built for (many synthetic states reusing the same
+# scheme-row INDICES) but also means it can never observe a STALE cache
+# entry surviving from a previous redraw within the same reload-generation —
+# exactly the failure mode of three of the six draw-block cache keys
+# (__tcz_thp_preview/tabstrip's curidx, __tcz_thp_seedzone's seedkey, and
+# __tcz_thp_leg's --cachekey= sentinel), none of which any existing
+# single-frame assertion could catch: verified by mutating each call site in
+# turn and confirming the full pre-I-1 suite (922 assertions) stayed ALL
+# PASS. __t9_draw_nocc is __t9_frame_rows with that one line removed — same
+# body otherwise, same STATIC9I/STATIC9E/DRAWTEXT9 sourcing, same
+# $__t9_last_lines/$__t9_last_leglines side globals — plus a trailing
+# <seedarg> (default #5f772b, matching every pre-I-1 callers hardcoded seed)
+# so the seedkey guard can vary the colour a genuine channel drag would
+# produce; every other positional keeps __t9_frame_rows own defaulting
+# exactly.
+function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg seedarg
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    test -n "$rows"; or set rows 26
+    test -n "$editing"; or set editing 0
+    test -n "$chan"; or set chan 1
+    set -l static9 $STATIC9I
+    test "$editing" = 1; and set static9 $STATIC9E
+    set -l WIN (math "$rows - $static9")
+    set -l host somehost
+    set -l chiptitle ''
+    set -l note 'a note'
+    test -n "$notearg"; and set note $notearg
+    set -l seed '#5f772b'
+    test -n "$seedarg"; and set seed $seedarg
+    set -l seedfg '#f5f5f5'
+    set -l phase 0
+    set -l legacy '#444444'
+    set -l anch_place bar
+    set -l anch_mode derived
+    set -l anch_phase 0
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    for i in (seq $n)
+        set -a toks "scheme$i"
+        set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+        set -a fgs '#f5f5f5'
+        set -a tabsfgs '#f5f5f5'
+        set -a recipes 'mono|bar|derived'
+    end
+    eval $DRAWTEXT9
+    set -g __t9_last_lines $lines
+    set -g __t9_last_leglines $leglines
+    count $lines
+end
+function __t9_draw_nocc_text --description 'same as __t9_frame_text, but via __t9_draw_nocc (no cacheclear) -- for I-1s two-frame walks'
+    __t9_draw_nocc $argv >/dev/null
+    printf '%s\n' $__t9_last_lines
+end
+
 set -l PAL9 '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
 
 # --- picker-seed-section Task 3 (review fix): the seed zone's RENDERED content --
@@ -3270,6 +3342,97 @@ t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" 
 # one blank row.
 t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m more z shake '⇥' current/off  a apply '⏎' save esc close))
 t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
+
+# --- review I-1: the six draw-block cache keys, unguarded --------------------
+# The reviewer proved all six call-site key EXPRESSIONS (not just the
+# wrapper mechanics Task 1/2's own staticcache: tests already cover) are
+# unguarded: four separate one-line mutations of the CALL SITE each
+# reintroduce a real, visible bug and leave the full suite at ALL PASS. These
+# four guards close that gap. Per the review's own instruction, each was
+# proven to FAIL against its corresponding mutation before being trusted —
+# see the fix report appended to task-2-report.md for the verbatim
+# before/after runs; that proof is not repeated here as inline comments
+# would just be unverified prose.
+
+# I-1 guard 1 (staterow): the two production call sites can carry
+# selected=0/live=0 AT ONCE (any browsing frame — focus=list — has
+# curflag2=0 and offflag=0 by construction), and currow renders FIRST — so a
+# reverted bare "<selected>_<live>" key collides WITHIN one frame, no
+# two-frame walk needed: offrow's lookup hits currow's already-cached slot
+# and 'legacy look' (offrow's own name, unique in the whole frame) never
+# renders at all.
+set -l frameStaterow (__t9_frame_text list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '')
+t "frame: browsing shows the off row exactly once (staterow key collision guard)" 1 (string match -ra 'legacy look' -- $frameStaterow | count)
+
+# I-1 guard 2 (preview/tabstrip curidx): a two-frame walk, cache never
+# cleared between them — frame A primes the cache at focus=list sel=5, frame
+# B tabs to the second list (state, off) with sel left at the SAME 5 (the
+# real picker never resets sel on a focus change). A reverted curidx="$sel"
+# key means frame B's preview/tabstrip lookups hit frame A's cache
+# (identical $sel) and keep showing the SCHEME's bar bg (48;2;68;80;47 — the
+# bar role of the harness's own PAL9, #44502f) instead of recomputing the
+# legacy/off bg (48;2;68;68;68 — the harness's own $legacy, #444444). Search
+# the RAW frame text (SGR intact): both codes are themselves the literal
+# substring being asserted on, and __tcz_strip_sgr would delete them.
+__tcz_thp_cacheclear
+__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '' >/dev/null
+set -l frameOff (string join \n -- (__t9_draw_nocc_text state 1 14 5 0 mono "$PAL9" '' '' '' 52 0 1 ''))
+t "frame: tabbing to off recomputes the preview bar to the legacy bg (curidx guard)" yes (string match -q '*48;2;68;68;68*' -- "$frameOff"; and echo yes; or echo no)
+t "frame: tabbing to off does not keep the scheme's bar bg (curidx guard)" no (string match -q '*48;2;68;80;47*' -- "$frameOff"; and echo yes; or echo no)
+
+# I-1 guard 3 (seedzone seedkey): a two-frame walk, cache never cleared —
+# frame A primes editing=1/chan=1 at seed #5f772b, frame B keeps
+# editing/chan identical but drags the colour to #c7772b (a real channel
+# move, R 95->199). A reverted seedkey="$editing"_"$chan" (dropping r/g/b)
+# means frame B hits frame A's cache and the readout FREEZES on 5f772b —
+# the seed sections entire purpose.
+__tcz_thp_cacheclear
+__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 1 1 '' '#5f772b' >/dev/null
+set -l frameSeedB (string join \n -- (__t9_draw_nocc_text list 0 14 5 0 mono "$PAL9" '' '' '' 52 1 1 '' '#c7772b'))
+t "frame: a channel drag updates the seed readout (seedkey guard)" yes (string match -q '*c7772b*' -- "$frameSeedB"; and echo yes; or echo no)
+
+# I-1 guard 4 (leg --cachekey=$editing): a two-frame walk, cache never
+# cleared — frame A renders browsing (editing=0, its own real 3-row legend),
+# frame B switches to editing with everything else unchanged. A reverted
+# constant sentinel (e.g. "--cachekey=x" at both call sites) means frame B's
+# leg call hits frame A's cached BROWSING legend (3 lines) instead of
+# computing its own 2-row editing legend — and the editing branch ALWAYS
+# appends one more blank line on top of whatever leglines held, so the stale
+# 3-line browsing legend becomes 4 elements instead of the intended 3,
+# overflowing the exact-height frame by one row (52 -> 53, into a 52-row
+# popup — this repos own top-border-scrolls-off failure mode).
+__tcz_thp_cacheclear
+__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 0 1 '' >/dev/null
+set -l editRows (__t9_draw_nocc list 0 14 5 0 mono "$PAL9" '' '' '' 52 1 1 '')
+t "frame: switching to editing after browsing still emits exactly 52 rows (leg key guard)" 52 $editRows
+
+# --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
+# not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its
+# early-return paths (non-hex tabshex — every non-ShellFish client — or an
+# empty title); __tcz_thp_leg_uncached returns nothing when its remaining
+# pairs are STILL malformed after a valid --cachekey= sentinel is stripped.
+# `set -l x (cmd)` cannot see the difference (fish strips a trailing
+# newline either way, collapsing "0 bytes" and "1 byte" to the same captured
+# value) — piping straight to `wc -c` on the RAW stream is what the
+# reviewer measured with, and what actually discriminates the bug.
+set -l tabUncachedBytes (__tcz_thp_tabstrip_uncached notahex '#f5f5f5' title 50 | wc -c)
+set -l tabCachedMiss (__tcz_thp_tabstrip notahex '#f5f5f5' title 50 zk1 | wc -c)
+set -l tabCachedHit (__tcz_thp_tabstrip notahex '#f5f5f5' title 50 zk1 | wc -c)
+t "staticcache: tabstrip keyed zero-output matches uncached (miss)" "$tabUncachedBytes" "$tabCachedMiss"
+t "staticcache: tabstrip keyed zero-output matches uncached (hit)"  "$tabUncachedBytes" "$tabCachedHit"
+
+set -l legUncachedBytes (__tcz_thp_leg_uncached 3 a b c | wc -c)
+set -l legCachedMiss (__tcz_thp_leg 3 a b c --cachekey=zk1 | wc -c)
+set -l legCachedHit (__tcz_thp_leg 3 a b c --cachekey=zk1 | wc -c)
+t "staticcache: leg keyed zero-output (malformed+key) matches uncached (miss)" "$legUncachedBytes" "$legCachedMiss"
+t "staticcache: leg keyed zero-output (malformed+key) matches uncached (hit)"  "$legUncachedBytes" "$legCachedHit"
+
+# --- review M-5: the --cachekey= sentinel is collision-free by convention,
+# not construction -- pinned, not fixed (disallowing that literal substring
+# in every real description everywhere would be a worse trade than the
+# limitation itself, which is not reachable from any production call site
+# today: both real callers pass a fixed, hardcoded pair list).
+t "staticcache: leg --cachekey= sentinel is convention not construction (known limitation)" '' (__tcz_thp_leg 2 k1 d1 k2 '--cachekey=oops')
 
 # --- Task 9: collapsing from below the header, run for real -----------------
 # Task 8's coverage of "collapsing lands sel/n in range" was a SOURCE-TEXT
