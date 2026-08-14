@@ -1172,7 +1172,7 @@ function __tmux_lives_shell_reload --on-variable tmux_lives_reload_token --descr
     commandline -f repaint
 end
 
-function __tmux_lives_update_note --argument-names refreshed removed sessions --description 'pure: the post-update advice. `removed`/`sessions` are space-separated. exec fish is recommended HERE only when a function was removed (sourcing cannot unset one); other shells are named because exec fish does not reach them.'
+function __tmux_lives_update_note --argument-names refreshed removed sessions autoreloaded --description 'pure: the post-update advice. `removed`/`sessions` are space-separated. exec fish is recommended HERE only when a function was removed (sourcing cannot unset one); other shells are named because exec fish does not reach them, unless `autoreloaded` (4th, optional) says they already re-sourced themselves.'
     if test "$refreshed" -eq 1
         echo '✓ tmux-lives updated — tmux config refreshed + reloaded.'
     else
@@ -1187,7 +1187,16 @@ function __tmux_lives_update_note --argument-names refreshed removed sessions --
         set -l uniq (printf '%s\n' $ss | sort -u | string join ', ')
         # Only claim this shell is current when nothing was removed — otherwise the two
         # lines contradict each other.
-        if test -n "$rm[1]"
+        if test "$autoreloaded" = 1; and test -z "$rm[1]"
+            # NOT "already refreshed" -- fish defers ALL event-handler dispatch (this
+            # includes the re-source) until control returns to its main loop, so a shell
+            # busy running something in the foreground (e.g. Claude) hasn't re-sourced
+            # yet at the moment this note prints; it will the instant that job exits.
+            echo "  Other shells refreshed automatically (busy ones catch up once idle): $uniq"
+        else if test "$autoreloaded" = 1
+            # They re-sourced (or will, once idle), but sourcing cannot unset a function there either.
+            echo "  Other shells refreshed automatically (busy ones catch up once idle): $uniq — but run `exec fish` in each, since the removal above cannot be sourced away."
+        else if test -n "$rm[1]"
             echo "  Other shells also run the old version: $uniq — run `exec fish` in each."
         else
             echo "  This shell is current. Other shells still run the old version: $uniq — run `exec fish` in each."
@@ -1541,7 +1550,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
         set -U tmux_lives_reload_token $dg
     end
     set -q _tmux_lives_updating; and return   # `tmux-lives update` reports the result itself
-    __tmux_lives_update_note $refreshed "$removed" "$(__tmux_lives_stale_sessions)"
+    __tmux_lives_update_note $refreshed "$removed" "$(__tmux_lives_stale_sessions)" $autoreloaded
     __tmux_lives_help_hint
 end
 

@@ -41,6 +41,14 @@ tmux-lives close, x, q                 kill the current session and exit
 
 Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
 
+After an update, other running fish shells (and tmux panes) re-source themselves
+automatically — instantly if they're sitting idle at a prompt, or as soon as a shell busy
+with something in the foreground (e.g. Claude) returns to one. You only need to run
+`exec fish` yourself in a shell when: the update removed or renamed a function (sourcing
+can't unset one that no longer exists), or this is the very first update that carries the
+auto-reload feature itself (already-open shells don't have the handler installed yet to
+pick it up). The update note tells you which, if either, applies.
+
 ### ShellFish/iTerm2 tab color & baseline
 
 A `client-attached` hook colors ShellFish and iTerm2 tabs on attach — detected via `LC_TERMINAL` (`ShellFish` / `iTerm2`), the color+title escapes go straight to that client's tty, other clients see nothing — and re-applies a baseline config for every other client. `setup color` also derives a global tmux **status bar** tint from the ShellFish color — lighter by default (`-i`/`--invert` for darker), visible to all clients; status text auto-tints to the bar color. `setup color --apply` (short `-a`) reapplies the currently-stored color to both surfaces — the client's tab OSC (ShellFish or iTerm2) and the tmux status bar — without retyping it (handy if a new tab came up without the color).

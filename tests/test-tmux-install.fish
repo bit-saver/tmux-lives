@@ -1475,6 +1475,20 @@ t "note: names the removed function" 1 (string match -q '*__gone*' -- (__tmux_li
 t "note: says nothing about other shells when there are none" 0 (string match -q '*other*' -- (__tmux_lives_update_note 1 "" "" | string collect); and echo 1; or echo 0)
 t "note: uses `exec fish`, never a personal alias" 0 (string match -q '*exf*' -- (__tmux_lives_update_note 1 "__gone" "Alpha" | string collect); and echo 1; or echo 0)
 
+# --- Task 4: the note's auto-reload branch -----------------------------------
+# NB the match string is "refreshed automatically", NOT "refreshed". Today's very
+# first note line already reads "tmux config refreshed + reloaded", so a bare
+# `*refreshed*` PASSES against the unchanged function and proves nothing —
+# verified before this plan shipped.
+t "note: says other shells refreshed themselves when autoreloaded" 1 (string match -q '*refreshed automatically*' -- (__tmux_lives_update_note 1 "" "Alpha Beta" 1 | string collect); and echo 1; or echo 0)
+t "note: does NOT tell you to exec fish in each when autoreloaded" 0 (string match -q '*in each*' -- (__tmux_lives_update_note 1 "" "Alpha Beta" 1 | string collect); and echo 1; or echo 0)
+# The bootstrap branch: absent 4th arg keeps today's advice, which is correct on
+# the first update because those shells have no handler yet.
+t "note: keeps the exec fish advice when NOT autoreloaded" 1 (string match -q '*in each*' -- (__tmux_lives_update_note 1 "" "Alpha Beta" | string collect); and echo 1; or echo 0)
+# A REMOVED function still needs a real restart everywhere -- re-sourcing cannot
+# unset one in the other shells either, so auto-reload does not rescue this case.
+t "note: still advises exec fish elsewhere when a function was removed, even autoreloaded" 1 (string match -q '*in each*' -- (__tmux_lives_update_note 1 "__gone" "Alpha" 1 | string collect); and echo 1; or echo 0)
+
 # ---- v5: kin-cap family table ----
 # Fitted in the 2026-07-20 calibration study (4 rounds, user as blind subject, ~84% of
 # judgments explained; the rule-generated validation batch scored 9/10 vs 5/10 pre-rule).
