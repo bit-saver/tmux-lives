@@ -1453,6 +1453,57 @@ t "row: unselected row has no marker glyph" 0 (string match -ra '▌|▐' -- "$R
 t "thp_slider selected marker is the left half block" 1 (string match -q '*▌*' -- (__tcz_thp_slider R 10 1); and echo 1; or echo 0)
 t "thp_slider: the right half block is gone" 0 (string match -ra '▐' -- (__tcz_thp_slider R 10 1) | count)
 
+# --- Task 1: the scheme-row cache -----------------------------------------
+# The discriminator is a CALL COUNT, not a grep. A "fix" that caches but still
+# rebuilds every row passes any string-shaped assertion and fails this one.
+set -g __t1_calls 0
+functions --copy __tcz_thp_row_uncached __t1_real
+function __tcz_thp_row_uncached
+    set -g __t1_calls (math $__t1_calls + 1)
+    __t1_real $argv
+end
+
+set -g __t1_pal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+__tcz_thp_cacheclear
+
+# transparency: cached output must equal uncached, on miss AND on hit
+set -g __t1_a (__t1_real "$__t1_pal" 'mono soft' 0 0 | string escape)
+set -g __t1_b (__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 7 | string escape)
+set -g __t1_c (__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 7 | string escape)
+t "rowcache: cached output matches uncached (miss)" "$__t1_a" "$__t1_b"
+t "rowcache: cached output matches uncached (hit)"  "$__t1_a" "$__t1_c"
+
+# the hit did no work
+set -g __t1_calls 0
+__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 7 >/dev/null
+t "rowcache: a cache hit calls the builder zero times" 0 $__t1_calls
+
+# a cursor move dirties exactly TWO rows out of 35
+__tcz_thp_cacheclear
+for i in (seq 35)
+    __tcz_thp_row "$__t1_pal" "scheme$i" (test $i -eq 5; and echo 1; or echo 0) 0 $i >/dev/null
+end
+set -g __t1_calls 0
+for i in (seq 35)
+    __tcz_thp_row "$__t1_pal" "scheme$i" (test $i -eq 6; and echo 1; or echo 0) 0 $i >/dev/null
+end
+t "rowcache: moving the cursor one row rebuilds exactly 2 rows" 2 $__t1_calls
+
+# no key -> no caching, byte-identical to the original builder
+set -g __t1_calls 0
+__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 >/dev/null
+__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 >/dev/null
+t "rowcache: omitting the key bypasses the cache entirely" 2 $__t1_calls
+
+# invalidation: clearing forces a rebuild
+__tcz_thp_cacheclear
+set -g __t1_calls 0
+__tcz_thp_row "$__t1_pal" 'mono soft' 0 0 7 >/dev/null
+t "rowcache: cacheclear forces a rebuild" 1 $__t1_calls
+
+functions --erase __tcz_thp_row_uncached
+functions --copy __t1_real __tcz_thp_row_uncached
+
 # --- theme picker loop (interactive body = live smoke; wiring + structure tested) ---
 t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 # Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
@@ -2708,6 +2759,10 @@ t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
 t "floor: rows 24 is admitted (Task 1 restored the floor 25 -> 24)" admit (__t9_floor 24)
 
 function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
+    # Task 1's row cache is keyed by index alone, and this harness reuses the
+    # same indices across states with different synthetic palettes/selection —
+    # clear it first so no state sees a row memoized by an earlier one.
+    __tcz_thp_cacheclear
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)

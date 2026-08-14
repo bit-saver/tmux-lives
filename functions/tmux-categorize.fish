@@ -1226,6 +1226,11 @@ function __tcz_open_switcher --argument-names client --description 'open the two
 end
 
 # --- theme picker (v3): pure builders. The interactive loop is __tcz_theme_picker. ---
+function __tcz_thp_cacheclear --description 'erase every memoized picker builder result. The ONE invalidation point: called from __tcz_thp_reload, which is the only thing that may rewrite the palette arrays. Rows are keyed by INDEX, so a list whose indices shift (expand/collapse) MUST come through here or cached rows go stale against the wrong scheme. -e/--entire is load-bearing: a bare -r returns the matched substring, not the variable name, and would erase nothing.'
+    for v in (set --names | string match -er '^__tcz_(?:cc|rc|sc)_')
+        set -e $v
+    end
+end
 function __tcz_thp_fg --argument-names hex --description 'hex -> truecolor foreground SGR; empty output for non-hex'
     set -l m (string match -rg '^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$' -- "$hex")
     test (count $m) -eq 3; and printf '\e[38;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
@@ -1277,7 +1282,7 @@ function __tcz_thp_band --argument-names hex --description 'pure: a 16-col band 
     printf '%s\n' "$fg"(string repeat -n 16 ▇)(printf '\e[0m')
 end
 
-function __tcz_thp_row --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
+function __tcz_thp_row_uncached --argument-names hexes name selected current --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins'
     set -l cells (__tcz_thp_cells "$hexes")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
@@ -1292,6 +1297,13 @@ function __tcz_thp_row --argument-names hexes name selected current --descriptio
         set namecol (__tcz_theme brand)(printf '\e[1m')
     end
     printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
+end
+function __tcz_thp_row --argument-names hexes name selected current cachekey --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild).'
+    test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current"; and return
+    set -l k "__tcz_rc_$cachekey"_"$selected"_"$current"
+    set -q $k; and printf '%s\n' $$k; and return
+    set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current")
+    printf '%s\n' $$k
 end
 function __tcz_thp_staterow --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
     set -l marker ' '
@@ -1726,6 +1738,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l cachekeys
     set -l cacheblobs
     function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 35 all) + fgs, in-process; v5 engine results cached by knob-state key (seed/phase/expanded)'
+        # Rows are keyed by index; expanding or collapsing shifts what each
+        # index means, and a new seed changes every palette. This is the ONE
+        # invalidation point, which is what lets the row key stay a bare
+        # integer instead of a sanitised palette string.
+        __tcz_thp_cacheclear
         set toks; set pals; set fgs; set tabsfgs; set recipes
         set -l key "$seed|$phase|$expanded"
         set -l blob ''
@@ -2161,7 +2178,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $focus = list; and test $si -eq $sel; and set selflag 1
                 set -l curflag 0
                 test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
-                set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag)
+                set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag $idx)
                 if test $selflag -eq 1
                     # Pad to $IW BEFORE wrapping in SELBG: __tcz_thp_ln pads to the
                     # frame width AFTER this returns, and its own padstr carries no
