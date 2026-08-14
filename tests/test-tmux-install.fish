@@ -1190,7 +1190,8 @@ t "catalog: coral chip is a default" 1 (string match -q '*coral chip*' -- (__tmu
 # Tier composition, pinned EXACTLY. bar and tabs are symmetric (8 relationships x
 # derived/literal each) because both are now first-class dominant placements — EXCEPT
 # mono, which has no tabs row (see below); cap survives as a 4-row accent-led minority,
-# ordered last.
+# split across the literal/derived groups by Task 8's reorder (core in the literal
+# half, deep in the derived half — see the "literal groups first" section below).
 t "catalog: soft is 8 (bar derived)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|derived\|'))
 t "catalog: glow is 8 (bar literal)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|literal\|'))
 t "catalog: slate is 7 (tabs derived)" 7 (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|derived\|'))
@@ -1217,8 +1218,12 @@ t "catalog: coral deep present" 1 (count (__tmux_lives_theme_catalog | string ma
 t "catalog: sage core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^sage core\|'))
 t "catalog: teal core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^teal core\|'))
 t "catalog: cap rows in defaults" 2 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
-# cap rows sort LAST — the accent-led minority is at the bottom of the picker list
-t "catalog: the last 4 rows are the cap rows" 4 (count (__tmux_lives_theme_catalog | tail -4 | string match -r '\|cap\|'))
+# Task 8 reordered tiers to group literal-before-derived, so cap is no longer one
+# contiguous block at the tail: core (cap, literal) sorts last within the literal
+# half (right after chip), and deep (cap, derived) sorts last within the derived
+# half (the very end of the catalog). Both fail pre-fix (0, not the pinned 2).
+t "catalog: rows 17-18 are the core tier (cap literal, closing the literal half)" 2 (count (string match -r '\|cap\|literal\|' -- (__tmux_lives_theme_catalog)[17..18]))
+t "catalog: the last 2 rows are the deep tier (cap derived, closing the derived half)" 2 (count (string match -r '\|cap\|derived\|' -- (__tmux_lives_theme_catalog)[-2..-1]))
 # the 14 curated default NAMES after Task 4 rebalance toward tabs — this
 # label used to say "unchanged", which was already wrong when written: it
 # pins the rebalanced set, not a pre-rebalance baseline.
@@ -1268,6 +1273,51 @@ t "composed list has no duplicates" 35 (printf '%s\n' $ORD7 | sort -u | count)
 set -g CDN7 (__tmux_lives_theme_catalog_default | awk -F'|' '{print $1}' | string join ',')
 set -g ORDN7 (printf '%s\n' $ORD7[1..14] | awk -F'|' '{print $1}' | string join ',')
 t "first 14 of the composed list are the curated 14, in order" "$CDN7" "$ORDN7"
+
+# --- Task 8: catalog ordered seed-literal first ----------------------------------
+# The user is comparing seed-literal schemes against seed-derived ones as groups
+# ("I may be noticing trends between the seed-figurative schemes and the
+# seed-literal schemes") and asked, when offered the choice, for "seed literal
+# first". Literal is the PRIMARY sort: all 18 literal rows (glow/chip/core) precede
+# all 17 derived rows (soft/slate/deep), with the bar -> tabs -> cap progression
+# preserved inside each half. Pure reorder — same 35 rows, same 14 curated, only
+# __tmux_lives_theme_catalog's row SEQUENCE changed; _default and _rest are both
+# filters over it, so both inherit the new order for free.
+set -g CAT8 (__tmux_lives_theme_catalog)
+t "catalog is still 35 rows" 35 (count $CAT8)
+t "catalog still has 14 defaults" 14 (count (__tmux_lives_theme_catalog_default))
+t "18 rows are literal, 17 are derived" '18 17' (string join ' ' (count (string match -r '\|literal\|' -- $CAT8)) (count (string match -r '\|derived\|' -- $CAT8)))
+# literal rows all precede derived rows: the LAST literal index must be less than
+# the FIRST derived index (a stronger check than counting — it fails if even one
+# row is out of place, not just if the totals are off).
+set -g __t8_lastlit 0
+set -g __t8_firstder 999
+for i in (seq (count $CAT8))
+    set -l f (string split '|' -- $CAT8[$i])
+    if test "$f[4]" = literal
+        set __t8_lastlit $i
+    else if test $i -lt $__t8_firstder
+        set __t8_firstder $i
+    end
+end
+t "every literal row precedes every derived row" 1 (test $__t8_lastlit -lt $__t8_firstder; and echo 1; or echo 0)
+t "the first catalog row is literal" literal (string split '|' -- $CAT8[1])[4]
+t "the last catalog row is derived" derived (string split '|' -- $CAT8[-1])[4]
+# bar -> tabs -> cap progression preserved inside each half (glow/chip/core, then
+# soft/slate/deep) — spot-check via the placement of the first row of each tier.
+t "row 1 (start of literal half) is bar-placed (glow)" bar (string split '|' -- $CAT8[1])[3]
+t "row 9 (after 8 glow rows) is tabs-placed (chip)" tabs (string split '|' -- $CAT8[9])[3]
+t "row 17 (after 8 chip rows) is cap-placed (core)" cap (string split '|' -- $CAT8[17])[3]
+t "row 19 (start of derived half) is bar-placed (soft)" bar (string split '|' -- $CAT8[19])[3]
+t "row 27 (after 8 soft rows) is tabs-placed (slate)" tabs (string split '|' -- $CAT8[27])[3]
+t "row 34 (after 7 slate rows) is cap-placed (deep)" cap (string split '|' -- $CAT8[34])[3]
+# _default and _rest are filters over the (now reordered) catalog, so the default
+# NAMES and count are unaffected by Task 8 — already pinned exactly by "catalog:
+# default names after the tabs rebalance" above (still passing, sorted so
+# order-independent), which is the discriminator for "did the default SET survive
+# the reorder", not a new assertion here.
+set -e __t8_lastlit
+set -e __t8_firstder
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))

@@ -746,26 +746,26 @@ function __tmux_lives_theme_relationships --description 'v5 relationship names (
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 
-function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers soft/glow/slate/chip/deep/core — bar, then tabs, then cap; derived before literal within each. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which has no tabs|derived row — mono still appears at tabs via mono|tabs|literal (chip); mono|tabs|derived is omitted because at zero travel, anchoring the bar and anchoring the tabs are the same operation, so that row could only duplicate mono|bar|derived. cap survives as a 4-row accent-led minority, ordered LAST — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
+function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers glow/chip/core/soft/slate/deep — LITERAL rows first (bar, then tabs, then cap), then DERIVED rows (bar, then tabs, then cap): 18 literal followed by 17 derived, so the two groups sit contiguous and comparable, per the user request to see seed-literal and seed-figurative schemes as trends rather than interleaved. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which has no tabs|derived row — mono still appears at tabs via mono|tabs|literal (chip); mono|tabs|derived is omitted because at zero travel, anchoring the bar and anchoring the tabs are the same operation, so that row could only duplicate mono|bar|derived. cap survives as a 4-row accent-led minority, split across the two groups (core in the literal half, deep in the derived half) — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
     printf '%s\n' \
-        'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
-        'mint soft|mint|bar|derived|0'    'amber soft|amber|bar|derived|1' \
-        'sage soft|sage|bar|derived|0'    'ember soft|ember|bar|derived|0' \
-        'teal soft|teal|bar|derived|0'    'coral soft|coral|bar|derived|0' \
         'mono glow|mono|bar|literal|0'    'wheat glow|wheat|bar|literal|0' \
         'mint glow|mint|bar|literal|0'    'amber glow|amber|bar|literal|0' \
         'sage glow|sage|bar|literal|1'    'ember glow|ember|bar|literal|0' \
         'teal glow|teal|bar|literal|1'    'coral glow|coral|bar|literal|0' \
-        'wheat slate|wheat|tabs|derived|1' 'mint slate|mint|tabs|derived|0' \
-        'amber slate|amber|tabs|derived|1' 'sage slate|sage|tabs|derived|0' \
-        'ember slate|ember|tabs|derived|1' 'teal slate|teal|tabs|derived|1' \
-        'coral slate|coral|tabs|derived|0' \
         'mono chip|mono|tabs|literal|0'   'wheat chip|wheat|tabs|literal|0' \
         'mint chip|mint|tabs|literal|1'   'amber chip|amber|tabs|literal|0' \
         'sage chip|sage|tabs|literal|1'   'ember chip|ember|tabs|literal|0' \
         'teal chip|teal|tabs|literal|0'   'coral chip|coral|tabs|literal|1' \
-        'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|0' \
-        'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|0'
+        'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|0' \
+        'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
+        'mint soft|mint|bar|derived|0'    'amber soft|amber|bar|derived|1' \
+        'sage soft|sage|bar|derived|0'    'ember soft|ember|bar|derived|0' \
+        'teal soft|teal|bar|derived|0'    'coral soft|coral|bar|derived|0' \
+        'wheat slate|wheat|tabs|derived|1' 'mint slate|mint|tabs|derived|0' \
+        'amber slate|amber|tabs|derived|1' 'sage slate|sage|tabs|derived|0' \
+        'ember slate|ember|tabs|derived|1' 'teal slate|teal|tabs|derived|1' \
+        'coral slate|coral|tabs|derived|0' \
+        'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|0'
 end
 
 function __tmux_lives_theme_catalog_default --description 'the curated default set (14): catalog rows flagged default=1'
