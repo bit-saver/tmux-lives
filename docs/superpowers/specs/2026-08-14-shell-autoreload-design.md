@@ -22,11 +22,17 @@ Fish fires `--on-variable` handlers on a **universal** variable in shells that a
 | question | measured |
 |---|---|
 | Does the handler fire in an already-running idle shell? | **Yes** |
-| Does it fire while the shell has a **foreground child**? | **Yes** — one firing while a 12 s `sleep` held the foreground |
+| Does it fire while the shell has a **foreground child**? | **No — deferred until the child exits** |
 | How many times does one `set -U` fire it? | **2** in the observed run — so the handler must be idempotent |
 | Does setting the **same value** still fire it? | **Yes** — the event gives no free change-detection |
 
-The second row is the one that decides the design: a Claude pane refreshes immediately, and Claude never sees anything. This was not the expected result — the reasonable prior was that a shell blocked on a foreground child would defer the event until the child exited.
+> **⚠️ The second row was WRONG in the first version of this spec, and the correction changes what a user observes.** It originally read "Yes — one firing while a 12 s `sleep` held the foreground", and the design was built on a Claude pane refreshing *immediately*. That measurement was a **false positive**: the probe registered its handler in `conf.d`, so the separate `fish -c 'set -U …'` process that fired the event **loaded the same handler and fired it on itself**. The firing counted as "during" came from the setter, not from the shell under test.
+>
+> Caught by Task 1's implementer, who could not reproduce the result with a handler defined only in the live session, and confirmed independently by logging `$fish_pid` in the handler: during the job only the setter's pid appears; the interactive shell's pid appears 13 s later, when `sleep 15` finished. The implementer also ruled out a notification-latency explanation by repeating it with `--on-signal USR1`, a mechanistically different delivery path, and seeing the same deferral. **Fish is single-threaded and dispatches no handler of any kind until control returns to its main loop.**
+
+**What the correction does and does not change.** The feature still works and still needs no `send-keys`: a shell running Claude refreshes **the moment Claude exits**, with no user action. What changes is the timing claim — *"refreshes immediately"* was wrong — and the justification for the idle check.
+
+**The idle predicate is no longer the mechanism that prevents output landing mid-frame; fish's scheduler already guarantees that.** It is kept as a cheap guard for the cases the scheduler does not cover (no controlling tty, a background job holding the terminal) and because it costs one `/proc` read. It should not be described as load-bearing.
 
 The fourth row means change-detection has to live in the emitter, not the event.
 
