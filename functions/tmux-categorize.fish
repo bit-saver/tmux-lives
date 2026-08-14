@@ -1607,7 +1607,7 @@ function __tcz_thp_swatch --argument-names hex hue L C --description 'pure: 4-li
     end
     printf '%s\n' "$band  $t1" "$band  $t2" "$band  $MUT""rendered as-is on the bar;$RST" "$band  $MUT""companions derive from it$RST"
 end
-function __tcz_thp_seedzone_uncached --argument-names w hex hue L C editing chan r g b --description 'pure: the seed configuration zone — MODE-DEPENDENT height: 4 rows idle, 9 rows editing (picker-responsiveness-and-layout Task 6, growing the colour block 2 -> 3 rows so the hex moves OFF the blocks right side and INTO its own centre, painted in a contrast-aware foreground rather than sitting in the default terminal colour beside it). Row 1 is the zone separator (label seed). Rows 2-4 are a 3-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip) — row 2 (top) and row 4 (bottom) are block only; row 3 (the MIDDLE block row) carries the 7-char hex CENTRED inside the 12-col block itself (2 blank cols, the hex, 3 blank cols — the block is a fixed width so this is a literal pad, not a runtime centring computation), painted with __tmux_lives_contrast_fg`(<hex>)`s WCAG-readable fg (via __tcz_thp_fg, the same hex->truecolor-SGR helper __tcz_thp_bg mirrors for backgrounds) rather than the plain-default-colour bold text the old design used beside the block — plus the muted hue/L/C readout, unchanged, immediately to the right of the block on that same row. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text (row 3s hex/contrast-fg painting is skipped the same way row 2s hex+readout used to be). Rows 1, 2 and 4 honour w exactly (w+2 visible cols, border glyphs included, like __tcz_thp_zsep/__tcz_thp_ln — __tcz_thp_ln pads SHORT content but never truncates); rows 5-9 (the editing-only blank/slider/blank rows) do too, unchanged from before. Row 3 does NOT: its content is a FIXED 12-col block (hex now baked INSIDE it) + 2 + the hue/L/C readout, which comes to exactly 39 visible columns at the example values — so row 3 only honours w at w >= 39 (below that it overflows w+2, same class of bug the old fixed-8-row version already had, just at a lower threshold now that the hex no longer sits outside the block and the redundant hex-flanking gap is gone). rows 1-4 are IDENTICAL in both states. The only caller passes w=50 (IW), so this is not reachable today. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
+function __tcz_thp_seedzone_uncached --argument-names w hex hue L C editing chan r g b --description 'the seed configuration zone — MODE-DEPENDENT height: 4 rows idle, 9 rows editing (picker-responsiveness-and-layout Task 6, growing the colour block 2 -> 3 rows so the hex moves OFF the blocks right side and INTO its own centre, painted in a contrast-aware foreground rather than sitting in the default terminal colour beside it). NOT pure, as of Task 6: when <hex> parses it calls the engines own __tmux_lives_contrast_fg (via __tcz_thp_fg, the same hex->truecolor-SGR helper __tcz_thp_bg mirrors for backgrounds) to derive that foreground — the ONLY __tcz_thp_* builder in this file with an external __tmux_lives_* dependency. Sourced with the engine unavailable, this does not fail cleanly: it still emits 4 correctly-sized rows but sprays a three-frame fish stack trace to stderr, which lands on screen inside a display-popup. Not reachable today — the sole caller (__tcz_theme_picker) always sources conf.d/tmux-lives-install.fish first. Row 1 is the zone separator (label seed). Rows 2-4 are a 3-row colour block (a run of spaces on hex as background via __tcz_thp_bg, since a block reads as a filled area rather than a glyph strip) — row 2 (top) and row 4 (bottom) are block only; row 3 (the MIDDLE block row) carries the 7-char hex CENTRED inside the 12-col block itself (2 blank cols, the hex, 3 blank cols — the block is a fixed width so this is a literal pad, not a runtime centring computation), painted with __tmux_lives_contrast_fg`(<hex>)`s WCAG-readable fg — plus the muted hue/L/C readout, unchanged, immediately to the right of the block on that same row. Idle stops there. Editing (editing=1) appends a blank row, the three __tcz_thp_slider R/G/B bars (the one at <chan> marked selected), and a trailing blank — blank rows bracket the slider group, none divides it. A non-hex hex still emits the right row count at the right width, with a blank (uncoloured) block and no readout text (row 3s hex/contrast-fg painting is skipped the same way row 2s hex+readout used to be). Rows 1, 2 and 4 honour w exactly (w+2 visible cols, border glyphs included, like __tcz_thp_zsep/__tcz_thp_ln — __tcz_thp_ln pads SHORT content but never truncates); rows 5-9 (the editing-only blank/slider/blank rows) do too, unchanged from before. Row 3 does NOT: its content is a FIXED 12-col block (hex now baked INSIDE it) + 2 + the hue/L/C readout, which comes to exactly 39 visible columns at the example values (123°/0.47/0.078) but the readout is NOT fixed-width — hue formats %.0f (up to 3 digits), L %.2f, C %.3f, so a worst case like 359°/1.00/0.400 is a 27-char readout, 41 total — so row 3 only honours w reliably at w >= 41, not 39 (below that it overflows w+2, same class of bug the old fixed-8-row version already had, just at a lower threshold now that the hex no longer sits outside the block and the redundant hex-flanking gap is gone). rows 1-4 are IDENTICAL in both states. The only caller passes w=50 (IW), so none of this is reachable today. Callers append the result to their own `lines` verbatim — it already carries the frame borders, so do not re-wrap it in __tcz_thp_ln.'
     set -l BORDER (__tcz_theme border)
     set -l RST (__tcz_theme reset)
     set -l MUT (__tcz_theme muted)
@@ -1803,7 +1803,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # session; the reload composes default-then-rest in exactly this order.
     set -l ndefault (count (__tmux_lives_theme_catalog_default))
     set -l legacy ''
-    set -l seedfg '#f5f5f5'
     # place/mode: READ-ONLY picker state — populated once by __tcz_thp_init
     # from the PERSISTED universals, consumed only by the anchor snapshot
     # (below). Nothing in the interactive loop mutates them anymore: place/
@@ -1822,7 +1821,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme mono)
             echo (__tmux_lives_key tmux_lives_theme_phase 0)
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-            echo (__tmux_lives_contrast_fg (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color "")))
             echo (__tmux_lives_key tmux_lives_theme_place bar)
             echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
@@ -1835,12 +1833,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $init) -ge 3; and test -n "$init[3]"; and set persisted_phase $init[3]
         set legacy ''
         test (count $init) -ge 4; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[4]")
-        set seedfg '#f5f5f5'
-        test (count $init) -ge 5; and test -n "$init[5]"; and set seedfg $init[5]
         # place/mode: read for the anchor snapshot ONLY (see the top-level
-        # comment on the `place`/`mode` decls).
-        test (count $init) -ge 6; and test -n "$init[6]"; and set place $init[6]
-        test (count $init) -ge 7; and test -n "$init[7]"; and set mode $init[7]
+        # comment on the `place`/`mode` decls). picker-responsiveness-and-layout
+        # Task 6 (fix round) removed the dead seedfg local this init used to
+        # populate from a since-orphaned 5th echo line — place/mode shifted
+        # from init[6]/init[7] to init[5]/init[6] accordingly.
+        test (count $init) -ge 5; and test -n "$init[5]"; and set place $init[5]
+        test (count $init) -ge 6; and test -n "$init[6]"; and set mode $init[6]
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
     end
     __tcz_thp_init
@@ -1978,7 +1977,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         # already gone, and every role derives from it, so the scheme
                         # looked unrestored too even with its own universals intact.
                         set seed $cand
-                        set seedfg (__tmux_lives_contrast_fg "$seed")
                         __tcz_thp_reload
                         __tcz_thp_reanchor
                         set note "seed previewed: $seed"

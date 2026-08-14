@@ -2335,6 +2335,43 @@ t "the retired copy is gone" 0 (string match -ra 'rendered as-is' -- (string joi
 # block plus a gap the way the old (row 2) placement was.
 set -g SZI3 (__tcz_strip_sgr "$SZI[3]")
 t "seedzone: the hex sits inside the block" 1 (string match -qr '^.\s{0,3}#5f772b' -- "$SZI3"; and echo 1; or echo 0)
+
+# --- Task 6 fix round (review I1): the placement check above passed
+# unchanged through three real mutations that each broke the actual point of
+# this task — a dropped contrast fg (m2: hex silently renders in the
+# terminal's default foreground on the seed background, the exact
+# unreadable-at-a-mid-tone-seed case this task exists to prevent), a
+# flush-left hex (m5: centring destroyed), and a dropped $bg reassertion
+# after the hex (m6: the block's right pad loses its fill, a visible notch).
+# All three left the full categorize suite at 961 ok / 0 FAIL. These three
+# groups pin each property directly, each mutation-proven below to fail
+# against its corresponding assertion(s) and pass against the other two —
+# not just "some assertion somewhere fails."
+#
+# (1) the fg itself: a dark and a light seed must each show __tmux_lives_
+# contrast_fg's own SGR immediately before the hex text (not just present
+# somewhere in the row), and the two must differ. #1a1a2e/#f0e6d2 are
+# comfortably on opposite sides of contrast_fg's WCAG crossover (0.179),
+# so this is not a near-boundary pick that could flip on a rounding change.
+set -g SZDARK (__tcz_thp_seedzone 50 '#1a1a2e' 250 0.15 0.05 0 1 26 26 46)
+set -g SZLIGHT (__tcz_thp_seedzone 50 '#f0e6d2' 60 0.90 0.05 0 1 240 230 210)
+set -g SZDARKFG (string match -rg '\e\[38;2;([0-9]+;[0-9]+;[0-9]+)m#1a1a2e' -- "$SZDARK[3]")
+set -g SZLIGHTFG (string match -rg '\e\[38;2;([0-9]+;[0-9]+;[0-9]+)m#f0e6d2' -- "$SZLIGHT[3]")
+t "seedzone: dark-seed fg extraction is non-empty" 1 (test -n "$SZDARKFG"; and echo 1; or echo 0)
+t "seedzone: light-seed fg extraction is non-empty" 1 (test -n "$SZLIGHTFG"; and echo 1; or echo 0)
+t "seedzone: dark seed's hex fg is 245;245;245 (contrast_fg's light value)" "245;245;245" "$SZDARKFG"
+t "seedzone: light seed's hex fg is 17;17;17 (contrast_fg's dark value)" "17;17;17" "$SZLIGHTFG"
+t "seedzone: dark and light hex fg colours differ" 1 (test "$SZDARKFG" != "$SZLIGHTFG"; and echo 1; or echo 0)
+# (2) exact centring: the 12-col block interior, char for char, not just
+# "somewhere in 0-3 leading cols" the way the placement check above allows.
+set -g SZI3BLOCK (string sub -s 2 -l 12 -- "$SZI3")
+t "seedzone: the 12-col block interior is exactly 2sp + hex + 3sp (centred)" "  #5f772b   " "$SZI3BLOCK"
+# (3) the block's own background is RE-asserted after the hex's reset, so
+# the trailing pad stays filled rather than reverting to the terminal
+# default — counted in the RAW (un-stripped) row since stripping SGR would
+# make a filled and an unfilled trailing pad look identical.
+t "seedzone: the block's own background is reasserted after the hex (no notch in the right pad)" 2 (count (string match -ra '48;2;95;119;43' -- "$SZI[3]"))
+
 # Blank rows surround the slider group and none divides it.
 set -g SZE5 (__tcz_strip_sgr "$SZE[5]"); set -g SZE9 (__tcz_strip_sgr "$SZE[9]")
 t "row 5 is blank" 1 (string match -qr '^│ *│$' -- "$SZE5"; and echo 1; or echo 0)
@@ -3293,7 +3330,7 @@ t "frame: 26 rows — collapsed is unchanged"         26 (__t9_frame_rows list 0
 
 # --- picker-seed-section Task 1: WIN is derived from the popup height, not fixed --
 # The real function reads its own popup height via `stty size` and sets
-# WIN = rows - STATIC_IDLE (16, idle mode — every call below is editing=0);
+# WIN = rows - STATIC_IDLE (17, idle mode — every call below is editing=0);
 # __t9_frame_rows now takes that same rows value and derives WIN
 # identically, so these prove the frame still emits EXACTLY its height at sizes
 # other than todays fixed 26. picker-seed-section Task 3 raised STATIC 15->21 (the
@@ -4026,8 +4063,14 @@ t "hexentry draws its own border" yes (string match -qr '╭|╰' -- "$HB5"; and
 # other builder in this file), stub __tcz_thp_readchar so the entering-loop
 # reads a scripted "esc" and exits after painting exactly one frame, and seed
 # every outer-scope local __tcz_thp_hexentry closes over via
-# --no-scope-shadowing (BORDER/RST/BRAND/IW/seed/seedfg/note/flashfield —
-# __tcz_theme_picker sets all of these before its loop can ever reach here).
+# --no-scope-shadowing (BORDER/RST/BRAND/IW/seed/note/flashfield —
+# __tcz_theme_picker sets all of these before its loop can ever reach here;
+# picker-responsiveness-and-layout Task 6 (fix round) deleted the dead
+# seedfg local that used to be in this list too — this harness's own now-inert
+# `set -l seedfg` pre-declaration is left in place deliberately, not an
+# oversight: it costs nothing and touching every eval-harness's scope
+# mirroring for a variable that was never actually read by any extracted
+# fragment is scope creep this fix round was told to avoid).
 eval $HB5
 t "hexentry is now a real callable function" 0 (functions -q __tcz_thp_hexentry; echo $status)
 
