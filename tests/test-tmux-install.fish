@@ -1972,6 +1972,58 @@ set -e tmux_lives_isolation_probe
 
 # --- Task 1: the idle predicate ---------------------------------------------
 t "is_idle: function exists" 1 (functions -q __tmux_lives_shell_is_idle; and echo 1; or echo 0)
+
+# Review fix I-1: no prior assertion could tell a right /proc/<pid>/stat field
+# index from a wrong one -- a reviewer mutation (pgrp field[3] -> session
+# field[4]) left `ALL PASS` unchanged. A same-process cross-check (this test
+# runner's own $fish_pid against `ps -o tpgid=,pgid=`) was tried first and
+# does NOT discriminate: in every sandbox tried, a shell that is its own
+# session leader (true of this test runner, and true of the function's real
+# caller -- a tmux pane's shell) has pgrp == session by construction, so
+# field[3] and field[4] read the same number regardless of which is used.
+# Confirmed by direct /proc inspection before building this (see the task
+# report). The mutation is only OBSERVABLE on a process that is (a) not its
+# own session leader, so pgrp and session genuinely differ, and (b) has a
+# positive tpgid, since the function's own `test "$tp" -gt 0; or return 1`
+# guard short-circuits before ever reaching the pg comparison otherwise --
+# both of which require a real controlling tty. So: an isolated tmux pane
+# (real pty, real job control) runs a plain fish; a DIRECTLY TYPED nested
+# `fish -c` (sent via `send-keys`, not sourced from a file -- fish only
+# hands a job its own process group for commands entered at a live prompt)
+# gets its own pgrp via real job control while inheriting the PANE's session
+# id, which differs from its own pgrp by construction -- and since it is the
+# live foreground job while it runs, tpgid == its own pgrp, giving a
+# genuine positive tp with a genuinely wrong candidate (session) to confuse
+# it with. That nested fish sources the real install file, calls the SHIPPED
+# function on itself, and separately recomputes the same check from `ps` on
+# its own pid, so a wrong field index makes the two disagree while a right
+# one makes them agree. Linux-only by construction: the function's macOS
+# branch already reads `ps` directly, so a cross-check there would just be
+# `ps` agreeing with itself -- not attempted.
+set -l idlesock tli-idle-$fish_pid
+set -l idleready /tmp/tli-idle-ready-$fish_pid
+set -l idleresult /tmp/tli-idle-result-$fish_pid
+rm -f $idleready $idleresult
+command tmux -L $idlesock -f /dev/null new-session -d -x 100 -y 30 "fish --no-config -i -C 'touch $idleready'" 2>/dev/null
+set -l n 0
+while not test -e $idleready; and test $n -lt 100
+    sleep 0.1
+    set n (math $n + 1)
+end
+set -l idlecmd "fish --no-config -c 'source $plugindir/conf.d/tmux-lives-install.fish; set -l fn BUSY; __tmux_lives_shell_is_idle; and set fn IDLE; set -l o (ps -o tpgid=,pgid= -p \$fish_pid | string trim | string split -n \" \"); set -l ps BUSY; test \"\$o[1]\" = \"\$o[2]\"; and set ps IDLE; echo \"FN=\$fn PS=\$ps\" > $idleresult'"
+command tmux -L $idlesock send-keys -t 0:0.0 "$idlecmd" Enter 2>/dev/null
+set -l n2 0
+while not test -e $idleresult; and test $n2 -lt 100
+    sleep 0.1
+    set n2 (math $n2 + 1)
+end
+command tmux -L $idlesock kill-server 2>/dev/null
+set -l idleout (test -e $idleresult; and cat $idleresult; or echo '')
+rm -f $idleready $idleresult
+set -l idlefn (string match -r 'FN=(\w+)' -- "$idleout")[2]
+set -l idleps (string match -r 'PS=(\w+)' -- "$idleout")[2]
+t "is_idle: /proc field parse agrees with an independent ps -o tpgid=,pgid= reading" "$idleps" "$idlefn"
+
 # No controlling tty -> tpgid is -1 -> must report NOT idle. "Unsure" has to mean
 # "do not print", because every wrong answer here corrupts someone's editor frame.
 set -g __t1_notty (fish --no-config -c "set -g tmux_categorize_test 1; source $plugindir/conf.d/tmux-lives-install.fish; __tmux_lives_shell_is_idle; and echo IDLE; or echo BUSY" 2>/dev/null)
