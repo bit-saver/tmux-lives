@@ -2500,7 +2500,22 @@ functions -e __ti_guard_sum
 # carries $fish_pid, which is this (re-exec'd) process, so the glob cannot touch
 # another run's files or the user's own `default`.
 set -l __ti_sockdir /tmp/tmux-(id -u)
-rm -f $__ti_sockdir/*$fish_pid* 2>/dev/null
+# FAIL CLOSED before globbing. If $fish_pid were ever empty, `*$fish_pid*`
+# collapses to `**` and matches EVERY file in this directory — including the
+# user's own `default` socket, which would drop their live tmux server's socket
+# file. $fish_pid is a fish-protected special variable and cannot currently be
+# empty, but a future refactor swapping in a less-protected PID variable would
+# silently turn this line into a directory-wide wipe. Same fail-closed shape as
+# the XDG_CONFIG_HOME guard at the top of this file.
+if test -z "$fish_pid"; or test -z "$__ti_sockdir"
+    echo "FATAL: refusing to sweep sockets without a pid-scoped glob" >&2
+    exit 1
+end
+# Anchored on the `-<pid>` suffix every socket in this file uses, so a run whose
+# pid is a substring of another's (445722 vs 1445722) cannot delete the other's
+# live sockets. Anchoring narrows the collision surface; it does not eliminate
+# it, and this suite is not designed to run concurrently with itself.
+rm -f $__ti_sockdir/*-$fish_pid 2>/dev/null
 # Self-checking: prove the sweep actually matched this run's names rather than
 # silently globbing nothing (the failure mode that let this go unnoticed).
 set -l __ti_leftover (count (string match -r ".*$fish_pid.*" -- (ls $__ti_sockdir 2>/dev/null)))
