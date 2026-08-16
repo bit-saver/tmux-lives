@@ -84,5 +84,11 @@ The point of this table is operational: when the built thing is criticised, look
 
 ## Artifacts
 
-- Mockup (today vs proposed, 20 comparisons, faithful ShellFish facsimile): `~/.claude-mock-shared/tmux-lives/content/trio-accent.html`, served at `https://tmux-lives.claude.lan`.
-- Throwaway prototype and measurement probes: session scratchpad, `proto-trio.fish`, `measure-big3.fish`, `measure-within.fish`, `tabscap.fish`, `seeds.fish`. Not installed, not committed.
+**All committed** — see `../prototypes/2026-08-16-trio-geometry/` for the prototype, the consolidated measurement probe, the mockup generator, and the rendered mockup, plus a README recording every number so a thaw needs no re-run.
+
+The session scratchpad proved actively unreliable: it lives under `/tmp`, and six probe scripts vanished during the working session itself with no reboot involved. Nothing about this cycle is stored there any more.
+
+- `../prototypes/2026-08-16-trio-geometry/measure.fish` — every measurement quoted above, as subcommands (`big3`, `tabscap`, `seeds`, `surfaces`, `within`). Read-only and pure.
+- `../prototypes/2026-08-16-trio-geometry/proto-trio.fish` — the throwaway prototype. Never installed; defines `proto_trio` beside the real engine.
+- `../prototypes/2026-08-16-trio-geometry/check2.fish` — before/after metrics for the prototype.
+- `../prototypes/2026-08-16-trio-geometry/mock.fish` + `trio-accent.html` — the visual comparison, generator and rendered output. Committed because `claude-mock --reset` wipes the served copy.
