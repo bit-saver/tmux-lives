@@ -384,6 +384,37 @@ function __tmux_lives_clear --description 'Kill idle sessions, keeping the curre
     end
 end
 
+# ---- shell-side switcher key ----------------------------------------------
+# The same key opens the picker in AND out of tmux. Inside tmux this binding is
+# dormant by construction: tmux's root-table `bind -n M-s` consumes the key
+# before the pane shell ever sees it. Outside tmux, fish would otherwise run its
+# own `alt-s` preset, which prepends sudo to your PREVIOUS command — the reason
+# pressing it at a bare prompt drops a stray `sudo …` on the line.
+
+function __tmux_lives_fish_key --argument-names tmuxkey --description 'Translate a tmux key name to fish bind notation: M-s -> alt-s. Only M-<single char> is translatable; anything else (C-M-a, M-Space, "") yields nothing, so the caller simply does not bind.'
+    string match -qr '^M-[a-zA-Z0-9]$' -- "$tmuxkey"; or return
+    echo "alt-"(string sub -s 3 -- $tmuxkey)
+end
+
+function __tmux_lives_shell_key --description 'Bound to the switcher key OUTSIDE tmux: runs the picker as if you had typed it.'
+    # Never destroy typed input. The picker execs into tmux, so anything on the
+    # command line would be lost with no way back — act only at an empty prompt.
+    # Capture-and-quote: a zero-word command substitution makes `test -z` throw.
+    set -l cur (commandline | string trim)
+    test -z "$cur"; or return
+    commandline -r 'tmux-lives picker'
+    commandline -f execute
+end
+
+# Deliberately NOT routed through fish_user_key_bindings: users define that
+# function themselves (this one binds \cl), and defining it here would silently
+# clobber theirs. A plain conf.d bind is a USER binding, so it outranks the
+# preset and survives both the emacs and vi binding setups — verified on a pty.
+if status is-interactive; and command -q tmux; and functions -q __tmux_lives_key
+    set -l __tl_shellkey (__tmux_lives_fish_key (__tmux_lives_key tmux_lives_switcher_key M-s))
+    test -n "$__tl_shellkey"; and bind $__tl_shellkey __tmux_lives_shell_key
+end
+
 # ---- trigger (interactive SSH logins only) ----
 # Skip when this file is being SOURCED from within a function — fisher re-sources
 # conf.d on install/update, and that is never a genuine login; letting

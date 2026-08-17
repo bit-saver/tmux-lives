@@ -296,6 +296,132 @@ set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
+# shell picker key: Alt+<switcher key> at a bare prompt, outside tmux.
+#
+# fish binds alt-s to "prepend sudo" by default (--preset, and it recalls the
+# PREVIOUS commandline when the current one is empty) -- verified on a pty.
+# That is the annoyance this replaces. Inside tmux the key never reaches the
+# shell, because tmux's root-table `bind -n M-s` consumes it first.
+#
+# NB every actual value is captured into a variable BEFORE `t` sees it. A call
+# to an undefined function placed DIRECTLY inside `t` aborts the whole
+# statement -- `t` never runs, nothing prints, and this suite still reports
+# ALL PASS. Capture-first makes the RED phase real.
+# ---------------------------------------------------------------------
+
+set -l has_builder (functions -q __tmux_lives_fish_key; and echo 1; or echo 0)
+set -l has_action  (functions -q __tmux_lives_shell_key; and echo 1; or echo 0)
+t "shell key: __tmux_lives_fish_key is defined"  1 $has_builder
+t "shell key: __tmux_lives_shell_key is defined" 1 $has_action
+
+set -l k_s     (__tmux_lives_fish_key M-s)
+set -l k_m     (__tmux_lives_fish_key M-m)
+set -l k_upper (__tmux_lives_fish_key M-S)
+set -l k_digit (__tmux_lives_fish_key M-1)
+set -l k_ctrl  (__tmux_lives_fish_key C-M-a)
+set -l k_empty (__tmux_lives_fish_key '')
+set -l k_bare  (__tmux_lives_fish_key S)
+set -l k_word  (__tmux_lives_fish_key M-Space)
+t "shell key: M-s translates to alt-s"            alt-s "$k_s"
+t "shell key: M-m translates to alt-m"            alt-m "$k_m"
+t "shell key: case is preserved (M-S -> alt-S)"   alt-S "$k_upper"
+t "shell key: digits translate (M-1 -> alt-1)"    alt-1 "$k_digit"
+t "shell key: C-M-a is untranslatable -> nothing" ""    "$k_ctrl"
+t "shell key: '' (disabled) -> nothing"           ""    "$k_empty"
+t "shell key: bare S (no modifier) -> nothing"    ""    "$k_bare"
+t "shell key: M-Space (multi-char) -> nothing"    ""    "$k_word"
+
+# Behavioural: no grep can see a keypress, so drive a real pty.
+#
+# THREE things here are load-bearing; each was found by the harness failing to
+# discriminate, and removing any one makes these assertions vacuous:
+#
+#  1. $XDG_DATA_HOME must be redirected. fish history lives there and this
+#     suite's isolation guard covers XDG_CONFIG_HOME ONLY, so without this
+#     every simulated keypress lands in the user's REAL fish_history
+#     (test-tmux-install.fish:2348 compensates the same way). Bracketed below.
+#  2. History must be SEEDED. fish's preset prepends sudo to the PREVIOUS
+#     commandline; with an empty history it is a no-op, so "no longer prepends
+#     sudo" would pass even against unfixed code. Measured: empty history ->
+#     Alt+S does nothing at all.
+#  3. `sudo` must be FAKED onto PATH. The preset gates on `command -q sudo`, so
+#     a fake satisfies it -- and executing the recalled line then hits our stub
+#     instead of blocking on a real password prompt until the timeout.
+set -l real_hist $HOME/.local/share/fish/fish_history
+set -l hist_before (md5sum $real_hist 2>/dev/null | string split ' ')[1]
+
+set -l ptydir /tmp/tl-shellkey-$fish_pid
+rm -rf $ptydir; mkdir -p $ptydir/fish/conf.d $ptydir/bin $ptydir/data/fish
+printf -- '- cmd: echo tlprobe\n  when: 1700000000\n' > $ptydir/data/fish/fish_history
+# `sudo` is a real binary, so a PATH stub shadows it. `tmux-lives` is NOT --
+# the plugin defines it as a FUNCTION, and fish resolves functions before
+# $PATH, so a stub binary is silently ignored and the real dispatcher runs
+# (it tried to start a tmux server). The stub must be a function, defined
+# AFTER the plugin is sourced so it wins.
+printf '#!/bin/sh\necho SUDO_CALLED:"$@"\n' > $ptydir/bin/sudo
+chmod +x $ptydir/bin/sudo
+begin
+    printf 'set -gx TMUX_AUTO 0\n'
+    printf 'source %s/conf.d/tmux-lives-install.fish\n' $plugindir
+    printf 'source %s/conf.d/tmux.fish\n' $plugindir
+    printf 'function tmux-lives; echo SHELLKEY_FIRED:$argv; end\n'
+end > $ptydir/fish/conf.d/tl.fish
+
+function _shellkey_press --description 'press Alt+S at a real fish prompt; echo what happened'
+    set -l d $argv[1]
+    set -l mode $argv[2]
+    begin
+        if test "$mode" = guard
+            # Type something, THEN Alt+S, then Enter. Enter (not Ctrl-C) is
+            # load-bearing: Ctrl-C cancels the execution `commandline -f execute`
+            # queues, so the scenario produced nothing whether the guard was
+            # there or not -- a vacuous test, caught by mutating the guard away.
+            # With the guard, the line still says `echo typed-input` and Enter
+            # runs it; without it, the line is replaced and the picker fires.
+            printf 'echo typed-input\033s\nexit\n'
+        else
+            printf '\033s\nexit\n'
+        end
+    end | timeout 30 env XDG_CONFIG_HOME=$d XDG_DATA_HOME=$d/data \
+        PATH="$d/bin:$PATH" script -qec "fish -i" /dev/null 2>&1 | tr -d '\r'
+end
+
+set -l pty_out (_shellkey_press $ptydir run | string collect)
+set -l fired (string match -q '*SHELLKEY_FIRED*' -- "$pty_out"; and echo yes; or echo no)
+set -l sudoed (string match -q '*SUDO_CALLED*' -- "$pty_out"; and echo yes; or echo no)
+t "shell key: Alt+S runs the picker at a bare prompt" yes $fired
+t "shell key: Alt+S no longer hijacks the prompt with sudo" no $sudoed
+
+# The picker execs into tmux, so firing it over typed input would destroy that
+# input with no way back. Guard: act only at an empty prompt. Without this test
+# the guard is a correct line bound by nothing -- a one-line deletion removes it
+# with the whole gate still green.
+set -l guard_out (_shellkey_press $ptydir guard | string collect)
+set -l guard_fired (string match -q '*SHELLKEY_FIRED*' -- "$guard_out"; and echo yes; or echo no)
+# Only command OUTPUT matches contiguously -- typed characters are rendered with
+# cursor-movement escapes interleaved between them, so the echoed input never
+# appears as one string. `typed-input` here is echo's output, proving the line
+# survived intact and ran.
+set -l guard_kept (string match -q '*typed-input*' -- "$guard_out"; and echo yes; or echo no)
+t "shell key: does NOT fire over typed input" no  $guard_fired
+t "shell key: typed input survives and still runs" yes $guard_kept
+
+# Control: the harness must be able to report the OTHER state, or the two
+# assertions above prove nothing.
+rm -f $ptydir/fish/conf.d/tl.fish
+set -l ctl_out (_shellkey_press $ptydir run | string collect)
+set -l ctl_sudo (string match -q '*SUDO_CALLED*' -- "$ctl_out"; and echo yes; or echo no)
+set -l ctl_fired (string match -q '*SHELLKEY_FIRED*' -- "$ctl_out"; and echo yes; or echo no)
+t "shell key CONTROL: without the plugin, Alt+S does hijack with sudo" yes $ctl_sudo
+t "shell key CONTROL: without the plugin, the picker does not run"     no  $ctl_fired
+
+set -l hist_after (md5sum $real_hist 2>/dev/null | string split ' ')[1]
+t "shell key: the pty harness left the real fish_history untouched" "$hist_before" "$hist_after"
+
+functions -e _shellkey_press
+rm -rf $ptydir
+
+# ---------------------------------------------------------------------
 if test $FAIL -eq 0
     echo "ALL PASS"
     exit 0
