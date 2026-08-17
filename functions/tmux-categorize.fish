@@ -54,16 +54,61 @@ function __tcz_unique --description '__tcz_unique <desired> <taken...> -> collis
     echo "$desired-$n"
 end
 
-function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, ps elsewhere)'
+# --- non-Linux pid table: ONE ps snapshot per pass ---------------------------
+# macOS has no /proc, so every pid helper takes its fallback branch — and
+# /usr/bin/pgrep on macOS links libsysmon.dylib, delegating enumeration to the
+# /usr/libexec/sysmond ROOT DAEMON, which walks every process AND every thread
+# per call. Measured on macwork 2026-08-17: ~4 of 14 cores in sysmond, 0.4%
+# idle, fan at 63%, from 56 subprocess spawns per pass at ~17 passes/second.
+# /bin/ps is libsysmon-clean, so on macOS the intuition inverts: pgrep is the
+# expensive primitive and ps is the cheap one. Two ps spawns answer all three
+# helpers for all pids, and take pgrep invocations to ZERO — which removes
+# sysmond from the path entirely, since it is only reachable via pgrep.
+#
+# Two spawns rather than one because BOTH `comm` and `args` can contain spaces,
+# so each needs to be the last column of its own snapshot. Still 28x better.
+#
+# Lifetime is one PASS, not one process: every caller today is a one-shot
+# `fish --no-config <script> <verb>` where those coincide, but __tcz_main
+# flushes on entry so a long-lived shell could never be served a stale table.
+function __tcz_ps_flush --description 'drop the per-pass ps snapshot so the next lookup rebuilds it'
+    # GLOB, not regex: `string match -r` returns the MATCHED SUBSTRING, so a
+    # prefix pattern yields the literal prefix and `set -e` erases a variable
+    # that does not exist while every real entry survives. The symptom is
+    # duplicate pids accumulating in the kids index across loads, not an error.
+    for v in (set --names | string match '__tcz_ps_*')
+        set -e $v
+    end
+end
+
+function __tcz_ps_load --description 'build the per-pass pid table from ONE ps snapshot pair (pid/ppid/comm and pid/args), keyed into per-pid globals. No-op once loaded.'
+    set -q __tcz_ps_loaded; and return
+    set -g __tcz_ps_loaded 1
+    for line in (ps -Ao pid=,ppid=,comm= 2>/dev/null)
+        set -l m (string match -r '^\s*(\d+)\s+(\d+)\s+(.+)$' -- $line)
+        test (count $m) -eq 4; or continue
+        set -l raw (string trim -- $m[4])
+        # `--`: a login shell's comm is "-fish"/"-bash"; without it path basename
+        # parses the leading dash as an option and errors (macOS pane shells).
+        test -n "$raw"; and set -g __tcz_ps_comm_$m[2] (path basename -- $raw)
+        set -ga __tcz_ps_kids_$m[3] $m[2]
+    end
+    for line in (ps -Ao pid=,args= 2>/dev/null)
+        set -l m (string match -r '^\s*(\d+)\s+(.+)$' -- $line)
+        test (count $m) -eq 3; or continue
+        set -g __tcz_ps_args_$m[2] (string trim -- $m[3])
+    end
+end
+
+function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
     if test -r /proc/$pid/comm; and not set -q tcz_force_ps
         cat /proc/$pid/comm 2>/dev/null
     else
-        set -l c (ps -o comm= -p $pid 2>/dev/null | string trim)
-        # `--`: a login shell's comm is "-fish"/"-bash"; without it path basename
-        # parses the leading dash as an option and errors (macOS pane shells).
-        test -n "$c"; and path basename -- $c
+        __tcz_ps_load
+        set -l v __tcz_ps_comm_$pid
+        set -q $v; and echo $$v
     end
 end
 
@@ -73,7 +118,9 @@ function __tcz_pid_cmdline --description 'pid -> space-joined argv (portable: /p
     if test -r /proc/$pid/cmdline; and not set -q tcz_force_ps
         string split0 < /proc/$pid/cmdline 2>/dev/null | string join ' '
     else
-        ps -o args= -p $pid 2>/dev/null | string trim
+        __tcz_ps_load
+        set -l v __tcz_ps_args_$pid
+        set -q $v; and echo $$v
     end
 end
 
@@ -91,7 +138,7 @@ function __tcz_pid_environ --description 'pid -> environment KEY=VALUE lines (po
     end
 end
 
-function __tcz_pid_children --description 'pid -> direct child pids (portable: /proc on Linux, pgrep elsewhere)'
+function __tcz_pid_children --description 'pid -> direct child pids (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
     # `pgrep -P` walks every entry in /proc on each call, so it costs whatever the
@@ -101,12 +148,18 @@ function __tcz_pid_children --description 'pid -> direct child pids (portable: /
     # forks from whichever thread ran, and `children` is per-thread. An unmatched
     # glob yields no iterations silently, which matters because this function's
     # stderr would land in the status bar.
+    #
+    # The fallback no longer calls pgrep AT ALL. On macOS pgrep is a sysmond
+    # client and was the whole storm; the shared ps snapshot answers this from
+    # a reverse ppid index built in the same two spawns as comm and args.
     if test -d /proc/$pid/task; and not set -q tcz_force_ps
         for f in /proc/$pid/task/*/children
             string split -n ' ' <$f 2>/dev/null
         end
     else
-        pgrep -P $pid 2>/dev/null
+        __tcz_ps_load
+        set -l v __tcz_ps_kids_$pid
+        set -q $v; and printf '%s\n' $$v
     end
 end
 
@@ -3108,6 +3161,11 @@ function __tcz_resize_enter --argument-names client --description 'enter the nat
 end
 
 function __tcz_main
+    # One PASS = one ps snapshot. Every verb below is normally reached as a
+    # one-shot `fish --no-config <script> <verb>`, where pass and process
+    # coincide — but flushing here means a long-lived caller could never be
+    # served a stale pid table either.
+    __tcz_ps_flush
     switch "$argv[1]"
         case categorize
             __tcz_categorize

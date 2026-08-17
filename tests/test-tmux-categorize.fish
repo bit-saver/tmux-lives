@@ -696,20 +696,93 @@ t "pid_comm ps -> fish"         "fish" (__tcz_pid_comm $fish_pid)
 t "pid_cmdline ps has fish"     "1"    (string match -q '*fish*' -- (__tcz_pid_cmdline $fish_pid); and echo 1; or echo 0)
 set -e tcz_force_ps
 t "pid_comm empty pid -> empty" ""     (__tcz_pid_comm "")
-# Regression (macOS): a login shell's `ps -o comm=` starts with a dash ("-fish").
-# `path basename` must get `--` or fish parses "-fish" as an option and errors,
-# so __tcz_pid_comm returns empty and claude detection on the pane shell breaks.
+# Regression (macOS): a login shell's comm starts with a dash ("-fish"). `path
+# basename` must get `--` or fish parses "-fish" as an option and errors, so
+# __tcz_pid_comm returns empty and claude detection on the pane shell breaks.
+# The shim now emits a `pid ppid comm` row because the fallback reads a shared
+# `ps -Ao pid=,ppid=,comm=` snapshot rather than `ps -o comm= -p <pid>`; the
+# GUARANTEE under test is unchanged — a dash-prefixed comm must survive intact.
 set -g psshim /tmp/tcz-psshim-$fish_pid
 mkdir -p $psshim
-printf '#!/bin/sh\nprintf "%%s\\n" -fish\n' > $psshim/ps
+printf '#!/bin/sh\nprintf "%%s\\n" "12345 1 -fish"\n' > $psshim/ps
 chmod +x $psshim/ps
 set -g ps_path_save $PATH
 set -gx PATH $psshim $PATH
 set -g tcz_force_ps 1
+functions -q __tcz_ps_flush; and __tcz_ps_flush
 t "pid_comm: dash-prefixed comm survives" "-fish" (__tcz_pid_comm 12345 2>/dev/null)
+functions -q __tcz_ps_flush; and __tcz_ps_flush
 set -e tcz_force_ps
 set -gx PATH $ps_path_save
 rm -rf $psshim
+
+# ---------------------------------------------------------------------
+# macOS pgrep -> sysmond storm (handoff docs/2026-08-17-handoff-pgrep-sysmond-macos.md)
+#
+# On macOS there is no /proc, so EVERY call takes the fallback branch, and
+# /usr/bin/pgrep there links libsysmon.dylib -- it delegates enumeration to the
+# /usr/libexec/sysmond ROOT DAEMON, which walks every process and every thread
+# per request. Measured on macwork: ~4 of 14 cores, 0.4% idle. /bin/ps is
+# libsysmon-clean, so on macOS the intuition inverts -- pgrep is the expensive
+# primitive and ps is the cheap one.
+#
+# The CPU symptom is unreproducible on Linux (pgrep scans /proc in-process and
+# never touches a daemon), so SPAWN COUNT is the portable invariant that
+# actually encodes the bug. Reproduced here at 56 spawns per tick with
+# tcz_force_ps set, against 0 on the native /proc path.
+# ---------------------------------------------------------------------
+set -g spshim /tmp/tcz-spawnshim-$fish_pid
+set -g splog /tmp/tcz-spawnlog-$fish_pid
+rm -rf $spshim $splog; mkdir -p $spshim $splog
+printf '#!/bin/sh\necho x >> %s/ps\nexec /bin/ps "$@"\n' $splog > $spshim/ps
+printf '#!/bin/sh\necho x >> %s/pgrep\nexec /usr/bin/pgrep "$@"\n' $splog > $spshim/pgrep
+chmod +x $spshim/ps $spshim/pgrep
+# Gather the probe pids BEFORE the shim goes on PATH — otherwise the harness's
+# own `ps` is counted against the helpers and the bound measures the wrong thing.
+set -g sp_pids (ps -Ao pid= 2>/dev/null | string trim | head -12)
+set -g sp_path_save $PATH
+set -gx PATH $spshim $PATH
+set -g tcz_force_ps 1
+functions -q __tcz_ps_flush; and __tcz_ps_flush
+for p in $sp_pids
+    __tcz_pid_comm $p >/dev/null 2>&1
+    __tcz_pid_cmdline $p >/dev/null 2>&1
+    __tcz_pid_children $p >/dev/null 2>&1
+end
+set -g sp_ps 0; test -f $splog/ps; and set sp_ps (string trim -- (wc -l < $splog/ps))
+set -g sp_pgrep 0; test -f $splog/pgrep; and set sp_pgrep (string trim -- (wc -l < $splog/pgrep))
+t "pid helpers: fallback spawns NO pgrep (macOS sysmond path)" 0 $sp_pgrep
+t "pid helpers: fallback is O(1) ps spawns, not O(pids)" 1 (test $sp_ps -le 2; and echo 1; or echo 0)
+set -e tcz_force_ps
+set -gx PATH $sp_path_save
+rm -rf $spshim $splog
+
+# The snapshot must not change what the helpers RETURN -- only how many
+# processes they spawn getting there. `fish -c 'sleep …' &` is deliberately a
+# parent WITH a child (fish forks sleep), so children has something to find.
+fish -c 'sleep 5' &
+set -g kidparent $last_pid
+sleep 0.4
+set -g kids_proc (__tcz_pid_children $kidparent 2>/dev/null | sort | string join ,)
+set -g comm_proc (__tcz_pid_comm $kidparent)
+set -g tcz_force_ps 1
+functions -q __tcz_ps_flush; and __tcz_ps_flush
+set -g kids_ps (__tcz_pid_children $kidparent 2>/dev/null | sort | string join ,)
+set -g comm_ps (__tcz_pid_comm $kidparent)
+set -e tcz_force_ps
+t "pid_children: snapshot agrees with /proc" "$kids_proc" "$kids_ps"
+t "pid_comm: snapshot agrees with /proc"     "$comm_proc" "$comm_ps"
+t "pid_children: found a real child to compare" 1 (test -n "$kids_proc"; and echo 1; or echo 0)
+kill $kidparent 2>/dev/null
+
+# The snapshot's lifetime is one PASS. __tcz_main flushes on entry so a
+# long-lived caller can never be served a stale table -- plant a sentinel in the
+# table, run a harmless verb, and it must be gone. Without this the flush is a
+# correct line bound by nothing: removing it broke no assertion at all.
+set -g __tcz_ps_comm_999999 SENTINEL
+__tcz_main host-kind >/dev/null 2>&1
+t "__tcz_main flushes the pid table on entry" "" "$__tcz_ps_comm_999999"
+set -e __tcz_ps_comm_999999
 
 # ---------------------------------------------------------------------
 # pid -> direct children. `pgrep -P` rescans all of /proc per call (~140 ms on
@@ -721,9 +794,28 @@ sleep 30 &
 set -g kidpid $last_pid
 t "pid_children /proc finds the child" 1 (contains -- $kidpid (__tcz_pid_children $fish_pid); and echo 1; or echo 0)
 set -g tcz_force_ps 1
+# The fallback now reads a per-PASS ps snapshot, so a process spawned after the
+# snapshot was taken is invisible to it — exactly as a process spawned after a
+# `pgrep` call was invisible to that call. __tcz_main flushes on entry so each
+# real pass starts fresh; this suite runs many scenarios in ONE process, so it
+# has to flush explicitly wherever it spawns something mid-scenario.
+functions -q __tcz_ps_flush; and __tcz_ps_flush
 t "pid_children fallback finds the child" 1 (contains -- $kidpid (__tcz_pid_children $fish_pid); and echo 1; or echo 0)
 set -e tcz_force_ps
-t "pid_children /proc and fallback agree" (__tcz_pid_children $fish_pid | sort | string join ',') (begin; set -g tcz_force_ps 1; __tcz_pid_children $fish_pid | sort | string join ','; set -e tcz_force_ps; end)
+functions -q __tcz_ps_flush; and __tcz_ps_flush
+# Compared against a THIRD-PARTY parent, not $fish_pid. Taking the snapshot runs
+# `ps` as a child of whichever shell runs it, so asking that same shell for its
+# own children legitimately yields one more pid than /proc does (which spawns
+# nothing). That artifact is impossible in production — lookups target pane pids,
+# never the categorizer's own — so comparing self-children would be testing the
+# harness rather than the helper.
+fish -c 'sleep 5' &
+set -g agreeparent $last_pid
+sleep 0.4
+t "pid_children /proc and fallback agree" (__tcz_pid_children $agreeparent | sort | string join ',') (begin; set -g tcz_force_ps 1; __tcz_ps_flush; __tcz_pid_children $agreeparent | sort | string join ','; set -e tcz_force_ps; end)
+t "pid_children agree-test had a real child" 1 (test -n (__tcz_pid_children $agreeparent | string join ','); and echo 1; or echo 0)
+kill $agreeparent 2>/dev/null
+set -e agreeparent
 t "pid_children empty pid -> empty"    ""  (__tcz_pid_children "")
 t "pid_children childless pid -> empty" "" (__tcz_pid_children $kidpid)
 kill $kidpid 2>/dev/null
@@ -1909,12 +2001,22 @@ t "active (#040404) now appears" 1 (string match -ra '38;2;4;4;4' -- "$CELLS7" |
 set -l catfile $plugindir/functions/tmux-categorize.fish
 t "v2 cap cluster gone from the categorizer" 0 (grep -c '__tcz_cap_' $catfile)
 t "categorizer no longer names the v2 palette" 0 (grep -c '__tmux_lives_palette' $catfile)
-# `pgrep -P` rescans all of /proc per call. It survives ONLY as the non-Linux
-# fallback inside __tcz_pid_children; no call site may reintroduce it. Scoped by
-# stripping that one function body, so the guard can't be satisfied by deleting
-# the fallback and can't fire on the helper's own comment.
-t "no pgrep -P outside __tcz_pid_children" 0 (awk '/^function __tcz_pid_children/,/^end$/ {next} {print}' $catfile | grep -c 'pgrep -P')
-t "__tcz_pid_children keeps its fallback"  1 (awk '/^function __tcz_pid_children/,/^end$/' $catfile | grep -c '^ *pgrep -P')
+# INVERTED 2026-08-17. This guard used to REQUIRE `pgrep -P` as the non-Linux
+# fallback. It is now banned outright: on macOS /usr/bin/pgrep links
+# libsysmon.dylib and delegates to the /usr/libexec/sysmond ROOT DAEMON, which
+# walks every process AND thread per call — ~4 of 14 cores on macwork, 0.4%
+# idle. /bin/ps is libsysmon-clean, so the non-Linux path reads one shared ps
+# snapshot instead. Both halves are pinned, because each alone is defeatable:
+# pgrep absent from any CODE line, AND the fallback still present (the original
+# guard existed to stop someone "fixing" this by deleting the branch entirely).
+# Comments are stripped first — this file now discusses pgrep at length, and a
+# guard that greps its own prose is the trap this repo keeps walking into.
+set -l __t_code (grep -v '^\s*#' $catfile | string collect)
+t "pgrep is gone from the categorizer (macOS sysmond storm)" 0 (printf '%s\n' "$__t_code" | grep -c 'pgrep')
+t "__tcz_pid_children keeps a non-Linux fallback" 1 (awk '/^function __tcz_pid_children/,/^end$/' $catfile | grep -c '__tcz_ps_load')
+# Bare CALL sites only — a loose match also counts __tcz_ps_loaded (the sentinel)
+# and the function's own definition, which is how this first read 7 instead of 3.
+t "the ps snapshot is what feeds all three pid helpers" 3 (printf '%s\n' "$__t_code" | grep -cE '^ +__tcz_ps_load$')
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
 # substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream
