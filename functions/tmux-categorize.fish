@@ -336,10 +336,17 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     return 1
 end
 
-function __tcz_snapshot --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay'
+function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
     set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{@tmux_lives_name}')
-    set -l panes (tmux list-panes -a -F $pane_fmt 2>/dev/null)
+    set -l panes
+    if test -n "$only"
+        # __tcz_pane_target: list-panes wants "=name" for exactness, but a purely
+        # numeric name mis-resolves even with "=", so numerics fall back to $id.
+        set panes (tmux list-panes -s -t (__tcz_pane_target "$only") -F $pane_fmt 2>/dev/null)
+    else
+        set panes (tmux list-panes -a -F $pane_fmt 2>/dev/null)
+    end
     test -n "$panes[1]"; or return
     set -l TAB (printf '\t')
     # Per-session aggregation. list-panes -a arrives in session/window/pane order,
@@ -433,6 +440,11 @@ function __tcz_pane_target --argument-names session --description 'a -t target f
     end
 end
 
+function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here (unlike `-t "=session"`, which returns empty for PANE formats).'
+    test -n "$pane"; or return
+    tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null
+end
+
 function __tcz_owned --description 'true if we may rename: name == @tmux_auto_name, or purely numeric'
     set -l cur $argv[1]
     string match -qr '^(gen-)?[0-9]+$' -- "$cur"; and return 0
@@ -442,9 +454,9 @@ function __tcz_owned --description 'true if we may rename: name == @tmux_auto_na
     test "$rec" = "$cur"
 end
 
-function __tcz_categorize --description 'rename every owned session to its live-state name'
+function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
     set -l TAB (printf '\t')
-    for line in (__tcz_snapshot)
+    for line in (__tcz_snapshot $only)
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
@@ -3179,7 +3191,11 @@ function __tcz_main
     __tcz_ps_flush
     switch "$argv[1]"
         case categorize
-            __tcz_categorize
+            # Optional pane argument narrows the pass to that pane's session.
+            # The per-command fish_postexec hook passes $TMUX_PANE; the periodic
+            # tick passes nothing and still sweeps the whole server, so anything
+            # genuinely cross-session is picked up within one status-interval.
+            __tcz_categorize (__tcz_session_of_pane "$argv[2]")
         case tick
             __tcz_categorize >/dev/null 2>&1
             test -n "$argv[2]"; and __tcz_recolor $argv[2] dedup

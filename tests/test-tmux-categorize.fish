@@ -365,6 +365,53 @@ t "cat: numeric session not stranded by another session's claim" "yes" \
 t "cat: the claiming session keeps its own name" "yes" \
     (tmux has-session -t =claimant 2>/dev/null; and echo yes; or echo no)
 
+# --- narrowed categorize (fish_postexec) --------------------------------------------
+# A command run in pane X cannot change the classification of session Y, so the
+# postexec hook's full server-wide pass does N times the necessary work BY
+# CONSTRUCTION. Narrowing it filters the expensive half — one `list-panes -s -t`
+# and one session's pid inspection instead of `-a` across everything. The ~15s
+# tick stays unnarrowed as the backstop for anything genuinely cross-session.
+#
+# THE SAFETY PROPERTY, and the reason this is safe at all: __tcz_categorize
+# derives its collision-avoidance universe ($others) from a FRESH
+# `tmux list-sessions`, NOT from the snapshot. So filtering the snapshot cannot
+# shrink the name universe and cannot produce duplicate session names. The last
+# assertion here is what pins that; without it, narrowing would be a rename bug.
+cleanup
+tmux new-session -d -s alpha 'sleep 1000'
+tmux new-session -d -s bravo 'sleep 1000'
+# STAMPED as owned. A hand-named session is protected by the ownership guard and
+# would never be renamed by ANY pass, narrowed or not -- which made the first cut
+# of these assertions vacuous (they passed against unnarrowed code).
+tmux set-option -t alpha @tmux_auto_name alpha
+tmux set-option -t bravo @tmux_auto_name bravo
+sleep 0.5
+t "snapshot: unfiltered sees every session"      2 (__tcz_snapshot | count)
+t "snapshot: filtered sees only its own session" 1 (__tcz_snapshot alpha | count)
+t "snapshot: filtered row is the right session"  "alpha" (__tcz_snapshot alpha | cut -f1)
+t "snapshot: unknown session filter -> empty"    0 (__tcz_snapshot nosuchsession | count)
+
+# Only the named session gets recategorized; the other keeps its old name.
+__tcz_categorize alpha
+t "narrowed: the target was recategorized"   "no"  (tmux has-session -t =alpha 2>/dev/null; and echo yes; or echo no)
+t "narrowed: the other session is untouched" "yes" (tmux has-session -t =bravo 2>/dev/null; and echo yes; or echo no)
+cleanup
+
+# Collision avoidance must still consult sessions OUTSIDE the filter: `target`
+# wants the name `sleep`, which an unfiltered session already holds.
+tmux new-session -d -s target 'sleep 1000'
+tmux new-session -d -s sleep 'sleep 1000'
+tmux set-option -t target @tmux_auto_name target
+sleep 0.5
+__tcz_categorize target
+t "narrowed: the outside session kept its name" "yes" \
+    (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+t "narrowed: target dodged the outside name"    "yes" \
+    (tmux has-session -t =sleep-2 2>/dev/null; and echo yes; or echo no)
+t "narrowed: no duplicate session names"        "yes" \
+    (test (tmux list-sessions -F '#{session_name}' 2>/dev/null | count) -eq (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort -u | count); and echo yes; or echo no)
+cleanup
+
 # ...and a numeric session's claude identity must land on ITSELF, not on a neighbour.
 cleanup
 tmux new-session -d -s 0 "$shimdir/claude --name Cross Write"

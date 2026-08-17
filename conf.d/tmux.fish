@@ -259,9 +259,17 @@ function __tmux_rename_on_preexec --on-event fish_preexec --description 'Instant
     disown
 end
 
-function __tmux_categorize_on_postexec --on-event fish_postexec --description 'Re-categorize after each command (reverts on exit)'
+function __tmux_categorize_on_postexec --on-event fish_postexec --description 'Re-categorize this pane\'s session after each command (reverts on exit)'
     set -q TMUX; or return 0
-    fish --no-config $tmux_categorize_script categorize >/dev/null 2>&1 &
+    # NARROWED to this pane's session. A command run here cannot change another
+    # session's classification, so the whole-server pass this used to do was N
+    # times the necessary work by construction — and it fires after EVERY command
+    # in EVERY shell, backgrounded and disowned so passes overlap rather than
+    # serialize. Measured on macwork as the dominant driver: holding client count
+    # constant and removing only command activity cut process spawns by 86%.
+    # The ~15s tick still runs unnarrowed, so anything genuinely cross-session is
+    # corrected within one status-interval.
+    fish --no-config $tmux_categorize_script categorize "$TMUX_PANE" >/dev/null 2>&1 &
     disown
 end
 

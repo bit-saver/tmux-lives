@@ -175,6 +175,33 @@ rm -f $pk_stub $pk_rec
 set -e TMUX
 cleanup
 
+# ---------------------------------------------------------------------
+# fish_postexec must NARROW the pass to this pane's session. It fires after
+# every command in every shell, backgrounded and disowned so passes overlap
+# rather than serialize -- measured on macwork as the dominant driver of load
+# (holding client count constant and removing only command activity cut process
+# spawns by 86%). A command run in this pane cannot change another session's
+# classification, so the whole-server pass it used to do was N times the
+# necessary work by construction. Nothing covered the argument, so dropping it
+# would silently revert to a full pass with the gate still green.
+# ---------------------------------------------------------------------
+set -gx TMUX fake
+set -gx TMUX_PANE '%99'
+set -g pe_rec /tmp/postexec-rec-$fish_pid
+set -g pe_stub /tmp/postexec-stub-$fish_pid.fish
+set -g real_cat2 $tmux_categorize_script
+set -g tmux_categorize_script $pe_stub
+printf '#!/usr/bin/env fish\nprintf "%%s\\n" $argv > %s\n' $pe_rec > $pe_stub
+__tmux_categorize_on_postexec
+sleep 0.5
+t "postexec: dispatches the categorize verb"        "categorize" (head -1 $pe_rec 2>/dev/null)
+t "postexec: passes the pane so the pass is narrowed" '%99'      (sed -n 2p $pe_rec 2>/dev/null)
+set -g tmux_categorize_script $real_cat2
+rm -f $pe_stub $pe_rec
+set -e TMUX_PANE
+set -e TMUX
+cleanup
+
 # M6: outside-tmux picker -t must include --take in the popup command string.
 # Inspect __tmux_lives_picker source: when $take is set, it appends "$take" to $pop.
 # Verify by reading the function source directly.
