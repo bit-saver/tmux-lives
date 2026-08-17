@@ -360,12 +360,28 @@ printf -- '- cmd: echo tlprobe\n  when: 1700000000\n' > $ptydir/data/fish/fish_h
 # AFTER the plugin is sourced so it wins.
 printf '#!/bin/sh\necho SUDO_CALLED:"$@"\n' > $ptydir/bin/sudo
 chmod +x $ptydir/bin/sudo
-begin
-    printf 'set -gx TMUX_AUTO 0\n'
-    printf 'source %s/conf.d/tmux-lives-install.fish\n' $plugindir
-    printf 'source %s/conf.d/tmux.fish\n' $plugindir
-    printf 'function tmux-lives; echo SHELLKEY_FIRED:$argv; end\n'
-end > $ptydir/fish/conf.d/tl.fish
+
+function _shellkey_setup --description 'write the pty harness config: <dir> <key|default> <emacs|vi>'
+    set -l d $argv[1]
+    set -l keyval $argv[2]
+    set -l bindings $argv[3]
+    begin
+        printf 'set -gx TMUX_AUTO 0\n'
+        # conf.d is sourced BEFORE config.fish, so the key has to be set here,
+        # not there, or tmux.fish reads the default before we can override it.
+        test "$keyval" = default; or printf 'set -g tmux_lives_switcher_key %s\n' (string escape -- "$keyval")
+        printf 'source %s/conf.d/tmux-lives-install.fish\n' $_tl_plugindir
+        printf 'source %s/conf.d/tmux.fish\n' $_tl_plugindir
+        printf 'function tmux-lives; echo SHELLKEY_FIRED:$argv; end\n'
+    end > $d/fish/conf.d/tl.fish
+    if test "$bindings" = vi
+        printf 'function fish_user_key_bindings\n    fish_vi_key_bindings\nend\n' > $d/fish/config.fish
+    else
+        rm -f $d/fish/config.fish
+    end
+end
+set -g _tl_plugindir $plugindir
+_shellkey_setup $ptydir default emacs
 
 function _shellkey_press --description 'press Alt+S at a real fish prompt; echo what happened'
     set -l d $argv[1]
@@ -382,15 +398,49 @@ function _shellkey_press --description 'press Alt+S at a real fish prompt; echo 
         else
             printf '\033s\nexit\n'
         end
-    end | timeout 30 env XDG_CONFIG_HOME=$d XDG_DATA_HOME=$d/data \
+    end | timeout 30 env TERM=dumb XDG_CONFIG_HOME=$d XDG_DATA_HOME=$d/data \
         PATH="$d/bin:$PATH" script -qec "fish -i" /dev/null 2>&1 | tr -d '\r'
 end
+# TERM=dumb is a 38x speedup, not a shortcut: on a pty nobody is driving, fish
+# waits out unanswered terminal-capability queries for ~10.4s per spawn, and
+# there are five spawns here. Measured 10424ms -> 275ms with identical results.
+# Verified NOT to cost sensitivity: the full mutation battery still catches every
+# mutation under it, including the sudo-hijack control.
 
 set -l pty_out (_shellkey_press $ptydir run | string collect)
-set -l fired (string match -q '*SHELLKEY_FIRED*' -- "$pty_out"; and echo yes; or echo no)
+# Match the VERB, not just the marker. The stub echoes `SHELLKEY_FIRED:$argv`,
+# so a bare '*SHELLKEY_FIRED*' passes even if the dispatched verb is wrong --
+# swapping `picker` for `clear` (a real sibling verb that KILLS idle sessions)
+# left the whole gate green. Review-caught.
+set -l fired (string match -q '*SHELLKEY_FIRED:picker*' -- "$pty_out"; and echo yes; or echo no)
 set -l sudoed (string match -q '*SUDO_CALLED*' -- "$pty_out"; and echo yes; or echo no)
 t "shell key: Alt+S runs the picker at a bare prompt" yes $fired
 t "shell key: Alt+S no longer hijacks the prompt with sudo" no $sudoed
+
+# VI BINDINGS. fish's preset occupies insert/default/visual; a binding added in
+# default mode alone is listed but never fires, because a vi prompt starts in
+# INSERT. Being listed is not being reachable -- the same distinction that made
+# the emacs check meaningful. Review-caught: without `bind -M insert` the sudo
+# hijack persists for vi users AND the picker never opens.
+_shellkey_setup $ptydir default vi
+set -l vi_out (_shellkey_press $ptydir run | string collect)
+set -l vi_fired (string match -q '*SHELLKEY_FIRED:picker*' -- "$vi_out"; and echo yes; or echo no)
+set -l vi_sudoed (string match -q '*SUDO_CALLED*' -- "$vi_out"; and echo yes; or echo no)
+t "shell key: fires under vi bindings (insert mode)" yes $vi_fired
+t "shell key: no sudo hijack under vi bindings"      no  $vi_sudoed
+
+# EMPTY KEY = disabled. The translator returns nothing and the caller must not
+# call `bind` with an empty first argument -- doing so prints
+# "bind: cannot parse key '__tmux_lives_shell_key'" to stderr on EVERY
+# interactive shell start. The translator's '' case is unit-tested, but nothing
+# bound the guard at the bind SITE until now. Review-caught.
+_shellkey_setup $ptydir '' emacs
+set -l off_out (_shellkey_press $ptydir run | string collect)
+set -l off_err (string match -q '*cannot parse key*' -- "$off_out"; and echo yes; or echo no)
+set -l off_fired (string match -q '*SHELLKEY_FIRED*' -- "$off_out"; and echo yes; or echo no)
+t "shell key: empty key emits no bind error at startup" no $off_err
+t "shell key: empty key really disables the binding"    no $off_fired
+_shellkey_setup $ptydir default emacs
 
 # The picker execs into tmux, so firing it over typed input would destroy that
 # input with no way back. Guard: act only at an empty prompt. Without this test
@@ -418,7 +468,8 @@ t "shell key CONTROL: without the plugin, the picker does not run"     no  $ctl_
 set -l hist_after (md5sum $real_hist 2>/dev/null | string split ' ')[1]
 t "shell key: the pty harness left the real fish_history untouched" "$hist_before" "$hist_after"
 
-functions -e _shellkey_press
+functions -e _shellkey_press _shellkey_setup
+set -e _tl_plugindir
 rm -rf $ptydir
 
 # ---------------------------------------------------------------------
