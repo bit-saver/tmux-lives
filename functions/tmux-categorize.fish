@@ -84,7 +84,7 @@ end
 function __tcz_ps_load --description 'build the per-pass pid table from ONE ps snapshot pair (pid/ppid/comm and pid/args), keyed into per-pid globals. No-op once loaded.'
     set -q __tcz_ps_loaded; and return
     set -g __tcz_ps_loaded 1
-    for line in (ps -Ao pid=,ppid=,comm= 2>/dev/null)
+    for line in (ps -A -ww -o pid=,ppid=,comm= 2>/dev/null)
         set -l m (string match -r '^\s*(\d+)\s+(\d+)\s+(.+)$' -- $line)
         test (count $m) -eq 4; or continue
         set -l raw (string trim -- $m[4])
@@ -93,7 +93,7 @@ function __tcz_ps_load --description 'build the per-pass pid table from ONE ps s
         test -n "$raw"; and set -g __tcz_ps_comm_$m[2] (path basename -- $raw)
         set -ga __tcz_ps_kids_$m[3] $m[2]
     end
-    for line in (ps -Ao pid=,args= 2>/dev/null)
+    for line in (ps -A -ww -o pid=,args= 2>/dev/null)
         set -l m (string match -r '^\s*(\d+)\s+(.+)$' -- $line)
         test (count $m) -eq 3; or continue
         set -g __tcz_ps_args_$m[2] (string trim -- $m[3])
@@ -103,24 +103,24 @@ end
 function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
-    if test -r /proc/$pid/comm; and not set -q tcz_force_ps
+    if test -r /proc/self/comm; and not set -q tcz_force_ps
         cat /proc/$pid/comm 2>/dev/null
     else
         __tcz_ps_load
         set -l v __tcz_ps_comm_$pid
-        set -q $v; and echo $$v
+        set -q $v; and printf '%s\n' $$v
     end
 end
 
 function __tcz_pid_cmdline --description 'pid -> space-joined argv (portable: /proc on Linux, ps elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
-    if test -r /proc/$pid/cmdline; and not set -q tcz_force_ps
+    if test -r /proc/self/comm; and not set -q tcz_force_ps
         string split0 < /proc/$pid/cmdline 2>/dev/null | string join ' '
     else
         __tcz_ps_load
         set -l v __tcz_ps_args_$pid
-        set -q $v; and echo $$v
+        set -q $v; and printf '%s\n' $$v
     end
 end
 
@@ -131,10 +131,21 @@ function __tcz_pid_environ --description 'pid -> environment KEY=VALUE lines (po
     end
     set -l pid $argv[1]
     test -n "$pid"; or return
-    if test -r /proc/$pid/environ; and not set -q tcz_force_ps
+    if test -r /proc/self/comm; and not set -q tcz_force_ps
         tr '\0' '\n' < /proc/$pid/environ 2>/dev/null
     else
-        ps eww -p $pid 2>/dev/null
+        # Memoized per pid in the SAME per-pass table (the __tcz_ps_ prefix means
+        # __tcz_ps_flush clears it), because this runs twice per attached client:
+        # 18 of the 20 ps spawns left in a tick after the snapshot landed.
+        # Deliberately NOT folded into __tcz_ps_load: a whole-machine `ps -Aeww`
+        # would carry every process's entire environment, a worse trade than one
+        # spawn per client. `eww` (not `e`) because BSD ps truncates its last
+        # column at 79 columns with no tty — the same reason both snapshots
+        # above carry `-ww`. An empty result caches as an empty list, which
+        # `set -q` still reports as set, so a dead pid is not re-probed.
+        set -l v __tcz_ps_environ_$pid
+        set -q $v; or set -g $v (ps eww -p $pid 2>/dev/null | string collect)
+        printf '%s\n' $$v
     end
 end
 
@@ -152,7 +163,7 @@ function __tcz_pid_children --description 'pid -> direct child pids (portable: /
     # The fallback no longer calls pgrep AT ALL. On macOS pgrep is a sysmond
     # client and was the whole storm; the shared ps snapshot answers this from
     # a reverse ppid index built in the same two spawns as comm and args.
-    if test -d /proc/$pid/task; and not set -q tcz_force_ps
+    if test -r /proc/self/comm; and not set -q tcz_force_ps
         for f in /proc/$pid/task/*/children
             string split -n ' ' <$f 2>/dev/null
         end

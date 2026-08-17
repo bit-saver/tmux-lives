@@ -704,13 +704,18 @@ t "pid_comm empty pid -> empty" ""     (__tcz_pid_comm "")
 # GUARANTEE under test is unchanged — a dash-prefixed comm must survive intact.
 set -g psshim /tmp/tcz-psshim-$fish_pid
 mkdir -p $psshim
-printf '#!/bin/sh\nprintf "%%s\\n" "12345 1 -fish"\n' > $psshim/ps
+# The SECOND row is what actually exercises `path basename`. On Linux `comm` is
+# already bare, so basename is a no-op and deleting it left the whole gate green
+# (review-caught). macOS `comm` is a FULL PATH — that is the only case the call
+# exists for, and it was covered by nothing.
+printf '#!/bin/sh\nprintf "%%s\\n" "12345 1 -fish" "12346 1 /Users/u/.local/state/claude/versions/1.2.3/claude"\n' > $psshim/ps
 chmod +x $psshim/ps
 set -g ps_path_save $PATH
 set -gx PATH $psshim $PATH
 set -g tcz_force_ps 1
 functions -q __tcz_ps_flush; and __tcz_ps_flush
 t "pid_comm: dash-prefixed comm survives" "-fish" (__tcz_pid_comm 12345 2>/dev/null)
+t "pid_comm: macOS full-path comm is basenamed" "claude" (__tcz_pid_comm 12346 2>/dev/null)
 functions -q __tcz_ps_flush; and __tcz_ps_flush
 set -e tcz_force_ps
 set -gx PATH $ps_path_save
@@ -752,7 +757,12 @@ end
 set -g sp_ps 0; test -f $splog/ps; and set sp_ps (string trim -- (wc -l < $splog/ps))
 set -g sp_pgrep 0; test -f $splog/pgrep; and set sp_pgrep (string trim -- (wc -l < $splog/pgrep))
 t "pid helpers: fallback spawns NO pgrep (macOS sysmond path)" 0 $sp_pgrep
-t "pid helpers: fallback is O(1) ps spawns, not O(pids)" 1 (test $sp_ps -le 2; and echo 1; or echo 0)
+# BOUNDED BOTH WAYS. `0 -le 2` is true, so an upper bound alone passes when the
+# helpers do nothing at all — making all three a bare `return` satisfied both of
+# these (review-caught). The lower bound plus a real-value check below is what
+# makes them mean "one snapshot happened", not "nothing happened".
+t "pid helpers: fallback is O(1) ps spawns, not O(pids)" 1 (test $sp_ps -ge 1 -a $sp_ps -le 2; and echo 1; or echo 0)
+t "pid helpers: the probe loop actually resolved something" 1 (test -n (__tcz_pid_comm $fish_pid); and echo 1; or echo 0)
 set -e tcz_force_ps
 set -gx PATH $sp_path_save
 rm -rf $spshim $splog
@@ -765,13 +775,22 @@ set -g kidparent $last_pid
 sleep 0.4
 set -g kids_proc (__tcz_pid_children $kidparent 2>/dev/null | sort | string join ,)
 set -g comm_proc (__tcz_pid_comm $kidparent)
+set -g cmd_proc (__tcz_pid_cmdline $kidparent)
 set -g tcz_force_ps 1
 functions -q __tcz_ps_flush; and __tcz_ps_flush
 set -g kids_ps (__tcz_pid_children $kidparent 2>/dev/null | sort | string join ,)
 set -g comm_ps (__tcz_pid_comm $kidparent)
+set -g cmd_ps (__tcz_pid_cmdline $kidparent)
 set -e tcz_force_ps
 t "pid_children: snapshot agrees with /proc" "$kids_proc" "$kids_ps"
 t "pid_comm: snapshot agrees with /proc"     "$comm_proc" "$comm_ps"
+# cmdline had only a `*fish*` substring check, so storing the whole ps line —
+# pid glued onto the front of every command line — stayed green (review-caught).
+# Compared as a SET of tokens: /proc joins argv with single spaces while ps
+# preserves the original spacing, so a byte comparison would be brittle for the
+# wrong reason.
+t "pid_cmdline: snapshot agrees with /proc (tokens)" (string join ' ' (string split -n ' ' -- "$cmd_proc")) (string join ' ' (string split -n ' ' -- "$cmd_ps"))
+t "pid_cmdline: does not leak the pid column" 0 (string match -qr '^\s*'$kidparent'\s' -- "$cmd_ps"; and echo 1; or echo 0)
 t "pid_children: found a real child to compare" 1 (test -n "$kids_proc"; and echo 1; or echo 0)
 kill $kidparent 2>/dev/null
 
@@ -779,10 +798,62 @@ kill $kidparent 2>/dev/null
 # long-lived caller can never be served a stale table -- plant a sentinel in the
 # table, run a harmless verb, and it must be gone. Without this the flush is a
 # correct line bound by nothing: removing it broke no assertion at all.
+# ONE SENTINEL PER TABLE. A single comm sentinel left a flush that erases
+# comm+args+loaded but NOT kids fully green (review-caught) — which is verbatim
+# the unbounded stale/duplicate pid growth the original `string match -r` bug
+# produced. Each table needs its own or the flush is only partly pinned.
 set -g __tcz_ps_comm_999999 SENTINEL
+set -g __tcz_ps_args_999999 SENTINEL
+set -g __tcz_ps_kids_999999 SENTINEL
+set -g __tcz_ps_environ_999999 SENTINEL
 __tcz_main host-kind >/dev/null 2>&1
-t "__tcz_main flushes the pid table on entry" "" "$__tcz_ps_comm_999999"
-set -e __tcz_ps_comm_999999
+t "__tcz_main flushes the comm table on entry"    "" "$__tcz_ps_comm_999999"
+t "__tcz_main flushes the args table on entry"    "" "$__tcz_ps_args_999999"
+t "__tcz_main flushes the kids table on entry"    "" "$__tcz_ps_kids_999999"
+t "__tcz_main flushes the environ table on entry" "" "$__tcz_ps_environ_999999"
+set -e __tcz_ps_comm_999999 __tcz_ps_args_999999 __tcz_ps_kids_999999 __tcz_ps_environ_999999
+
+# PLATFORM GATE, not per-pid readability. The gate was `test -r /proc/$pid/comm`,
+# so a pid that exits mid-pass fell through to the fallback ON LINUX and built
+# the entire snapshot — measured 188ms against 2.5ms, and it contradicted the
+# claim that the /proc path was untouched. Either gate passed the whole suite,
+# so nothing pinned it (review-caught).
+fish -c 'true' &
+set -g deadpid $last_pid
+wait 2>/dev/null
+functions -q __tcz_ps_flush; and __tcz_ps_flush
+__tcz_pid_comm $deadpid >/dev/null 2>&1
+__tcz_pid_children $deadpid >/dev/null 2>&1
+t "a dead pid does NOT build the ps table on Linux" 0 (set -q __tcz_ps_loaded; and echo 1; or echo 0)
+t "a dead pid still resolves to empty"              "" (__tcz_pid_comm $deadpid 2>/dev/null)
+set -e deadpid
+
+# __tcz_pid_environ is a FOURTH helper of the same per-pid shape, which the
+# macwork handoff did not list. It is called TWICE per attached client in one
+# pass — 18 of the 20 ps spawns left after the snapshot landed. It does not link
+# libsysmon so it is not the sysmond storm, but the repeat is free to remove:
+# memoize per pid, in the same per-pass table, cleared by the same flush.
+# NB `ps eww` output is deliberately NOT pre-snapshotted for all pids — that
+# would carry every process's entire environment.
+set -g eshim /tmp/tcz-eshim-$fish_pid
+set -g elog /tmp/tcz-elog-$fish_pid
+rm -rf $eshim $elog; mkdir -p $eshim $elog
+printf '#!/bin/sh\necho x >> %s/ps\nexec /bin/ps "$@"\n' $elog > $eshim/ps
+chmod +x $eshim/ps
+set -g e_path_save $PATH
+set -gx PATH $eshim $PATH
+set -g tcz_force_ps 1
+functions -q __tcz_ps_flush; and __tcz_ps_flush
+set -g env1 (__tcz_pid_environ $fish_pid 2>/dev/null | string collect)
+set -g e_after1 (string trim -- (wc -l < $elog/ps))
+set -g env2 (__tcz_pid_environ $fish_pid 2>/dev/null | string collect)
+set -g e_after2 (string trim -- (wc -l < $elog/ps))
+t "pid_environ: second call for the same pid spawns nothing" "$e_after1" "$e_after2"
+t "pid_environ: memoized value matches the first read" "$env1" "$env2"
+t "pid_environ: still returns something real" 1 (string match -q '*PATH*' -- "$env1"; and echo 1; or echo 0)
+set -e tcz_force_ps
+set -gx PATH $e_path_save
+rm -rf $eshim $elog
 
 # ---------------------------------------------------------------------
 # pid -> direct children. `pgrep -P` rescans all of /proc per call (~140 ms on
@@ -2016,7 +2087,17 @@ t "pgrep is gone from the categorizer (macOS sysmond storm)" 0 (printf '%s\n' "$
 t "__tcz_pid_children keeps a non-Linux fallback" 1 (awk '/^function __tcz_pid_children/,/^end$/' $catfile | grep -c '__tcz_ps_load')
 # Bare CALL sites only — a loose match also counts __tcz_ps_loaded (the sentinel)
 # and the function's own definition, which is how this first read 7 instead of 3.
-t "the ps snapshot is what feeds all three pid helpers" 3 (printf '%s\n' "$__t_code" | grep -cE '^ +__tcz_ps_load$')
+t "the ps snapshot feeds at least the three pid helpers" 1 (test (printf '%s\n' "$__t_code" | grep -cE '^ +__tcz_ps_load$') -ge 3; and echo 1; or echo 0)
+# STRUCTURAL, deliberately, because this one CANNOT be pinned behaviourally on
+# Linux: GNU ps does not truncate when writing to a pipe, so dropping `ww` is a
+# no-op here and green either way. On macOS BSD ps sets termwidth 79 whenever no
+# ioctl(TIOCGWINSZ) succeeds — always, for a `#()` status hook — and truncates
+# the LAST column. macOS `comm` is a full path, and pid+ppid spend 12 of those
+# columns, leaving 67; the developer's own claude path is 65. Two characters of
+# margin, and crossing it kills claude detection silently and totally. The
+# repo's own __tcz_pid_environ already carried `eww` for exactly this reason.
+t "both snapshots carry -ww (BSD truncates the last column at 79 cols)" 2 (printf '%s\n' "$__t_code" | grep -c 'ps -A -ww -o')
+t "pid_environ keeps eww, not e"                                        1 (printf '%s\n' "$__t_code" | grep -c 'ps eww -p')
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
 # substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream
@@ -5269,6 +5350,17 @@ set -l RWPANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWP
 set -l RWRANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWANCHORLINES))
 t "I-1: anchpal writes are confined to __tcz_thp_reanchor" yes (test "$RWPANCHCOUNT" -eq "$RWRANCHCOUNT"; and echo yes; or echo no)
 
+
+# --- hygiene: this suite's own shim dir ------------------------------------
+# $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
+# had accumulated on the dev host across two days. Same class as the socket leak
+# swept in 3e40826, and the same fail-closed shape: an empty $fish_pid would make
+# this a much broader path, and $fish_pid is fish-protected so it cannot be
+# empty, but the guard encodes the invariant rather than relying on that.
+if test -n "$fish_pid"; and string match -qr '^/tmp/tcz-shim-[0-9]+$' -- "$shimdir"
+    rm -rf $shimdir
+end
+t "hygiene: this run leaves no shim dir behind" 0 (test -e "$shimdir"; and echo 1; or echo 0)
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
