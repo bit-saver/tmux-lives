@@ -1382,43 +1382,49 @@ __tcz_emit_title $ttl ""
 t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
 rm -f $ttl
 
-# session_has_claude / session_title via a tmux stub (switch on subcommand)
+# session_has_claude / session_title via a tmux stub (switch on subcommand).
+# __tcz_session_title now reads #{session_path} via display-message (the session's
+# start dir, single-valued) rather than list-panes' active-pane pane_current_path,
+# and consults @tmux_lives_display between the claim and the dir fallback.
 function tmux
     switch "$argv[1]"
         case list-panes
-            if string match -q '*pane_current_path*' -- "$argv"
-                echo $tcz_test_path              # __tcz_session_title: active-pane cwd
+            printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
+        case display-message
+            echo $tcz_test_path              # __tcz_session_title: session_path
+        case show-option
+            if string match -q '*@tmux_lives_display*' -- "$argv"
+                echo $tcz_test_display        # @tmux_lives_display override
             else
-                printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
+                echo $tcz_test_name           # @tmux_lives_name override
             end
-        case show-option       # @tmux_lives_name override (empty = fall back to dir)
-            echo $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_path /home/x/workspace/tmux-lives
 set -g tcz_test_name ''
+set -g tcz_test_display ''
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'fish\t999')
+set -g tcz_test_display 'My Project'
+t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
-t "session_title honors @tmux_lives_name over dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
+t "session_title honors @tmux_lives_name over display and dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
-set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
 
-# empty active-pane path must not shift args (arg-shift guard)
+# empty session path must not shift args (arg-shift guard)
 function tmux
     switch "$argv[1]"
         case list-panes
-            if string match -q '*pane_current_path*' -- "$argv"
-                echo ''                          # empty active-pane path
-            else
-                printf 'claude\t999\n'           # session has claude
-            end
+            printf 'claude\t999\n'           # session has claude
+        case display-message
+            echo ''                          # empty session_path
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -1491,8 +1497,8 @@ t "sf has all three align zones" yes (string match -q '*#[align=left]*' -- "$SF"
 t "sf right zone renders status-right (tick/continuum preserved)" yes (string match -q '*#{T;=/#{status-right-length}:status-right}*' -- "$SF"; and echo yes; or echo no)
 t "sf window list is names-only, no trailing sep" yes (string match -q '*#{W:*window_end_flag*window-status-separator*' -- "$SF"; and echo yes; or echo no)
 t "sf window list template-expands the option" yes (string match -q '*#{T:window-status-format}*' -- "$SF"; and echo yes; or echo no)
-t "sf identity honors @tmux_lives_name then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}*' -- "$SF"; and echo yes; or echo no)
-t "sf identity uses the collapsed claude idiom (single readable ✦ mark)" yes (string match -q '*✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity honors @tmux_lives_name then @tmux_lives_display then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity uses the collapsed claude idiom (single readable ✦ mark)" yes (string match -q '*✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{@tmux_lives_claude}}}*' -- "$SF"; and echo yes; or echo no)
 t "sf separator is format-expanded (T:)" yes (string match -q '*#{T:window-status-separator}*' -- "$SF"; and echo yes; or echo no)
 t "sf centre identity wears the text role" yes (string match -q '*#[fg=#{@tmux_lives_text_fg}]#{?#{!=:#{@tmux_lives_claude},*' -- "$SF"; and echo yes; or echo no)
 t "identity ✦ wears the mark role" yes (string match -q '*#[fg=#{@tmux_lives_mark_fg}]✦*' -- (__tcz_status_identity); and echo yes; or echo no)
@@ -1509,33 +1515,82 @@ t "sf caps no longer taper to bg=default" yes (string match -q '*bg=default*' --
 #     session shows a single readable "✦ name", NOT the redundant "slug ✦ name".
 #     (Regression 2026-07-10: "TMUX-Setup-13 ✦ TMUX Setup 13" — session slug is
 #     slugify(claude --name), so the old append-form doubled the identity.)
+# __tcz_status_identity returns a tmux format string, and a grep cannot tell a
+# working #{?...} nesting from a malformed one — tmux does not error on a bad
+# format, it silently renders literal text or nothing, and source-file returns
+# rc 0 with zero stderr even on a bad line (this repo has shipped that exact class
+# of bug once already: an unquoted #hex value tmux read as a comment). The grep
+# checks below are necessary but not sufficient; expanding the format through a
+# REAL tmux (display-message -p, the same expansion path the status bar uses) is
+# what actually proves the three-level precedence — claim, then display, then the
+# original fallback — on both the claude and non-claude branches.
+set -g ident (__tcz_status_identity)
+t "identity: consults the display option" 1 (string match -q '*@tmux_lives_display*' -- "$ident"; and echo 1; or echo 0)
+t "identity: the claim still appears first" 1 (test (string match -r '@tmux_lives_name' -- "$ident" | count) -ge 1; and echo 1; or echo 0)
+set -e ident
+
 set -g idsock tli-id-$fish_pid
 command tmux -L $idsock new-session -d -s TMUX-Setup-13 2>/dev/null
 command tmux -L $idsock new-session -d -s gen-1 2>/dev/null
+command tmux -L $idsock new-session -d -s disp-only 2>/dev/null
 command tmux -L $idsock set -g @tmux_lives_mark_fg default 2>/dev/null
 command tmux -L $idsock set -g @tmux_lives_text_fg default 2>/dev/null
 set -g IDFMT (__tcz_status_identity)
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_claude "TMUX Setup 13" 2>/dev/null
 t "identity: claude session collapses to a single '✦ name'" "#[fg=default]✦#[fg=default] TMUX Setup 13" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 t "identity: non-claude session shows its name only" "gen-1" (command tmux -L $idsock display-message -p -t gen-1 "$IDFMT" 2>/dev/null)
+# non-claude: display wins over the session_name fallback
+command tmux -L $idsock set-option -t disp-only @tmux_lives_display "Proj A" 2>/dev/null
+t "identity: non-claude display wins over session_name" "Proj A" (command tmux -L $idsock display-message -p -t disp-only "$IDFMT" 2>/dev/null)
+# non-claude: the claim still wins over display, not just over the old fallback
+command tmux -L $idsock set-option -t disp-only @tmux_lives_name "Claimed" 2>/dev/null
+t "identity: non-claude claim wins over display" "Claimed" (command tmux -L $idsock display-message -p -t disp-only "$IDFMT" 2>/dev/null)
+# claude: display wins over the claude-name fallback
+command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_display "Proj B · task" 2>/dev/null
+t "identity: claude display wins over the claude name" "#[fg=default]✦#[fg=default] Proj B · task" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
+# claude: the claim still wins over display
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_name "Neurotto CLI" 2>/dev/null
 t "identity: @tmux_lives_name overrides the claude name (still ✦-marked)" "#[fg=default]✦#[fg=default] Neurotto CLI" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 command tmux -L $idsock kill-server 2>/dev/null
 set -e idsock; set -e IDFMT
 
-# real-tmux integration: __tcz_session_title must resolve the active pane's cwd.
-# REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
-# returns EMPTY in tmux 3.3a (the =exact-target quirk — same family as set/show-option),
-# so ShellFish tab titles rendered "<host>:  (C)" with a BLANK dir. The stub tests above
-# can't catch a real-tmux targeting quirk, so drive a private -L socket. The fix reads the
-# path via `list-panes -t "=$session"` (honors = AND resolves the pane path).
+# real-tmux integration: __tcz_session_title must resolve the SESSION's start dir
+# (#{session_path}), not the active pane's live cwd, and must consult
+# @tmux_lives_display before falling back to the dir. Two things this proves:
+# (1) REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
+#     returns EMPTY in tmux 3.3a (the =exact-target quirk), so ShellFish tab titles
+#     rendered "<host>:  (C)" with a BLANK dir. Reading #{session_path} fixes it, but
+#     display-message rejects the "=name" form OUTRIGHT — verified empirically it
+#     returns nothing at all ("format 'session_path' not found" under -v), not just
+#     for pane-scoped formats — so this now targets via __tcz_session_target (bare
+#     name / $id), the same helper the neighbouring show-option calls already use.
+# (2) a shell `cd` inside the pane used to relabel the tab, because the old lookup
+#     read the active pane's LIVE cwd; #{session_path} is the session's fixed START
+#     dir, so a `cd` no longer moves the title. As a side effect this also removes a
+#     latent multi-window ambiguity nobody chose: `list-panes -t session` returns one
+#     active-pane row PER WINDOW, so a multi-window session silently took the first
+#     match; session_path is single-valued.
+# The stub tests above can't catch a real-tmux targeting quirk, so drive a private
+# -L socket, following the suite's existing pattern.
 set -g tsock tcz-title-$fish_pid
 set -g twdir /tmp/tcz-titledir-$fish_pid
-rm -rf $twdir; mkdir -p $twdir
+rm -rf $twdir; mkdir -p $twdir/deep
 command tmux -L $tsock -f /dev/null new-session -d -s realsess -c $twdir 2>/dev/null
+# ts1's pane cd's into deep/ right after the session starts. No send-keys: typing
+# into a real interactive shell would land in the operator's actual fish_history
+# (XDG_DATA_HOME isn't covered by the suite's isolation guard, and this exact class
+# of leak has hit this repo twice already). Baking the cd into the pane's own start
+# command writes no history at all and settles near-instantly.
+command tmux -L $tsock -f /dev/null new-session -d -s ts1 -c $twdir "cd $twdir/deep; exec sleep 60" 2>/dev/null
+sleep 0.3
 function tmux; command tmux -L $tsock $argv; end
 set -g tmux_lives_hostname boxhost
-t "session_title resolves active-pane cwd (real tmux, =target)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+t "session_title resolves the session's start dir (real tmux)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+t "title: pinned to the session start dir, not the pane cwd after a cd" "boxhost: "(basename $twdir) (__tcz_session_title ts1)
+command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
+t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
+command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
+t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir

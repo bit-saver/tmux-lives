@@ -263,10 +263,13 @@ function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>:
     echo $s
 end
 
-function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" (@tmux_lives_name, else the claude --name) — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Non-claude: @tmux_lives_name, else session_name.'
-    # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name if set, else the claude name).
-    # otherwise: @tmux_lives_name if set, else the session slug. No mark, no doubling.
-    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
+function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Precedence, claim outermost: @tmux_lives_name, else @tmux_lives_display (the project[/task] name __tcz_categorize writes), else the claude --name (claude branch) / session_name (non-claude branch).'
+    # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name, else @tmux_lives_display, else the claude name).
+    # otherwise: @tmux_lives_name, else @tmux_lives_display, else the session slug.
+    # @tmux_lives_name is an EXTERNAL claim (written by other apps, e.g. neurotto — never
+    # by this repo) and must stay OUTERMOST on both branches so that integration keeps
+    # winning everywhere.
+    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{@tmux_lives_claude}}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}}'
 end
 
 function __tcz_status_right_merge --argument-names current ours --description 'pure: merge our status-right content with any FOREIGN #() interpolation already there -> "<foreign prefix><ours>". The prefix is whatever precedes our marker, kept ONLY when it contains a #( command interpolation — so tmux\'s DEFAULT status-right is replaced while a plugin hook survives. Why: tmux-continuum schedules its autosave by PREPENDING #(continuum_save.sh) to status-right; the status bar refresh IS its scheduler (no daemon, no timer), so a bare `set -g status-right` discards it and session snapshots stop permanently and silently.'
@@ -3166,15 +3169,20 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
-function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'
+function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — a multi-window session no longer returns one path per window (list-panes -t session yields a row per pane across ALL windows, so the old lookup silently took the first) since session_path is single-valued.'
     test -n "$session"; or return 0
-    # NB: `display-message -t "=$session" '#{pane_current_path}'` returns EMPTY in tmux
-    # 3.3a (the =exact-target quirk — see [[tmux-target-quirks]]); list-panes honors = AND
-    # resolves the active pane's path. Filter to the active pane of the session's window.
-    set -l path (tmux list-panes -t (__tcz_pane_target "$session") -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
+    # __tcz_session_target for ALL THREE calls below, not __tcz_pane_target: verified
+    # empirically that `display-message -p -t "=name"` returns EMPTY for #{session_path}
+    # (tmux -v: "format 'session_path' not found") — this is NOT limited to pane-scoped
+    # formats as the old pane_current_path-era comment assumed; display-message rejects
+    # "=name" altogether, same family as set-option/show-option/capture-pane. The "=name"
+    # form stays reliable for list-panes only (used elsewhere, e.g. __tcz_session_has_claude).
+    set -l tgt (__tcz_session_target "$session")
+    set -l path (tmux display-message -p -t "$tgt" '#{session_path}' 2>/dev/null)
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
-    set -l name (tmux show-option -qv -t (__tcz_session_target "$session") @tmux_lives_name 2>/dev/null)
+    set -l name (tmux show-option -qv -t "$tgt" @tmux_lives_name 2>/dev/null)
+    test -n "$name"; or set name (tmux show-option -qv -t "$tgt" @tmux_lives_display 2>/dev/null)
     test -n "$name"; or set name (__tcz_dir_display $path)
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
