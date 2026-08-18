@@ -207,6 +207,20 @@ t "title: glyph stripped"         "TMUX Setup 2"      (__tcz_title_name "✳ TMU
 t "title: spinner stripped"       "TMUX Setup 2"      (__tcz_title_name "⠂ TMUX Setup 2")
 t "title: task suffix dropped"    "Tasker Editor 14"  (__tcz_title_name "✳ Tasker Editor 14 - Reword task")
 t "title: garbage -> empty"       ""                  (__tcz_title_name "Gi=1,a=q;")
+set -g pn1 (__tcz_project_name /home/bitsaver/projects/neurotto)
+set -g pn2 (__tcz_project_name /home/bitsaver/workspace/tmux-lives/)
+set -g pn3 (__tcz_project_name "$HOME")
+set -g pn4 (__tcz_project_name /tmp)
+set -g pn5 (__tcz_project_name /)
+set -g pn6 (__tcz_project_name "")
+set -g pn7 (__tcz_project_name "/home/bitsaver/My Project")
+t "project: basename of a project dir"        "neurotto"   "$pn1"
+t "project: trailing slash ignored"           "tmux-lives" "$pn2"
+t "project: \$HOME is not a project"          ""           "$pn3"
+t "project: /tmp is not a project"            ""           "$pn4"
+t "project: / is not a project"               ""           "$pn5"
+t "project: empty path is not a project"      ""           "$pn6"
+t "project: spaces survive (display layer)"   "My Project" "$pn7"
 t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
 t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
 t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)
