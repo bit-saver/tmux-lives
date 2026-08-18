@@ -464,49 +464,105 @@ function __tcz_owned --description 'true if we may rename: name == @tmux_auto_na
     test "$rec" = "$cur"
 end
 
-function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
+function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name from its PROJECT (basename of session_path), never the running process; also syncs @tmux_lives_display. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
     set -l TAB (printf '\t')
+    # ONE batched session_path + current-@tmux_lives_display lookup for the whole pass,
+    # not a per-session display-message/show-option call — that would re-add the
+    # per-session tmux calls the 2026-08-17 narrowing work just removed. Parallel
+    # arrays, not `set -g paths_$name`: a dynamic variable name is either silent
+    # concatenation ("$paths_$cur" == "$cur" when paths_$cur is unset — measured) or an
+    # outright `set` error for a session name containing a space (also measured) —
+    # both wrong, neither erroring loudly.
+    set -l pnames; set -l ppaths; set -l pdisps
+    for l in (tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@tmux_lives_display}" 2>/dev/null)
+        set -l kv (string split -m 2 $TAB -- $l)
+        test (count $kv) -ge 2; or continue
+        set -a pnames $kv[1]; set -a ppaths $kv[2]
+        set -a pdisps (test (count $kv) -ge 3; and echo $kv[3]; or echo '')
+    end
+
     for line in (__tcz_snapshot $only)
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
         __tcz_set_claude_opt $cur
-        # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
-        # Target via __tcz_session_target: a fresh session is named 0/1/2..., and a BARE
-        # NUMBER in -t resolves to the CURRENT session — so this used to read a DIFFERENT
-        # session's claim and, when that one was claimed, skip the numeric session forever
-        # (stranding it at its numeric name, re-failing every pass).
+
+        set -l pi (contains -i -- $cur $pnames)
+        set -l curdisp
+        test -n "$pi"; and set curdisp "$pdisps[$pi]"
+
+        # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug
+        # alone. Target via __tcz_session_target: a fresh session is named 0/1/2..., and a
+        # BARE NUMBER in -t resolves to the CURRENT session — so this used to read a
+        # DIFFERENT session's claim and, when that one was claimed, skip the numeric session
+        # forever (stranding it at its numeric name, re-failing every pass).
         set -l claimed (tmux show-option -qv -t (__tcz_session_target "$cur") @tmux_lives_name 2>/dev/null)
-        test -n "$claimed"; and continue
-        set -l desired
-        switch $f[2]
-            case claude running
-                set desired (__tcz_slugify "$f[5]")
-            case general
-                # gen-N general names are stable once assigned: set at revert time, never
-                # renumbered/compacted on later passes. This is BY DESIGN — do not "fix" by adding
-                # compaction. (Legacy bare-numeric names are NOT stable here — they fall through
-                # below and get promoted to gen-N; only gen-N is skipped.)
-                string match -qr '^gen-[0-9]+$' -- "$cur"; and continue
-                # desired gen-N computed below against current names
+        if test -n "$claimed"
+            # Claimed sessions carry no display either. Dedup — write only when there is
+            # something to clear, not an unconditional unset every pass: that is exactly the
+            # per-tick set-option churn that forced bar redraws and caused the ShellFish
+            # cursor flicker at __tcz_set_claude_opt, fixed there by this same dedup.
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
         end
+
+        # Project = basename(session_path) is now the ONLY naming source — the running
+        # process/category is never used again (spec N8). Empty for $HOME, /, /tmp,
+        # /var/tmp (and unreadable/empty paths) by __tcz_project_name's own contract.
+        set -l proj
+        test -n "$pi"; and set proj (__tcz_project_name "$ppaths[$pi]")
+        set -l desired
+        if test -n "$proj"
+            set desired (__tcz_slugify "$proj")
+        else if string match -qr '^gen-[0-9]+$' -- "$cur"
+            # gen-N general names are stable once assigned: set at revert time, never
+            # renumbered/compacted on later passes. This is BY DESIGN — do not "fix" by adding
+            # compaction. (Legacy bare-numeric names are NOT stable here — they fall through
+            # below and get promoted to gen-N; only gen-N is skipped.)
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
+        end
+        # else: $desired stays empty and falls through to the gen-N assignment below — this
+        # is what stops __tcz_slugify from ever being handed "", which would otherwise return
+        # its own literal fallback token "session" instead of leaving room for gen-N.
+
         # Ownership guard applies to ALL categories: never rename a hand-named session.
-        __tcz_owned "$cur"; or continue
+        if not __tcz_owned "$cur"
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
+        end
         set -l others
         for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
             test "$s" != "$cur"; and set -a others $s
         end
         test -n "$desired"; or set desired (__tcz_free_gen $others)
         set desired (__tcz_unique $desired $others)
-        test "$desired" = "$cur"; and continue
-        tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
-        # exact-name match wins over prefix matching since we always pass full existing names
-        tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
-        # Stamp with one silent retry: a lost stamp would permanently freeze the name
-        # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
-        set -l stamptgt (__tcz_session_target "$desired")
-        tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
-        or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+
+        # The no-op short-circuit below skips ONLY the rename+stamp, never the display sync
+        # that follows it. A session that is already correctly named — which, after the
+        # first pass, is every session — must still keep its display in step with a
+        # changing task name; folding the display write behind this check would give a
+        # session its display for exactly one pass and lose it forever after.
+        if test "$desired" != "$cur"
+            tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
+            # exact-name match wins over prefix matching since we always pass full existing names
+            tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
+            # Stamp with one silent retry: a lost stamp would permanently freeze the name
+            # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
+            set -l stamptgt (__tcz_session_target "$desired")
+            tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+            or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+        end
+
+        # Display sync. Field 5 of the snapshot row IS the composed display already (Task
+        # 3's __tcz_display_name pass) — write it verbatim, never recompose it here (that
+        # would be composing a display out of a display). Dedup against the batched read
+        # above so this is a write only on an actual change.
+        if test -n "$f[5]"
+            test "$f[5]" = "$curdisp"; or tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$f[5]" 2>/dev/null
+        else
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$desired") @tmux_lives_display 2>/dev/null
+        end
     end
 end
 

@@ -370,42 +370,88 @@ cleanup
 # __tcz_categorize (integration)
 # ---------------------------------------------------------------------
 cleanup
-# session "0"/"1" pin -c $HOME / a real project dir so their categorize-rename
-# target is deterministic and independent of the invoking cwd — otherwise a
-# session created with no -c inherits THIS test run's own cwd as its
-# session_path, and (when invoked from the repo root, as documented) would
-# slugify to a "tmux-lives-..." name instead of the literal below.
-mkdir -p $HOME/tcz-run-$fish_pid
-tmux new-session -d -s 0 -c $HOME "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
+# session "0" now needs a REAL project dir, not -c $HOME: Task 4 makes the tmux
+# NAME come from the project alone, never the --name/task, so a $HOME-pinned
+# claude session no longer renames to its --name slug -- it falls to gen-N
+# like everything else with no project (see the C5 controller correction).
+# session "2" is explicitly pinned to $HOME (a generic, excluded dir) rather
+# than left unpinned: unpinned, it inherits THIS test run's own cwd, which
+# (invoked from the repo root, as documented) is a REAL project ("tmux-lives")
+# under Task 4 and would rename itself right past the gen-N fallback this
+# test exists to check -- silently, since the assertion below only checks
+# that *some* gen-N session exists, not which one earned it.
+mkdir -p $HOME/tcz-run-$fish_pid $HOME/tcz-claude-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claude-$fish_pid "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
 tmux new-session -d -s 1 -c $HOME/tcz-run-$fish_pid 'sleep 1000'
-tmux new-session -d -s 2
+tmux new-session -d -s 2 -c $HOME
 tmux new-session -d -s handname 'sleep 1000'      # unowned non-numeric -> guard protects
 sleep 0.5
 __tcz_categorize
-t "cat: claude renamed to slug"  "yes" (tmux has-session -t =TMUX-Setup-2 2>/dev/null; and echo yes; or echo no)
-t "cat: claude stamped"          "TMUX-Setup-2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_auto_name)
+t "cat: claude renamed to its project (never the --name slug)" "yes" \
+    (tmux has-session -t "=tcz-claude-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cat: claude stamped" "tcz-claude-$fish_pid" (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_auto_name)
+t "cat: claude display still carries the task" "tcz-claude-$fish_pid · TMUX Setup 2" \
+    (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_lives_display)
 t "cat: running renamed to project" "yes" (tmux has-session -t "=tcz-run-$fish_pid" 2>/dev/null; and echo yes; or echo no)
-t "cat: numeric general renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: numeric general (no project) renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 t "cat: hand-named protected"    "yes" (tmux has-session -t =handname 2>/dev/null; and echo yes; or echo no)
 t "cat: idempotent (no churn)"   "" (__tcz_categorize | string join ',')
-rm -rf $HOME/tcz-run-$fish_pid
 
-# revert: owned claude-named session whose claude died -> numeric
-tmux kill-session -t =TMUX-Setup-2
-tmux new-session -d -s stale-claude
+# C1: a second pass over an already-correctly-named session must NOT drop its
+# display. The no-op rename short-circuit (desired == cur) must skip only the
+# rename+stamp, never the display sync -- else a session keeps its display for
+# exactly one pass and loses it forever after (the defect the brief's own
+# tests, run only once, cannot see).
+__tcz_categorize
+t "cat: display survives a second (no-op) pass" "tcz-claude-$fish_pid · TMUX Setup 2" \
+    (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-run-$fish_pid $HOME/tcz-claude-$fish_pid
+
+# revert: owned claude-named session whose claude died -> numeric. Pinned to
+# $HOME (not left unpinned) so it specifically exercises the no-project
+# fallback rather than picking up the repo root as its own project.
+tmux kill-session -t "=tcz-claude-$fish_pid"
+tmux new-session -d -s stale-claude -c $HOME
 tmux set-option -t stale-claude @tmux_auto_name stale-claude
 __tcz_categorize
 t "cat: owned idle reverts to gen-N" "gen-1" \
     (tmux list-sessions -F '#{session_name}' | string match -r '^gen-[0-9]+$' | sort -V | head -n1)
+# The assertion above only proves SOME gen-N session exists (gen-1 was already
+# taken by session "2"), not that stale-claude itself reverted -- tighten
+# with a direct check that its own old name is gone.
+t "cat: stale-claude specifically was renamed off its old name" "no" \
+    (tmux has-session -t =stale-claude 2>/dev/null; and echo yes; or echo no)
 
-# collision: two OWNED (numeric) claude sessions with the same --name
+# C4: a non-claude, non-shell process with no project must land on gen-N,
+# never the literal token "session" -- __tcz_slugify's own fallback for an
+# EMPTY input. The old switch-based code called __tcz_slugify on the
+# (project-less) DISPLAY, which composes to "" here, and __tcz_slugify ""
+# hands back "session" instead of leaving room for the gen-N fallback below
+# it -- a session named "session" would never again be recognized as
+# unnamed. This implementation never calls __tcz_slugify on an empty string:
+# an empty project skips straight past it to __tcz_free_gen.
 cleanup
-tmux new-session -d -s 0 -c $HOME "$shimdir/claude --name Same Name"
-tmux new-session -d -s 1 -c $HOME "$shimdir/claude --name Same Name"
+tmux new-session -d -s 3 -c $HOME "node -e 'setInterval(function(){}, 1000)'"
 sleep 0.5
 __tcz_categorize
-t "cat: collision suffixed" "Same-Name,Same-Name-2" \
+t "cat: no-project running lands on gen-N, never the literal 'session'" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: no-project running is never named the literal 'session'" "no" \
+    (tmux has-session -t =session 2>/dev/null; and echo yes; or echo no)
+
+# collision: two OWNED (numeric) claude sessions sharing one project dir. The
+# --name no longer feeds the tmux name at all (project does), so this now
+# needs a shared project dir to produce a collision; the --name stays only to
+# prove the DISPLAY half still distinguishes the two via the task.
+cleanup
+mkdir -p $HOME/tcz-collision-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-collision-$fish_pid "$shimdir/claude --name Same Name"
+tmux new-session -d -s 1 -c $HOME/tcz-collision-$fish_pid "$shimdir/claude --name Same Name"
+sleep 0.5
+__tcz_categorize
+t "cat: collision suffixed" "tcz-collision-$fish_pid,tcz-collision-$fish_pid-2" \
     (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+rm -rf $HOME/tcz-collision-$fish_pid
 # guard: a hand-NAMED claude session is never renamed
 tmux new-session -d -s myclaude "$shimdir/claude --name Steal"
 sleep 0.5
@@ -420,16 +466,67 @@ t "cat: hand-named claude protected" "yes" \
 # hits a DIFFERENT session. Worst case: that session carries @tmux_lives_name, the numeric
 # one is misread as claimed, and it is skipped -> permanently stranded at its numeric name,
 # re-failing every pass. Reproduced live before the fix.
+# -c pins to a real project dir (not $HOME): the assertion needs the session to
+# actually RENAME (proving it wasn't wrongly skipped as claimed), and under
+# Task 4 a $HOME-pinned session no longer renames to its --name slug at all.
 cleanup
-tmux new-session -d -s 0 -c $HOME "$shimdir/claude --name Numeric Claude"
+mkdir -p $HOME/tcz-numsess-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-numsess-$fish_pid "$shimdir/claude --name Numeric Claude"
 tmux new-session -d -s claimant
 tmux set-option -t claimant @tmux_lives_name "Claimed By App"
 sleep 0.5
 __tcz_categorize
 t "cat: numeric session not stranded by another session's claim" "yes" \
-    (tmux has-session -t =Numeric-Claude 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-numsess-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "cat: the claiming session keeps its own name" "yes" \
     (tmux has-session -t =claimant 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-numsess-$fish_pid
+
+# --- @tmux_lives_display staleness + the neurotto-protecting claim guard -----------
+# From the task brief, Step 1, essentially verbatim. The C1 second-pass-persistence
+# assertion lives in the main "cat:" block above, not duplicated here.
+cleanup
+mkdir -p $HOME/tcz-cat-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-cat-$fish_pid 'sleep 500'
+tmux new-session -d -s 1 'sleep 500'                      # started in the harness cwd
+sleep 0.5
+__tcz_categorize
+t "categorize: session named for its project" "yes" \
+    (tmux has-session -t "=tcz-cat-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+set -g cat_disp (tmux show-option -qv -t "tcz-cat-$fish_pid" @tmux_lives_display)
+t "categorize: display option written" "tcz-cat-$fish_pid" "$cat_disp"
+
+# STALENESS: a hand-rename must drop the display, or the picker keeps the old name.
+tmux rename-session -t "=tcz-cat-$fish_pid" "My Project"
+__tcz_categorize
+set -g stale_disp (tmux show-option -qv -t "My Project" @tmux_lives_display)
+t "categorize: hand-rename clears the stale display" "" "$stale_disp"
+t "categorize: hand-rename still sticks" "yes" \
+    (tmux has-session -t "=My Project" 2>/dev/null; and echo yes; or echo no)
+
+# THE REGRESSION THAT WOULD BREAK NEUROTTO.
+tmux new-session -d -s claimed 'sleep 500'
+tmux set-option -t claimed @tmux_lives_name "Neurotto CLI"
+__tcz_categorize
+t "categorize: an app claim still suppresses renaming" "yes" \
+    (tmux has-session -t "=claimed" 2>/dev/null; and echo yes; or echo no)
+set -g claim_disp (tmux show-option -qv -t claimed @tmux_lives_display)
+t "categorize: a claimed session carries no display" "" "$claim_disp"
+
+# COLLISION: the project-derived name must still go through __tcz_unique. The
+# spec promises `neurotto` / `neurotto-2`; nothing tested it.
+cleanup
+mkdir -p $HOME/tcz-dup-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-dup-$fish_pid 'sleep 500'
+tmux new-session -d -s 1 -c $HOME/tcz-dup-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize
+t "categorize: two sessions in one project collide safely" "yes" \
+    (tmux has-session -t "=tcz-dup-$fish_pid-2" 2>/dev/null; and echo yes; or echo no)
+t "categorize: no duplicate session names" "yes" \
+    (test (tmux list-sessions -F '#{session_name}' | count) -eq (tmux list-sessions -F '#{session_name}' | sort -u | count); and echo yes; or echo no)
+rm -rf $HOME/tcz-dup-$fish_pid $HOME/tcz-cat-$fish_pid
+cleanup
 
 # --- narrowed categorize (fish_postexec) --------------------------------------------
 # A command run in pane X cannot change the classification of session Y, so the
@@ -579,22 +676,38 @@ t "snap: a claim containing a literal tab survives whole in field 5" "$claim" "$
 cleanup
 
 # ---------------------------------------------------------------------
-# lifecycle: rename when claude starts in a shell pane, revert when it exits
+# lifecycle: rename when claude starts in a shell pane, revert when it exits.
+# UNDER TASK 4 THE TMUX NAME NO LONGER REVERTS -- it is pinned to the project
+# for the session's whole life (project doesn't change when a process
+# starts/stops), so the old "-c $HOME -> renamed to the --name slug -> reverts
+# to gen-N" story is gone: $HOME has no project, so a $HOME-pinned session
+# would sit at gen-N throughout with no transition to observe at all (that
+# was verified, not assumed -- see the C5 controller correction). Re-pointed
+# at a real project dir, this now exercises what DOES change across the
+# lifecycle: the NAME stays put while the DISPLAY gains/drops the task.
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0 -c $HOME
+mkdir -p $HOME/tcz-lifecycle-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-lifecycle-$fish_pid
 tmux send-keys -t 0 "$shimdir/claude --enable-auto-mode --name Lifecycle" Enter
 sleep 0.8
 __tcz_categorize
-t "cat: lifecycle rename via shell pane" "yes" (tmux has-session -t =Lifecycle 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle rename via shell pane" "yes" \
+    (tmux has-session -t "=tcz-lifecycle-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "cat: lifecycle used the fake binary" "yes" \
     (pgrep -af -- '--name Lifecycle' | string match -q "*$shimdir*"; and echo yes; or echo no)
+t "cat: lifecycle display carries the task while claude runs" "tcz-lifecycle-$fish_pid · Lifecycle" \
+    (tmux show-option -qv -t "tcz-lifecycle-$fish_pid" @tmux_lives_display)
 # Kill the claude process directly (SIGTERM; C-c/SIGINT is absorbed by fish job control).
-set -l lcpid (tmux list-panes -t Lifecycle -F '#{pane_pid}' 2>/dev/null)
+set -l lcpid (tmux list-panes -t "tcz-lifecycle-$fish_pid" -F '#{pane_pid}' 2>/dev/null)
 pkill -TERM -P $lcpid 2>/dev/null; or kill -TERM $lcpid 2>/dev/null
 sleep 0.5
 __tcz_categorize
-t "cat: lifecycle revert to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle NAME stays pinned to the project after claude exits" "yes" \
+    (tmux has-session -t "=tcz-lifecycle-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle DISPLAY drops the task once claude exits" "tcz-lifecycle-$fish_pid" \
+    (tmux show-option -qv -t "tcz-lifecycle-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-lifecycle-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
