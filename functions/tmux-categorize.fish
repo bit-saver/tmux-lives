@@ -22,7 +22,7 @@ function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9
     test -n "$s"; and echo $s; or echo session
 end
 
-function __tcz_project_name --argument-names path --description 'session start dir -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session `bitsaver` or `tmp`. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
+function __tcz_project_name --argument-names path --description 'session start dir -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
     test -n "$path"; or return
     set -l p (string replace -r '/+$' '' -- "$path")
     test -n "$p"; or return              # "/" collapses to empty

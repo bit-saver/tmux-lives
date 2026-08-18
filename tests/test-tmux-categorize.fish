@@ -352,6 +352,20 @@ t "snapshot: row still has exactly 5 fields"                        5 "$snap_ari
 rm -rf $HOME/tcz-proj-$fish_pid
 cleanup
 
+# End-to-end "project · task" composition through __tcz_snapshot itself — the
+# spec's headline example (a claude session gets "<project> · <task>"). Task 2
+# unit-tests __tcz_display_name's composition directly; this is the only place
+# that proves it actually survives field 5, the -m 4 greedy split, and every
+# consumer, for a REAL claude session with both a project dir and a --name.
+cleanup
+mkdir -p $HOME/tcz-ptask-$fish_pid
+tmux new-session -d -s pt -c $HOME/tcz-ptask-$fish_pid "$shimdir/claude --enable-auto-mode --name Fix the picker lag"
+sleep 0.5
+t "snapshot: claude project · task composition, end to end" "tcz-ptask-$fish_pid · Fix the picker lag" \
+    (__tcz_snapshot | string match -e 'pt	*' | cut -f5)
+rm -rf $HOME/tcz-ptask-$fish_pid
+cleanup
+
 # ---------------------------------------------------------------------
 # __tcz_categorize (integration)
 # ---------------------------------------------------------------------
@@ -543,6 +557,25 @@ t "cat: claimed session keeps its tmux name" "yes" \
     (tmux has-session -t =42 2>/dev/null; and echo yes; or echo no)
 t "cat: claimed session not slug-renamed" "no" \
     (tmux has-session -t "=Neurotto-CLI" 2>/dev/null; and echo yes; or echo no)
+cleanup
+
+# A @tmux_lives_name claim containing a literal tab must survive whole as the
+# greedy last field, not get truncated at the embedded tab — this is exactly
+# the property the position-4 (path) / greedy-position-5 (claim) split exists
+# to preserve. NOT a RED discriminator: pre-change, the claim was ALREADY the
+# greedy last field, so this passed before Task 3 too. It is a deliberate
+# non-regression guard, pinned because the reviewer had to construct this case
+# by hand to verify it. cut -f5 cannot be used here (it would itself split on
+# the embedded tab); split the same way production does instead.
+cleanup
+set -l TAB (printf '\t')
+set -l claim (printf 'Left\tRight')
+tmux new-session -d -s 44 'sleep 1000'
+tmux set-option -t 44 @tmux_lives_name "$claim"
+sleep 0.5
+set -l tabline (__tcz_snapshot | string match -e '44	*')
+set -l tabfields (string split -m 4 $TAB -- $tabline)
+t "snap: a claim containing a literal tab survives whole in field 5" "$claim" "$tabfields[5]"
 cleanup
 
 # ---------------------------------------------------------------------
