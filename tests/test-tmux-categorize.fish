@@ -221,6 +221,18 @@ t "project: /tmp is not a project"            ""           "$pn4"
 t "project: / is not a project"               ""           "$pn5"
 t "project: empty path is not a project"      ""           "$pn6"
 t "project: spaces survive (display layer)"   "My Project" "$pn7"
+set -g dn1 (__tcz_display_name claude  neurotto "Fix the picker lag")
+set -g dn2 (__tcz_display_name claude  neurotto "")
+set -g dn3 (__tcz_display_name claude  ""        "Fix the picker lag")
+set -g dn4 (__tcz_display_name running neuro     node)
+set -g dn5 (__tcz_display_name general neuro     "")
+set -g dn6 (__tcz_display_name general ""        "")
+t "display: claude is project then task"      "neurotto · Fix the picker lag" "$dn1"
+t "display: claude with no task is project"   "neurotto"                      "$dn2"
+t "display: no project falls back to task"    "Fix the picker lag"            "$dn3"
+t "display: running IGNORES the process name" "neuro"                         "$dn4"
+t "display: general is the project"           "neuro"                         "$dn5"
+t "display: nothing to show -> empty"         ""                              "$dn6"
 t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
 t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
 t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)

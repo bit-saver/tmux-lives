@@ -30,6 +30,15 @@ function __tcz_project_name --argument-names path --description 'session start d
     path basename -- "$p"
 end
 
+function __tcz_display_name --argument-names category project task --description 'compose what a human reads: "project · task" for a claude session, the project alone for anything else. The task is DELIBERATELY ignored outside the claude category — that is what stops a node dev server reading as `node`. Uses U+00B7, the same separator the status bar already puts between fields. Returns nothing when there is neither a project nor a task, leaving the caller on the tmux name.'
+    if test "$category" = claude; and test -n "$project"; and test -n "$task"
+        echo "$project · $task"
+        return
+    end
+    test -n "$project"; and echo "$project"; and return
+    test "$category" = claude; and test -n "$task"; and echo "$task"
+end
+
 function __tcz_title_name --description 'claude pane title -> display name, or empty if unusable'
     # A trusted claude title always begins with a leading status-glyph WORD
     # (one or more non-space codepoints) followed by a space.
