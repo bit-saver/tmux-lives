@@ -282,7 +282,11 @@ pkill -f 'Child Test' 2>/dev/null
 # __tcz_snapshot (integration, isolated socket via PATH shim)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s c1 "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
+# c1/c_title pin -c $HOME (a generic, excluded dir) so their display isolates
+# the --name/title extraction under test from project-name composition, which
+# has its own dedicated coverage below (snapshot: running session displays
+# the PROJECT) and in the __tcz_project_name/__tcz_display_name unit tests.
+tmux new-session -d -s c1 -c $HOME "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
 tmux new-session -d -s r1 -c /tmp 'sleep 1000'
 tmux new-session -d -s g1 -c $HOME
 sleep 0.5     # let pane_current_command settle
@@ -290,23 +294,23 @@ t "snap: categories"  "c1	claude,g1	general,r1	running" \
     (__tcz_snapshot | cut -f1,2 | sort | string join ',')
 t "snap: claude display from --name" "TMUX Setup 2" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f5)
-t "snap: running display = command"  "sleep" \
+t "snap: running display = empty for a generic (excluded) cwd" "" \
     (__tcz_snapshot | string match -e 'r1	*' | cut -f5)
-t "snap: general display = ~cwd"     "~" \
+t "snap: general display = empty for a generic (excluded) cwd" "" \
     (__tcz_snapshot | string match -e 'g1	*' | cut -f5)
 t "snap: detached flag"              "0" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f3)
-# display fallbacks: no --name -> gated title; unusable title -> claude-<cwd>
+# display fallbacks: no --name -> gated title; unusable title with a project dir -> project name
 cleanup
 mkdir -p /tmp/tcz-myproj-$fish_pid
-tmux new-session -d -s c_title "$shimdir/claude --enable-auto-mode"
+tmux new-session -d -s c_title -c $HOME "$shimdir/claude --enable-auto-mode"
 tmux select-pane -t c_title: -T "✳ My Work Project"
 tmux new-session -d -s c_cwd -c /tmp/tcz-myproj-$fish_pid "$shimdir/claude --enable-auto-mode"
 tmux select-pane -t c_cwd: -T ""
 sleep 0.5
 t "snap: claude display from title" "My Work Project" \
     (__tcz_snapshot | string match -e 'c_title	*' | cut -f5)
-t "snap: claude display from cwd"   "claude-tcz-myproj-$fish_pid" \
+t "snap: claude display from cwd"   "tcz-myproj-$fish_pid" \
     (__tcz_snapshot | string match -e 'c_cwd	*' | cut -f5)
 rm -rf /tmp/tcz-myproj-$fish_pid
 cleanup
@@ -326,7 +330,7 @@ tmux new-session -d -s real1 -c $HOME/tcz-boring-$fish_pid "node -e 'setInterval
 sleep 0.5
 t "snap: boring command -> general (not running)" "general" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f2)
-t "snap: boring display = dir basename (not tail)" "~/tcz-boring-$fish_pid" \
+t "snap: boring display = dir basename (not tail)" "tcz-boring-$fish_pid" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f5)
 t "snap: real program -> still running (guard doesn't over-reach)" "running" \
     (__tcz_snapshot | string match -e 'real1	*' | cut -f2)
@@ -334,21 +338,43 @@ rm -rf $HOME/tcz-boring-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
+# __tcz_snapshot displays the PROJECT (dir basename), never the process
+# name, for a running session — the naming redesign's first wiring.
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-proj-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-proj-$fish_pid 'sleep 500'
+sleep 0.5
+set -g snap_disp (__tcz_snapshot | string match -e '0	*' | cut -f5)
+set -g snap_arity (__tcz_snapshot | head -1 | awk -F'\t' '{print NF}')
+t "snapshot: running session displays the PROJECT, not the command" "tcz-proj-$fish_pid" "$snap_disp"
+t "snapshot: row still has exactly 5 fields"                        5 "$snap_arity"
+rm -rf $HOME/tcz-proj-$fish_pid
+cleanup
+
+# ---------------------------------------------------------------------
 # __tcz_categorize (integration)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
-tmux new-session -d -s 1 'sleep 1000'
+# session "0"/"1" pin -c $HOME / a real project dir so their categorize-rename
+# target is deterministic and independent of the invoking cwd — otherwise a
+# session created with no -c inherits THIS test run's own cwd as its
+# session_path, and (when invoked from the repo root, as documented) would
+# slugify to a "tmux-lives-..." name instead of the literal below.
+mkdir -p $HOME/tcz-run-$fish_pid
+tmux new-session -d -s 0 -c $HOME "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
+tmux new-session -d -s 1 -c $HOME/tcz-run-$fish_pid 'sleep 1000'
 tmux new-session -d -s 2
 tmux new-session -d -s handname 'sleep 1000'      # unowned non-numeric -> guard protects
 sleep 0.5
 __tcz_categorize
 t "cat: claude renamed to slug"  "yes" (tmux has-session -t =TMUX-Setup-2 2>/dev/null; and echo yes; or echo no)
 t "cat: claude stamped"          "TMUX-Setup-2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_auto_name)
-t "cat: running renamed to cmd"  "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+t "cat: running renamed to project" "yes" (tmux has-session -t "=tcz-run-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "cat: numeric general renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 t "cat: hand-named protected"    "yes" (tmux has-session -t =handname 2>/dev/null; and echo yes; or echo no)
 t "cat: idempotent (no churn)"   "" (__tcz_categorize | string join ',')
+rm -rf $HOME/tcz-run-$fish_pid
 
 # revert: owned claude-named session whose claude died -> numeric
 tmux kill-session -t =TMUX-Setup-2
@@ -360,8 +386,8 @@ t "cat: owned idle reverts to gen-N" "gen-1" \
 
 # collision: two OWNED (numeric) claude sessions with the same --name
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --name Same Name"
-tmux new-session -d -s 1 "$shimdir/claude --name Same Name"
+tmux new-session -d -s 0 -c $HOME "$shimdir/claude --name Same Name"
+tmux new-session -d -s 1 -c $HOME "$shimdir/claude --name Same Name"
 sleep 0.5
 __tcz_categorize
 t "cat: collision suffixed" "Same-Name,Same-Name-2" \
@@ -381,7 +407,7 @@ t "cat: hand-named claude protected" "yes" \
 # one is misread as claimed, and it is skipped -> permanently stranded at its numeric name,
 # re-failing every pass. Reproduced live before the fix.
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --name Numeric Claude"
+tmux new-session -d -s 0 -c $HOME "$shimdir/claude --name Numeric Claude"
 tmux new-session -d -s claimant
 tmux set-option -t claimant @tmux_lives_name "Claimed By App"
 sleep 0.5
@@ -424,18 +450,22 @@ t "narrowed: the other session is untouched" "yes" (tmux has-session -t =bravo 2
 cleanup
 
 # Collision avoidance must still consult sessions OUTSIDE the filter: `target`
-# wants the name `sleep`, which an unfiltered session already holds.
-tmux new-session -d -s target 'sleep 1000'
-tmux new-session -d -s sleep 'sleep 1000'
+# wants the project-derived name `tcz-collide-$fish_pid`, which an unfiltered
+# session already holds (a literal name, standing in for another session that
+# independently computed the same slug).
+mkdir -p $HOME/tcz-collide-$fish_pid
+tmux new-session -d -s target -c $HOME/tcz-collide-$fish_pid 'sleep 1000'
+tmux new-session -d -s tcz-collide-$fish_pid 'sleep 1000'
 tmux set-option -t target @tmux_auto_name target
 sleep 0.5
 __tcz_categorize target
 t "narrowed: the outside session kept its name" "yes" \
-    (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-collide-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "narrowed: target dodged the outside name"    "yes" \
-    (tmux has-session -t =sleep-2 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-collide-$fish_pid-2" 2>/dev/null; and echo yes; or echo no)
 t "narrowed: no duplicate session names"        "yes" \
     (test (tmux list-sessions -F '#{session_name}' 2>/dev/null | count) -eq (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort -u | count); and echo yes; or echo no)
+rm -rf $HOME/tcz-collide-$fish_pid
 cleanup
 
 # ...and a numeric session's claude identity must land on ITSELF, not on a neighbour.
@@ -519,7 +549,7 @@ cleanup
 # lifecycle: rename when claude starts in a shell pane, revert when it exits
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0
+tmux new-session -d -s 0 -c $HOME
 tmux send-keys -t 0 "$shimdir/claude --enable-auto-mode --name Lifecycle" Enter
 sleep 0.8
 __tcz_categorize
@@ -645,9 +675,11 @@ cleanup
 # Dispatcher + tick silence (subprocess — exercises the real entrypoint)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0 'sleep 1000'
+mkdir -p $HOME/tcz-tick-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-tick-$fish_pid 'sleep 1000'
 t "main: tick emits nothing"  "" (fish --no-config $plugindir/functions/tmux-categorize.fish tick | string join ',')
-t "main: tick renamed via subprocess" "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+t "main: tick renamed via subprocess" "yes" (tmux has-session -t "=tcz-tick-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-tick-$fish_pid
 t "main: slug subcommand" "prod-debug" (fish --no-config $plugindir/functions/tmux-categorize.fish slug "prod:debug")
 # switch subcommand: headless (no client) must degrade silently, rc 0
 cleanup

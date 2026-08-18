@@ -355,7 +355,7 @@ end
 
 function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
-    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{@tmux_lives_name}')
+    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{@tmux_lives_name}')
     set -l panes
     if test -n "$only"
         # __tcz_pane_target: list-panes wants "=name" for exactness, but a purely
@@ -368,7 +368,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l TAB (printf '\t')
     # Per-session aggregation. list-panes -a arrives in session/window/pane order,
     # so "first" below honors the lowest-window-then-pane rule from the spec.
-    set -l names; set -l cats; set -l firstcmd; set -l cpid; set -l cpath; set -l ctitle; set -l gpath
+    set -l names; set -l cats; set -l firstcmd; set -l cpid; set -l ctitle
     for line in $panes
         set -l f (string split -m 4 $TAB -- $line)    # title is last; keep embedded tabs
         test (count $f) -ge 4; or continue
@@ -376,7 +376,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set -l i (contains -i -- $s $names)
         if test -z "$i"
             set -a names $s; set -a cats general; set -a firstcmd ''
-            set -a cpid ''; set -a cpath ''; set -a ctitle ''; set -a gpath $f[4]
+            set -a cpid ''; set -a ctitle ''
             set i (count $names)
         end
         # pane_current_command may report "sh" even when the pane_pid comm is "claude"
@@ -387,7 +387,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         if test $is_claude -eq 1
             set cats[$i] claude
             if test -z "$cpid[$i]"
-                set cpid[$i] $f[3]; set cpath[$i] $f[4]; set ctitle[$i] "$f[5]"
+                set cpid[$i] $f[3]; set ctitle[$i] "$f[5]"
             end
         else if not contains -- $f[2] $__tcz_shells; and not contains -- $f[2] $__tcz_boring
             test "$cats[$i]" = claude; or set cats[$i] running
@@ -395,12 +395,13 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         end
     end
     # attached / last_attached lookup
-    set -l snames; set -l satt; set -l slast; set -l sdisp
+    set -l snames; set -l satt; set -l slast; set -l spath; set -l sdisp
     for line in (tmux list-sessions -F $sess_fmt 2>/dev/null)
-        set -l f (string split -m 3 $TAB -- $line)
-        test (count $f) -ge 3; or continue
+        set -l f (string split -m 4 $TAB -- $line)    # claim is last; keep embedded tabs
+        test (count $f) -ge 4; or continue
         set -a snames $f[1]; set -a satt $f[2]; set -a slast $f[3]
-        set -a sdisp (test (count $f) -ge 4; and echo $f[4]; or echo '')
+        set -a spath (test (count $f) -ge 4; and echo $f[4]; or echo '')
+        set -a sdisp (test (count $f) -ge 5; and echo $f[5]; or echo '')
     end
     for i in (seq (count $names))
         set -l att 0
@@ -410,23 +411,15 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
             test "$satt[$j]" = 0; or set att 1
             string match -qr '^[0-9]+$' -- "$slast[$j]"; and set last $slast[$j]
         end
-        set -l display
-        switch $cats[$i]
-            case claude
-                set display (__tcz_cmdline_name $cpid[$i])
-                test -n "$display"; or set display (__tcz_title_name "$ctitle[$i]")
-                test -n "$display"; or set display claude-(path basename -- $cpath[$i])
-            case running
-                set display $firstcmd[$i]
-            case general
-                if test "$gpath[$i]" = "$HOME"
-                    set display '~'
-                else if string match -q "$HOME/*" -- $gpath[$i]
-                    set display '~'(string sub -s (math (string length -- "$HOME") + 1) -- $gpath[$i])
-                else
-                    set display $gpath[$i]
-                end
+        set -l proj
+        test -n "$j"; and set proj (__tcz_project_name "$spath[$j]")
+        set -l task
+        if test "$cats[$i]" = claude
+            set task (__tcz_cmdline_name $cpid[$i])
+            test -n "$task"; or set task (__tcz_title_name "$ctitle[$i]")
         end
+        set -l display (__tcz_display_name $cats[$i] "$proj" "$task")
+        # @tmux_lives_name is an EXTERNAL claim and outranks everything.
         test -n "$j"; and test -n "$sdisp[$j]"; and set display "$sdisp[$j]"
         printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $att $last "$display"
     end
