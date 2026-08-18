@@ -480,6 +480,19 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         set -a pnames $kv[1]; set -a ppaths $kv[2]
         set -a pdisps (test (count $kv) -ge 3; and echo $kv[3]; or echo '')
     end
+    # Fail closed, mirroring __tcz_snapshot's own `test -n "$panes[1]"; or return`: a
+    # transient failure of THIS ONE tmux call (server hiccup, race) must not fall
+    # through with every $pi lookup empty, which would read every owned session as
+    # project-less and rename the whole owned set to gen-N for a tick (reproduced —
+    # a real server still has sessions, so __tcz_snapshot's own list-panes/list-sessions
+    # calls can succeed independently and keep the per-session loop running). Bailing
+    # out of the WHOLE pass costs one self-healing tick of staleness; renaming
+    # everyone to gen-N costs a visible flap plus a round of display churn. Chose the
+    # early return over moving the lookup after __tcz_snapshot: reordering does not
+    # remove the race (any two separate tmux queries can still land on either side of
+    # a hiccup), it only relocates which call could fail — and a retry would be the
+    # real fix for that, which is out of scope here.
+    test -n "$pnames[1]"; or return
 
     for line in (__tcz_snapshot $only)
         set -l f (string split -m 4 $TAB -- $line)
@@ -557,8 +570,16 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         # Display sync. Field 5 of the snapshot row IS the composed display already (Task
         # 3's __tcz_display_name pass) — write it verbatim, never recompose it here (that
         # would be composing a display out of a display). Dedup against the batched read
-        # above so this is a write only on an actual change.
-        if test -n "$f[5]"
+        # above so this is a write only on an actual change. Gated on $proj, not just
+        # $f[5]: a claude session with NO project but a live --name/title task still
+        # composes a non-empty (task-only) display in __tcz_display_name, and writing
+        # THAT here would give a gen-N-bound session a display for exactly one pass —
+        # it gets cleared right back out on the very next tick by the stable-gen-N
+        # bailout above, a spurious write/unset pair for a session the spec's own
+        # table says should carry no display ("any session started in ~ or /tmp ->
+        # gen-1 ... display: none"). Skip straight to the clear-if-present branch
+        # instead, same treatment as the other project-less bailout paths.
+        if test -n "$proj"; and test -n "$f[5]"
             test "$f[5]" = "$curdisp"; or tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$f[5]" 2>/dev/null
         else
             test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$desired") @tmux_lives_display 2>/dev/null

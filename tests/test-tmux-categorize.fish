@@ -528,6 +528,112 @@ t "categorize: no duplicate session names" "yes" \
 rm -rf $HOME/tcz-dup-$fish_pid $HOME/tcz-cat-$fish_pid
 cleanup
 
+# --- I1: anti-churn -- a second pass over an UNCHANGED server must emit ZERO
+# @tmux_lives_display set-option calls, not merely leave the end-state
+# unchanged. This is the property that guards against reintroducing the
+# per-tick set-option churn that caused the ShellFish cursor flicker (fixed at
+# __tcz_set_claude_opt by this same dedup discipline). Spy on the emitted tmux
+# commands rather than inferring from end state -- the idiom already used
+# above for "switch: --take detaches the session's clients".
+cleanup
+mkdir -p $HOME/tcz-churn-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-churn-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize   # first pass: establishes steady state (rename + display write)
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_categorize   # second pass over an otherwise-unchanged server
+functions -e tmux
+t "cat: steady-state second pass writes zero @tmux_lives_display options" "0" \
+    (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
+set -e __t_cmds
+rm -rf $HOME/tcz-churn-$fish_pid
+cleanup
+
+# --- M1: the claim-path clear, with a session that GENUINELY had a display
+# first -- not the vacuous shape above (THE REGRESSION THAT WOULD BREAK
+# NEUROTTO block claims a session that was never named/displayed by
+# categorize at all, so deleting that clear leaves the suite green). This is
+# spec line 103's exact scenario: an app claims a session the categorizer
+# previously named AND displayed.
+cleanup
+mkdir -p $HOME/tcz-claim1-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim1-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize
+set -g m1_disp (tmux show-option -qv -t "tcz-claim1-$fish_pid" @tmux_lives_display)
+t "cat: M1 fixture genuinely has a display before the claim" "tcz-claim1-$fish_pid" "$m1_disp"
+tmux set-option -t "tcz-claim1-$fish_pid" @tmux_lives_name "Claimed After Naming"
+__tcz_categorize
+set -g m1_disp2 (tmux show-option -qv -t "tcz-claim1-$fish_pid" @tmux_lives_display)
+t "cat: a claim arriving AFTER naming still clears the display" "" "$m1_disp2"
+set -e m1_disp m1_disp2
+rm -rf $HOME/tcz-claim1-$fish_pid
+cleanup
+
+# --- M2: the stable-gen-N clear, with a genuinely-present prior display. A
+# gen-N session can never legitimately EARN a display through production code
+# (post-M3 fix below, it has no project by definition) -- so this simulates a
+# stale value, the kind a manual poke, a migration, or an old fisher version
+# could leave behind, to prove the categorizer still cleans it up on its
+# regular bailout pass rather than only ever seeing an already-empty option.
+cleanup
+tmux new-session -d -s gen-1 -c $HOME
+tmux set-option -t gen-1 @tmux_auto_name gen-1
+tmux set-option -t gen-1 @tmux_lives_display "stale leftover value"
+sleep 0.3
+__tcz_categorize
+set -g m2_disp (tmux show-option -qv -t gen-1 @tmux_lives_display)
+t "cat: stable gen-N clears a stale display on its bailout pass" "" "$m2_disp"
+t "cat: stable gen-N session itself is untouched (still gen-1)" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+set -e m2_disp
+cleanup
+
+# --- M3: the success-path write is gated on $proj, not just $f[5] -- a
+# no-project claude session still composes a non-empty (task-only) display in
+# __tcz_display_name, and writing it here would give a gen-N-bound session a
+# display for exactly one pass before the very next tick's stable-gen-N
+# bailout clears it right back out: a spurious write/unset pair for a session
+# the spec's own table says should carry no display at all. Spy on the FIRST
+# pass itself (not a second pass) to prove the write never happens even once,
+# not merely that dedup hides it afterward.
+cleanup
+tmux new-session -d -s 0 -c $HOME "$shimdir/claude --enable-auto-mode --name No Project Task"
+sleep 0.5
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_categorize
+functions -e tmux
+t "cat: no-project claude session never gets a display write, not even pass 1" "0" \
+    (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
+t "cat: no-project claude session is still renamed to gen-N" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+set -e __t_cmds
+cleanup
+
+# --- M4: a transient failure of the batched project/display lookup ALONE
+# (not the rest of the tmux server -- list-sessions/list-panes elsewhere in
+# the same pass keep succeeding) must not rename every owned session to
+# gen-N for a tick. Intercept ONLY that one list-sessions call.
+cleanup
+tmux new-session -d -s alpha -c $HOME 'sleep 1000'
+tmux new-session -d -s bravo -c $HOME 'sleep 1000'
+tmux set-option -t alpha @tmux_auto_name alpha
+tmux set-option -t bravo @tmux_auto_name bravo
+sleep 0.3
+function tmux
+    if string match -qr -- 'list-sessions.*@tmux_lives_display' "$argv"
+        return 0
+    end
+    command tmux -L $sock $argv
+end
+__tcz_categorize
+functions -e tmux
+t "cat: a failed batched lookup renames NEITHER session (fails closed)" "alpha,bravo" \
+    (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+cleanup
+
 # --- narrowed categorize (fish_postexec) --------------------------------------------
 # A command run in pane X cannot change the classification of session Y, so the
 # postexec hook's full server-wide pass does N times the necessary work BY
@@ -705,6 +811,15 @@ sleep 0.5
 __tcz_categorize
 t "cat: lifecycle NAME stays pinned to the project after claude exits" "yes" \
     (tmux has-session -t "=tcz-lifecycle-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+# THIS is the steady-state-freshness guard for C1's shipped structure (dedup
+# intact, display sync merely decoupled from the rename short-circuit) --
+# NOT "cat: display survives a second (no-op) pass" above, which only proves
+# an UNCHANGING value persists and passes just as well if the write stays
+# nested behind the short-circuit (verified: it does, since with the value
+# unchanging pass 2 never touches the option either way). Here the DESIRED
+# VALUE changes between passes (task present -> task gone) while the tmux
+# NAME does not, which only a decoupled write can track. Do not weaken this
+# one thinking it cosmetic -- it is load-bearing for C1.
 t "cat: lifecycle DISPLAY drops the task once claude exits" "tcz-lifecycle-$fish_pid" \
     (tmux show-option -qv -t "tcz-lifecycle-$fish_pid" @tmux_lives_display)
 rm -rf $HOME/tcz-lifecycle-$fish_pid
