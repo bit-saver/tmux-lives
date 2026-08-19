@@ -953,8 +953,16 @@ tmux new-session -d -s 0 -c $HOME
 set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
 __tcz_claim $pane "Some Task"
 t "claim: no project -> name untouched" "yes" (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+# FORWARD-ONLY GUARD, no pre-fix RED: pre-fix code renamed the session (to
+# "Some-Task"), so "no claude-<cwd> name exists" was unobservable there by
+# construction -- it passed for the wrong reason, not because the fallback
+# was already gone. Kept as a guard against a future regression, not a
+# discriminator of this one.
 t "claim: no project -> never falls back to claude-<cwd>" "no" \
     (tmux list-sessions -F '#{session_name}' | string match -qr '^claude-'; and echo yes; or echo no)
+# FORWARD-ONLY GUARD, no pre-fix RED: same reason -- pre-fix, session "0" no
+# longer exists under that name once renamed, so this reads an empty lookup
+# on a name that isn't there rather than proving no display was written.
 t "claim: no project -> no display written" "" (tmux show-option -qv -t 0 @tmux_lives_display)
 # Empty raw specifically -- this is the exact input shape that used to build
 # "claude-<basename>" (the deleted fallback); with no project either, nothing
