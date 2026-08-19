@@ -21,10 +21,15 @@
 #   4. Mutation tests proving the counting mechanism itself is sensitive (a
 #      same-size control collapses to zero delta; stubbing one call away drops the
 #      count) -- "a harness that cannot distinguish states is worse than none."
-#   5. An equivalence baseline: __tcz_snapshot, __tcz_overview and the option
-#      writes a pass emits, pinned byte-identical on a fixed fixture. Later tasks
-#      in the cycle must reproduce this exactly -- a batching refactor that quietly
-#      changes a value is worse than the cost it fixes.
+#   5. A coverage guard: every session in a multi-session fixture must actually
+#      be renamed and stamped, not merely leave the delta looking flat -- closes
+#      a gaming hole where truncating __tcz_categorize's session loop collapses
+#      the delta to 0 without the equivalence baseline (below) noticing.
+#   6. An equivalence baseline: __tcz_snapshot, __tcz_overview and the option
+#      writes (including renames) a pass emits, pinned byte-identical on a fixed
+#      fixture. Later tasks in the cycle must reproduce this exactly -- a
+#      batching refactor that quietly changes a value is worse than the cost it
+#      fixes.
 #
 # No production code changes here. This is a test-only commit.
 
@@ -273,6 +278,19 @@ __tcb_sessions $clsock 2
 __tcb_attach $clsock tcb1
 set -l ncl1 (__tcb_tick_calls $cldir $clsock $cllog '#112233')
 
+# Reset the heal backstop between the two measurements, same fix as the
+# mutation self-test above and for the identical reason: the FIRST tick call
+# armed @tmux_lives_heal_at ~120s out, so without this reset the SECOND
+# measurement's force-mode __tcz_recolor (and its list-clients call) would be
+# silently skipped as "not due yet" -- undercounting the 3-client measurement
+# by exactly the amount the extra client work it exists to detect would have
+# cost. Caught in review: this fix landed in the mutation self-test but not
+# here, on first cut -- same confound, same file, missed in the sibling
+# section. Reproduced pre-fix: ncl3=38 (delta 9); with this reset, ncl3=47
+# (delta 18) -- roughly double, and the true baseline this section should be
+# quoting for the client-batching task's ratchet.
+command tmux -L $clsock set-option -gu @tmux_lives_heal_at 2>/dev/null
+
 __tcb_attach $clsock tcb2
 __tcb_attach $clsock tcb2
 set -l ncl3 (__tcb_tick_calls $cldir $clsock $cllog '#112233')
@@ -308,7 +326,67 @@ t "today: tick tmux-call count vs ShellFish/iTerm2 client count (TODO(tick-call-
 # above don't already carry.
 
 # ---------------------------------------------------------------------
-# 4. Equivalence baseline: __tcz_snapshot, __tcz_overview, and the option writes
+# 4. Coverage guard: every session in the multi-session fixture must actually
+# be PROCESSED -- renamed and stamped -- not merely leave the call-count delta
+# looking flat.
+#
+# Closes a real gaming hole a reviewer found: patching __tcz_categorize's
+# session loop to `break` after 2 iterations collapses the session-count delta
+# 16->0 (section 1 above would wrongly flip to "O(1)") AND leaves the
+# equivalence baseline (section 5 below) byte-identical -- because
+# __tcz_snapshot/__tcz_overview report whatever the CURRENT server state
+# happens to be, regardless of whether categorize actually visited a given
+# session this pass, and the equivalence fixture's 3rd/4th sessions
+# (gen-1, claimed-app) produce no write either way, processed or silently
+# skipped. Neither existing check can tell "processed" from "silently
+# skipped" apart for those two, which is exactly what let a break-after-2 loop
+# hide behind both.
+#
+# This fixture is built so a truncation is NOT silent: every session is
+# purely numeric (owned, per __tcz_owned's numeric fast path) with NO project
+# (-c /tmp, excluded by __tcz_project_name's own contract: HOME/tmp/var-tmp
+# return empty) -- so a correctly-running pass falls through to the gen-N
+# branch and renames EVERY one of them off its numeric name, stamping
+# @tmux_auto_name to match. A session still sitting at its original numeric
+# name, or stamped to something other than its OWN current name, means
+# __tcz_categorize never actually reached it -- independent of whatever the
+# call-count delta or the (unrelated) equivalence fixture happen to show.
+# ---------------------------------------------------------------------
+
+set -l covdir /tmp/tcz-tcb-cov-$fish_pid
+set -l covsock tcz-tcb-cov-$fish_pid
+set -l covlog /tmp/tcz-tcb-covlog-$fish_pid
+__tcb_track $covdir; __tcb_track $covlog
+__tcb_make_shim $covdir $covsock $covlog
+
+set -l COV_N 6
+command tmux -L $covsock kill-server 2>/dev/null
+for i in (seq 50)
+    command tmux -L $covsock list-sessions >/dev/null 2>&1; or break
+end
+for i in (seq 0 (math $COV_N - 1))
+    command tmux -L $covsock -f /dev/null new-session -d -s "$i" -c /tmp "sleep 300" 2>/dev/null
+end
+sleep 0.3
+
+env PATH="$covdir:$PATH" fish --no-config $plugindir/functions/tmux-categorize.fish tick '#112233' >/dev/null 2>&1
+
+set -l cov_names (command tmux -L $covsock list-sessions -F '#{session_name}' 2>/dev/null)
+set -l cov_renamed 0
+set -l cov_stamped 0
+for n in $cov_names
+    string match -qr '^gen-[0-9]+$' -- "$n"; and set cov_renamed (math $cov_renamed + 1)
+    set -l stamp (command tmux -L $covsock show-option -qv -t "$n" @tmux_auto_name 2>/dev/null)
+    test "$stamp" = "$n"; and set cov_stamped (math $cov_stamped + 1)
+end
+command tmux -L $covsock kill-server 2>/dev/null
+
+echo "MEASURED coverage: $COV_N sessions built, $cov_renamed renamed off-numeric, $cov_stamped correctly self-stamped"
+t "coverage: every session in the multi-session fixture was renamed off its numeric name" "$COV_N" "$cov_renamed"
+t "coverage: every session in the multi-session fixture was stamped, matching its own new name" "$COV_N" "$cov_stamped"
+
+# ---------------------------------------------------------------------
+# 5. Equivalence baseline: __tcz_snapshot, __tcz_overview, and the option writes
 # a tick pass emits, pinned byte-identical on a fixed, fully deterministic
 # fixture. Later tasks in this cycle (which DO change the read path) must
 # reproduce every one of these exactly -- "a batching refactor that quietly
@@ -385,7 +463,12 @@ __tcz_main tick '#112233' >/dev/null 2>&1
 
 set -l eq_snapshot (__tcz_snapshot | string collect)
 set -l eq_overview (__tcz_overview | string collect)
-set -l eq_writes (grep -E '^(set-option|set) ' $__tcb_eqlog | sort | string collect)
+# rename-session is included alongside the @option writes: a session's name is
+# also state a batching refactor could silently change (or silently fail to
+# change), and it is exactly the kind of state a loop that silently skips a
+# session would leave stale -- narrowing this to "set-option|set" only, as an
+# earlier cut of this file did, would miss that class of drift entirely.
+set -l eq_writes (grep -E '^(set-option|set|rename-session) ' $__tcb_eqlog | sort | string collect)
 
 set -gx PATH $oldpath2
 command tmux -L $__tcb_eqsock kill-server 2>/dev/null
@@ -400,7 +483,9 @@ beta	running	0	0	beta
 gen-1	running	0	0	gen-1
 claimed-app	general	0	0	My App CLI"
 
-set -l EXPECT_WRITES "set-option -t \$0 @tmux_lives_claude Task Alpha
+set -l EXPECT_WRITES "rename-session -t =0 -- alpha
+rename-session -t =1 -- beta
+set-option -t \$0 @tmux_lives_claude Task Alpha
 set-option -t alpha @tmux_auto_name alpha
 set-option -t alpha @tmux_lives_display alpha · Task Alpha
 set-option -t beta @tmux_auto_name beta
