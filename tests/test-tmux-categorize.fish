@@ -1257,7 +1257,14 @@ t "pid_comm: snapshot agrees with /proc"     "$comm_proc" "$comm_ps"
 # Compared as a SET of tokens: /proc joins argv with single spaces while ps
 # preserves the original spacing, so a byte comparison would be brittle for the
 # wrong reason.
-t "pid_cmdline: snapshot agrees with /proc (tokens)" (string join ' ' (string split -n ' ' -- "$cmd_proc")) (string join ' ' (string split -n ' ' -- "$cmd_ps"))
+# The strengthening above shipped its own hole: `fish -c 'sleep 5'` puts a `-c`
+# token in the data, and `string join` parses its ARGUMENTS for options with no
+# `--` to stop it — both sides threw `unknown option -c`, both substitutions
+# collapsed to "", and "" = "" passed unconditionally on every run (silent on
+# stderr in a `2>&1` capture, visible on a bare run). The comment above already
+# tells this story once — a reviewer catching a weak assertion, replaced by
+# something weaker still — so this is a repeat of the pattern, not a new one.
+t "pid_cmdline: snapshot agrees with /proc (tokens)" (string join ' ' -- (string split -n ' ' -- "$cmd_proc")) (string join ' ' -- (string split -n ' ' -- "$cmd_ps"))
 t "pid_cmdline: does not leak the pid column" 0 (string match -qr '^\s*'$kidparent'\s' -- "$cmd_ps"; and echo 1; or echo 0)
 t "pid_children: found a real child to compare" 1 (test -n "$kids_proc"; and echo 1; or echo 0)
 kill $kidparent 2>/dev/null
