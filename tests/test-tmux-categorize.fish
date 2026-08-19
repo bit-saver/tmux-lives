@@ -201,8 +201,13 @@ t "tmux_global is memoized: a change after load stays invisible until flushed" "
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "tmux_global sees the change once flushed" "#abcdef" (__tcz_tmux_global tabs_color)
 
-# The actual point of task 2: three accessor calls for three different keys,
-# after one flush, must cost exactly ONE `tmux` invocation — not three.
+# The actual point of task 2 (extended by task 3): three accessor calls for
+# three different GLOBAL keys, after one flush, must cost exactly TWO `tmux`
+# invocations, not six — one `show -g` for every global key, PLUS one
+# `list-sessions -F` (tick-call-batching task 3's session-scoped half, loaded
+# by the same __tcz_tmux_load and therefore paid on this same first touch even
+# though nothing here reads a session-scoped field). Was ONE invocation before
+# task 3 added the session half.
 set -g tgshim /tmp/tcz-tgshim-$fish_pid; set -g tglog /tmp/tcz-tglog-$fish_pid
 rm -rf $tgshim $tglog; mkdir -p $tgshim $tglog
 printf '#!/bin/bash\necho x >> %s/calls\nexec /usr/bin/tmux -L %s "$@"\n' $tglog $sock > $tgshim/tmux
@@ -215,9 +220,15 @@ __tcz_tmux_global heal_interval >/dev/null
 __tcz_tmux_global heal_at >/dev/null
 set -l tg_calls 0
 test -f $tglog/calls; and set tg_calls (string trim -- (wc -l < $tglog/calls))
-t "tmux_global: three accessor calls after one flush cost exactly one tmux invocation" 1 $tg_calls
+t "tmux_global: three accessor calls after one flush cost exactly two tmux invocations (show -g + list-sessions)" 2 $tg_calls
 set -gx PATH $tg_path_save
 rm -rf $tgshim $tglog
+# This test's own accessor calls just loaded the memo from THIS block's real
+# $sock server state at whatever point in the suite this runs -- flush so that
+# snapshot cannot leak into any later test that forgets to flush before its
+# own first memo-backed read (this bit once: every downstream __tcz_snapshot
+# assertion failed en masse until this flush was added here).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # __tcz_tmux_unquote round-tripped against REAL tmux escaping, not hand-built
 # escape sequences (which this codebase has gotten subtly wrong before) —
@@ -1092,6 +1103,10 @@ cleanup
 tmux new-session -d -s 0 "$shimdir/claude --name Cross Write"
 tmux new-session -d -s neighbour
 sleep 0.5
+# tick-call-batching task 3: __tcz_set_claude_opt's dedup read is now served from
+# the per-pass session memo, so it must be fresh for sessions "0"/"neighbour" --
+# flush any load an earlier test in this suite left cached before they existed.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt 0
 set -g sid0 ''
 for l in (tmux list-sessions -F '#{session_name} #{session_id}' 2>/dev/null)
@@ -1929,6 +1944,16 @@ rm -f $ttl
 # __tcz_session_title now reads #{session_path} via display-message (the session's
 # start dir, single-valued) rather than list-panes' active-pane pane_current_path,
 # and consults @tmux_lives_display between the claim and the dir fallback.
+#
+# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read now comes
+# from the batched per-pass session memo (__tcz_tmux_load's `list-sessions -F`),
+# not a live show-option call -- so this stub grew a `case list-sessions` row for
+# it, and every $tcz_test_name change below needs an explicit __tcz_tmux_flush
+# before the next __tcz_session_title call, or that call would see a STALE
+# memoized name instead of the one just set (same idiom this file already uses
+# for __tcz_tmux_global/__tcz_heal_due). @tmux_lives_display stays a live
+# show-option read, deliberately NOT migrated (see __tcz_session_title's own
+# docstring for why), so it needs no such flush.
 function tmux
     switch "$argv[1]"
         case list-panes
@@ -1936,11 +1961,12 @@ function tmux
         case display-message
             echo $tcz_test_path              # __tcz_session_title: session_path
         case show-option
-            if string match -q '*@tmux_lives_display*' -- "$argv"
-                echo $tcz_test_display        # @tmux_lives_display override
-            else
-                echo $tcz_test_name           # @tmux_lives_name override
-            end
+            echo $tcz_test_display           # @tmux_lives_display override (still live)
+        case list-sessions
+            # session_name/attached/last_attached/path/claude/auto_name/display are
+            # unused by __tcz_session_title (display is read live above instead) --
+            # only the last, greedy field (@tmux_lives_name) matters here.
+            printf 'sA\t0\t0\t\t\t\t\t%s\n' $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -1948,6 +1974,7 @@ set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_path /home/x/workspace/tmux-lives
 set -g tcz_test_name ''
 set -g tcz_test_display ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
@@ -1957,8 +1984,10 @@ set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_display 'My Project'
 t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title honors @tmux_lives_name over display and dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
 
 # empty session path must not shift args (arg-shift guard)
@@ -2130,11 +2159,19 @@ command tmux -L $tsock -f /dev/null new-session -d -s ts1 -c $twdir "cd $twdir/d
 sleep 0.3
 function tmux; command tmux -L $tsock $argv; end
 set -g tmux_lives_hostname boxhost
+# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read is now
+# served from the per-pass session memo -- flush before the first read against
+# this fresh $tsock server, so nothing an earlier test cached leaks in here.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title resolves the session's start dir (real tmux)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
 t "title: pinned to the session start dir, not the pane cwd after a cd" "boxhost: "(basename $twdir) (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
 t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
+# @tmux_lives_name is memoized (unlike @tmux_lives_display just above, which
+# stays a live read) -- the write above happened after the memo was loaded, so
+# it must be flushed or this read would see the pre-write empty name instead.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
 
 # multi-window regression: __tcz_session_title must stay stable across window
@@ -2151,6 +2188,10 @@ command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/d
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
 sleep 0.2
+# session "mw" postdates the memo load above -- flush so its (never-claimed, so
+# expected-empty either way, but this should not rely on that coincidence)
+# @tmux_lives_name read comes from a snapshot that actually contains it.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "title: multi-window baseline is the session's own start dir" "boxhost: mw-start" (__tcz_session_title mw)
 command tmux -L $tsock select-window -t mw:1 2>/dev/null
 t "title: unchanged after selecting a different window" "boxhost: mw-start" (__tcz_session_title mw)
@@ -2160,6 +2201,7 @@ t "title: unchanged after selecting a third window" "boxhost: mw-start" (__tcz_s
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
 set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
@@ -2252,14 +2294,24 @@ set -e ssh_conn_save ssh_tty_save
 
 # --- @tmux_lives_claude population + DEDUP (only set-option when the value CHANGED; the
 #     unconditional per-tick/per-command set forced needless bar redraws → ShellFish cursor flicker) ---
+# tick-call-batching task 3: __tcz_set_claude_opt's dedup read now comes from the
+# batched per-pass session memo, not a live show-option call -- so the stub grew a
+# `case list-sessions` row (replacing `case show-option`) carrying $CLAUDE_CUR, and
+# EVERY simulated state change below needs an explicit __tcz_tmux_flush before the
+# next __tcz_set_claude_opt call, or that call would read a STALE memoized value
+# instead of the $CLAUDE_CUR just set (same idiom already used elsewhere in this
+# file for __tcz_tmux_global/__tcz_heal_due).
 set -g CLAUDE_SET ''
 set -g CLAUDE_CUR ''
 function tmux
     switch "$argv[1]"
         case set-option
             set -g CLAUDE_SET "$argv"   # capture the last set-option
-        case show-option
-            echo "$CLAUDE_CUR"          # simulated current @tmux_lives_claude
+        case list-sessions
+            # session_name/attached/last_attached/path/auto_name/display/name are
+            # unused by __tcz_set_claude_opt -- only the claude field (position 5,
+            # not greedy-last) matters here.
+            printf 'sA\t0\t0\t\t%s\t\t\t\n' $CLAUDE_CUR
         case list-panes
             printf '%s\n' $tcz_claude_panes
     end
@@ -2269,19 +2321,23 @@ functions -c __tcz_cmdline_name __tcz_cmdline_name_bak
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 # changed (cur empty -> opus): sets
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt writes @tmux_lives_claude when it changed" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # unchanged (cur already opus): SKIPS the set (no redraw)
 set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt skips the set when unchanged (no needless redraw)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 # claude went away (cur opus, now non-claude -> ''): sets (clears)
 set -g tcz_claude_panes (printf 'fish\t4242')
 set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt clears @tmux_lives_claude when a claude went away" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # already empty non-claude: SKIPS
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 # --- title fallback: claude is usually started WITHOUT --name (e.g. `claude -c`), so
@@ -2293,20 +2349,24 @@ t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_S
 set -g tcz_claude_panes (printf 'claude\t4242\t⠂ TMUX Setup 21')
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt falls back to the pane title when there is no --name" yes (string match -q '*@tmux_lives_claude*TMUX Setup 21*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # --name still WINS when present (stable flag beats a volatile title)
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt prefers --name over the pane title" yes (string match -q '*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # an untrusted title (no leading glyph word) must NOT become the name
 set -g tcz_claude_panes (printf 'claude\t4242\tbare-title')
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt ignores an unparseable title" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET; set -e CLAUDE_CUR
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # ---------------------------------------------------------------------
 # scratch resize verbs
