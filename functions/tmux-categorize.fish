@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -3033,25 +3033,49 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
     end
 end
 
-function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claude rename (preexec)'
-    test -n "$argv[1]"; or return 0
-    set -l cur (tmux display-message -pt "$argv[1]" '#{session_name}' 2>/dev/null)
+function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (session_path is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
+    test -n "$pane"; or return 0
+    set -l TAB (printf '\t')
+    # One display-message call for both fields -- session_path per spec N3 (the
+    # pane's own $PWD follows `cd`; the session path does not, which is exactly
+    # why the caller no longer passes it).
+    set -l info (tmux display-message -pt "$pane" "#{session_name}$TAB#{session_path}" 2>/dev/null)
+    test -n "$info"; or return 0
+    set -l parts (string split -m 1 $TAB -- $info)
+    set -l cur $parts[1]
+    set -l spath $parts[2]
     test -n "$cur"; or return 0
     __tcz_owned "$cur"; or return 0
-    set -l base $argv[2]
-    test -n "$base"; or set base claude-(path basename -- "$argv[3]")
-    set -l desired (__tcz_slugify "$base")
-    test "$desired" = "$cur"; and return 0
+    # @tmux_lives_name is an EXTERNAL claim (the verb here is also called "claim" --
+    # unrelated, unfortunate collision) and outranks everything, exactly as
+    # __tcz_categorize. $cur is almost always still numeric here -- this fires at the
+    # FIRST `claude` launch in a fresh pane, before any tick has renamed it -- so this
+    # is the single most likely call site in the file for the numeric -t misresolution
+    # bug (__tcz_session_target's own docstring); target through it, not a bare -t.
+    set -l claimed (tmux show-option -qv -t (__tcz_session_target "$cur") @tmux_lives_name 2>/dev/null)
+    test -z "$claimed"; or return 0
+    set -l proj (__tcz_project_name "$spath")
+    test -n "$proj"; or return 0
+    set -l desired (__tcz_slugify "$proj")
     set -l others
     for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
         test "$s" != "$cur"; and set -a others $s
     end
     set desired (__tcz_unique $desired $others)
-    tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or return 0
-    # stamp + one silent retry (a lost stamp would freeze the name as hand-named)
-    set -l stamptgt (__tcz_session_target "$desired")
-    tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
-    or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+    if test "$desired" != "$cur"
+        tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or return 0
+        # stamp + one silent retry (a lost stamp would freeze the name as hand-named)
+        set -l stamptgt (__tcz_session_target "$desired")
+        tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+        or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+    end
+    # Write the same pair __tcz_categorize would compose, so the tick has nothing left
+    # to correct. No dedup guard here -- unlike the ~15s tick (where an unconditional
+    # set-option forced bar redraws and caused the ShellFish cursor flicker, see
+    # __tcz_set_claude_opt), this runs once per `claude` launch, so there is no
+    # redraw-storm risk to guard against.
+    set -l display (__tcz_display_name claude "$proj" "$raw")
+    tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$display" 2>/dev/null
 end
 
 function __tcz_tab_color --argument-names fallback --description 'effective ShellFish tab colour: the live tabs-role @option (@tmux_lives_tabs_color, set by the themed fragment) when non-empty, else <fallback> (the baked seed / legacy)'

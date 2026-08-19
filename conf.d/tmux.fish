@@ -255,7 +255,10 @@ function __tmux_rename_on_preexec --on-event fish_preexec --description 'Instant
     set -l raw (string match -r -- '--name\s+(.+)$' "$argv[1]")[2]
     # Drop trailing flags (" --resume", " -r") — same rule as __tcz_cmdline_name.
     set raw (string replace -r '(\s+--?\S+)+$' '' -- "$raw")
-    fish --no-config $tmux_categorize_script claim "$TMUX_PANE" "$raw" "$PWD" >/dev/null 2>&1 &
+    # No $PWD arg: the categorizer names from the SESSION path (spec N3), fetched
+    # inside `claim` itself via display-message -- the pane's $PWD follows `cd`
+    # and would reintroduce the drift N3 removed.
+    fish --no-config $tmux_categorize_script claim "$TMUX_PANE" "$raw" >/dev/null 2>&1 &
     disown
 end
 

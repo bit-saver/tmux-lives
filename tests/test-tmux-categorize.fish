@@ -917,19 +917,113 @@ t "menu: current uses yellow"    "yes" (string match -q '*#[fg=colour143]*' -- "
 t "menu: current not dimmed"     "no"  (string match -q '*#\[dim\]*' -- "$margs"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
-# __tcz_claim (integration): instant claude rename from preexec data
+# __tcz_claim (integration): instant claude rename from preexec data.
+# Task 5b: this must land on exactly the PROJECT slug the next categorize
+# pass would produce (spec N1) -- never the raw --name/task text, even
+# transiently -- so there is nothing left to flap. <raw> feeds only the
+# display's task half now; the third (cwd) argument is gone (session_path
+# is fetched from tmux itself, per spec N3 -- the pane's $PWD follows `cd`
+# and the session path does not).
 # ---------------------------------------------------------------------
+
+# RED (pre-fix), proven against the unmodified function: it renamed straight
+# to the raw task text's slug ("Fix the picker lag" -> Fix-the-picker-lag),
+# ignoring the project entirely -- reproduced 0 -> Fix-the-picker-lag before
+# this change; see task-5b-report.md for the failing run.
 cleanup
-tmux new-session -d -s 0
+mkdir -p $HOME/tcz-claim-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-$fish_pid
 set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
-__tcz_claim $pane "My Project" /tmp
-t "claim: renamed from raw name" "yes" (tmux has-session -t =My-Project 2>/dev/null; and echo yes; or echo no)
-t "claim: stamped"               "My-Project" (tmux show-option -qv -t My-Project @tmux_auto_name)
-__tcz_claim $pane "" /tmp/someproj
-t "claim: empty raw -> claude-cwd" "yes" (tmux has-session -t =claude-someproj 2>/dev/null; and echo yes; or echo no)
-tmux rename-session -t =claude-someproj handpick
-__tcz_claim $pane "Steal Attempt" /tmp
-t "claim: guard protects hand-rename" "yes" (tmux has-session -t =handpick 2>/dev/null; and echo yes; or echo no)
+__tcz_claim $pane "Fix the picker lag"
+t "claim: instant rename lands on the project, not the raw task text" "yes" \
+    (tmux has-session -t "=tcz-claim-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "claim: never took the raw task text as the tmux name" "no" \
+    (tmux has-session -t =Fix-the-picker-lag 2>/dev/null; and echo yes; or echo no)
+t "claim: stamped to the project slug" "tcz-claim-$fish_pid" \
+    (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_auto_name)
+t "claim: display is project (dot) task" "tcz-claim-$fish_pid · Fix the picker lag" \
+    (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-claim-$fish_pid
+
+# Generic dir ($HOME, per __tcz_project_name's own contract): no project ->
+# do nothing at all, and specifically never fall back to "claude-<cwd>" --
+# Task 3 deleted that fallback in __tcz_snapshot; this is its twin here.
+cleanup
+tmux new-session -d -s 0 -c $HOME
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Some Task"
+t "claim: no project -> name untouched" "yes" (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+t "claim: no project -> never falls back to claude-<cwd>" "no" \
+    (tmux list-sessions -F '#{session_name}' | string match -qr '^claude-'; and echo yes; or echo no)
+t "claim: no project -> no display written" "" (tmux show-option -qv -t 0 @tmux_lives_display)
+# Empty raw specifically -- this is the exact input shape that used to build
+# "claude-<basename>" (the deleted fallback); with no project either, nothing
+# should happen at all.
+__tcz_claim $pane ""
+t "claim: no project + empty raw -> still untouched, no fallback name" "yes" \
+    (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+
+# Ownership guard: a hand-named session is never touched by the claim path
+# (non-regression -- this guard already existed pre-fix; kept exercised
+# under the new call shape).
+cleanup
+mkdir -p $HOME/tcz-claim-guard-$fish_pid
+tmux new-session -d -s handpick -c $HOME/tcz-claim-guard-$fish_pid
+set -l pane (tmux list-panes -t handpick -F '#{pane_id}')
+__tcz_claim $pane "Steal Attempt"
+t "claim: ownership guard protects a hand-named session" "yes" \
+    (tmux has-session -t =handpick 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-claim-guard-$fish_pid
+
+# External claim (@tmux_lives_name): unrelated to the `claim` VERB (the name
+# collision is coincidental), but the claim PATH must still respect it, same
+# as __tcz_categorize. This is NEW coverage -- the pre-fix function never
+# checked @tmux_lives_name at all, and __tcz_owned's purely-numeric check
+# would otherwise wave a fresh externally-claimed session straight through.
+cleanup
+mkdir -p $HOME/tcz-claim-ext-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-ext-$fish_pid
+tmux set-option -t 0 @tmux_lives_name "Neurotto CLI"
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Some Task"
+t "claim: an external @tmux_lives_name claim blocks the rename" "yes" \
+    (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-claim-ext-$fish_pid
+
+# Collision: two owned sessions sharing one project dir -> second gets -2.
+cleanup
+mkdir -p $HOME/tcz-claim-dup-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-dup-$fish_pid
+tmux new-session -d -s 1 -c $HOME/tcz-claim-dup-$fish_pid
+set -l pane0 (tmux list-panes -t (__tcz_pane_target 0) -F '#{pane_id}')
+set -l pane1 (tmux list-panes -t (__tcz_pane_target 1) -F '#{pane_id}')
+__tcz_claim $pane0 "First"
+__tcz_claim $pane1 "Second"
+t "claim: collision suffixed" "tcz-claim-dup-$fish_pid,tcz-claim-dup-$fish_pid-2" \
+    (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+rm -rf $HOME/tcz-claim-dup-$fish_pid
+
+# THE FLAP, end to end: after claim, a following __tcz_categorize performs no
+# further rename. This is the assertion that actually encodes the point of
+# the task -- it must discriminate a pre-fix regression, not just confirm a
+# steady state, so the raw task text's slug is chosen to DIFFER from the
+# project: if claim ever again landed on the raw slug, categorize's very next
+# pass would rename it out from under this assertion, and $claim_name would
+# stop matching $cat_name. Mutation-checked (see report) by reverting the fix
+# and confirming this specific assertion goes red.
+cleanup
+mkdir -p $HOME/tcz-claim-flap-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-flap-$fish_pid
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Totally Different Task Text"
+set -g claim_name (tmux display-message -p -t "$pane" '#{session_name}')
+__tcz_categorize
+set -g cat_name (tmux display-message -p -t "$pane" '#{session_name}')
+t "claim: name after claim equals name after the next categorize (no flap)" \
+    "$claim_name" "$cat_name"
+t "claim: that steady name is the project, not the raw task text" \
+    "tcz-claim-flap-$fish_pid" "$claim_name"
+rm -rf $HOME/tcz-claim-flap-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
