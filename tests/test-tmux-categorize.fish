@@ -179,18 +179,124 @@ set -e tmux_lives_baseline_conf
 rm -f $oaf $oabase
 
 # ---------------------------------------------------------------------
+# __tcz_tmux_load / __tcz_tmux_flush / __tcz_tmux_global / __tcz_tmux_unquote
+# (tick-call-batching task 2): __tcz_ps_load's sibling — one `tmux show -g`
+# snapshot per pass, memoized into per-key globals, instead of a separate
+# `show -gv @tmux_lives_<key>` call for every read.
+# ---------------------------------------------------------------------
+fresh_server
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_tabs_color '#1f6feb' 2>/dev/null
+command tmux set -g @tmux_lives_heal_interval 42 2>/dev/null
+t "tmux_global reads a hex-color key (tmux quotes it on the leading #)" "#1f6feb" (__tcz_tmux_global tabs_color)
+t "tmux_global reads a bare-integer key" "42" (__tcz_tmux_global heal_interval)
+t "tmux_global returns empty for a key that was never set" "" (__tcz_tmux_global heal_at)
+
+# Memoization: a server-side change made AFTER the load must stay invisible
+# until the next explicit flush — this is the whole point of batching (one
+# read serves every accessor call for the rest of the pass), so proving the
+# memo does NOT self-refresh is as important as proving it loads correctly.
+command tmux set -g @tmux_lives_tabs_color '#abcdef' 2>/dev/null
+t "tmux_global is memoized: a change after load stays invisible until flushed" "#1f6feb" (__tcz_tmux_global tabs_color)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "tmux_global sees the change once flushed" "#abcdef" (__tcz_tmux_global tabs_color)
+
+# The actual point of task 2: three accessor calls for three different keys,
+# after one flush, must cost exactly ONE `tmux` invocation — not three.
+set -g tgshim /tmp/tcz-tgshim-$fish_pid; set -g tglog /tmp/tcz-tglog-$fish_pid
+rm -rf $tgshim $tglog; mkdir -p $tgshim $tglog
+printf '#!/bin/bash\necho x >> %s/calls\nexec /usr/bin/tmux -L %s "$@"\n' $tglog $sock > $tgshim/tmux
+chmod +x $tgshim/tmux
+set -g tg_path_save $PATH
+set -gx PATH $tgshim $PATH
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_tmux_global tabs_color >/dev/null
+__tcz_tmux_global heal_interval >/dev/null
+__tcz_tmux_global heal_at >/dev/null
+set -l tg_calls 0
+test -f $tglog/calls; and set tg_calls (string trim -- (wc -l < $tglog/calls))
+t "tmux_global: three accessor calls after one flush cost exactly one tmux invocation" 1 $tg_calls
+set -gx PATH $tg_path_save
+rm -rf $tgshim $tglog
+
+# __tcz_tmux_unquote round-tripped against REAL tmux escaping, not hand-built
+# escape sequences (which this codebase has gotten subtly wrong before) —
+# tmux itself produces the `show -g` quoting, so proving __tcz_tmux_global
+# agrees with a direct `show -gv` on the SAME key for a variety of values is
+# a stronger, less error-prone check than asserting a specific quoted string.
+# Includes values beyond what any @tmux_lives_* key actually uses today
+# (semicolon, space, an embedded+doubled backslash) as bonus coverage; the two
+# genuinely out-of-scope shapes (a $, and a value tmux single-quote-wraps) are
+# pinned separately below as a documented, known gap rather than asserted here.
+fresh_server
+for v in '#1f6feb' plain42 '' 'a;b' 'has space' 'back\slash'
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    command tmux set -g @tmux_lives_rt_test "$v" 2>/dev/null
+    set -l want (command tmux show -gv @tmux_lives_rt_test 2>/dev/null)
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    set -l got (__tcz_tmux_global rt_test)
+    t "tmux_unquote agrees with a direct show -gv for value: '$v'" "$want" "$got"
+end
+
+# Known, documented limitation, pinned rather than silent: neither is reachable
+# for tabs_color/heal_interval/heal_at (always a bare integer or a #-led hex —
+# proven above), so __tcz_tmux_unquote's docstring says it does not attempt
+# either. A future change here is judged against what actually happens today,
+# not a guess at it.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_rt_test 'a$b' 2>/dev/null
+t "tmux_unquote known gap: a \$ inside double quotes is not unescaped" 'a\$b' (__tcz_tmux_global rt_test)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_rt_test 'quote"inside' 2>/dev/null
+t "tmux_unquote known gap: tmux's single-quote wrap is not recognised" "'quote\"inside'" (__tcz_tmux_global rt_test)
+
+command tmux set -g -u @tmux_lives_rt_test 2>/dev/null
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux -L $sock kill-server 2>/dev/null
+
+# glob, not regex (the trap __tcz_ps_flush's own comment documents): a plain
+# per-key sentinel must be gone after flush. This is the exact class of bug a
+# `string match -r '^__tcz_tmux_'` mutation reintroduces — verified by hand:
+# `string match -r` on a bare prefix pattern returns the MATCHED SUBSTRING
+# (the literal "__tcz_tmux_" three times over, for three real names), so
+# `set -e` on that erases a variable that does not exist while every real
+# entry -- including this sentinel -- silently survives.
+set -g __tcz_tmux_g_probe_999999 SENTINEL
+set -g __tcz_tmux_loaded 1
+__tcz_tmux_flush
+t "tmux_flush clears a real per-key entry" "" "$__tcz_tmux_g_probe_999999"
+t "tmux_flush clears the loaded sentinel too" 0 (set -q __tcz_tmux_loaded; and echo 1; or echo 0)
+
+# pure: __tcz_tmux_unquote's own contract, independent of any tmux process
+t "tmux_unquote: bare token passes through unchanged" "abc123" (__tcz_tmux_unquote "abc123")
+t "tmux_unquote: two single quotes is the empty-value marker" "" (__tcz_tmux_unquote "''")
+
+# ---------------------------------------------------------------------
 # tabs-role resolution (v3 Phase 2): __tcz_tab_color resolves the live
 # @tmux_lives_tabs_color option (seeded by the themed fragment, tabs-role
 # sample when themed / '' under the legacy look) over the baked-in
 # fallback; __tcz_recolor/__tcz_on_attach route through it.
+#
+# __tcz_tab_color now reads through __tcz_tmux_load's per-PASS memo (tick-
+# call-batching task 2: nine `show -gv @tmux_lives_…` calls collapse to one
+# `tmux show -g`) -- so unlike a live `show -gv`, a second call inside this
+# same fish process will NOT see a state change unless the memo is flushed
+# first. __tcz_main flushes on every entry (production is always one pass per
+# process), but these three assertions call __tcz_tab_color directly, so each
+# state change below gets its own explicit flush -- same idiom this file
+# already uses for __tcz_ps_flush around the ps snapshot.
 # ---------------------------------------------------------------------
 fresh_server
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
 t "tab_color falls back when option unset" "#999999" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g @tmux_lives_tabs_color '#6e6e22' 2>/dev/null
 t "tab_color prefers the live tabs role" "#6e6e22" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g @tmux_lives_tabs_color '' 2>/dev/null
 t "tab_color: empty option falls back" "#999999" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
 command tmux -L $sock kill-server 2>/dev/null
 t "recolor resolves via tab_color" yes (string match -q '*__tcz_tab_color*' -- (functions __tcz_recolor | string collect); and echo yes; or echo no)
@@ -1594,12 +1700,21 @@ set -g __tcz_ps_comm_999999 SENTINEL
 set -g __tcz_ps_args_999999 SENTINEL
 set -g __tcz_ps_kids_999999 SENTINEL
 set -g __tcz_ps_environ_999999 SENTINEL
+# Same property, same reason, for the tmux global-@option table __tcz_tmux_load
+# added (tick-call-batching task 2) -- __tcz_main must flush it on entry too, or
+# a long-lived caller could be served a global @option snapshot from a PRIOR
+# pass. Its own sentinel: __tcz_tmux_flush is glob-based (__tcz_tmux_*), so this
+# also re-covers the loaded flag by construction (same prefix).
+set -g __tcz_tmux_g_probe_999999 SENTINEL
+set -g __tcz_tmux_loaded 1
 __tcz_main host-kind >/dev/null 2>&1
 t "__tcz_main flushes the comm table on entry"    "" "$__tcz_ps_comm_999999"
 t "__tcz_main flushes the args table on entry"    "" "$__tcz_ps_args_999999"
 t "__tcz_main flushes the kids table on entry"    "" "$__tcz_ps_kids_999999"
 t "__tcz_main flushes the environ table on entry" "" "$__tcz_ps_environ_999999"
-set -e __tcz_ps_comm_999999 __tcz_ps_args_999999 __tcz_ps_kids_999999 __tcz_ps_environ_999999
+t "__tcz_main flushes the tmux global-@option table on entry" "" "$__tcz_tmux_g_probe_999999"
+t "__tcz_main flushes the tmux loaded sentinel on entry" 0 (set -q __tcz_tmux_loaded; and echo 1; or echo 0)
+set -e __tcz_ps_comm_999999 __tcz_ps_args_999999 __tcz_ps_kids_999999 __tcz_ps_environ_999999 __tcz_tmux_g_probe_999999
 
 # PLATFORM GATE, not per-pid readability. The gate was `test -r /proc/$pid/comm`,
 # so a pid that exits mid-pass fell through to the fallback ON LINUX and built
@@ -1764,6 +1879,12 @@ function tmux
         command tmux $argv
     end
 end
+# __tcz_recolor resolves @tmux_lives_tabs_color via __tcz_tab_color's memoized
+# read (tick-call-batching task 2) -- flush so this section's direct calls
+# (bypassing __tcz_main's own flush-on-entry) see the real, isolated test
+# server's current (unset) tabs_color rather than a table some earlier
+# section's assertions left behind.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
 __tcz_recolor '#1f6feb'
 t "recolor emits OSC to shellfish client 1" yes (test -s $tt1; and echo yes; or echo no)
@@ -2074,11 +2195,14 @@ function tmux
         case list-clients; printf '111\t/dev/pts/9\n'
         case show
             # __tcz_recolor now resolves @tmux_lives_tabs_color (v3 Phase 2) via
-            # __tcz_tab_color BEFORE the per-tty emit-cache read below -- keep the
-            # two `show -gv` reads distinct or the tabs-role lookup would alias
-            # onto $DEDUP_color (the per-tty cache) and skew this dedup test.
-            if test "$argv[-1]" = @tmux_lives_tabs_color
-                echo ''
+            # __tcz_tab_color, which since tick-call-batching task 2 reads a
+            # memoized ONE-SHOT bulk `show -g` (argv[2] = -g) rather than a
+            # per-key `show -gv @key` (argv[2] = -gv) -- keep the two shapes
+            # distinct or the tabs-role lookup would alias onto $DEDUP_color
+            # (the per-tty cache, still read per-key/unbatched) and skew this
+            # dedup test.
+            if test "$argv[2]" = -g
+                echo "@tmux_lives_tabs_color ''"
             else
                 echo $DEDUP_color            # show -gv @..._color (per-tty cache)
             end
@@ -2086,6 +2210,9 @@ function tmux
         case '*'
     end
 end
+# __tcz_tab_color's bulk read is memoized per pass -- flush so THIS section's
+# stub (not whatever an earlier section left behind) is what gets loaded.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 # key sanitization
 t "emit_key strips non-alnum" devpts9 (__tcz_emit_key /dev/pts/9)
 # force always emits + caches
@@ -2234,18 +2361,34 @@ set -g HEAL_at ''; set -g HEAL_interval 120
 function tmux
     switch "$argv[1]"
         case show
-            string match -q '*heal_interval' -- "$argv[3]"; and echo $HEAL_interval
-            string match -q '*heal_at' -- "$argv[3]"; and echo $HEAL_at
+            # __tcz_heal_due now reads BOTH keys off one memoized bulk `show -g`
+            # (argv = (show -g), no per-key argv[3] to switch on) -- emit the
+            # bulk-line shape the real `tmux show -g` uses, one option per line,
+            # value bare (no quoting needed: these are always plain integers).
+            # An unset heal_at must be ABSENT from the bulk dump, matching real
+            # tmux's own "unset custom option never appears" behaviour.
+            echo "@tmux_lives_heal_interval $HEAL_interval"
+            test -n "$HEAL_at"; and echo "@tmux_lives_heal_at $HEAL_at"
         case set
             string match -q '*heal_at' -- "$argv[3]"; and set -g HEAL_at "$argv[-1]"
         case '*'
     end
 end
+# Each __tcz_heal_due call below is a direct call (not through __tcz_main, so
+# no automatic flush-on-entry) and this block deliberately exercises a
+# SEQUENCE of states -- unset, just-scheduled, before-schedule, at-schedule,
+# disabled -- so the memoized bulk read must be flushed before EVERY call, or
+# a later call in the sequence would silently see an earlier call's snapshot
+# (the exact read-after-write staleness hazard __tcz_tmux_load introduces).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal due when unset (schedules)" 0 (__tcz_heal_due 1000; echo $status)
 t "heal_at advanced to now+interval" 1120 "$HEAL_at"
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal not due before the interval" 1 (__tcz_heal_due 1100; echo $status)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal due at/after the schedule" 0 (__tcz_heal_due 1120; echo $status)
 set -g HEAL_interval 0
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal disabled when interval 0" 1 (__tcz_heal_due 999999; echo $status)
 functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 
@@ -2964,6 +3107,18 @@ t "the ps snapshot feeds at least the three pid helpers" 1 (test (printf '%s\n' 
 # repo's own __tcz_pid_environ already carried `eww` for exactly this reason.
 t "both snapshots carry -ww (BSD truncates the last column at 79 cols)" 2 (printf '%s\n' "$__t_code" | grep -c 'ps -A -ww -o')
 t "pid_environ keeps eww, not e"                                        1 (printf '%s\n' "$__t_code" | grep -c 'ps eww -p')
+
+# tick-call-batching task 2: the three literal-keyed global reads must be
+# GONE from the categorizer (routed through __tcz_tmux_global instead), and
+# the per-tty emit-cache read (out of THIS task's scope on purpose — see
+# __tcz_tmux_load's own comment) must be UNCHANGED, still a direct show -gv.
+t "tab_color no longer calls show -gv @tmux_lives_tabs_color directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_tabs_color')
+t "heal_due no longer calls show -gv @tmux_lives_heal_interval directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_interval')
+t "heal_due no longer calls show -gv @tmux_lives_heal_at directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_at')
+t "tab_color routes through __tcz_tmux_global" 1 (awk '/^function __tcz_tab_color/,/^end$/' $catfile | grep -c '__tcz_tmux_global tabs_color')
+t "heal_due routes through __tcz_tmux_global" 2 (awk '/^function __tcz_heal_due/,/^end$/' $catfile | grep -c '__tcz_tmux_global')
+t "the per-tty emit-cache read is unchanged (out of task 2's scope)" 1 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_emit_')
+t "__tcz_main flushes both the ps and tmux tables, in order" yes (string match -qr '(?s)__tcz_ps_flush\s*\n\s*__tcz_tmux_flush' -- "$__t_code"; and echo yes; or echo no)
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
 # substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream

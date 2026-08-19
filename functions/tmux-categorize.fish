@@ -117,6 +117,59 @@ function __tcz_ps_load --description 'build the per-pass pid table from ONE ps s
     end
 end
 
+# --- global @tmux_lives_* option table: ONE `tmux show -g` snapshot per pass -
+# Mirrors __tcz_ps_load exactly: nine `show -gv @tmux_lives_…` calls (one call
+# per key), measured in production, collapse to the one bulk read `tmux show
+# -g` already proven (live server) to return all 37 @tmux_lives_* globals at
+# once. This first cut covers the THREE global keys the categorizer reads by a
+# literal, non-parameterized name: tabs_color, heal_interval, heal_at. The
+# per-tty emit-cache reads (@tmux_lives_emit_<tty>_<field>, __tcz_emit_get)
+# stay OUT of this table on purpose — they are keyed per CLIENT rather than
+# fixed, and __tcz_recolor's own force-mode pass re-reads one right after a
+# dedup-mode pass may have just WRITTEN it earlier in the same tick, which is
+# this project's own read-after-write staleness hazard; the task that owns
+# auditing every write-then-read in a pass (client batching, later in this
+# cycle) is the one that should decide how to memoize that, not this one.
+function __tcz_tmux_flush --description 'drop the per-pass tmux global-@option snapshot so the next lookup rebuilds it'
+    # GLOB, not regex — the exact trap __tcz_ps_flush already carries a comment
+    # for: `string match -r` with a prefix PATTERN returns the MATCHED
+    # SUBSTRING, so a regex flush here would erase a variable literally named
+    # `__tcz_tmux_` while every real per-key entry (including the loaded
+    # sentinel, itself named with the same prefix) silently survives. A glob
+    # has no such failure mode.
+    for v in (set --names | string match '__tcz_tmux_*')
+        set -e $v
+    end
+end
+
+function __tcz_tmux_load --description 'build the per-pass global @tmux_lives_* option table from ONE `tmux show -g` snapshot, keyed into per-key globals (key = the option name with the @tmux_lives_ prefix stripped). No-op once loaded.'
+    set -q __tcz_tmux_loaded; and return
+    set -g __tcz_tmux_loaded 1
+    for line in (tmux show -g 2>/dev/null)
+        set -l m (string match -r '^@tmux_lives_(\S+)\s+(.*)$' -- $line)
+        test (count $m) -eq 3; or continue
+        set -g __tcz_tmux_g_$m[2] (__tcz_tmux_unquote $m[3])
+    end
+end
+
+function __tcz_tmux_unquote --argument-names raw --description 'pure: one VALUE token from a `tmux show -g` bulk line -> the raw value `tmux show -gv` would return for the same key. Handles exactly what every @tmux_lives_* value this project writes actually needs: a bare token (heal_interval/heal_at, plain integers, and any other bare token — tmux still doubles an embedded backslash even outside quotes, so that is unescaped too), a double-quoted token with the embedded quote/backslash unescaped (tabs_color, an #RRGGBB hex — tmux quotes on the leading #), and the empty-value quoting (two single quotes). This is NOT a general tmux-vis unescaper: no \t/\n/octal/$-escape handling, and tmux'"'"'s choice of single-quote wrapping (used for some values containing an embedded " with no '"'"') is not recognised at all — verified by direct probe that none of this is reachable for tabs_color/heal_interval/heal_at (always a bare integer or a #-led hex, both round-tripped exactly), so a future key with a wilder value must extend this.'
+    test "$raw" = "''"; and return
+    if string match -qr '^".*"$' -- "$raw"
+        set -l inner (string sub -s 2 -e -1 -- "$raw")
+        set inner (string replace -a '\\"' '"' -- "$inner")
+        set inner (string replace -a '\\\\' '\\' -- "$inner")
+        printf '%s\n' "$inner"
+    else
+        printf '%s\n' (string replace -a '\\\\' '\\' -- "$raw")
+    end
+end
+
+function __tcz_tmux_global --argument-names key --description 'read the memoized value of global @tmux_lives_<key> (loads __tcz_tmux_load on first use this pass; empty and unset are indistinguishable, matching `show -gv`s own behaviour on an unset option)'
+    __tcz_tmux_load
+    set -l v __tcz_tmux_g_$key
+    set -q $v; and printf '%s\n' $$v
+end
+
 function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
@@ -3176,7 +3229,7 @@ function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>
 end
 
 function __tcz_tab_color --argument-names fallback --description 'effective ShellFish tab colour: the live tabs-role @option (@tmux_lives_tabs_color, set by the themed fragment) when non-empty, else <fallback> (the baked seed / legacy)'
-    set -l eff (tmux show -gv @tmux_lives_tabs_color 2>/dev/null)
+    set -l eff (__tcz_tmux_global tabs_color)
     test -n "$eff"; and echo $eff; or echo $fallback
 end
 
@@ -3227,11 +3280,17 @@ function __tcz_recolor --argument-names color mode --description 'emit the Shell
 end
 
 function __tcz_heal_due --argument-names now --description 'true (rc0) when the color-only backstop is due: @tmux_lives_heal_interval>0 and now>=@tmux_lives_heal_at (unset=due); advances @tmux_lives_heal_at to now+interval. interval 0 (or unset->120) gates it.'
-    set -l interval (tmux show -gv @tmux_lives_heal_interval 2>/dev/null)
+    set -l interval (__tcz_tmux_global heal_interval)
     test -n "$interval"; or set interval 120
     test "$interval" -gt 0 2>/dev/null; or return 1
-    set -l at (tmux show -gv @tmux_lives_heal_at 2>/dev/null)
+    set -l at (__tcz_tmux_global heal_at)
     if test -z "$at"; or test "$now" -ge "$at" 2>/dev/null
+        # Not invalidated in the memo on this write: nothing in this pass reads
+        # @tmux_lives_heal_at again afterward — this is the ONLY call site, and
+        # __tcz_heal_due itself is called at most once per __tcz_main invocation,
+        # which flushes __tcz_tmux_load fresh on entry. Same "correct to read the
+        # pre-write snapshot, prove no later reader exists" shape this file
+        # already uses for __tcz_set_claude_opt's dedup read — not a hazard.
         tmux set -g @tmux_lives_heal_at (math $now + $interval) 2>/dev/null
         return 0
     end
@@ -3400,11 +3459,12 @@ function __tcz_resize_enter --argument-names client --description 'enter the nat
 end
 
 function __tcz_main
-    # One PASS = one ps snapshot. Every verb below is normally reached as a
-    # one-shot `fish --no-config <script> <verb>`, where pass and process
-    # coincide — but flushing here means a long-lived caller could never be
-    # served a stale pid table either.
+    # One PASS = one ps snapshot + one global-@option snapshot. Every verb below
+    # is normally reached as a one-shot `fish --no-config <script> <verb>`, where
+    # pass and process coincide — but flushing here means a long-lived caller
+    # could never be served a stale pid table or a stale @option table either.
     __tcz_ps_flush
+    __tcz_tmux_flush
     switch "$argv[1]"
         case categorize
             # Optional pane argument narrows the pass to that pane's session.
