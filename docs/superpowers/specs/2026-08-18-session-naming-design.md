@@ -60,7 +60,7 @@ The split exists because the two names have genuinely different jobs. The tmux n
 
 | surface | shows | change |
 |---|---|---|
-| Opt+S picker | display | reads the new option |
+| Opt+S picker | display | recomposes the display itself every pass via `__tcz_snapshot`/`__tcz_display_name` — it never reads `@tmux_lives_display` (corrected 2026-08-18: this row originally said "reads the new option", which was never accurate; `@tmux_lives_display` has exactly two readers, `__tcz_status_identity` and `__tcz_session_title`) |
 | status-bar centre identity | display | `__tcz_status_identity` gains a precedence step |
 | ShellFish / iTerm2 tab title | display | `__tcz_session_title` reads it, AND switches from active-pane dir to `session_path` so it stops moving on `cd` |
 | `tmux ls`, `choose-tree` | tmux name | unchanged — the accepted cost of the split |

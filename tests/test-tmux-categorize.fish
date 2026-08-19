@@ -207,6 +207,54 @@ t "title: glyph stripped"         "TMUX Setup 2"      (__tcz_title_name "✳ TMU
 t "title: spinner stripped"       "TMUX Setup 2"      (__tcz_title_name "⠂ TMUX Setup 2")
 t "title: task suffix dropped"    "Tasker Editor 14"  (__tcz_title_name "✳ Tasker Editor 14 - Reword task")
 t "title: garbage -> empty"       ""                  (__tcz_title_name "Gi=1,a=q;")
+set -g pn1 (__tcz_project_name /home/bitsaver/projects/neurotto)
+set -g pn2 (__tcz_project_name /home/bitsaver/workspace/tmux-lives/)
+set -g pn3 (__tcz_project_name "$HOME")
+set -g pn4 (__tcz_project_name /tmp)
+set -g pn5 (__tcz_project_name /)
+set -g pn6 (__tcz_project_name "")
+set -g pn7 (__tcz_project_name "/home/bitsaver/My Project")
+t "project: basename of a project dir"        "neurotto"   "$pn1"
+t "project: trailing slash ignored"           "tmux-lives" "$pn2"
+t "project: \$HOME is not a project"          ""           "$pn3"
+t "project: /tmp is not a project"            ""           "$pn4"
+t "project: / is not a project"               ""           "$pn5"
+t "project: empty path is not a project"      ""           "$pn6"
+t "project: spaces survive (display layer)"   "My Project" "$pn7"
+set -g dn1 (__tcz_display_name claude  neurotto "Fix the picker lag")
+set -g dn2 (__tcz_display_name claude  neurotto "")
+set -g dn3 (__tcz_display_name claude  ""        "Fix the picker lag")
+set -g dn4 (__tcz_display_name running neuro     node)
+set -g dn5 (__tcz_display_name general neuro     "")
+set -g dn6 (__tcz_display_name general ""        "")
+t "display: claude is project then task"      "neurotto · Fix the picker lag" "$dn1"
+t "display: claude with no task is project"   "neurotto"                      "$dn2"
+t "display: no project falls back to task"    "Fix the picker lag"            "$dn3"
+t "display: running IGNORES the process name" "neuro"                         "$dn4"
+t "display: general is the project"           "neuro"                         "$dn5"
+t "display: nothing to show -> empty"         ""                              "$dn6"
+
+# ---------------------------------------------------------------------
+# __tcz_unquote: undo a typed `claude --name "..."` surrounding quote pair
+# before it reaches the display -- the preexec-captured raw text is the
+# command line AS TYPED (quotes and all), while the tick's own extraction
+# (/proc argv) never carries them, so without this the instant claim
+# display and the tick's display visibly disagree for one tick.
+# ---------------------------------------------------------------------
+t "unquote: double-quoted pair stripped"    "Fix the picker lag" (__tcz_unquote '"Fix the picker lag"')
+t "unquote: single-quoted pair stripped"    "Fix the picker lag" (__tcz_unquote "'Fix the picker lag'")
+t "unquote: no quotes -> unchanged"         "Fix the picker lag" (__tcz_unquote "Fix the picker lag")
+t "unquote: unmatched leading quote -> unchanged" '"Fix the picker lag' (__tcz_unquote '"Fix the picker lag')
+t "unquote: mismatched quote types -> unchanged"  '"Fix the picker lag'"'" (__tcz_unquote '"Fix the picker lag'"'")
+t "unquote: interior quote (not surrounding) -> unchanged" 'Fix "the" picker' (__tcz_unquote 'Fix "the" picker')
+t "unquote: empty quoted pair -> empty"     ""                    (__tcz_unquote '""')
+t "unquote: empty input -> empty"           ""                    (__tcz_unquote "")
+t "unquote: single quote char alone -> unchanged" '"' (__tcz_unquote '"')
+# Matching first/last chars that are NOT quote characters must never strip —
+# this is the specific check that distinguishes "surrounding quotes" from
+# "any matching bookend char", and nothing above exercises it.
+t "unquote: matching non-quote bookend chars -> unchanged" 'aFix the picker laga' (__tcz_unquote 'aFix the picker laga')
+
 t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
 t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
 t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)
@@ -256,7 +304,11 @@ pkill -f 'Child Test' 2>/dev/null
 # __tcz_snapshot (integration, isolated socket via PATH shim)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s c1 "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
+# c1/c_title pin -c $HOME (a generic, excluded dir) so their display isolates
+# the --name/title extraction under test from project-name composition, which
+# has its own dedicated coverage below (snapshot: running session displays
+# the PROJECT) and in the __tcz_project_name/__tcz_display_name unit tests.
+tmux new-session -d -s c1 -c $HOME "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
 tmux new-session -d -s r1 -c /tmp 'sleep 1000'
 tmux new-session -d -s g1 -c $HOME
 sleep 0.5     # let pane_current_command settle
@@ -264,23 +316,79 @@ t "snap: categories"  "c1	claude,g1	general,r1	running" \
     (__tcz_snapshot | cut -f1,2 | sort | string join ',')
 t "snap: claude display from --name" "TMUX Setup 2" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f5)
-t "snap: running display = command"  "sleep" \
+# Re-scoped 2026-08-18 (fix wave): a project/task-less display is NOT the
+# empty string these used to pin — __tcz_display_name returns nothing, but
+# __tcz_snapshot now falls back to the tmux session name so field 5 is never
+# blank (a blank field desyncs __tcz_menu_args' display-menu argv and blanks
+# a picker row). The user-visible outcome is the row shows the session name.
+t "snap: running display falls back to the session name for a generic (excluded) cwd" "r1" \
     (__tcz_snapshot | string match -e 'r1	*' | cut -f5)
-t "snap: general display = ~cwd"     "~" \
+t "snap: general display falls back to the session name for a generic (excluded) cwd" "g1" \
     (__tcz_snapshot | string match -e 'g1	*' | cut -f5)
 t "snap: detached flag"              "0" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f3)
-# display fallbacks: no --name -> gated title; unusable title -> claude-<cwd>
+
+# --- __tcz_popup_list_lines (integration, item 1 regression coverage): a
+# no-project session must render a NON-BLANK row, not just a padded border
+# with nothing readable in it. Reuses the still-live r1/g1 fixture above.
+set -l povl (__tcz_overview | __tcz_popup_list_lines 30 0 '' | string join "\n")
+t "popup: no-project running row is non-blank (shows the session name)" yes \
+    (string match -q '*r1*' -- "$povl"; and echo yes; or echo no)
+t "popup: no-project general row is non-blank (shows the session name)" yes \
+    (string match -q '*g1*' -- "$povl"; and echo yes; or echo no)
+
+# --- __tcz_menu_args / display-menu (integration, item 1 regression coverage):
+# a no-project session's item label must never be empty. An empty menu-item
+# NAME is tmux's own SEPARATOR shape (name only; key/command are meant to be
+# omitted for it) — so tmux silently consumes the NEXT triple's key/command as
+# belonging to that empty-named separator, desyncing every remaining item and
+# erroring on the trailing incomplete group. Reproduced live pre-fix: rc=1,
+# "not enough arguments" — the WHOLE menu refuses to open for one detached
+# no-project session. This needs a REAL attached client: tmux only walks the
+# item list after resolving a target client, so a clientless call fails
+# earlier with "no current client" regardless of the args, which would mask
+# this bug entirely. Dedicated minimal fixture (one no-project session) so
+# the item's array index is unambiguous: header (1-3) + item (4-6). Started
+# with -f /dev/null and a plain `sleep`, NOT the bare login shell: the shell
+# defaults to the user's own REAL (fisher-installed) fish config, whose live
+# tmux-lives hooks fire the instant a real client attaches and genuinely
+# destabilize this throwaway socket — reproduced (server gone within ~1s of
+# attach) and confirmed fixed by both changes together.
+cleanup
+tmux -f /dev/null new-session -d -s g2 -c $HOME 'sleep 60'
+sleep 0.5
+set -l menu_args2
+__tcz_overview | __tcz_menu_args | while read -l a
+    set -a menu_args2 "$a"
+end
+t "menu: no-project session label is non-empty" "yes" \
+    (test -n "$menu_args2[4]"; and echo yes; or echo no)
+env TERM=xterm-256color script -qec "tmux attach" /dev/null >/dev/null 2>&1 &
+set -l menu_n 0
+while test $menu_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set menu_n (math $menu_n + 1)
+end
+set -l menu_client (tmux list-clients -F '#{client_name}' 2>/dev/null | head -1)
+set -l menu_out (tmux display-menu -c "$menu_client" -- $menu_args2 2>&1)
+set -l menu_rc $status
+t "menu: real display-menu opens for a no-project session (rc 0)" "0" "$menu_rc"
+t "menu: no 'not enough arguments' desync" "" \
+    (string match -e 'not enough arguments' -- "$menu_out")
+set -e menu_args2 menu_client menu_out menu_rc menu_n
+cleanup
+
+# display fallbacks: no --name -> gated title; unusable title with a project dir -> project name
 cleanup
 mkdir -p /tmp/tcz-myproj-$fish_pid
-tmux new-session -d -s c_title "$shimdir/claude --enable-auto-mode"
+tmux new-session -d -s c_title -c $HOME "$shimdir/claude --enable-auto-mode"
 tmux select-pane -t c_title: -T "✳ My Work Project"
 tmux new-session -d -s c_cwd -c /tmp/tcz-myproj-$fish_pid "$shimdir/claude --enable-auto-mode"
 tmux select-pane -t c_cwd: -T ""
 sleep 0.5
 t "snap: claude display from title" "My Work Project" \
     (__tcz_snapshot | string match -e 'c_title	*' | cut -f5)
-t "snap: claude display from cwd"   "claude-tcz-myproj-$fish_pid" \
+t "snap: claude display from cwd"   "tcz-myproj-$fish_pid" \
     (__tcz_snapshot | string match -e 'c_cwd	*' | cut -f5)
 rm -rf /tmp/tcz-myproj-$fish_pid
 cleanup
@@ -300,7 +408,7 @@ tmux new-session -d -s real1 -c $HOME/tcz-boring-$fish_pid "node -e 'setInterval
 sleep 0.5
 t "snap: boring command -> general (not running)" "general" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f2)
-t "snap: boring display = dir basename (not tail)" "~/tcz-boring-$fish_pid" \
+t "snap: boring display = dir basename (not tail)" "tcz-boring-$fish_pid" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f5)
 t "snap: real program -> still running (guard doesn't over-reach)" "running" \
     (__tcz_snapshot | string match -e 'real1	*' | cut -f2)
@@ -308,38 +416,120 @@ rm -rf $HOME/tcz-boring-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
+# __tcz_snapshot displays the PROJECT (dir basename), never the process
+# name, for a running session — the naming redesign's first wiring.
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-proj-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-proj-$fish_pid 'sleep 500'
+sleep 0.5
+set -g snap_disp (__tcz_snapshot | string match -e '0	*' | cut -f5)
+set -g snap_arity (__tcz_snapshot | head -1 | awk -F'\t' '{print NF}')
+t "snapshot: running session displays the PROJECT, not the command" "tcz-proj-$fish_pid" "$snap_disp"
+t "snapshot: row still has exactly 5 fields"                        5 "$snap_arity"
+rm -rf $HOME/tcz-proj-$fish_pid
+cleanup
+
+# End-to-end "project · task" composition through __tcz_snapshot itself — the
+# spec's headline example (a claude session gets "<project> · <task>"). Task 2
+# unit-tests __tcz_display_name's composition directly; this is the only place
+# that proves it actually survives field 5, the -m 4 greedy split, and every
+# consumer, for a REAL claude session with both a project dir and a --name.
+cleanup
+mkdir -p $HOME/tcz-ptask-$fish_pid
+tmux new-session -d -s pt -c $HOME/tcz-ptask-$fish_pid "$shimdir/claude --enable-auto-mode --name Fix the picker lag"
+sleep 0.5
+t "snapshot: claude project · task composition, end to end" "tcz-ptask-$fish_pid · Fix the picker lag" \
+    (__tcz_snapshot | string match -e 'pt	*' | cut -f5)
+rm -rf $HOME/tcz-ptask-$fish_pid
+cleanup
+
+# ---------------------------------------------------------------------
 # __tcz_categorize (integration)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
-tmux new-session -d -s 1 'sleep 1000'
-tmux new-session -d -s 2
+# session "0" now needs a REAL project dir, not -c $HOME: Task 4 makes the tmux
+# NAME come from the project alone, never the --name/task, so a $HOME-pinned
+# claude session no longer renames to its --name slug -- it falls to gen-N
+# like everything else with no project (see the C5 controller correction).
+# session "2" is explicitly pinned to $HOME (a generic, excluded dir) rather
+# than left unpinned: unpinned, it inherits THIS test run's own cwd, which
+# (invoked from the repo root, as documented) is a REAL project ("tmux-lives")
+# under Task 4 and would rename itself right past the gen-N fallback this
+# test exists to check -- silently, since the assertion below only checks
+# that *some* gen-N session exists, not which one earned it.
+mkdir -p $HOME/tcz-run-$fish_pid $HOME/tcz-claude-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claude-$fish_pid "$shimdir/claude --enable-auto-mode --name TMUX Setup 2"
+tmux new-session -d -s 1 -c $HOME/tcz-run-$fish_pid 'sleep 1000'
+tmux new-session -d -s 2 -c $HOME
 tmux new-session -d -s handname 'sleep 1000'      # unowned non-numeric -> guard protects
 sleep 0.5
 __tcz_categorize
-t "cat: claude renamed to slug"  "yes" (tmux has-session -t =TMUX-Setup-2 2>/dev/null; and echo yes; or echo no)
-t "cat: claude stamped"          "TMUX-Setup-2" (tmux show-option -qv -t TMUX-Setup-2 @tmux_auto_name)
-t "cat: running renamed to cmd"  "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
-t "cat: numeric general renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: claude renamed to its project (never the --name slug)" "yes" \
+    (tmux has-session -t "=tcz-claude-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cat: claude stamped" "tcz-claude-$fish_pid" (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_auto_name)
+t "cat: claude display still carries the task" "tcz-claude-$fish_pid · TMUX Setup 2" \
+    (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_lives_display)
+t "cat: running renamed to project" "yes" (tmux has-session -t "=tcz-run-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cat: numeric general (no project) renamed to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
 t "cat: hand-named protected"    "yes" (tmux has-session -t =handname 2>/dev/null; and echo yes; or echo no)
 t "cat: idempotent (no churn)"   "" (__tcz_categorize | string join ',')
 
-# revert: owned claude-named session whose claude died -> numeric
-tmux kill-session -t =TMUX-Setup-2
-tmux new-session -d -s stale-claude
+# C1: a second pass over an already-correctly-named session must NOT drop its
+# display. The no-op rename short-circuit (desired == cur) must skip only the
+# rename+stamp, never the display sync -- else a session keeps its display for
+# exactly one pass and loses it forever after (the defect the brief's own
+# tests, run only once, cannot see).
+__tcz_categorize
+t "cat: display survives a second (no-op) pass" "tcz-claude-$fish_pid · TMUX Setup 2" \
+    (tmux show-option -qv -t "tcz-claude-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-run-$fish_pid $HOME/tcz-claude-$fish_pid
+
+# revert: owned claude-named session whose claude died -> numeric. Pinned to
+# $HOME (not left unpinned) so it specifically exercises the no-project
+# fallback rather than picking up the repo root as its own project.
+tmux kill-session -t "=tcz-claude-$fish_pid"
+tmux new-session -d -s stale-claude -c $HOME
 tmux set-option -t stale-claude @tmux_auto_name stale-claude
 __tcz_categorize
 t "cat: owned idle reverts to gen-N" "gen-1" \
     (tmux list-sessions -F '#{session_name}' | string match -r '^gen-[0-9]+$' | sort -V | head -n1)
+# The assertion above only proves SOME gen-N session exists (gen-1 was already
+# taken by session "2"), not that stale-claude itself reverted -- tighten
+# with a direct check that its own old name is gone.
+t "cat: stale-claude specifically was renamed off its old name" "no" \
+    (tmux has-session -t =stale-claude 2>/dev/null; and echo yes; or echo no)
 
-# collision: two OWNED (numeric) claude sessions with the same --name
+# C4: a non-claude, non-shell process with no project must land on gen-N,
+# never the literal token "session" -- __tcz_slugify's own fallback for an
+# EMPTY input. The old switch-based code called __tcz_slugify on the
+# (project-less) DISPLAY, which composes to "" here, and __tcz_slugify ""
+# hands back "session" instead of leaving room for the gen-N fallback below
+# it -- a session named "session" would never again be recognized as
+# unnamed. This implementation never calls __tcz_slugify on an empty string:
+# an empty project skips straight past it to __tcz_free_gen.
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --name Same Name"
-tmux new-session -d -s 1 "$shimdir/claude --name Same Name"
+tmux new-session -d -s 3 -c $HOME "node -e 'setInterval(function(){}, 1000)'"
 sleep 0.5
 __tcz_categorize
-t "cat: collision suffixed" "Same-Name,Same-Name-2" \
+t "cat: no-project running lands on gen-N, never the literal 'session'" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: no-project running is never named the literal 'session'" "no" \
+    (tmux has-session -t =session 2>/dev/null; and echo yes; or echo no)
+
+# collision: two OWNED (numeric) claude sessions sharing one project dir. The
+# --name no longer feeds the tmux name at all (project does), so this now
+# needs a shared project dir to produce a collision; the --name stays only to
+# prove the DISPLAY half still distinguishes the two via the task.
+cleanup
+mkdir -p $HOME/tcz-collision-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-collision-$fish_pid "$shimdir/claude --name Same Name"
+tmux new-session -d -s 1 -c $HOME/tcz-collision-$fish_pid "$shimdir/claude --name Same Name"
+sleep 0.5
+__tcz_categorize
+t "cat: collision suffixed" "tcz-collision-$fish_pid,tcz-collision-$fish_pid-2" \
     (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+rm -rf $HOME/tcz-collision-$fish_pid
 # guard: a hand-NAMED claude session is never renamed
 tmux new-session -d -s myclaude "$shimdir/claude --name Steal"
 sleep 0.5
@@ -354,16 +544,195 @@ t "cat: hand-named claude protected" "yes" \
 # hits a DIFFERENT session. Worst case: that session carries @tmux_lives_name, the numeric
 # one is misread as claimed, and it is skipped -> permanently stranded at its numeric name,
 # re-failing every pass. Reproduced live before the fix.
+# -c pins to a real project dir (not $HOME): the assertion needs the session to
+# actually RENAME (proving it wasn't wrongly skipped as claimed), and under
+# Task 4 a $HOME-pinned session no longer renames to its --name slug at all.
 cleanup
-tmux new-session -d -s 0 "$shimdir/claude --name Numeric Claude"
+mkdir -p $HOME/tcz-numsess-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-numsess-$fish_pid "$shimdir/claude --name Numeric Claude"
 tmux new-session -d -s claimant
 tmux set-option -t claimant @tmux_lives_name "Claimed By App"
 sleep 0.5
 __tcz_categorize
 t "cat: numeric session not stranded by another session's claim" "yes" \
-    (tmux has-session -t =Numeric-Claude 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-numsess-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "cat: the claiming session keeps its own name" "yes" \
     (tmux has-session -t =claimant 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-numsess-$fish_pid
+
+# --- @tmux_lives_display staleness + the neurotto-protecting claim guard -----------
+# From the task brief, Step 1, essentially verbatim. The C1 second-pass-persistence
+# assertion lives in the main "cat:" block above, not duplicated here.
+cleanup
+mkdir -p $HOME/tcz-cat-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-cat-$fish_pid 'sleep 500'
+tmux new-session -d -s 1 'sleep 500'                      # started in the harness cwd
+sleep 0.5
+__tcz_categorize
+t "categorize: session named for its project" "yes" \
+    (tmux has-session -t "=tcz-cat-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+set -g cat_disp (tmux show-option -qv -t "tcz-cat-$fish_pid" @tmux_lives_display)
+t "categorize: display option written" "tcz-cat-$fish_pid" "$cat_disp"
+
+# STALENESS: a hand-rename must drop the display, or the picker keeps the old name.
+tmux rename-session -t "=tcz-cat-$fish_pid" "My Project"
+__tcz_categorize
+set -g stale_disp (tmux show-option -qv -t "My Project" @tmux_lives_display)
+t "categorize: hand-rename clears the stale display" "" "$stale_disp"
+t "categorize: hand-rename still sticks" "yes" \
+    (tmux has-session -t "=My Project" 2>/dev/null; and echo yes; or echo no)
+
+# THE REGRESSION THAT WOULD BREAK NEUROTTO.
+tmux new-session -d -s claimed 'sleep 500'
+tmux set-option -t claimed @tmux_lives_name "Neurotto CLI"
+__tcz_categorize
+t "categorize: an app claim still suppresses renaming" "yes" \
+    (tmux has-session -t "=claimed" 2>/dev/null; and echo yes; or echo no)
+set -g claim_disp (tmux show-option -qv -t claimed @tmux_lives_display)
+t "categorize: a claimed session carries no display" "" "$claim_disp"
+
+# COLLISION: the project-derived name must still go through __tcz_unique. The
+# spec promises `neurotto` / `neurotto-2`; nothing tested it.
+cleanup
+mkdir -p $HOME/tcz-dup-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-dup-$fish_pid 'sleep 500'
+tmux new-session -d -s 1 -c $HOME/tcz-dup-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize
+t "categorize: two sessions in one project collide safely" "yes" \
+    (tmux has-session -t "=tcz-dup-$fish_pid-2" 2>/dev/null; and echo yes; or echo no)
+t "categorize: no duplicate session names" "yes" \
+    (test (tmux list-sessions -F '#{session_name}' | count) -eq (tmux list-sessions -F '#{session_name}' | sort -u | count); and echo yes; or echo no)
+rm -rf $HOME/tcz-dup-$fish_pid $HOME/tcz-cat-$fish_pid
+cleanup
+
+# --- I1: anti-churn -- a second pass over an UNCHANGED server must emit ZERO
+# @tmux_lives_display set-option calls, not merely leave the end-state
+# unchanged. This is the property that guards against reintroducing the
+# per-tick set-option churn that caused the ShellFish cursor flicker (fixed at
+# __tcz_set_claude_opt by this same dedup discipline). Spy on the emitted tmux
+# commands rather than inferring from end state -- the idiom already used
+# above for "switch: --take detaches the session's clients".
+cleanup
+mkdir -p $HOME/tcz-churn-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-churn-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize   # first pass: establishes steady state (rename + display write)
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_categorize   # second pass over an otherwise-unchanged server
+functions -e tmux
+t "cat: steady-state second pass writes zero @tmux_lives_display options" "0" \
+    (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
+set -e __t_cmds
+rm -rf $HOME/tcz-churn-$fish_pid
+cleanup
+
+# --- M1: the claim-path clear, with a session that GENUINELY had a display
+# first -- not the vacuous shape above (THE REGRESSION THAT WOULD BREAK
+# NEUROTTO block claims a session that was never named/displayed by
+# categorize at all, so deleting that clear leaves the suite green). This is
+# spec line 103's exact scenario: an app claims a session the categorizer
+# previously named AND displayed.
+cleanup
+mkdir -p $HOME/tcz-claim1-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim1-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize
+set -g m1_disp (tmux show-option -qv -t "tcz-claim1-$fish_pid" @tmux_lives_display)
+t "cat: M1 fixture genuinely has a display before the claim" "tcz-claim1-$fish_pid" "$m1_disp"
+tmux set-option -t "tcz-claim1-$fish_pid" @tmux_lives_name "Claimed After Naming"
+__tcz_categorize
+set -g m1_disp2 (tmux show-option -qv -t "tcz-claim1-$fish_pid" @tmux_lives_display)
+t "cat: a claim arriving AFTER naming still clears the display" "" "$m1_disp2"
+set -e m1_disp m1_disp2
+rm -rf $HOME/tcz-claim1-$fish_pid
+cleanup
+
+# --- M2: the stable-gen-N clear, with a genuinely-present prior display. A
+# gen-N session can never legitimately EARN a display through production code
+# (post-M3 fix below, it has no project by definition) -- so this simulates a
+# stale value, the kind a manual poke, a migration, or an old fisher version
+# could leave behind, to prove the categorizer still cleans it up on its
+# regular bailout pass rather than only ever seeing an already-empty option.
+cleanup
+tmux new-session -d -s gen-1 -c $HOME
+tmux set-option -t gen-1 @tmux_auto_name gen-1
+tmux set-option -t gen-1 @tmux_lives_display "stale leftover value"
+sleep 0.3
+__tcz_categorize
+set -g m2_disp (tmux show-option -qv -t gen-1 @tmux_lives_display)
+t "cat: stable gen-N clears a stale display on its bailout pass" "" "$m2_disp"
+t "cat: stable gen-N session itself is untouched (still gen-1)" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+set -e m2_disp
+cleanup
+
+# --- M3: the success-path write is gated on $proj, not just $f[5] -- a
+# no-project claude session still composes a non-empty (task-only) display in
+# __tcz_display_name, and writing it here would give a gen-N-bound session a
+# display for exactly one pass before the very next tick's stable-gen-N
+# bailout clears it right back out: a spurious write/unset pair for a session
+# the spec's own table says should carry no display at all. Spy on the FIRST
+# pass itself (not a second pass) to prove the write never happens even once,
+# not merely that dedup hides it afterward.
+cleanup
+tmux new-session -d -s 0 -c $HOME "$shimdir/claude --enable-auto-mode --name No Project Task"
+sleep 0.5
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_categorize
+functions -e tmux
+t "cat: no-project claude session never gets a display write, not even pass 1" "0" \
+    (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
+t "cat: no-project claude session is still renamed to gen-N" "yes" \
+    (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+set -e __t_cmds
+cleanup
+
+# --- M4: a transient failure of the batched project/display lookup ALONE
+# (not the rest of the tmux server -- list-sessions/list-panes elsewhere in
+# the same pass keep succeeding) must not rename every owned session to
+# gen-N for a tick. Intercept ONLY that one list-sessions call.
+cleanup
+tmux new-session -d -s alpha -c $HOME 'sleep 1000'
+tmux new-session -d -s bravo -c $HOME 'sleep 1000'
+tmux set-option -t alpha @tmux_auto_name alpha
+tmux set-option -t bravo @tmux_auto_name bravo
+sleep 0.3
+function tmux
+    if string match -qr -- 'list-sessions.*@tmux_lives_display' "$argv"
+        return 0
+    end
+    command tmux -L $sock $argv
+end
+__tcz_categorize
+functions -e tmux
+t "cat: a failed batched lookup renames NEITHER session (fails closed)" "alpha,bravo" \
+    (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+cleanup
+
+# --- M5 (fix wave 2026-08-18): the __tcz_snapshot empty-display fallback
+# (item 1 -- field 5 falls back to the tmux name so the picker/menu never see
+# a blank row/label) must NEVER leak into @tmux_lives_display. This is the
+# TRUE empty-display case M3 didn't cover: M3's fixture is a claude session
+# with a task, so __tcz_display_name still returns something non-empty
+# there. A general session in a generic (excluded) cwd is the case where
+# __tcz_display_name returns NOTHING and __tcz_snapshot's field 5 becomes
+# the fallback session name. Prove the categorize write stays gated on
+# $proj (not on whether field 5 is populated), so this session's
+# @tmux_lives_display stays genuinely unset even though the snapshot row
+# feeding it is not blank.
+cleanup
+tmux new-session -d -s 0 -c $HOME
+sleep 0.5
+set -g m5_snap (__tcz_snapshot | string match -e '0	*' | cut -f5)
+t "M5: snapshot field 5 IS the session-name fallback, not empty" "0" "$m5_snap"
+__tcz_categorize
+set -g m5_disp (tmux show-option -qv -t gen-1 @tmux_lives_display)
+t "M5: no-project general session still carries no @tmux_lives_display after categorize" "" "$m5_disp"
+set -e m5_snap m5_disp
+cleanup
 
 # --- narrowed categorize (fish_postexec) --------------------------------------------
 # A command run in pane X cannot change the classification of session Y, so the
@@ -398,18 +767,22 @@ t "narrowed: the other session is untouched" "yes" (tmux has-session -t =bravo 2
 cleanup
 
 # Collision avoidance must still consult sessions OUTSIDE the filter: `target`
-# wants the name `sleep`, which an unfiltered session already holds.
-tmux new-session -d -s target 'sleep 1000'
-tmux new-session -d -s sleep 'sleep 1000'
+# wants the project-derived name `tcz-collide-$fish_pid`, which an unfiltered
+# session already holds (a literal name, standing in for another session that
+# independently computed the same slug).
+mkdir -p $HOME/tcz-collide-$fish_pid
+tmux new-session -d -s target -c $HOME/tcz-collide-$fish_pid 'sleep 1000'
+tmux new-session -d -s tcz-collide-$fish_pid 'sleep 1000'
 tmux set-option -t target @tmux_auto_name target
 sleep 0.5
 __tcz_categorize target
 t "narrowed: the outside session kept its name" "yes" \
-    (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-collide-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "narrowed: target dodged the outside name"    "yes" \
-    (tmux has-session -t =sleep-2 2>/dev/null; and echo yes; or echo no)
+    (tmux has-session -t "=tcz-collide-$fish_pid-2" 2>/dev/null; and echo yes; or echo no)
 t "narrowed: no duplicate session names"        "yes" \
     (test (tmux list-sessions -F '#{session_name}' 2>/dev/null | count) -eq (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort -u | count); and echo yes; or echo no)
+rm -rf $HOME/tcz-collide-$fish_pid
 cleanup
 
 # ...and a numeric session's claude identity must land on ITSELF, not on a neighbour.
@@ -489,23 +862,67 @@ t "cat: claimed session not slug-renamed" "no" \
     (tmux has-session -t "=Neurotto-CLI" 2>/dev/null; and echo yes; or echo no)
 cleanup
 
+# A @tmux_lives_name claim containing a literal tab must survive whole as the
+# greedy last field, not get truncated at the embedded tab — this is exactly
+# the property the position-4 (path) / greedy-position-5 (claim) split exists
+# to preserve. NOT a RED discriminator: pre-change, the claim was ALREADY the
+# greedy last field, so this passed before Task 3 too. It is a deliberate
+# non-regression guard, pinned because the reviewer had to construct this case
+# by hand to verify it. cut -f5 cannot be used here (it would itself split on
+# the embedded tab); split the same way production does instead.
+cleanup
+set -l TAB (printf '\t')
+set -l claim (printf 'Left\tRight')
+tmux new-session -d -s 44 'sleep 1000'
+tmux set-option -t 44 @tmux_lives_name "$claim"
+sleep 0.5
+set -l tabline (__tcz_snapshot | string match -e '44	*')
+set -l tabfields (string split -m 4 $TAB -- $tabline)
+t "snap: a claim containing a literal tab survives whole in field 5" "$claim" "$tabfields[5]"
+cleanup
+
 # ---------------------------------------------------------------------
-# lifecycle: rename when claude starts in a shell pane, revert when it exits
+# lifecycle: rename when claude starts in a shell pane, revert when it exits.
+# UNDER TASK 4 THE TMUX NAME NO LONGER REVERTS -- it is pinned to the project
+# for the session's whole life (project doesn't change when a process
+# starts/stops), so the old "-c $HOME -> renamed to the --name slug -> reverts
+# to gen-N" story is gone: $HOME has no project, so a $HOME-pinned session
+# would sit at gen-N throughout with no transition to observe at all (that
+# was verified, not assumed -- see the C5 controller correction). Re-pointed
+# at a real project dir, this now exercises what DOES change across the
+# lifecycle: the NAME stays put while the DISPLAY gains/drops the task.
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0
+mkdir -p $HOME/tcz-lifecycle-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-lifecycle-$fish_pid
 tmux send-keys -t 0 "$shimdir/claude --enable-auto-mode --name Lifecycle" Enter
 sleep 0.8
 __tcz_categorize
-t "cat: lifecycle rename via shell pane" "yes" (tmux has-session -t =Lifecycle 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle rename via shell pane" "yes" \
+    (tmux has-session -t "=tcz-lifecycle-$fish_pid" 2>/dev/null; and echo yes; or echo no)
 t "cat: lifecycle used the fake binary" "yes" \
     (pgrep -af -- '--name Lifecycle' | string match -q "*$shimdir*"; and echo yes; or echo no)
+t "cat: lifecycle display carries the task while claude runs" "tcz-lifecycle-$fish_pid · Lifecycle" \
+    (tmux show-option -qv -t "tcz-lifecycle-$fish_pid" @tmux_lives_display)
 # Kill the claude process directly (SIGTERM; C-c/SIGINT is absorbed by fish job control).
-set -l lcpid (tmux list-panes -t Lifecycle -F '#{pane_pid}' 2>/dev/null)
+set -l lcpid (tmux list-panes -t "tcz-lifecycle-$fish_pid" -F '#{pane_pid}' 2>/dev/null)
 pkill -TERM -P $lcpid 2>/dev/null; or kill -TERM $lcpid 2>/dev/null
 sleep 0.5
 __tcz_categorize
-t "cat: lifecycle revert to gen-N" "yes" (tmux has-session -t =gen-1 2>/dev/null; and echo yes; or echo no)
+t "cat: lifecycle NAME stays pinned to the project after claude exits" "yes" \
+    (tmux has-session -t "=tcz-lifecycle-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+# THIS is the steady-state-freshness guard for C1's shipped structure (dedup
+# intact, display sync merely decoupled from the rename short-circuit) --
+# NOT "cat: display survives a second (no-op) pass" above, which only proves
+# an UNCHANGING value persists and passes just as well if the write stays
+# nested behind the short-circuit (verified: it does, since with the value
+# unchanging pass 2 never touches the option either way). Here the DESIRED
+# VALUE changes between passes (task present -> task gone) while the tmux
+# NAME does not, which only a decoupled write can track. Do not weaken this
+# one thinking it cosmetic -- it is load-bearing for C1.
+t "cat: lifecycle DISPLAY drops the task once claude exits" "tcz-lifecycle-$fish_pid" \
+    (tmux show-option -qv -t "tcz-lifecycle-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-lifecycle-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
@@ -600,28 +1017,149 @@ t "menu: current uses yellow"    "yes" (string match -q '*#[fg=colour143]*' -- "
 t "menu: current not dimmed"     "no"  (string match -q '*#\[dim\]*' -- "$margs"; and echo yes; or echo no)
 
 # ---------------------------------------------------------------------
-# __tcz_claim (integration): instant claude rename from preexec data
+# __tcz_claim (integration): instant claude rename from preexec data.
+# Task 5b: this must land on exactly the PROJECT slug the next categorize
+# pass would produce (spec N1) -- never the raw --name/task text, even
+# transiently -- so there is nothing left to flap. <raw> feeds only the
+# display's task half now; the third (cwd) argument is gone (session_path
+# is fetched from tmux itself, per spec N3 -- the pane's $PWD follows `cd`
+# and the session path does not).
 # ---------------------------------------------------------------------
+
+# RED (pre-fix), proven against the unmodified function: it renamed straight
+# to the raw task text's slug ("Fix the picker lag" -> Fix-the-picker-lag),
+# ignoring the project entirely -- reproduced 0 -> Fix-the-picker-lag before
+# this change; see task-5b-report.md for the failing run.
 cleanup
-tmux new-session -d -s 0
+mkdir -p $HOME/tcz-claim-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-$fish_pid
 set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
-__tcz_claim $pane "My Project" /tmp
-t "claim: renamed from raw name" "yes" (tmux has-session -t =My-Project 2>/dev/null; and echo yes; or echo no)
-t "claim: stamped"               "My-Project" (tmux show-option -qv -t My-Project @tmux_auto_name)
-__tcz_claim $pane "" /tmp/someproj
-t "claim: empty raw -> claude-cwd" "yes" (tmux has-session -t =claude-someproj 2>/dev/null; and echo yes; or echo no)
-tmux rename-session -t =claude-someproj handpick
-__tcz_claim $pane "Steal Attempt" /tmp
-t "claim: guard protects hand-rename" "yes" (tmux has-session -t =handpick 2>/dev/null; and echo yes; or echo no)
+__tcz_claim $pane "Fix the picker lag"
+t "claim: instant rename lands on the project, not the raw task text" "yes" \
+    (tmux has-session -t "=tcz-claim-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "claim: never took the raw task text as the tmux name" "no" \
+    (tmux has-session -t =Fix-the-picker-lag 2>/dev/null; and echo yes; or echo no)
+t "claim: stamped to the project slug" "tcz-claim-$fish_pid" \
+    (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_auto_name)
+t "claim: display is project (dot) task" "tcz-claim-$fish_pid · Fix the picker lag" \
+    (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-claim-$fish_pid
+
+# Item 2 (fix wave 2026-08-18): a typed `claude --name "Fix the picker lag"`
+# is captured by the preexec hook's regex as the LITERAL quoted text, quotes
+# included -- that is the design's own headline example, and the only way to
+# type a multi-word name. __tcz_claim must not let those quotes leak into the
+# display: the tick's own extraction (/proc argv, already shell-parsed) never
+# carries them, so an unstripped quote pair would visibly disagree with the
+# tick for as long as the tick takes to overwrite it.
+cleanup
+mkdir -p $HOME/tcz-claimq-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claimq-$fish_pid
+set -l paneq (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $paneq '"Fix the picker lag"'
+t "claim: quoted --name strips the surrounding quotes from the display" \
+    "tcz-claimq-$fish_pid · Fix the picker lag" \
+    (tmux show-option -qv -t "tcz-claimq-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-claimq-$fish_pid
+
+# Generic dir ($HOME, per __tcz_project_name's own contract): no project ->
+# do nothing at all, and specifically never fall back to "claude-<cwd>" --
+# Task 3 deleted that fallback in __tcz_snapshot; this is its twin here.
+cleanup
+tmux new-session -d -s 0 -c $HOME
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Some Task"
+t "claim: no project -> name untouched" "yes" (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+# FORWARD-ONLY GUARD, no pre-fix RED: pre-fix code renamed the session (to
+# "Some-Task"), so "no claude-<cwd> name exists" was unobservable there by
+# construction -- it passed for the wrong reason, not because the fallback
+# was already gone. Kept as a guard against a future regression, not a
+# discriminator of this one.
+t "claim: no project -> never falls back to claude-<cwd>" "no" \
+    (tmux list-sessions -F '#{session_name}' | string match -qr '^claude-'; and echo yes; or echo no)
+# FORWARD-ONLY GUARD, no pre-fix RED: same reason -- pre-fix, session "0" no
+# longer exists under that name once renamed, so this reads an empty lookup
+# on a name that isn't there rather than proving no display was written.
+t "claim: no project -> no display written" "" (tmux show-option -qv -t 0 @tmux_lives_display)
+# Empty raw specifically -- this is the exact input shape that used to build
+# "claude-<basename>" (the deleted fallback); with no project either, nothing
+# should happen at all.
+__tcz_claim $pane ""
+t "claim: no project + empty raw -> still untouched, no fallback name" "yes" \
+    (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+
+# Ownership guard: a hand-named session is never touched by the claim path
+# (non-regression -- this guard already existed pre-fix; kept exercised
+# under the new call shape).
+cleanup
+mkdir -p $HOME/tcz-claim-guard-$fish_pid
+tmux new-session -d -s handpick -c $HOME/tcz-claim-guard-$fish_pid
+set -l pane (tmux list-panes -t handpick -F '#{pane_id}')
+__tcz_claim $pane "Steal Attempt"
+t "claim: ownership guard protects a hand-named session" "yes" \
+    (tmux has-session -t =handpick 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-claim-guard-$fish_pid
+
+# External claim (@tmux_lives_name): unrelated to the `claim` VERB (the name
+# collision is coincidental), but the claim PATH must still respect it, same
+# as __tcz_categorize. This is NEW coverage -- the pre-fix function never
+# checked @tmux_lives_name at all, and __tcz_owned's purely-numeric check
+# would otherwise wave a fresh externally-claimed session straight through.
+cleanup
+mkdir -p $HOME/tcz-claim-ext-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-ext-$fish_pid
+tmux set-option -t 0 @tmux_lives_name "Neurotto CLI"
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Some Task"
+t "claim: an external @tmux_lives_name claim blocks the rename" "yes" \
+    (tmux has-session -t =0 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-claim-ext-$fish_pid
+
+# Collision: two owned sessions sharing one project dir -> second gets -2.
+cleanup
+mkdir -p $HOME/tcz-claim-dup-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-dup-$fish_pid
+tmux new-session -d -s 1 -c $HOME/tcz-claim-dup-$fish_pid
+set -l pane0 (tmux list-panes -t (__tcz_pane_target 0) -F '#{pane_id}')
+set -l pane1 (tmux list-panes -t (__tcz_pane_target 1) -F '#{pane_id}')
+__tcz_claim $pane0 "First"
+__tcz_claim $pane1 "Second"
+t "claim: collision suffixed" "tcz-claim-dup-$fish_pid,tcz-claim-dup-$fish_pid-2" \
+    (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+rm -rf $HOME/tcz-claim-dup-$fish_pid
+
+# THE FLAP, end to end: after claim, a following __tcz_categorize performs no
+# further rename. This is the assertion that actually encodes the point of
+# the task -- it must discriminate a pre-fix regression, not just confirm a
+# steady state, so the raw task text's slug is chosen to DIFFER from the
+# project: if claim ever again landed on the raw slug, categorize's very next
+# pass would rename it out from under this assertion, and $claim_name would
+# stop matching $cat_name. Mutation-checked (see report) by reverting the fix
+# and confirming this specific assertion goes red.
+cleanup
+mkdir -p $HOME/tcz-claim-flap-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claim-flap-$fish_pid
+set -l pane (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $pane "Totally Different Task Text"
+set -g claim_name (tmux display-message -p -t "$pane" '#{session_name}')
+__tcz_categorize
+set -g cat_name (tmux display-message -p -t "$pane" '#{session_name}')
+t "claim: name after claim equals name after the next categorize (no flap)" \
+    "$claim_name" "$cat_name"
+t "claim: that steady name is the project, not the raw task text" \
+    "tcz-claim-flap-$fish_pid" "$claim_name"
+rm -rf $HOME/tcz-claim-flap-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
 # Dispatcher + tick silence (subprocess — exercises the real entrypoint)
 # ---------------------------------------------------------------------
 cleanup
-tmux new-session -d -s 0 'sleep 1000'
+mkdir -p $HOME/tcz-tick-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-tick-$fish_pid 'sleep 1000'
 t "main: tick emits nothing"  "" (fish --no-config $plugindir/functions/tmux-categorize.fish tick | string join ',')
-t "main: tick renamed via subprocess" "yes" (tmux has-session -t =sleep 2>/dev/null; and echo yes; or echo no)
+t "main: tick renamed via subprocess" "yes" (tmux has-session -t "=tcz-tick-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-tick-$fish_pid
 t "main: slug subcommand" "prod-debug" (fish --no-config $plugindir/functions/tmux-categorize.fish slug "prod:debug")
 # switch subcommand: headless (no client) must degrade silently, rc 0
 cleanup
@@ -836,7 +1374,14 @@ t "pid_comm: snapshot agrees with /proc"     "$comm_proc" "$comm_ps"
 # Compared as a SET of tokens: /proc joins argv with single spaces while ps
 # preserves the original spacing, so a byte comparison would be brittle for the
 # wrong reason.
-t "pid_cmdline: snapshot agrees with /proc (tokens)" (string join ' ' (string split -n ' ' -- "$cmd_proc")) (string join ' ' (string split -n ' ' -- "$cmd_ps"))
+# The strengthening above shipped its own hole: `fish -c 'sleep 5'` puts a `-c`
+# token in the data, and `string join` parses its ARGUMENTS for options with no
+# `--` to stop it — both sides threw `unknown option -c`, both substitutions
+# collapsed to "", and "" = "" passed unconditionally on every run (silent on
+# stderr in a `2>&1` capture, visible on a bare run). The comment above already
+# tells this story once — a reviewer catching a weak assertion, replaced by
+# something weaker still — so this is a repeat of the pattern, not a new one.
+t "pid_cmdline: snapshot agrees with /proc (tokens)" (string join ' ' -- (string split -n ' ' -- "$cmd_proc")) (string join ' ' -- (string split -n ' ' -- "$cmd_ps"))
 t "pid_cmdline: does not leak the pid column" 0 (string match -qr '^\s*'$kidparent'\s' -- "$cmd_ps"; and echo 1; or echo 0)
 t "pid_children: found a real child to compare" 1 (test -n "$kids_proc"; and echo 1; or echo 0)
 kill $kidparent 2>/dev/null
@@ -1063,43 +1608,49 @@ __tcz_emit_title $ttl ""
 t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
 rm -f $ttl
 
-# session_has_claude / session_title via a tmux stub (switch on subcommand)
+# session_has_claude / session_title via a tmux stub (switch on subcommand).
+# __tcz_session_title now reads #{session_path} via display-message (the session's
+# start dir, single-valued) rather than list-panes' active-pane pane_current_path,
+# and consults @tmux_lives_display between the claim and the dir fallback.
 function tmux
     switch "$argv[1]"
         case list-panes
-            if string match -q '*pane_current_path*' -- "$argv"
-                echo $tcz_test_path              # __tcz_session_title: active-pane cwd
+            printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
+        case display-message
+            echo $tcz_test_path              # __tcz_session_title: session_path
+        case show-option
+            if string match -q '*@tmux_lives_display*' -- "$argv"
+                echo $tcz_test_display        # @tmux_lives_display override
             else
-                printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
+                echo $tcz_test_name           # @tmux_lives_name override
             end
-        case show-option       # @tmux_lives_name override (empty = fall back to dir)
-            echo $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_path /home/x/workspace/tmux-lives
 set -g tcz_test_name ''
+set -g tcz_test_display ''
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'fish\t999')
+set -g tcz_test_display 'My Project'
+t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
-t "session_title honors @tmux_lives_name over dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
+t "session_title honors @tmux_lives_name over display and dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
-set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name
+set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
 
-# empty active-pane path must not shift args (arg-shift guard)
+# empty session path must not shift args (arg-shift guard)
 function tmux
     switch "$argv[1]"
         case list-panes
-            if string match -q '*pane_current_path*' -- "$argv"
-                echo ''                          # empty active-pane path
-            else
-                printf 'claude\t999\n'           # session has claude
-            end
+            printf 'claude\t999\n'           # session has claude
+        case display-message
+            echo ''                          # empty session_path
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -1172,8 +1723,8 @@ t "sf has all three align zones" yes (string match -q '*#[align=left]*' -- "$SF"
 t "sf right zone renders status-right (tick/continuum preserved)" yes (string match -q '*#{T;=/#{status-right-length}:status-right}*' -- "$SF"; and echo yes; or echo no)
 t "sf window list is names-only, no trailing sep" yes (string match -q '*#{W:*window_end_flag*window-status-separator*' -- "$SF"; and echo yes; or echo no)
 t "sf window list template-expands the option" yes (string match -q '*#{T:window-status-format}*' -- "$SF"; and echo yes; or echo no)
-t "sf identity honors @tmux_lives_name then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}*' -- "$SF"; and echo yes; or echo no)
-t "sf identity uses the collapsed claude idiom (single readable ✦ mark)" yes (string match -q '*✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity honors @tmux_lives_name then @tmux_lives_display then session_name" yes (string match -q '*#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}*' -- "$SF"; and echo yes; or echo no)
+t "sf identity uses the collapsed claude idiom (single readable ✦ mark)" yes (string match -q '*✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{@tmux_lives_claude}}}*' -- "$SF"; and echo yes; or echo no)
 t "sf separator is format-expanded (T:)" yes (string match -q '*#{T:window-status-separator}*' -- "$SF"; and echo yes; or echo no)
 t "sf centre identity wears the text role" yes (string match -q '*#[fg=#{@tmux_lives_text_fg}]#{?#{!=:#{@tmux_lives_claude},*' -- "$SF"; and echo yes; or echo no)
 t "identity ✦ wears the mark role" yes (string match -q '*#[fg=#{@tmux_lives_mark_fg}]✦*' -- (__tcz_status_identity); and echo yes; or echo no)
@@ -1190,33 +1741,105 @@ t "sf caps no longer taper to bg=default" yes (string match -q '*bg=default*' --
 #     session shows a single readable "✦ name", NOT the redundant "slug ✦ name".
 #     (Regression 2026-07-10: "TMUX-Setup-13 ✦ TMUX Setup 13" — session slug is
 #     slugify(claude --name), so the old append-form doubled the identity.)
+# __tcz_status_identity returns a tmux format string, and a grep cannot tell a
+# working #{?...} nesting from a malformed one — tmux does not error on a bad
+# format, it silently renders literal text or nothing, and source-file returns
+# rc 0 with zero stderr even on a bad line (this repo has shipped that exact class
+# of bug once already: an unquoted #hex value tmux read as a comment). The grep
+# checks below are necessary but not sufficient; expanding the format through a
+# REAL tmux (display-message -p, the same expansion path the status bar uses) is
+# what actually proves the three-level precedence — claim, then display, then the
+# original fallback — on both the claude and non-claude branches.
+set -g ident (__tcz_status_identity)
+t "identity: consults the display option" 1 (string match -q '*@tmux_lives_display*' -- "$ident"; and echo 1; or echo 0)
+t "identity: the claim still appears first" 1 (test (string match -r '@tmux_lives_name' -- "$ident" | count) -ge 1; and echo 1; or echo 0)
+set -e ident
+
 set -g idsock tli-id-$fish_pid
 command tmux -L $idsock new-session -d -s TMUX-Setup-13 2>/dev/null
 command tmux -L $idsock new-session -d -s gen-1 2>/dev/null
+command tmux -L $idsock new-session -d -s disp-only 2>/dev/null
 command tmux -L $idsock set -g @tmux_lives_mark_fg default 2>/dev/null
 command tmux -L $idsock set -g @tmux_lives_text_fg default 2>/dev/null
 set -g IDFMT (__tcz_status_identity)
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_claude "TMUX Setup 13" 2>/dev/null
 t "identity: claude session collapses to a single '✦ name'" "#[fg=default]✦#[fg=default] TMUX Setup 13" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 t "identity: non-claude session shows its name only" "gen-1" (command tmux -L $idsock display-message -p -t gen-1 "$IDFMT" 2>/dev/null)
+# non-claude: display wins over the session_name fallback
+command tmux -L $idsock set-option -t disp-only @tmux_lives_display "Proj A" 2>/dev/null
+t "identity: non-claude display wins over session_name" "Proj A" (command tmux -L $idsock display-message -p -t disp-only "$IDFMT" 2>/dev/null)
+# non-claude: the claim still wins over display, not just over the old fallback
+command tmux -L $idsock set-option -t disp-only @tmux_lives_name "Claimed" 2>/dev/null
+t "identity: non-claude claim wins over display" "Claimed" (command tmux -L $idsock display-message -p -t disp-only "$IDFMT" 2>/dev/null)
+# claude: display wins over the claude-name fallback
+command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_display "Proj B · task" 2>/dev/null
+t "identity: claude display wins over the claude name" "#[fg=default]✦#[fg=default] Proj B · task" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
+# claude: the claim still wins over display
 command tmux -L $idsock set-option -t TMUX-Setup-13 @tmux_lives_name "Neurotto CLI" 2>/dev/null
 t "identity: @tmux_lives_name overrides the claude name (still ✦-marked)" "#[fg=default]✦#[fg=default] Neurotto CLI" (command tmux -L $idsock display-message -p -t TMUX-Setup-13 "$IDFMT" 2>/dev/null)
 command tmux -L $idsock kill-server 2>/dev/null
 set -e idsock; set -e IDFMT
 
-# real-tmux integration: __tcz_session_title must resolve the active pane's cwd.
-# REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
-# returns EMPTY in tmux 3.3a (the =exact-target quirk — same family as set/show-option),
-# so ShellFish tab titles rendered "<host>:  (C)" with a BLANK dir. The stub tests above
-# can't catch a real-tmux targeting quirk, so drive a private -L socket. The fix reads the
-# path via `list-panes -t "=$session"` (honors = AND resolves the pane path).
+# real-tmux integration: __tcz_session_title must resolve the SESSION's start dir
+# (#{session_path}), not the active pane's live cwd, and must consult
+# @tmux_lives_display before falling back to the dir. Two things this proves:
+# (1) REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
+#     returns EMPTY in tmux 3.3a (the =exact-target quirk), so ShellFish tab titles
+#     rendered "<host>:  (C)" with a BLANK dir. Reading #{session_path} fixes it, but
+#     display-message rejects the "=name" form OUTRIGHT — verified empirically it
+#     returns nothing at all ("format 'session_path' not found" under -v), not just
+#     for pane-scoped formats — so this now targets via __tcz_session_target (bare
+#     name / $id), the same helper the neighbouring show-option calls already use.
+# (2) a shell `cd` inside the pane used to relabel the tab, because the old lookup
+#     read the active pane's LIVE cwd; #{session_path} is the session's fixed START
+#     dir, so a `cd` no longer moves the title. As a side effect this also fixes a
+#     latent multi-window bug nobody chose: `list-panes -t session` (no -s) resolves
+#     to a single target-window — the session's CURRENTLY SELECTED one, verified to
+#     return exactly one row, not one per window — so the old lookup made the tab
+#     TRACK whichever window was selected; switching windows relabeled the tab.
+#     #{session_path} is fixed at session creation and does not move with selection.
+# The stub tests above can't catch a real-tmux targeting quirk, so drive a private
+# -L socket, following the suite's existing pattern.
 set -g tsock tcz-title-$fish_pid
 set -g twdir /tmp/tcz-titledir-$fish_pid
-rm -rf $twdir; mkdir -p $twdir
+rm -rf $twdir; mkdir -p $twdir/deep
 command tmux -L $tsock -f /dev/null new-session -d -s realsess -c $twdir 2>/dev/null
+# ts1's pane cd's into deep/ right after the session starts. No send-keys: typing
+# into a real interactive shell would land in the operator's actual fish_history
+# (XDG_DATA_HOME isn't covered by the suite's isolation guard, and this exact class
+# of leak has hit this repo twice already). Baking the cd into the pane's own start
+# command writes no history at all and settles near-instantly.
+command tmux -L $tsock -f /dev/null new-session -d -s ts1 -c $twdir "cd $twdir/deep; exec sleep 60" 2>/dev/null
+sleep 0.3
 function tmux; command tmux -L $tsock $argv; end
 set -g tmux_lives_hostname boxhost
-t "session_title resolves active-pane cwd (real tmux, =target)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+t "session_title resolves the session's start dir (real tmux)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+t "title: pinned to the session start dir, not the pane cwd after a cd" "boxhost: "(basename $twdir) (__tcz_session_title ts1)
+command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
+t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
+command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
+t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
+
+# multi-window regression: __tcz_session_title must stay stable across window
+# selection. This is the bug the #{session_path} fix actually resolves (see the
+# corrected docstring/comment above) — `list-panes -t <session>` without -s
+# resolves to a single target-window, the CURRENTLY SELECTED one, so the old
+# lookup made the tab TRACK whichever window was selected. Judged on whether the
+# property could silently regress, not on whether it is currently correct: none
+# of the single-window fixtures above (realsess, ts1) can catch a future
+# "simplification" back toward a window-scoped lookup, because they never have
+# more than one window.
+mkdir -p $twdir/mw-start $twdir/mw-w1 $twdir/mw-w2
+command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/dev/null
+command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
+command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
+sleep 0.2
+t "title: multi-window baseline is the session's own start dir" "boxhost: mw-start" (__tcz_session_title mw)
+command tmux -L $tsock select-window -t mw:1 2>/dev/null
+t "title: unchanged after selecting a different window" "boxhost: mw-start" (__tcz_session_title mw)
+command tmux -L $tsock select-window -t mw:2 2>/dev/null
+t "title: unchanged after selecting a third window" "boxhost: mw-start" (__tcz_session_title mw)
+
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir

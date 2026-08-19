@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> <cwd> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -20,6 +20,23 @@ function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9
     set s (string replace -ra '[^A-Za-z0-9]+' '-' -- "$s")
     set s (string trim -c - -- "$s")
     test -n "$s"; and echo $s; or echo session
+end
+
+function __tcz_project_name --argument-names path --description 'session start dir -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
+    test -n "$path"; or return
+    set -l p (string replace -r '/+$' '' -- "$path")
+    test -n "$p"; or return              # "/" collapses to empty
+    contains -- "$p" "$HOME" /tmp /var/tmp; and return
+    path basename -- "$p"
+end
+
+function __tcz_display_name --argument-names category project task --description 'compose what a human reads: "project · task" for a claude session, the project alone for anything else. The task is DELIBERATELY ignored outside the claude category — that is what stops a node dev server reading as `node`. Uses U+00B7, the same separator the status bar already puts between fields. Returns nothing when there is neither a project nor a task, leaving the caller on the tmux name.'
+    if test "$category" = claude; and test -n "$project"; and test -n "$task"
+        echo "$project · $task"
+        return
+    end
+    test -n "$project"; and echo "$project"; and return
+    test "$category" = claude; and test -n "$task"; and echo "$task"
 end
 
 function __tcz_title_name --description 'claude pane title -> display name, or empty if unusable'
@@ -246,10 +263,13 @@ function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>:
     echo $s
 end
 
-function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" (@tmux_lives_name, else the claude --name) — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Non-claude: @tmux_lives_name, else session_name.'
-    # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name if set, else the claude name).
-    # otherwise: @tmux_lives_name if set, else the session slug. No mark, no doubling.
-    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{@tmux_lives_claude}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{session_name}}}'
+function __tcz_status_identity --description 'pure: the centre identity format. Collapsed so a claude session shows ONE readable "✦ name" — NOT "slug ✦ name" (the session slug is slugify(--name), so the old append-form doubled it). Precedence, claim outermost: @tmux_lives_name, else @tmux_lives_display (the project[/task] name __tcz_categorize writes), else the claude --name (claude branch) / session_name (non-claude branch).'
+    # claude session (@tmux_lives_claude set): "✦ " + (@tmux_lives_name, else @tmux_lives_display, else the claude name).
+    # otherwise: @tmux_lives_name, else @tmux_lives_display, else the session slug.
+    # @tmux_lives_name is an EXTERNAL claim (written by other apps, e.g. neurotto — never
+    # by this repo) and must stay OUTERMOST on both branches so that integration keeps
+    # winning everywhere.
+    echo '#{?#{!=:#{@tmux_lives_claude},},#[fg=#{@tmux_lives_mark_fg}]✦#[fg=#{@tmux_lives_text_fg}] #{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{@tmux_lives_claude}}},#{?#{!=:#{@tmux_lives_name},},#{@tmux_lives_name},#{?#{!=:#{@tmux_lives_display},},#{@tmux_lives_display},#{session_name}}}}'
 end
 
 function __tcz_status_right_merge --argument-names current ours --description 'pure: merge our status-right content with any FOREIGN #() interpolation already there -> "<foreign prefix><ours>". The prefix is whatever precedes our marker, kept ONLY when it contains a #( command interpolation — so tmux\'s DEFAULT status-right is replaced while a plugin hook survives. Why: tmux-continuum schedules its autosave by PREPENDING #(continuum_save.sh) to status-right; the status bar refresh IS its scheduler (no daemon, no timer), so a bare `set -g status-right` discards it and session snapshots stop permanently and silently.'
@@ -336,9 +356,9 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     return 1
 end
 
-function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
+function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. Field 5 is NEVER empty — a project/task-less display falls back to the tmux name (a blank field would desync __tcz_menu_args'"'"'s display-menu argv and blank a picker row). With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
-    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{@tmux_lives_name}')
+    set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{@tmux_lives_name}')
     set -l panes
     if test -n "$only"
         # __tcz_pane_target: list-panes wants "=name" for exactness, but a purely
@@ -351,15 +371,15 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l TAB (printf '\t')
     # Per-session aggregation. list-panes -a arrives in session/window/pane order,
     # so "first" below honors the lowest-window-then-pane rule from the spec.
-    set -l names; set -l cats; set -l firstcmd; set -l cpid; set -l cpath; set -l ctitle; set -l gpath
+    set -l names; set -l cats; set -l cpid; set -l ctitle
     for line in $panes
         set -l f (string split -m 4 $TAB -- $line)    # title is last; keep embedded tabs
         test (count $f) -ge 4; or continue
         set -l s $f[1]
         set -l i (contains -i -- $s $names)
         if test -z "$i"
-            set -a names $s; set -a cats general; set -a firstcmd ''
-            set -a cpid ''; set -a cpath ''; set -a ctitle ''; set -a gpath $f[4]
+            set -a names $s; set -a cats general
+            set -a cpid ''; set -a ctitle ''
             set i (count $names)
         end
         # pane_current_command may report "sh" even when the pane_pid comm is "claude"
@@ -370,20 +390,20 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         if test $is_claude -eq 1
             set cats[$i] claude
             if test -z "$cpid[$i]"
-                set cpid[$i] $f[3]; set cpath[$i] $f[4]; set ctitle[$i] "$f[5]"
+                set cpid[$i] $f[3]; set ctitle[$i] "$f[5]"
             end
         else if not contains -- $f[2] $__tcz_shells; and not contains -- $f[2] $__tcz_boring
             test "$cats[$i]" = claude; or set cats[$i] running
-            test -z "$firstcmd[$i]"; and set firstcmd[$i] $f[2]
         end
     end
     # attached / last_attached lookup
-    set -l snames; set -l satt; set -l slast; set -l sdisp
+    set -l snames; set -l satt; set -l slast; set -l spath; set -l sdisp
     for line in (tmux list-sessions -F $sess_fmt 2>/dev/null)
-        set -l f (string split -m 3 $TAB -- $line)
-        test (count $f) -ge 3; or continue
+        set -l f (string split -m 4 $TAB -- $line)    # claim is last; keep embedded tabs
+        test (count $f) -ge 4; or continue
         set -a snames $f[1]; set -a satt $f[2]; set -a slast $f[3]
-        set -a sdisp (test (count $f) -ge 4; and echo $f[4]; or echo '')
+        set -a spath (test (count $f) -ge 4; and echo $f[4]; or echo '')
+        set -a sdisp (test (count $f) -ge 5; and echo $f[5]; or echo '')
     end
     for i in (seq (count $names))
         set -l att 0
@@ -393,24 +413,28 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
             test "$satt[$j]" = 0; or set att 1
             string match -qr '^[0-9]+$' -- "$slast[$j]"; and set last $slast[$j]
         end
-        set -l display
-        switch $cats[$i]
-            case claude
-                set display (__tcz_cmdline_name $cpid[$i])
-                test -n "$display"; or set display (__tcz_title_name "$ctitle[$i]")
-                test -n "$display"; or set display claude-(path basename -- $cpath[$i])
-            case running
-                set display $firstcmd[$i]
-            case general
-                if test "$gpath[$i]" = "$HOME"
-                    set display '~'
-                else if string match -q "$HOME/*" -- $gpath[$i]
-                    set display '~'(string sub -s (math (string length -- "$HOME") + 1) -- $gpath[$i])
-                else
-                    set display $gpath[$i]
-                end
+        set -l proj
+        test -n "$j"; and set proj (__tcz_project_name "$spath[$j]")
+        set -l task
+        if test "$cats[$i]" = claude
+            set task (__tcz_cmdline_name $cpid[$i])
+            test -n "$task"; or set task (__tcz_title_name "$ctitle[$i]")
         end
+        set -l display (__tcz_display_name $cats[$i] "$proj" "$task")
+        # @tmux_lives_name is an EXTERNAL claim and outranks everything.
         test -n "$j"; and test -n "$sdisp[$j]"; and set display "$sdisp[$j]"
+        # Field 5 must never be empty: __tcz_menu_args uses it verbatim as a
+        # display-menu item NAME, and an empty name desyncs tmux's argv parsing
+        # of the remaining triples (measured: "not enough arguments", rc=1 — the
+        # WHOLE menu fails to open, not just that row). __tcz_display_name
+        # legitimately returns nothing for a no-project, no-task session (every
+        # session tmux-lives itself creates with -c "$HOME" lands here) — fall
+        # back to the tmux name, restoring the pre-naming-redesign invariant.
+        # Safe to do only here, at the snapshot level: __tcz_categorize's
+        # display write is gated on `test -n "$proj"` (see M3 below it), so a
+        # fallback that only fires when there is NO project can never reach
+        # @tmux_lives_display — it stays genuinely absent, as designed.
+        test -n "$display"; or set display "$names[$i]"
         printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $att $last "$display"
     end
 end
@@ -440,7 +464,7 @@ function __tcz_pane_target --argument-names session --description 'a -t target f
     end
 end
 
-function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here (unlike `-t "=session"`, which returns empty for PANE formats).'
+function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here — unlike `-t "=session"`, which returns empty for EVERY format, not just pane-scoped ones (display-message rejects "=name" altogether; see __tcz_session_title, which was corrected the same way).'
     test -n "$pane"; or return
     tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null
 end
@@ -454,49 +478,126 @@ function __tcz_owned --description 'true if we may rename: name == @tmux_auto_na
     test "$rec" = "$cur"
 end
 
-function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
+function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name from its PROJECT (basename of session_path), never the running process; also syncs @tmux_lives_display. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
     set -l TAB (printf '\t')
+    # ONE batched session_path + current-@tmux_lives_display lookup for the whole pass,
+    # not a per-session display-message/show-option call — that would re-add the
+    # per-session tmux calls the 2026-08-17 narrowing work just removed. Parallel
+    # arrays, not `set -g paths_$name`: a dynamic variable name is either silent
+    # concatenation ("$paths_$cur" == "$cur" when paths_$cur is unset — measured) or an
+    # outright `set` error for a session name containing a space (also measured) —
+    # both wrong, neither erroring loudly.
+    set -l pnames; set -l ppaths; set -l pdisps
+    for l in (tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@tmux_lives_display}" 2>/dev/null)
+        set -l kv (string split -m 2 $TAB -- $l)
+        test (count $kv) -ge 2; or continue
+        set -a pnames $kv[1]; set -a ppaths $kv[2]
+        set -a pdisps (test (count $kv) -ge 3; and echo $kv[3]; or echo '')
+    end
+    # Fail closed, mirroring __tcz_snapshot's own `test -n "$panes[1]"; or return`: a
+    # transient failure of THIS ONE tmux call (server hiccup, race) must not fall
+    # through with every $pi lookup empty, which would read every owned session as
+    # project-less and rename the whole owned set to gen-N for a tick (reproduced —
+    # a real server still has sessions, so __tcz_snapshot's own list-panes/list-sessions
+    # calls can succeed independently and keep the per-session loop running). Bailing
+    # out of the WHOLE pass costs one self-healing tick of staleness; renaming
+    # everyone to gen-N costs a visible flap plus a round of display churn. Chose the
+    # early return over moving the lookup after __tcz_snapshot: reordering does not
+    # remove the race (any two separate tmux queries can still land on either side of
+    # a hiccup), it only relocates which call could fail — and a retry would be the
+    # real fix for that, which is out of scope here.
+    test -n "$pnames[1]"; or return
+
     for line in (__tcz_snapshot $only)
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
         __tcz_set_claude_opt $cur
-        # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug alone.
-        # Target via __tcz_session_target: a fresh session is named 0/1/2..., and a BARE
-        # NUMBER in -t resolves to the CURRENT session — so this used to read a DIFFERENT
-        # session's claim and, when that one was claimed, skip the numeric session forever
-        # (stranding it at its numeric name, re-failing every pass).
+
+        set -l pi (contains -i -- $cur $pnames)
+        set -l curdisp
+        test -n "$pi"; and set curdisp "$pdisps[$pi]"
+
+        # A session with an explicit @tmux_lives_name is claimed by an app; leave its slug
+        # alone. Target via __tcz_session_target: a fresh session is named 0/1/2..., and a
+        # BARE NUMBER in -t resolves to the CURRENT session — so this used to read a
+        # DIFFERENT session's claim and, when that one was claimed, skip the numeric session
+        # forever (stranding it at its numeric name, re-failing every pass).
         set -l claimed (tmux show-option -qv -t (__tcz_session_target "$cur") @tmux_lives_name 2>/dev/null)
-        test -n "$claimed"; and continue
-        set -l desired
-        switch $f[2]
-            case claude running
-                set desired (__tcz_slugify "$f[5]")
-            case general
-                # gen-N general names are stable once assigned: set at revert time, never
-                # renumbered/compacted on later passes. This is BY DESIGN — do not "fix" by adding
-                # compaction. (Legacy bare-numeric names are NOT stable here — they fall through
-                # below and get promoted to gen-N; only gen-N is skipped.)
-                string match -qr '^gen-[0-9]+$' -- "$cur"; and continue
-                # desired gen-N computed below against current names
+        if test -n "$claimed"
+            # Claimed sessions carry no display either. Dedup — write only when there is
+            # something to clear, not an unconditional unset every pass: that is exactly the
+            # per-tick set-option churn that forced bar redraws and caused the ShellFish
+            # cursor flicker at __tcz_set_claude_opt, fixed there by this same dedup.
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
         end
+
+        # Project = basename(session_path) is now the ONLY naming source — the running
+        # process/category is never used again (spec N8). Empty for $HOME, /, /tmp,
+        # /var/tmp (and unreadable/empty paths) by __tcz_project_name's own contract.
+        set -l proj
+        test -n "$pi"; and set proj (__tcz_project_name "$ppaths[$pi]")
+        set -l desired
+        if test -n "$proj"
+            set desired (__tcz_slugify "$proj")
+        else if string match -qr '^gen-[0-9]+$' -- "$cur"
+            # gen-N general names are stable once assigned: set at revert time, never
+            # renumbered/compacted on later passes. This is BY DESIGN — do not "fix" by adding
+            # compaction. (Legacy bare-numeric names are NOT stable here — they fall through
+            # below and get promoted to gen-N; only gen-N is skipped.)
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
+        end
+        # else: $desired stays empty and falls through to the gen-N assignment below — this
+        # is what stops __tcz_slugify from ever being handed "", which would otherwise return
+        # its own literal fallback token "session" instead of leaving room for gen-N.
+
         # Ownership guard applies to ALL categories: never rename a hand-named session.
-        __tcz_owned "$cur"; or continue
+        if not __tcz_owned "$cur"
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
+            continue
+        end
         set -l others
         for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
             test "$s" != "$cur"; and set -a others $s
         end
         test -n "$desired"; or set desired (__tcz_free_gen $others)
         set desired (__tcz_unique $desired $others)
-        test "$desired" = "$cur"; and continue
-        tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
-        # exact-name match wins over prefix matching since we always pass full existing names
-        tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
-        # Stamp with one silent retry: a lost stamp would permanently freeze the name
-        # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
-        set -l stamptgt (__tcz_session_target "$desired")
-        tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
-        or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+
+        # The no-op short-circuit below skips ONLY the rename+stamp, never the display sync
+        # that follows it. A session that is already correctly named — which, after the
+        # first pass, is every session — must still keep its display in step with a
+        # changing task name; folding the display write behind this check would give a
+        # session its display for exactly one pass and lose it forever after.
+        if test "$desired" != "$cur"
+            tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
+            # exact-name match wins over prefix matching since we always pass full existing names
+            tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
+            # Stamp with one silent retry: a lost stamp would permanently freeze the name
+            # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
+            set -l stamptgt (__tcz_session_target "$desired")
+            tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+            or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+        end
+
+        # Display sync. Field 5 of the snapshot row IS the composed display already (Task
+        # 3's __tcz_display_name pass) — write it verbatim, never recompose it here (that
+        # would be composing a display out of a display). Dedup against the batched read
+        # above so this is a write only on an actual change. Gated on $proj, not just
+        # $f[5]: a claude session with NO project but a live --name/title task still
+        # composes a non-empty (task-only) display in __tcz_display_name, and writing
+        # THAT here would give a gen-N-bound session a display for exactly one pass —
+        # it gets cleared right back out on the very next tick by the stable-gen-N
+        # bailout above, a spurious write/unset pair for a session the spec's own
+        # table says should carry no display ("any session started in ~ or /tmp ->
+        # gen-1 ... display: none"). Skip straight to the clear-if-present branch
+        # instead, same treatment as the other project-less bailout paths.
+        if test -n "$proj"; and test -n "$f[5]"
+            test "$f[5]" = "$curdisp"; or tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$f[5]" 2>/dev/null
+        else
+            test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$desired") @tmux_lives_display 2>/dev/null
+        end
     end
 end
 
@@ -2943,25 +3044,69 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
     end
 end
 
-function __tcz_claim --description 'claim <pane> <raw-name> <cwd>: instant claude rename (preexec)'
-    test -n "$argv[1]"; or return 0
-    set -l cur (tmux display-message -pt "$argv[1]" '#{session_name}' 2>/dev/null)
+function __tcz_unquote --description 'strip ONE matched pair of surrounding quotes ("..." or '"'"'...'"'"') from argv[1]; an unmatched or purely interior quote passes through unchanged. Undoes the literal quoting a typed `claude --name "..."` leaves in the preexec-captured raw command text -- the tick'"'"'s __tcz_cmdline_name instead reads /proc argv, which never carries the shell'"'"'s quote characters, so without this the instant preexec display and the ~15s tick display visibly disagree for exactly as long as the tick takes to catch up.'
+    set -l s "$argv[1]"
+    set -l n (string length -- "$s")
+    if test $n -ge 2
+        set -l first (string sub -l 1 -- "$s")
+        set -l last (string sub -s -1 -- "$s")
+        if test "$first" = "$last"; and contains -- "$first" '"' "'"
+            echo (string sub -s 2 -l (math $n - 2) -- "$s")
+            return
+        end
+    end
+    echo "$s"
+end
+
+function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (session_path is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
+    test -n "$pane"; or return 0
+    set -l TAB (printf '\t')
+    # One display-message call for both fields -- session_path per spec N3 (the
+    # pane's own $PWD follows `cd`; the session path does not, which is exactly
+    # why the caller no longer passes it).
+    set -l info (tmux display-message -pt "$pane" "#{session_name}$TAB#{session_path}" 2>/dev/null)
+    test -n "$info"; or return 0
+    set -l parts (string split -m 1 $TAB -- $info)
+    set -l cur $parts[1]
+    set -l spath $parts[2]
     test -n "$cur"; or return 0
     __tcz_owned "$cur"; or return 0
-    set -l base $argv[2]
-    test -n "$base"; or set base claude-(path basename -- "$argv[3]")
-    set -l desired (__tcz_slugify "$base")
-    test "$desired" = "$cur"; and return 0
+    # @tmux_lives_name is an EXTERNAL claim (the verb here is also called "claim" --
+    # unrelated, unfortunate collision) and outranks everything, exactly as
+    # __tcz_categorize. $cur is almost always still numeric here -- this fires at the
+    # FIRST `claude` launch in a fresh pane, before any tick has renamed it -- so this
+    # is the single most likely call site in the file for the numeric -t misresolution
+    # bug (__tcz_session_target's own docstring); target through it, not a bare -t.
+    set -l claimed (tmux show-option -qv -t (__tcz_session_target "$cur") @tmux_lives_name 2>/dev/null)
+    test -z "$claimed"; or return 0
+    set -l proj (__tcz_project_name "$spath")
+    test -n "$proj"; or return 0
+    set -l desired (__tcz_slugify "$proj")
     set -l others
     for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
         test "$s" != "$cur"; and set -a others $s
     end
     set desired (__tcz_unique $desired $others)
-    tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or return 0
-    # stamp + one silent retry (a lost stamp would freeze the name as hand-named)
-    set -l stamptgt (__tcz_session_target "$desired")
-    tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
-    or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+    if test "$desired" != "$cur"
+        tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or return 0
+        # stamp + one silent retry (a lost stamp would freeze the name as hand-named)
+        set -l stamptgt (__tcz_session_target "$desired")
+        tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+        or tmux set-option -t "$stamptgt" @tmux_auto_name "$desired" 2>/dev/null
+    end
+    # Write the same pair __tcz_categorize would compose, so the tick has nothing left
+    # to correct. No dedup guard here -- unlike the ~15s tick (where an unconditional
+    # set-option forced bar redraws and caused the ShellFish cursor flicker, see
+    # __tcz_set_claude_opt), this runs once per `claude` launch, so there is no
+    # redraw-storm risk to guard against.
+    # $raw is the preexec-captured command line AS TYPED -- for `claude --name
+    # "Fix the picker lag"` that is the literal quoted text, quotes included,
+    # while the tick's __tcz_cmdline_name reads /proc argv (already shell-
+    # parsed, no quotes) -- so without unquoting here, the instant display
+    # shows literal quotes for as long as it takes the tick to overwrite it.
+    # Display only: $raw never feeds the tmux name (see $desired above).
+    set -l display (__tcz_display_name claude "$proj" (__tcz_unquote "$raw"))
+    tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$display" 2>/dev/null
 end
 
 function __tcz_tab_color --argument-names fallback --description 'effective ShellFish tab colour: the live tabs-role @option (@tmux_lives_tabs_color, set by the themed fragment) when non-empty, else <fallback> (the baked seed / legacy)'
@@ -3079,15 +3224,20 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
-function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (active-pane dir; session-wide claude)'
+function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — the tab no longer tracks whichever WINDOW happens to be selected. `list-panes -t <session>` (no -s) resolves to a single target-window, the session'"'"'s CURRENTLY SELECTED one (verified: it is one row, not one per window) — so the old lookup made switching windows relabel the tab. #{session_path} is fixed at session-creation time and does not move when the selected window changes.'
     test -n "$session"; or return 0
-    # NB: `display-message -t "=$session" '#{pane_current_path}'` returns EMPTY in tmux
-    # 3.3a (the =exact-target quirk — see [[tmux-target-quirks]]); list-panes honors = AND
-    # resolves the active pane's path. Filter to the active pane of the session's window.
-    set -l path (tmux list-panes -t (__tcz_pane_target "$session") -F '#{?pane_active,#{pane_current_path},}' 2>/dev/null | string match -rv '^$')
+    # __tcz_session_target for ALL THREE calls below, not __tcz_pane_target: verified
+    # empirically that `display-message -p -t "=name"` returns EMPTY for #{session_path}
+    # (tmux -v: "format 'session_path' not found") — this is NOT limited to pane-scoped
+    # formats as the old pane_current_path-era comment assumed; display-message rejects
+    # "=name" altogether, same family as set-option/show-option/capture-pane. The "=name"
+    # form stays reliable for list-panes only (used elsewhere, e.g. __tcz_session_has_claude).
+    set -l tgt (__tcz_session_target "$session")
+    set -l path (tmux display-message -p -t "$tgt" '#{session_path}' 2>/dev/null)
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
-    set -l name (tmux show-option -qv -t (__tcz_session_target "$session") @tmux_lives_name 2>/dev/null)
+    set -l name (tmux show-option -qv -t "$tgt" @tmux_lives_name 2>/dev/null)
+    test -n "$name"; or set name (tmux show-option -qv -t "$tgt" @tmux_lives_display 2>/dev/null)
     test -n "$name"; or set name (__tcz_dir_display $path)
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
