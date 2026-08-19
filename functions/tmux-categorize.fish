@@ -371,14 +371,14 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l TAB (printf '\t')
     # Per-session aggregation. list-panes -a arrives in session/window/pane order,
     # so "first" below honors the lowest-window-then-pane rule from the spec.
-    set -l names; set -l cats; set -l firstcmd; set -l cpid; set -l ctitle
+    set -l names; set -l cats; set -l cpid; set -l ctitle
     for line in $panes
         set -l f (string split -m 4 $TAB -- $line)    # title is last; keep embedded tabs
         test (count $f) -ge 4; or continue
         set -l s $f[1]
         set -l i (contains -i -- $s $names)
         if test -z "$i"
-            set -a names $s; set -a cats general; set -a firstcmd ''
+            set -a names $s; set -a cats general
             set -a cpid ''; set -a ctitle ''
             set i (count $names)
         end
@@ -394,7 +394,6 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
             end
         else if not contains -- $f[2] $__tcz_shells; and not contains -- $f[2] $__tcz_boring
             test "$cats[$i]" = claude; or set cats[$i] running
-            test -z "$firstcmd[$i]"; and set firstcmd[$i] $f[2]
         end
     end
     # attached / last_attached lookup
@@ -465,7 +464,7 @@ function __tcz_pane_target --argument-names session --description 'a -t target f
     end
 end
 
-function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here (unlike `-t "=session"`, which returns empty for PANE formats).'
+function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here — unlike `-t "=session"`, which returns empty for EVERY format, not just pane-scoped ones (display-message rejects "=name" altogether; see __tcz_session_title, which was corrected the same way).'
     test -n "$pane"; or return
     tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null
 end
