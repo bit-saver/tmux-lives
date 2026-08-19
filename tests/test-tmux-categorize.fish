@@ -233,6 +233,28 @@ t "display: no project falls back to task"    "Fix the picker lag"            "$
 t "display: running IGNORES the process name" "neuro"                         "$dn4"
 t "display: general is the project"           "neuro"                         "$dn5"
 t "display: nothing to show -> empty"         ""                              "$dn6"
+
+# ---------------------------------------------------------------------
+# __tcz_unquote: undo a typed `claude --name "..."` surrounding quote pair
+# before it reaches the display -- the preexec-captured raw text is the
+# command line AS TYPED (quotes and all), while the tick's own extraction
+# (/proc argv) never carries them, so without this the instant claim
+# display and the tick's display visibly disagree for one tick.
+# ---------------------------------------------------------------------
+t "unquote: double-quoted pair stripped"    "Fix the picker lag" (__tcz_unquote '"Fix the picker lag"')
+t "unquote: single-quoted pair stripped"    "Fix the picker lag" (__tcz_unquote "'Fix the picker lag'")
+t "unquote: no quotes -> unchanged"         "Fix the picker lag" (__tcz_unquote "Fix the picker lag")
+t "unquote: unmatched leading quote -> unchanged" '"Fix the picker lag' (__tcz_unquote '"Fix the picker lag')
+t "unquote: mismatched quote types -> unchanged"  '"Fix the picker lag'"'" (__tcz_unquote '"Fix the picker lag'"'")
+t "unquote: interior quote (not surrounding) -> unchanged" 'Fix "the" picker' (__tcz_unquote 'Fix "the" picker')
+t "unquote: empty quoted pair -> empty"     ""                    (__tcz_unquote '""')
+t "unquote: empty input -> empty"           ""                    (__tcz_unquote "")
+t "unquote: single quote char alone -> unchanged" '"' (__tcz_unquote '"')
+# Matching first/last chars that are NOT quote characters must never strip —
+# this is the specific check that distinguishes "surrounding quotes" from
+# "any matching bookend char", and nothing above exercises it.
+t "unquote: matching non-quote bookend chars -> unchanged" 'aFix the picker laga' (__tcz_unquote 'aFix the picker laga')
+
 t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
 t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
 t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)
@@ -294,12 +316,68 @@ t "snap: categories"  "c1	claude,g1	general,r1	running" \
     (__tcz_snapshot | cut -f1,2 | sort | string join ',')
 t "snap: claude display from --name" "TMUX Setup 2" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f5)
-t "snap: running display = empty for a generic (excluded) cwd" "" \
+# Re-scoped 2026-08-18 (fix wave): a project/task-less display is NOT the
+# empty string these used to pin — __tcz_display_name returns nothing, but
+# __tcz_snapshot now falls back to the tmux session name so field 5 is never
+# blank (a blank field desyncs __tcz_menu_args' display-menu argv and blanks
+# a picker row). The user-visible outcome is the row shows the session name.
+t "snap: running display falls back to the session name for a generic (excluded) cwd" "r1" \
     (__tcz_snapshot | string match -e 'r1	*' | cut -f5)
-t "snap: general display = empty for a generic (excluded) cwd" "" \
+t "snap: general display falls back to the session name for a generic (excluded) cwd" "g1" \
     (__tcz_snapshot | string match -e 'g1	*' | cut -f5)
 t "snap: detached flag"              "0" \
     (__tcz_snapshot | string match -e 'c1	*' | cut -f3)
+
+# --- __tcz_popup_list_lines (integration, item 1 regression coverage): a
+# no-project session must render a NON-BLANK row, not just a padded border
+# with nothing readable in it. Reuses the still-live r1/g1 fixture above.
+set -l povl (__tcz_overview | __tcz_popup_list_lines 30 0 '' | string join "\n")
+t "popup: no-project running row is non-blank (shows the session name)" yes \
+    (string match -q '*r1*' -- "$povl"; and echo yes; or echo no)
+t "popup: no-project general row is non-blank (shows the session name)" yes \
+    (string match -q '*g1*' -- "$povl"; and echo yes; or echo no)
+
+# --- __tcz_menu_args / display-menu (integration, item 1 regression coverage):
+# a no-project session's item label must never be empty. An empty menu-item
+# NAME is tmux's own SEPARATOR shape (name only; key/command are meant to be
+# omitted for it) — so tmux silently consumes the NEXT triple's key/command as
+# belonging to that empty-named separator, desyncing every remaining item and
+# erroring on the trailing incomplete group. Reproduced live pre-fix: rc=1,
+# "not enough arguments" — the WHOLE menu refuses to open for one detached
+# no-project session. This needs a REAL attached client: tmux only walks the
+# item list after resolving a target client, so a clientless call fails
+# earlier with "no current client" regardless of the args, which would mask
+# this bug entirely. Dedicated minimal fixture (one no-project session) so
+# the item's array index is unambiguous: header (1-3) + item (4-6). Started
+# with -f /dev/null and a plain `sleep`, NOT the bare login shell: the shell
+# defaults to the user's own REAL (fisher-installed) fish config, whose live
+# tmux-lives hooks fire the instant a real client attaches and genuinely
+# destabilize this throwaway socket — reproduced (server gone within ~1s of
+# attach) and confirmed fixed by both changes together.
+cleanup
+tmux -f /dev/null new-session -d -s g2 -c $HOME 'sleep 60'
+sleep 0.5
+set -l menu_args2
+__tcz_overview | __tcz_menu_args | while read -l a
+    set -a menu_args2 "$a"
+end
+t "menu: no-project session label is non-empty" "yes" \
+    (test -n "$menu_args2[4]"; and echo yes; or echo no)
+env TERM=xterm-256color script -qec "tmux attach" /dev/null >/dev/null 2>&1 &
+set -l menu_n 0
+while test $menu_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set menu_n (math $menu_n + 1)
+end
+set -l menu_client (tmux list-clients -F '#{client_name}' 2>/dev/null | head -1)
+set -l menu_out (tmux display-menu -c "$menu_client" -- $menu_args2 2>&1)
+set -l menu_rc $status
+t "menu: real display-menu opens for a no-project session (rc 0)" "0" "$menu_rc"
+t "menu: no 'not enough arguments' desync" "" \
+    (string match -e 'not enough arguments' -- "$menu_out")
+set -e menu_args2 menu_client menu_out menu_rc menu_n
+cleanup
+
 # display fallbacks: no --name -> gated title; unusable title with a project dir -> project name
 cleanup
 mkdir -p /tmp/tcz-myproj-$fish_pid
@@ -634,6 +712,28 @@ t "cat: a failed batched lookup renames NEITHER session (fails closed)" "alpha,b
     (tmux list-sessions -F '#{session_name}' | sort | string join ',')
 cleanup
 
+# --- M5 (fix wave 2026-08-18): the __tcz_snapshot empty-display fallback
+# (item 1 -- field 5 falls back to the tmux name so the picker/menu never see
+# a blank row/label) must NEVER leak into @tmux_lives_display. This is the
+# TRUE empty-display case M3 didn't cover: M3's fixture is a claude session
+# with a task, so __tcz_display_name still returns something non-empty
+# there. A general session in a generic (excluded) cwd is the case where
+# __tcz_display_name returns NOTHING and __tcz_snapshot's field 5 becomes
+# the fallback session name. Prove the categorize write stays gated on
+# $proj (not on whether field 5 is populated), so this session's
+# @tmux_lives_display stays genuinely unset even though the snapshot row
+# feeding it is not blank.
+cleanup
+tmux new-session -d -s 0 -c $HOME
+sleep 0.5
+set -g m5_snap (__tcz_snapshot | string match -e '0	*' | cut -f5)
+t "M5: snapshot field 5 IS the session-name fallback, not empty" "0" "$m5_snap"
+__tcz_categorize
+set -g m5_disp (tmux show-option -qv -t gen-1 @tmux_lives_display)
+t "M5: no-project general session still carries no @tmux_lives_display after categorize" "" "$m5_disp"
+set -e m5_snap m5_disp
+cleanup
+
 # --- narrowed categorize (fish_postexec) --------------------------------------------
 # A command run in pane X cannot change the classification of session Y, so the
 # postexec hook's full server-wide pass does N times the necessary work BY
@@ -944,6 +1044,23 @@ t "claim: stamped to the project slug" "tcz-claim-$fish_pid" \
 t "claim: display is project (dot) task" "tcz-claim-$fish_pid · Fix the picker lag" \
     (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_lives_display)
 rm -rf $HOME/tcz-claim-$fish_pid
+
+# Item 2 (fix wave 2026-08-18): a typed `claude --name "Fix the picker lag"`
+# is captured by the preexec hook's regex as the LITERAL quoted text, quotes
+# included -- that is the design's own headline example, and the only way to
+# type a multi-word name. __tcz_claim must not let those quotes leak into the
+# display: the tick's own extraction (/proc argv, already shell-parsed) never
+# carries them, so an unstripped quote pair would visibly disagree with the
+# tick for as long as the tick takes to overwrite it.
+cleanup
+mkdir -p $HOME/tcz-claimq-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claimq-$fish_pid
+set -l paneq (tmux list-panes -t 0 -F '#{pane_id}')
+__tcz_claim $paneq '"Fix the picker lag"'
+t "claim: quoted --name strips the surrounding quotes from the display" \
+    "tcz-claimq-$fish_pid · Fix the picker lag" \
+    (tmux show-option -qv -t "tcz-claimq-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-claimq-$fish_pid
 
 # Generic dir ($HOME, per __tcz_project_name's own contract): no project ->
 # do nothing at all, and specifically never fall back to "claude-<cwd>" --

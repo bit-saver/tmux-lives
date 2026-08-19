@@ -356,7 +356,7 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     return 1
 end
 
-function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
+function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. Field 5 is NEVER empty — a project/task-less display falls back to the tmux name (a blank field would desync __tcz_menu_args'"'"'s display-menu argv and blank a picker row). With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
     set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{@tmux_lives_name}')
     set -l panes
@@ -424,6 +424,18 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set -l display (__tcz_display_name $cats[$i] "$proj" "$task")
         # @tmux_lives_name is an EXTERNAL claim and outranks everything.
         test -n "$j"; and test -n "$sdisp[$j]"; and set display "$sdisp[$j]"
+        # Field 5 must never be empty: __tcz_menu_args uses it verbatim as a
+        # display-menu item NAME, and an empty name desyncs tmux's argv parsing
+        # of the remaining triples (measured: "not enough arguments", rc=1 — the
+        # WHOLE menu fails to open, not just that row). __tcz_display_name
+        # legitimately returns nothing for a no-project, no-task session (every
+        # session tmux-lives itself creates with -c "$HOME" lands here) — fall
+        # back to the tmux name, restoring the pre-naming-redesign invariant.
+        # Safe to do only here, at the snapshot level: __tcz_categorize's
+        # display write is gated on `test -n "$proj"` (see M3 below it), so a
+        # fallback that only fires when there is NO project can never reach
+        # @tmux_lives_display — it stays genuinely absent, as designed.
+        test -n "$display"; or set display "$names[$i]"
         printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $att $last "$display"
     end
 end
@@ -3033,6 +3045,20 @@ function __tcz_theme --argument-names role --description 'tl theme palette -> tr
     end
 end
 
+function __tcz_unquote --description 'strip ONE matched pair of surrounding quotes ("..." or '"'"'...'"'"') from argv[1]; an unmatched or purely interior quote passes through unchanged. Undoes the literal quoting a typed `claude --name "..."` leaves in the preexec-captured raw command text -- the tick'"'"'s __tcz_cmdline_name instead reads /proc argv, which never carries the shell'"'"'s quote characters, so without this the instant preexec display and the ~15s tick display visibly disagree for exactly as long as the tick takes to catch up.'
+    set -l s "$argv[1]"
+    set -l n (string length -- "$s")
+    if test $n -ge 2
+        set -l first (string sub -l 1 -- "$s")
+        set -l last (string sub -s -1 -- "$s")
+        if test "$first" = "$last"; and contains -- "$first" '"' "'"
+            echo (string sub -s 2 -l (math $n - 2) -- "$s")
+            return
+        end
+    end
+    echo "$s"
+end
+
 function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (session_path is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
     test -n "$pane"; or return 0
     set -l TAB (printf '\t')
@@ -3074,7 +3100,13 @@ function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>
     # set-option forced bar redraws and caused the ShellFish cursor flicker, see
     # __tcz_set_claude_opt), this runs once per `claude` launch, so there is no
     # redraw-storm risk to guard against.
-    set -l display (__tcz_display_name claude "$proj" "$raw")
+    # $raw is the preexec-captured command line AS TYPED -- for `claude --name
+    # "Fix the picker lag"` that is the literal quoted text, quotes included,
+    # while the tick's __tcz_cmdline_name reads /proc argv (already shell-
+    # parsed, no quotes) -- so without unquoting here, the instant display
+    # shows literal quotes for as long as it takes the tick to overwrite it.
+    # Display only: $raw never feeds the tmux name (see $desired above).
+    set -l display (__tcz_display_name claude "$proj" (__tcz_unquote "$raw"))
     tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$display" 2>/dev/null
 end
 
