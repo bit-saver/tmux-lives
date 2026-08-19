@@ -1566,10 +1566,12 @@ set -e idsock; set -e IDFMT
 #     name / $id), the same helper the neighbouring show-option calls already use.
 # (2) a shell `cd` inside the pane used to relabel the tab, because the old lookup
 #     read the active pane's LIVE cwd; #{session_path} is the session's fixed START
-#     dir, so a `cd` no longer moves the title. As a side effect this also removes a
-#     latent multi-window ambiguity nobody chose: `list-panes -t session` returns one
-#     active-pane row PER WINDOW, so a multi-window session silently took the first
-#     match; session_path is single-valued.
+#     dir, so a `cd` no longer moves the title. As a side effect this also fixes a
+#     latent multi-window bug nobody chose: `list-panes -t session` (no -s) resolves
+#     to a single target-window — the session's CURRENTLY SELECTED one, verified to
+#     return exactly one row, not one per window — so the old lookup made the tab
+#     TRACK whichever window was selected; switching windows relabeled the tab.
+#     #{session_path} is fixed at session creation and does not move with selection.
 # The stub tests above can't catch a real-tmux targeting quirk, so drive a private
 # -L socket, following the suite's existing pattern.
 set -g tsock tcz-title-$fish_pid
@@ -1591,6 +1593,27 @@ command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev
 t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
 t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
+
+# multi-window regression: __tcz_session_title must stay stable across window
+# selection. This is the bug the #{session_path} fix actually resolves (see the
+# corrected docstring/comment above) — `list-panes -t <session>` without -s
+# resolves to a single target-window, the CURRENTLY SELECTED one, so the old
+# lookup made the tab TRACK whichever window was selected. Judged on whether the
+# property could silently regress, not on whether it is currently correct: none
+# of the single-window fixtures above (realsess, ts1) can catch a future
+# "simplification" back toward a window-scoped lookup, because they never have
+# more than one window.
+mkdir -p $twdir/mw-start $twdir/mw-w1 $twdir/mw-w2
+command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/dev/null
+command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
+command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
+sleep 0.2
+t "title: multi-window baseline is the session's own start dir" "boxhost: mw-start" (__tcz_session_title mw)
+command tmux -L $tsock select-window -t mw:1 2>/dev/null
+t "title: unchanged after selecting a different window" "boxhost: mw-start" (__tcz_session_title mw)
+command tmux -L $tsock select-window -t mw:2 2>/dev/null
+t "title: unchanged after selecting a third window" "boxhost: mw-start" (__tcz_session_title mw)
+
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir

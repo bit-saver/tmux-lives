@@ -3169,7 +3169,7 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
-function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — a multi-window session no longer returns one path per window (list-panes -t session yields a row per pane across ALL windows, so the old lookup silently took the first) since session_path is single-valued.'
+function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — the tab no longer tracks whichever WINDOW happens to be selected. `list-panes -t <session>` (no -s) resolves to a single target-window, the session'"'"'s CURRENTLY SELECTED one (verified: it is one row, not one per window) — so the old lookup made switching windows relabel the tab. #{session_path} is fixed at session-creation time and does not move when the selected window changes.'
     test -n "$session"; or return 0
     # __tcz_session_target for ALL THREE calls below, not __tcz_pane_target: verified
     # empirically that `display-message -p -t "=name"` returns EMPTY for #{session_path}
