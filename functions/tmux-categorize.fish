@@ -356,6 +356,32 @@ function __tcz_pane_is_claude --description 'cmd + pane_pid -> is this pane runn
     return 1
 end
 
+function __tcz_dup_ordinal --description 'pure: argv rows are "claimed\tname\tdisplay" (claim 0/1, display LAST/greedy so an embedded literal tab -- e.g. a @tmux_lives_name claim -- survives, same convention __tcz_snapshot itself uses for field 5) -> one line per row, in the same order, the display with " [N]" appended when 2+ UNCLAIMED rows share it (N from 1, by sorted session name). A display held by only one unclaimed row, and every CLAIMED row (an external @tmux_lives_name claim is a deliberate name and is never renumbered -- excluded from grouping in BOTH directions: it never receives an ordinal and never counts toward a sibling'"'"'s group size), passes through unchanged.'
+    set -l TAB (printf '\t')
+    set -l claims; set -l names; set -l disps
+    for row in $argv
+        set -l f (string split -m 2 $TAB -- $row)
+        set -a claims $f[1]; set -a names $f[2]; set -a disps $f[3]
+    end
+    for i in (seq (count $names))
+        if test "$claims[$i]" = 1
+            echo "$disps[$i]"
+            continue
+        end
+        set -l group
+        for j in (seq (count $names))
+            test "$claims[$j]" = 1; and continue
+            test "$disps[$j]" = "$disps[$i]"; and set -a group $names[$j]
+        end
+        if test (count $group) -lt 2
+            echo "$disps[$i]"
+            continue
+        end
+        set -l rank (contains -i -- $names[$i] (printf '%s\n' $group | sort))
+        echo "$disps[$i] [$rank]"
+    end
+end
+
 function __tcz_snapshot --argument-names only --description 'one line per session: name\tcategory\tattached\tlast_attached\tdisplay. Field 5 is NEVER empty — a project/task-less display falls back to the tmux name (a blank field would desync __tcz_menu_args'"'"'s display-menu argv and blank a picker row). With <only>, restricted to that one session — the pane walk and its pid inspection are the expensive half, so this is what makes a narrowed pass cheap rather than merely shorter.'
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
     set -l sess_fmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{@tmux_lives_name}')
@@ -405,6 +431,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set -a spath (test (count $f) -ge 4; and echo $f[4]; or echo '')
         set -a sdisp (test (count $f) -ge 5; and echo $f[5]; or echo '')
     end
+    set -l atts; set -l lasts; set -l disps; set -l claims
     for i in (seq (count $names))
         set -l att 0
         set -l last 0
@@ -422,7 +449,11 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         end
         set -l display (__tcz_display_name $cats[$i] "$proj" "$task")
         # @tmux_lives_name is an EXTERNAL claim and outranks everything.
-        test -n "$j"; and test -n "$sdisp[$j]"; and set display "$sdisp[$j]"
+        set -l claim 0
+        if test -n "$j"; and test -n "$sdisp[$j]"
+            set display "$sdisp[$j]"
+            set claim 1
+        end
         # Field 5 must never be empty: __tcz_menu_args uses it verbatim as a
         # display-menu item NAME, and an empty name desyncs tmux's argv parsing
         # of the remaining triples (measured: "not enough arguments", rc=1 — the
@@ -435,7 +466,27 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         # fallback that only fires when there is NO project can never reach
         # @tmux_lives_display — it stays genuinely absent, as designed.
         test -n "$display"; or set display "$names[$i]"
-        printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $att $last "$display"
+        set -a atts $att; set -a lasts $last; set -a disps "$display"; set -a claims $claim
+    end
+    # Duplicate-ordinal suffixing (spec 2026-08-19): two sessions in the same
+    # project compose the SAME display ("tmux-lives", "tmux-lives") even
+    # though their tmux addresses stay distinct ("tmux-lives", "tmux-lives-2").
+    # Only on an UNNARROWED pass -- a narrowed <only> pass sees just one
+    # session and cannot detect a sibling, so it must stay bare; the write in
+    # __tcz_categorize tolerates that bareness instead of churning the option
+    # on every command (see __tcz_display_current). Runs AFTER the claim
+    # override just above, on purpose: an app-set @tmux_lives_name is a
+    # deliberate name and is never renumbered (__tcz_dup_ordinal excludes
+    # claimed rows both ways -- neither suffixed nor counted for a sibling).
+    if test -z "$only"
+        set -l rows
+        for i in (seq (count $names))
+            set -a rows (printf '%s\t%s\t%s' $claims[$i] $names[$i] "$disps[$i]")
+        end
+        set disps (__tcz_dup_ordinal $rows)
+    end
+    for i in (seq (count $names))
+        printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $atts[$i] $lasts[$i] "$disps[$i]"
     end
 end
 
@@ -476,6 +527,15 @@ function __tcz_owned --description 'true if we may rename: name == @tmux_auto_na
     # use the bare name form instead.
     set -l rec (tmux show-option -qv -t "$cur" @tmux_auto_name 2>/dev/null)
     test "$rec" = "$cur"
+end
+
+function __tcz_display_current --argument-names computed stored narrowed --description 'pure: true when <stored> @tmux_lives_display already reflects <computed>. Exact match always counts. When <narrowed> is non-empty (this is a fish_postexec pass restricted to one session), <computed> with a bracketed duplicate ordinal appended (" [N]", one or more digits, anchored to the very end) ALSO counts -- a narrowed pass has no visibility into siblings (__tcz_snapshot only suffixes on an unnarrowed pass), so without this a postexec pass would strip the tick'"'"'s suffix on every single command: postexec writes X, the tick writes "X [1]", the next command writes X again -- the exact per-tick set-option churn on an option the status bar reads that caused the ShellFish cursor-flicker bug. An UNNARROWED pass gets NO such tolerance: its own <computed> is already final (suffixed or not), so a mismatch there is a real change and must heal a stale ordinal immediately, not wait for a narrowed pass that will never come. Narrow ON PURPOSE: matches only a bracketed integer at the very end, so a genuinely different stored value (e.g. a stale display from a former duplicate set) is still rewritten.'
+    test "$stored" = "$computed"; and return 0
+    if test -z "$narrowed"; or test -z "$computed"
+        return 1
+    end
+    set -l re (string escape --style=regex -- "$computed")
+    string match -qr '^'"$re"' \[[0-9]+\]$' -- "$stored"
 end
 
 function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name from its PROJECT (basename of session_path), never the running process; also syncs @tmux_lives_display. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
@@ -584,8 +644,14 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         # Display sync. Field 5 of the snapshot row IS the composed display already (Task
         # 3's __tcz_display_name pass) — write it verbatim, never recompose it here (that
         # would be composing a display out of a display). Dedup against the batched read
-        # above so this is a write only on an actual change. Gated on $proj, not just
-        # $f[5]: a claude session with NO project but a live --name/title task still
+        # above so this is a write only on an actual change — via __tcz_display_current,
+        # not a bare equality check: a NARROWED ($only set) pass composes a BARE display
+        # (__tcz_snapshot only suffixes duplicates on an unnarrowed pass), so a stored
+        # "<f[5]> [N]" from the last tick must count as already-current here too, or
+        # every command would rewrite the option right back to bare — the exact per-tick
+        # set-option churn that caused the ShellFish cursor flicker elsewhere in this file.
+        # Gated on $proj, not just $f[5]: a claude session with NO project but a live
+        # --name/title task still
         # composes a non-empty (task-only) display in __tcz_display_name, and writing
         # THAT here would give a gen-N-bound session a display for exactly one pass —
         # it gets cleared right back out on the very next tick by the stable-gen-N
@@ -594,7 +660,7 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         # gen-1 ... display: none"). Skip straight to the clear-if-present branch
         # instead, same treatment as the other project-less bailout paths.
         if test -n "$proj"; and test -n "$f[5]"
-            test "$f[5]" = "$curdisp"; or tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$f[5]" 2>/dev/null
+            __tcz_display_current "$f[5]" "$curdisp" "$only"; or tmux set-option -t (__tcz_session_target "$desired") @tmux_lives_display "$f[5]" 2>/dev/null
         else
             test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$desired") @tmux_lives_display 2>/dev/null
         end
