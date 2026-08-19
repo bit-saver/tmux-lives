@@ -3160,8 +3160,20 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # new site (the set -U write). Net +1 = 8 -> 9. drop-autoapply-debounce-seed
 # Task 1 removed the A toggle and its write site outright (not merely the
 # settle-timeout caller — the toggle itself is gone). Net -1 = 9 -> 8.
-t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
-# 8 = init + a-current + a-off + a-list (now inside __tcz_thp_apply_now) + esc-revert + seed-commit-on-save + 2 saves
+# tick-call-batching task 2 review fix: the 4 write-then-recolor sites
+# (a-current, a-off, a-list, esc-revert) moved OUT of __tcz_theme_picker's own
+# body into a shared top-level helper, __tcz_thp_apply_and_recolor, so the
+# flush this fix needed (a write from a fish -c CHILD is invisible to the
+# picker's own __tcz_tmux_load memo, which never re-fires across the picker's
+# one long-lived while-true pass) lives in exactly one place instead of four.
+# 8 -> 4 remaining directly in $pbody (init + seed-commit-on-save + 2 saves);
+# the other 4 are now pinned separately, against the helper's OWN body, below.
+t "guard: exactly 4 action-site subprocesses remain directly in the picker body" 4 (count (string match -ar 'fish -c' -- "$pbody"))
+# 4 = init + seed-commit-on-save + 2 saves
+set -l aarbody (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
+t "guard: apply_and_recolor body extraction is non-empty" 1 (test -n "$aarbody"; and echo 1; or echo 0)
+t "guard: apply_and_recolor is exactly one action-site subprocess (the 4 old sites share it)" 1 (count (string match -ar 'fish -c' -- "$aarbody"))
+t "guard: apply_and_recolor flushes the tmux memo right after its write, not before" yes (string match -qr '(?s)fish -c[^\n]*\n\s*__tcz_tmux_flush' -- "$aarbody"; and echo yes; or echo no)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Task 7: the reload composes, it does not swap the row source ----------------
@@ -4007,12 +4019,17 @@ t "apply_now body extraction is non-empty" 1 (test -n "$aabody"; and echo 1; or 
 # final review (M1): the only existing __tcz_recolor guard (further down this
 # file) greps the WHOLE picker body, so it stays green even with all three
 # calls inside THIS function deleted — case cancel's own __tcz_recolor call
-# satisfies it regardless. Scoped to aabody instead, and to the exact call
-# shape (`and __tcz_recolor "$tabhex"`) rather than a bare substring count —
-# the function's own --description text mentions "__tcz_recolor" too ("Always
-# followed by a __tcz_recolor tab emit."), so a plain substring count over
-# aabody reads 4, not the 3 real call sites.
-t "apply_now calls __tcz_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar 'and __tcz_recolor "\$tabhex"' -- (string split \n -- "$aabody")))
+# satisfies it regardless. Scoped to aabody instead of the whole picker body.
+# tick-call-batching task 2 review fix: the literal `and __tcz_recolor
+# "$tabhex"` shape this used to match moved OUT of apply_now entirely, into
+# the shared __tcz_thp_apply_and_recolor helper (so the flush the fix needed
+# lives in one place, not four) — apply_now's own body now only ever CALLS
+# that helper, once per branch, so the guard is scoped to counting those
+# call sites instead of the (now relocated) recolor shape. Still bound to
+# `bare call, not the --description text` the same way the old guard was:
+# a plain substring count would also match the function's own docstring,
+# which names __tcz_thp_apply_and_recolor too.
+t "apply_now calls __tcz_thp_apply_and_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar '^ +__tcz_thp_apply_and_recolor ' -- (string split \n -- "$aabody")))
 # Bounded to the current-row branch alone (the sel2 -eq 0 arm) so a fix that
 # flips the WRONG branch to previewed 2 can't pass by coincidence.
 set -l currowblock (string match -r '(?ms)sel2 -eq 0\b.*?else\b' -- "$aabody" | string collect)
@@ -4074,21 +4091,22 @@ set -l catfile $plugindir/functions/tmux-categorize.fish
 set -g SLB (functions __tcz_theme_picker | string collect)
 # the anchor snapshot carries the seed so cancel can restore it
 t "anchor snapshot captures the seed" 1 (string match -q '*set -l anch_seed $seed*' -- "$SLB"; and echo 1; or echo 0)
+# tick-call-batching task 2 review fix: the live-preview shadow, all three
+# case-a call sites' shared shadow, and cancel's restore-by-shadow all moved
+# OUT of __tcz_theme_picker's own body ($SLB, still used above/below for
+# other checks) into the shared top-level helper __tcz_thp_apply_and_recolor
+# — extracted fresh from source, since $SLB no longer contains any of this.
+set -l aarbody2 (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
 # live preview shadows the universal in the child rather than writing it
-t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$SLB"; and echo 1; or echo 0)
-# picker-legibility-autoapply Task 5 moved all three preview call sites out
-# of case a and into __tcz_thp_apply_now (originally also called by the
-# settle-timeout auto-apply so the two paths could not drift apart;
-# drop-autoapply-debounce-seed Task 1 removed that caller and kept
-# apply_now, renamed, as case a's sole body) — bound to the function body
-# directly rather than the old "case a...case cancel" span, which no longer
-# contains this logic at all (the vacuity risk the old comment warned about
-# — a bare '*case a*' substring also catching the "(case a/enter" comment
-# two arms up — does not apply to a function-name anchor).
-set -l casea (string match -r '(?s)function __tcz_thp_apply_now.*?\n    end' -- "$SLB" | string collect)
-t "all three case-a previews shadow the seed" 3 (count (string match -ar 'set -g tmux_lives_bar_color' -- "$casea"))
+t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$aarbody2"; and echo 1; or echo 0)
+# The old "three case-a sites each shadow" count doesn't translate directly:
+# there is now exactly ONE shadow site (the helper just checked above),
+# shared by three call sites in apply_now — already pinned above by "apply_now
+# calls __tcz_thp_apply_and_recolor once per branch", 3. Both halves of the
+# original guarantee (one shadow mechanism; three branches wired to it) are
+# still each pinned, just against the two functions separately now.
 set -l cancelblock (string match -r '(?ms)^ *case cancel$.*?^ *end$' -- "$SLB" | string collect)
-t "cancel restores by shadowing the anchor seed" 1 (string match -q "*__tmux_lives_theme_apply_live' \"\$anch_seed\"*" -- "$cancelblock"; and echo 1; or echo 0)
+t "cancel restores by shadowing the anchor seed" 1 (string match -q '*__tcz_thp_apply_and_recolor "$anch_seed"*' -- "$cancelblock"; and echo 1; or echo 0)
 # saving commits the seed — exactly once, in the EXIT path, never in a seed
 # screen. awk scopes the seed screen out first (a NESTED function indented 4
 # spaces — verified non-empty below rather than trusted blind); the commit
@@ -6051,8 +6069,23 @@ t "case a calls __tcz_thp_apply_now" 1 (string match -qr '(?ms)^ *case a$\n *__t
 # $note change IN THE CALLER'S OWN SCOPE is what only --no-scope-shadowing
 # makes possible — without it this whole block still runs, but previewed
 # and note stay exactly as seeded (previewed 0 vs error, both wrong).
+# tick-call-batching task 2 review fix: `fish` shadows a real BINARY, so a
+# bare `functions -e fish` correctly un-shadows it (PATH resolution takes
+# back over — nothing to restore). __tcz_tab_color/__tcz_recolor are
+# themselves SOURCE-DEFINED fish functions with no such fallback: a bare
+# `function __tcz_tab_color; ...; end` here REPLACES the real one loaded at
+# this file's own `source functions/tmux-categorize.fish`, and the later
+# bare `functions -e __tcz_tab_color` was found (while building the
+# regression test just below) to erase that replacement into NOTHING rather
+# than reveal the original — leaving both functions permanently undefined
+# for the rest of this file. Pre-existing, harmless only because nothing
+# after this block used to call either again; backed up and restored
+# properly now, matching this file's own established convention elsewhere
+# (functions -c ORIGINAL ORIGINAL_bak / functions -c ORIGINAL_bak ORIGINAL).
 function fish; end
+functions -c __tcz_tab_color __tcz_tab_color_apply_now_bak
 function __tcz_tab_color; echo ''; end
+functions -c __tcz_recolor __tcz_recolor_apply_now_bak
 function __tcz_recolor; end
 eval $aabody
 set -l focus list
@@ -6066,6 +6099,66 @@ __tcz_thp_apply_now
 t "calling the real apply_now changes previewed in the caller (proves --no-scope-shadowing)" 1 "$previewed"
 t "calling the real apply_now changes note in the caller too" 1 (test -n "$note"; and echo 1; or echo 0)
 functions -e __tcz_thp_apply_now fish __tcz_tab_color __tcz_recolor
+functions -c __tcz_tab_color_apply_now_bak __tcz_tab_color; functions -e __tcz_tab_color_apply_now_bak
+functions -c __tcz_recolor_apply_now_bak __tcz_recolor; functions -e __tcz_recolor_apply_now_bak
+
+# ---------------------------------------------------------------------
+# CRITICAL review fix (tick-call-batching task 2): __tcz_thp_apply_and_recolor
+# writes @tmux_lives_tabs_color from a fish -c CHILD, then reads it straight
+# back via __tcz_tab_color to push the OSC. The theme picker's while-true
+# loop is the one genuinely long-lived pass in this codebase -- __tcz_tmux_load
+# never re-fires across the whole session -- so without a flush right after
+# the write, a SECOND apply in the same session would read back the FIRST
+# apply's memoized value: pressing `a` on one scheme then another would freeze
+# the user's ShellFish/iTerm2 tab colour at the first. The stub two blocks up
+# (`function __tcz_tab_color; echo ''; end`) is exactly what hid this — the
+# real accessor never met the real memo there. This test uses BOTH for real,
+# against a real isolated -L server, and is mutation-proven below (comment
+# out the flush, confirm both new assertions go red).
+#
+# __tcz_thp_apply_and_recolor's fish -c child needs a REAL, config-loaded
+# fish that can autoload __tmux_lives_theme_apply_live -- unlike this whole
+# suite's own outer isolation guard (a throwaway XDG_CONFIG_HOME with no
+# fish/conf.d in it, deliberately, so THIS process's own set -U calls never
+# touch the real store), so a second, dedicated throwaway XDG_CONFIG_HOME
+# with just a copy of the plugin's conf.d/tmux-lives-install.fish (NOT
+# conf.d/tmux.fish -- that file's autostart/session wiring is irrelevant here
+# and no top-level statement in tmux-lives-install.fish needs it; verified by
+# reading the file — its only top-level line seeds a harmless math constant)
+# is swapped in for the two calls only, then restored.
+set -l aarsock tcz-aar-$fish_pid
+set -l aarhome (mktemp -d /tmp/tcz-aar-home.XXXXXX)
+mkdir -p $aarhome/fish/conf.d
+cp $plugindir/conf.d/tmux-lives-install.fish $aarhome/fish/conf.d/tmux-lives-install.fish
+set -l aardir /tmp/tcz-aar-shim-$fish_pid
+rm -rf $aardir; mkdir -p $aardir
+printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $aarsock > $aardir/tmux
+chmod +x $aardir/tmux
+command tmux -L $aarsock kill-server 2>/dev/null
+for i in (seq 50)
+    command tmux -L $aarsock list-sessions >/dev/null 2>&1; or break
+end
+command tmux -L $aarsock -f /dev/null new-session -d -s aar 2>/dev/null
+sleep 0.2
+
+set -l aar_path_save $PATH
+set -l aar_xdg_save $XDG_CONFIG_HOME
+set -gx PATH $aardir $PATH
+set -gx XDG_CONFIG_HOME $aarhome
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_thp_apply_and_recolor '#111111' mono bar derived 0
+set -l aar_first (__tcz_tab_color '')
+__tcz_thp_apply_and_recolor '#222222' mono bar derived 0
+set -l aar_second (__tcz_tab_color '')
+set -l aar_live (command tmux -L $aarsock show -gv @tmux_lives_tabs_color 2>/dev/null)
+set -gx PATH $aar_path_save
+set -gx XDG_CONFIG_HOME $aar_xdg_save
+command tmux -L $aarsock kill-server 2>/dev/null
+rm -rf $aardir $aarhome
+
+t "apply_and_recolor: two successive applies both actually reach the real server" 1 (test -n "$aar_first"; and test -n "$aar_second"; and echo 1; or echo 0)
+t "apply_and_recolor: the second apply's read differs from the first (not stale)" yes (test "$aar_first" != "$aar_second"; and echo yes; or echo no)
+t "apply_and_recolor: the second read matches the real live value, not the first" "$aar_live" "$aar_second"
 
 # --- Task 4: edit-mode ↑↓ channel select must drain -------------------------
 # The non-editing branch of `case up down pgup pgdn` already drains held

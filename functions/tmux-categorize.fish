@@ -2076,6 +2076,13 @@ function __tcz_thp_leg --argument-names cols --description 'memoizing front for 
     test (count $fresh) -gt 0; and printf '%s\n' $fresh
 end
 
+function __tcz_thp_apply_and_recolor --description 'apply <seed> [scheme place mode phase] live via a config-loaded subprocess child, invoked with -c (the only way to reach set -U/@tmux_lives_bar_color from this --no-config runtime), flush the per-pass tmux global-@option memo so the very next read reflects the write just made rather than whatever this pass loaded before it (tick-call-batching task 2 review fix: the picker loop is the one genuinely long-lived pass in this codebase -- __tcz_tmux_load never re-fires across its whole while-true session, so a write from a CHILD process is invisible to it without this), then push the resolved tab colour to attached ShellFish/iTerm2 clients via __tcz_tab_color + __tcz_recolor. Flush lives HERE, right after the write, not before each read site -- a future read site is then correct for free instead of needing to remember to flush first. Shared by every write-then-recolor site in the theme picker (apply/off/list preview in __tcz_thp_apply_now, and the esc/cancel revert) -- none of these reads wants the pre-write value (contrast __tcz_set_claude_opt'"'"'s dedup read, which does and must not gain a flush).'
+    fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' $argv >/dev/null 2>&1
+    __tcz_tmux_flush
+    set -l tabhex (__tcz_tab_color '')
+    test -n "$tabhex"; and __tcz_recolor "$tabhex"
+end
+
 function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of catalog entries (all 35 by default — the More Schemes header still marks where the curated 14 end and the rest begin; m collapses to just the curated 14) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (opens expanded; reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, forcing expanded — a no-op on the default open, real once collapsed), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 4 rows idle / 9 editing — Task 6 grew the colour block 2 -> 3 rows so the hex could move off to the side and into the middle of the block; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
@@ -2454,15 +2461,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     function __tcz_thp_apply_now --no-scope-shadowing --description 'apply whatever the cursor is currently on, live — the exact body case a runs. A scheme/off row previews its own recipe at the live phase; the current row re-previews its own frozen snapshot. Always followed by a __tcz_recolor tab emit.'
         if test $focus = state
             if test $sel2 -eq 0
-                fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $anch_scheme $anch_place $anch_mode $anch_phase >/dev/null 2>&1
-                set -l tabhex (__tcz_tab_color '')
-                test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                __tcz_thp_apply_and_recolor "$seed" $anch_scheme $anch_place $anch_mode $anch_phase
                 set previewed 2
                 set note "● previewing $anch_scheme (live) — ⏎ save · esc revert"
             else
-                fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" off bar derived $phase >/dev/null 2>&1
-                set -l tabhex (__tcz_tab_color '')
-                test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                __tcz_thp_apply_and_recolor "$seed" off bar derived $phase
                 set previewed 1
                 set note "● previewing off — ⏎ save · esc revert"
             end
@@ -2472,9 +2475,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l rel $rc[1]
             set -l rplace $rc[2]
             set -l rmode $rc[3]
-            fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' "$seed" $rel $rplace $rmode $phase >/dev/null 2>&1
-            set -l tabhex (__tcz_tab_color '')
-            test -n "$tabhex"; and __tcz_recolor "$tabhex"
+            __tcz_thp_apply_and_recolor "$seed" $rel $rplace $rmode $phase
             set previewed 1
             set note "● previewing $rel — ⏎ save · esc revert"
         end
@@ -3108,9 +3109,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # broken: every role derives from the seed, so a correct theme
                     # rendered against a changed seed still is not what you started with.
                     if test $previewed -ne 0; or test "$seed" != "$anch_seed"
-                        fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live' "$anch_seed" >/dev/null 2>&1
-                        set -l tabhex (__tcz_tab_color '')
-                        test -n "$tabhex"; and __tcz_recolor "$tabhex"
+                        __tcz_thp_apply_and_recolor "$anch_seed"
                     end
                     break
                 end
