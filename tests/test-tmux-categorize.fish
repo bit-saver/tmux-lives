@@ -235,6 +235,63 @@ t "display: general is the project"           "neuro"                         "$
 t "display: nothing to show -> empty"         ""                              "$dn6"
 
 # ---------------------------------------------------------------------
+# __tcz_dup_ordinal: pure duplicate-ordinal suffix (spec 2026-08-19). argv
+# rows are "claimed\tname\tdisplay" (display LAST/greedy, so an embedded
+# literal tab in a claim survives -- same convention __tcz_snapshot itself
+# uses for field 5, see the "literal tab" test further down).
+# ---------------------------------------------------------------------
+t "dup: the function exists" 1 (functions -q __tcz_dup_ordinal; and echo 1; or echo 0)
+t "dup: a single session gets no ordinal" "tmux-lives" \
+    (__tcz_dup_ordinal (printf '0\talpha\ttmux-lives'))
+set -g do2 (__tcz_dup_ordinal (printf '0\tzulu\ttmux-lives') (printf '0\talpha\ttmux-lives'))
+t "dup: two duplicates, row 1 (zulu, sorted 2nd) -> [2]" "tmux-lives [2]" "$do2[1]"
+t "dup: two duplicates, row 2 (alpha, sorted 1st) -> [1]" "tmux-lives [1]" "$do2[2]"
+set -g do3 (__tcz_dup_ordinal (printf '0\tcarol\tX') (printf '0\talice\tX') (printf '0\tbob\tX'))
+t "dup: triple duplicate, row 1 (carol, sorted 3rd) -> [3]" "X [3]" "$do3[1]"
+t "dup: triple duplicate, row 2 (alice, sorted 1st) -> [1]" "X [1]" "$do3[2]"
+t "dup: triple duplicate, row 3 (bob, sorted 2nd) -> [2]"   "X [2]" "$do3[3]"
+set -g do5 (__tcz_dup_ordinal (printf '0\ts1\tneurotto · Fix the lag') (printf '0\ts2\tneurotto'))
+t "dup: a claude task display isn't grouped with a bare-project sibling (row 1)" "neurotto · Fix the lag" "$do5[1]"
+t "dup: a claude task display isn't grouped with a bare-project sibling (row 2)" "neurotto" "$do5[2]"
+set -g do4 (__tcz_dup_ordinal (printf '1\tclaimed\tSame') (printf '0\tother\tSame'))
+t "dup: a claimed row is never renumbered" "Same" "$do4[1]"
+t "dup: a claimed row is excluded from a sibling's own group count too" "Same" "$do4[2]"
+set -e do2 do3 do4 do5
+
+# ---------------------------------------------------------------------
+# __tcz_display_current: pure write-guard tolerance for a bracketed
+# duplicate ordinal (spec 2026-08-19) -- <computed> <stored> <narrowed>.
+# The tick (__tcz_snapshot, unnarrowed) owns ordinal assignment; a narrowed
+# fish_postexec pass composes a bare display and must not treat that as a
+# change, or every command would strip the tick's suffix right back off --
+# the exact per-tick set-option churn on an option the status bar reads
+# that caused the ShellFish cursor-flicker bug elsewhere in this file.
+# ---------------------------------------------------------------------
+t "dispcur: the function exists" 1 (functions -q __tcz_display_current; and echo 1; or echo 0)
+t "dispcur: exact match, narrowed -> current" 0 (__tcz_display_current "X" "X" 1; echo $status)
+t "dispcur: exact match, unnarrowed -> current" 0 (__tcz_display_current "X" "X" ""; echo $status)
+# THE genuinely new behavior -- these are RED against a stub/exact-match-only
+# comparison, since "X" != "X [1]".
+t "dispcur: narrowed pass tolerates a single-digit ordinal" 0 \
+    (__tcz_display_current "X" "X [1]" 1; echo $status)
+t "dispcur: narrowed pass tolerates a multi-digit ordinal" 0 \
+    (__tcz_display_current "X" "X [12]" 1; echo $status)
+# Guards / non-regression pins below -- NOT expected to be red pre-fix (a
+# naive exact-match comparison already rewrites in every one of these
+# cases too); kept and mutation-tested so a future over-broad tolerance
+# regex can't silently swallow a real change.
+t "dispcur: unnarrowed pass does NOT tolerate a stale ordinal (must heal within one tick)" 1 \
+    (__tcz_display_current "X" "X [1]" ""; echo $status)
+t "dispcur: narrowed pass does not swallow a genuinely different base (over-correction guard)" 1 \
+    (__tcz_display_current "Y" "X [1]" 1; echo $status)
+t "dispcur: narrowed pass rejects trailing garbage after the bracket" 1 \
+    (__tcz_display_current "X" "X [1] extra" 1; echo $status)
+t "dispcur: narrowed pass rejects a non-digit inside the brackets" 1 \
+    (__tcz_display_current "X" "X [abc]" 1; echo $status)
+t "dispcur: narrowed pass requires the space before the bracket" 1 \
+    (__tcz_display_current "X" "X[1]" 1; echo $status)
+
+# ---------------------------------------------------------------------
 # __tcz_unquote: undo a typed `claude --name "..."` surrounding quote pair
 # before it reaches the display -- the preexec-captured raw text is the
 # command line AS TYPED (quotes and all), while the tick's own extraction
@@ -402,9 +459,14 @@ t "snap: no server -> empty" "" (__tcz_snapshot | string join ',')
 # must not over-reach).
 # ---------------------------------------------------------------------
 cleanup
-mkdir -p $HOME/tcz-boring-$fish_pid
+# Separate project dirs for b1/real1 (not the original shared one): sharing a
+# dir made them a duplicate-display PAIR once the 2026-08-19 ordinal feature
+# landed, which would have suffixed b1's display and broken the "= dir
+# basename" assertion below for a reason unrelated to what it tests. Keeping
+# them apart preserves this fixture's original, narrower intent.
+mkdir -p $HOME/tcz-boring-$fish_pid $HOME/tcz-real-$fish_pid
 tmux new-session -d -s b1 -c $HOME/tcz-boring-$fish_pid 'tail -f /dev/null'
-tmux new-session -d -s real1 -c $HOME/tcz-boring-$fish_pid "node -e 'setInterval(function(){}, 1000)'"
+tmux new-session -d -s real1 -c $HOME/tcz-real-$fish_pid "node -e 'setInterval(function(){}, 1000)'"
 sleep 0.5
 t "snap: boring command -> general (not running)" "general" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f2)
@@ -412,7 +474,7 @@ t "snap: boring display = dir basename (not tail)" "tcz-boring-$fish_pid" \
     (__tcz_snapshot | string match -e 'b1	*' | cut -f5)
 t "snap: real program -> still running (guard doesn't over-reach)" "running" \
     (__tcz_snapshot | string match -e 'real1	*' | cut -f2)
-rm -rf $HOME/tcz-boring-$fish_pid
+rm -rf $HOME/tcz-boring-$fish_pid $HOME/tcz-real-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
@@ -442,6 +504,86 @@ sleep 0.5
 t "snapshot: claude project · task composition, end to end" "tcz-ptask-$fish_pid · Fix the picker lag" \
     (__tcz_snapshot | string match -e 'pt	*' | cut -f5)
 rm -rf $HOME/tcz-ptask-$fish_pid
+cleanup
+
+# ---------------------------------------------------------------------
+# __tcz_snapshot: duplicate displays get a bracketed ordinal (spec
+# 2026-08-19). Two sessions started in the same project compose the SAME
+# display -- the picker and tab title must still tell them apart.
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-dupdisp-$fish_pid
+tmux new-session -d -s zulu -c $HOME/tcz-dupdisp-$fish_pid 'sleep 500'
+tmux new-session -d -s alpha -c $HOME/tcz-dupdisp-$fish_pid 'sleep 500'
+sleep 0.5
+t "snap: duplicate, sorted-first session name -> [1]" "tcz-dupdisp-$fish_pid [1]" \
+    (__tcz_snapshot | string match -e 'alpha	*' | cut -f5)
+t "snap: duplicate, sorted-second session name -> [2]" "tcz-dupdisp-$fish_pid [2]" \
+    (__tcz_snapshot | string match -e 'zulu	*' | cut -f5)
+tmux kill-session -t "=zulu"
+sleep 0.3
+t "snap: dropping back to one member removes the ordinal" "tcz-dupdisp-$fish_pid" \
+    (__tcz_snapshot | string match -e 'alpha	*' | cut -f5)
+rm -rf $HOME/tcz-dupdisp-$fish_pid
+cleanup
+
+mkdir -p $HOME/tcz-triple-$fish_pid
+tmux new-session -d -s cc -c $HOME/tcz-triple-$fish_pid 'sleep 500'
+tmux new-session -d -s aa -c $HOME/tcz-triple-$fish_pid 'sleep 500'
+tmux new-session -d -s bb -c $HOME/tcz-triple-$fish_pid 'sleep 500'
+sleep 0.5
+t "snap: triple duplicate, ordinal by sorted name (aa -> [1])" "tcz-triple-$fish_pid [1]" \
+    (__tcz_snapshot | string match -e 'aa	*' | cut -f5)
+t "snap: triple duplicate, ordinal by sorted name (bb -> [2])" "tcz-triple-$fish_pid [2]" \
+    (__tcz_snapshot | string match -e 'bb	*' | cut -f5)
+t "snap: triple duplicate, ordinal by sorted name (cc -> [3])" "tcz-triple-$fish_pid [3]" \
+    (__tcz_snapshot | string match -e 'cc	*' | cut -f5)
+rm -rf $HOME/tcz-triple-$fish_pid
+cleanup
+
+# A claude session's task-qualified display cannot collide with a bare
+# sibling's project-only display -- the whole point of the task half
+# (equality is on the DISPLAY, not the project — spec's own example).
+mkdir -p $HOME/tcz-nodupe-$fish_pid
+tmux new-session -d -s ndc -c $HOME/tcz-nodupe-$fish_pid "$shimdir/claude --enable-auto-mode --name Some Task"
+tmux new-session -d -s ndb -c $HOME/tcz-nodupe-$fish_pid 'sleep 500'
+sleep 0.5
+t "snap: a claude task display is never suffixed against a bare-project sibling" "tcz-nodupe-$fish_pid · Some Task" \
+    (__tcz_snapshot | string match -e 'ndc	*' | cut -f5)
+t "snap: the bare-project sibling is never suffixed either" "tcz-nodupe-$fish_pid" \
+    (__tcz_snapshot | string match -e 'ndb	*' | cut -f5)
+rm -rf $HOME/tcz-nodupe-$fish_pid
+cleanup
+
+# A @tmux_lives_name claim is a deliberate name and is never renumbered, even
+# when it happens to be byte-equal to a sibling's composed project display --
+# and it is excluded from the sibling's own group count too (the sibling is
+# now the SOLE unclaimed session with that display, so it stays bare as well).
+mkdir -p $HOME/tcz-claimdup-$fish_pid
+tmux new-session -d -s claimant2 -c $HOME/tcz-claimdup-$fish_pid 'sleep 500'
+tmux set-option -t claimant2 @tmux_lives_name "tcz-claimdup-$fish_pid"
+tmux new-session -d -s plainsib -c $HOME/tcz-claimdup-$fish_pid 'sleep 500'
+sleep 0.5
+t "snap: a claimed session keeps its claim verbatim, no ordinal" "tcz-claimdup-$fish_pid" \
+    (__tcz_snapshot | string match -e 'claimant2	*' | cut -f5)
+t "snap: the claim is excluded from the sibling's own group count" "tcz-claimdup-$fish_pid" \
+    (__tcz_snapshot | string match -e 'plainsib	*' | cut -f5)
+rm -rf $HOME/tcz-claimdup-$fish_pid
+cleanup
+
+# The suffixing pass only runs on an UNNARROWED call: a narrowed pass sees
+# just its own session and cannot detect a sibling, so it must compose a
+# BARE display even when a real duplicate exists (the whole reason
+# __tcz_categorize's write needs the [N]-tolerant comparison at all).
+mkdir -p $HOME/tcz-narrowdup-$fish_pid
+tmux new-session -d -s dupA -c $HOME/tcz-narrowdup-$fish_pid 'sleep 500'
+tmux new-session -d -s dupB -c $HOME/tcz-narrowdup-$fish_pid 'sleep 500'
+sleep 0.5
+t "snap: unnarrowed pass suffixes a real duplicate" "yes" \
+    (string match -qr ' \[[0-9]+\]$' -- (__tcz_snapshot | string match -e 'dupA	*' | cut -f5); and echo yes; or echo no)
+t "snap: narrowed pass over the SAME duplicate leaves the display bare" "tcz-narrowdup-$fish_pid" \
+    (__tcz_snapshot dupA | cut -f5)
+rm -rf $HOME/tcz-narrowdup-$fish_pid
 cleanup
 
 # ---------------------------------------------------------------------
@@ -626,6 +768,60 @@ t "cat: steady-state second pass writes zero @tmux_lives_display options" "0" \
     (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
 set -e __t_cmds
 rm -rf $HOME/tcz-churn-$fish_pid
+cleanup
+
+# --- N1: THE churn assertion that matters (spec 2026-08-19) -- a narrowed
+# fish_postexec-style pass over a session whose stored @tmux_lives_display is
+# already "<computed> [N]" must emit ZERO set-option calls. Without the
+# [N]-tolerant comparison in __tcz_categorize, this fires on EVERY command:
+# postexec writes the bare display, the tick writes it back suffixed, the
+# next command writes the bare display again -- the exact per-tick
+# set-option churn on an option the status bar reads that caused the
+# ShellFish cursor-flicker bug. Spy on emitted tmux commands, not end state:
+# a green suite without this assertion proves nothing, since the whole
+# failure mode is an extra write nobody sees.
+cleanup
+mkdir -p $HOME/tcz-dupchurn-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-dupchurn-$fish_pid 'sleep 500'
+tmux new-session -d -s 1 -c $HOME/tcz-dupchurn-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize   # unnarrowed: renames both, stamps a bracketed ordinal on each
+set -g dc_name1 "tcz-dupchurn-$fish_pid"
+set -g dc_name2 "tcz-dupchurn-$fish_pid-2"
+set -g dc_disp1 (tmux show-option -qv -t "$dc_name1" @tmux_lives_display)
+set -g dc_disp2 (tmux show-option -qv -t "$dc_name2" @tmux_lives_display)
+t "dup: unnarrowed tick suffixes the first member"  "yes" \
+    (string match -qr ' \[[0-9]+\]$' -- "$dc_disp1"; and echo yes; or echo no)
+t "dup: unnarrowed tick suffixes the second member" "yes" \
+    (string match -qr ' \[[0-9]+\]$' -- "$dc_disp2"; and echo yes; or echo no)
+t "dup: the two ordinals are distinct" "yes" \
+    (test "$dc_disp1" != "$dc_disp2"; and echo yes; or echo no)
+function tmux; set -a __t_cmds "$argv"; command tmux -L $sock $argv; end
+set -g __t_cmds
+__tcz_categorize "$dc_name1"   # narrowed pass over the already-suffixed member
+functions -e tmux
+t "dup: narrowed pass over an already-suffixed session writes zero @tmux_lives_display options" "0" \
+    (count (string match -r 'set-option.*@tmux_lives_display' -- $__t_cmds))
+set -e __t_cmds dc_name1 dc_name2 dc_disp1 dc_disp2
+rm -rf $HOME/tcz-dupchurn-$fish_pid
+cleanup
+
+# --- N2: the over-correction guard, end to end (spec: "a stored X [1] when
+# the computed display is Y must still be rewritten"). A narrowed pass must
+# still heal a stale display that merely LOOKS like "<something> [N]" but
+# whose base does not match the freshly computed one.
+cleanup
+mkdir -p $HOME/tcz-guard-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-guard-$fish_pid 'sleep 500'
+sleep 0.5
+__tcz_categorize   # unnarrowed: singleton, no ordinal
+set -g gd_name "tcz-guard-$fish_pid"
+tmux set-option -t "$gd_name" @tmux_lives_display "Stale Unrelated [1]"
+__tcz_categorize "$gd_name"   # narrowed pass: computed display is "$gd_name", bare
+set -g gd_disp (tmux show-option -qv -t "$gd_name" @tmux_lives_display)
+t "dup: a stale display shaped like '<other> [N]' is still rewritten (no over-tolerance)" "$gd_name" "$gd_disp"
+set -e gd_name gd_disp
+rm -rf $HOME/tcz-guard-$fish_pid
 cleanup
 
 # --- M1: the claim-path clear, with a session that GENUINELY had a display
