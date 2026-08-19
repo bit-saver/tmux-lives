@@ -26,18 +26,54 @@ function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or beg
 # the Task 4 review, C-1; the fish-history leak caught here as I-1). The isolation
 # guard above only redirects $XDG_CONFIG_HOME (the universal-variable store); $HOME
 # itself is untouched, so both of these real paths resolve the same way inside this
-# run as outside it -- which is exactly why they need their own protection. Recorded
-# once here, before any test below can run; asserted unchanged at the very bottom of
-# the file. Shape-independent (an md5sum, not a byte-diff) and fails closed: a file
-# that goes missing changes its sum too, it does not silently drop out of the check.
-function __ti_guard_sum --argument-names p
-    test -f "$p"; or return
-    md5sum "$p" | string split -f1 ' '
+# run as outside it -- which is exactly why they need their own protection.
+#
+# REWORKED 2026-08-19: the original version md5'd the whole file at start and end and
+# asserted byte-identity. That measures "did the file's overall state change", not "did
+# THIS SUITE write here" -- and the developer works continuously in other panes while
+# this ~90s suite runs, so fish_history gets a new line from typing that has nothing to
+# do with this run. The guard failed at random with nothing wrong (e.g. got
+# [dc0700147a24384011044225adc0731f]), each time costing a real investigation before
+# being dismissed -- the exact "trains a re-run-until-green reflex" failure mode this
+# repo's own notes warn about, and worse than no guard because the next REAL leak would
+# get waved through too. Fixed by checking this run's OWN FOOTPRINT instead.
+#
+# fish_history: every fixture this suite creates is named /tmp/tli-<label>-$fish_pid (grep
+# this file -- dozens of call sites all share that shape). $fish_pid is this process's own
+# pid, unique to this run; it cannot appear in the file unless something IN THIS RUN typed
+# a command naming one of its own fixtures -- which is exactly the shape of the leak that
+# hit 99 times before (a send-keys command landing in a real, unseamed XDG_DATA_HOME, see
+# I-1 below). A human typing in another pane cannot produce that string, so this is
+# specific to the suite without losing sensitivity to the leak it exists to catch.
+function __ti_guard_history_ok --argument-names p --description 'true (rc0) unless p is gone or carries a fixture trace from THIS run'
+    test -f "$p"; or return 1
+    not grep -qE -- "tli-[A-Za-z0-9_.-]*$fish_pid" "$p" 2>/dev/null
+end
+
+# tmux-lives-funcs is a different shape: it is not appended to, it is unconditionally
+# OVERWRITTEN by __tmux_lives_write_funcs with __tmux_lives_shipped_functions's whole
+# output, so there is no per-run fixture string to grep for the way there is in a log.
+# But its failure mode is just as specific: __tmux_lives_shipped_functions falls back to
+# $__fish_config_dir when unseamed, which under this suite's own outer XDG_CONFIG_HOME
+# re-exec resolves inside this run's throwaway temp dir -- no conf.d there to read -- so
+# an unseamed write FROM THIS SUITE always truncates the file near-empty. That is exactly
+# the shape the Task-4 C-1 bug produced. A genuinely concurrent legitimate write (the
+# human running a real `fisher update`/`tmux-lives update` on this machine mid-suite)
+# always yields a healthy list (currently ~215 lines; elsewhere in this suite this file's
+# own content is asserted >20), so it cannot trip a floor check -- only an actual
+# suite-caused truncation can. 50 is comfortably below any real list and comfortably
+# above the near-empty truncation the bug produced.
+function __ti_guard_funcs_ok --argument-names p existed_before --description 'true (rc0) unless p (which existed_before) went missing or was truncated by THIS run'
+    if test "$existed_before" != 1
+        return 0
+    end
+    test -f "$p"; or return 1
+    set -l n (count (string split \n -- (cat "$p" 2>/dev/null)))
+    test "$n" -ge 50
 end
 set -g __ti_guard_funcs "$HOME/.config/tmux/tmux-lives-funcs"
 set -g __ti_guard_history "$HOME/.local/share/fish/fish_history"
-set -g __ti_guard_funcs_before (__ti_guard_sum $__ti_guard_funcs)
-set -g __ti_guard_history_before (__ti_guard_sum $__ti_guard_history)
+set -g __ti_guard_funcs_existed_before (test -f "$__ti_guard_funcs"; and echo 1; or echo 0)
 
 # Start a private, config-free server; optionally source $conf into it; attach a real pty
 # client; report whether tmux granted that client the Sync capability. Capabilities are
@@ -2486,11 +2522,12 @@ rm -f /tmp/tli-t3upd-$fish_pid /tmp/tli-t3frag-$fish_pid.conf /tmp/tli-t3funcs-$
 functions -e __t3_lineno
 
 # I-3 guard, closing the bracket opened at the top of this file: neither real file
-# may have moved across the whole run, no matter which call site (existing or
-# future) forgot to seam its path.
-t "guard: real tmux-lives-funcs untouched by this run" "$__ti_guard_funcs_before" (__ti_guard_sum $__ti_guard_funcs)
-t "guard: real fish_history untouched by this run" "$__ti_guard_history_before" (__ti_guard_sum $__ti_guard_history)
-functions -e __ti_guard_sum
+# may carry a trace of THIS run's own fixtures, no matter which call site (existing
+# or future) forgot to seam its path. See the doc comment at the top of the file for
+# why this is a footprint check now, not a whole-file identity check.
+t "guard: real tmux-lives-funcs untouched by this run" 1 (__ti_guard_funcs_ok $__ti_guard_funcs $__ti_guard_funcs_existed_before; and echo 1; or echo 0)
+t "guard: real fish_history untouched by this run" 1 (__ti_guard_history_ok $__ti_guard_history; and echo 1; or echo 0)
+functions -e __ti_guard_funcs_ok __ti_guard_history_ok
 
 # --- socket hygiene ---------------------------------------------------------
 # Every `-L` server this suite starts is killed, but tmux leaves the SOCKET FILE
