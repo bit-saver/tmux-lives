@@ -871,6 +871,20 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             tmux has-session -t "=$cur" 2>/dev/null; or continue   # concurrency re-check
             # exact-name match wins over prefix matching since we always pass full existing names
             tmux rename-session -t "=$cur" -- "$desired" 2>/dev/null; or continue
+            # Re-key the per-pass session memo the instant the rename succeeds: it was
+            # loaded (by __tcz_snapshot, above) under $cur, and later in THIS SAME pass
+            # __tcz_retitle reads a client's session by its NEW name (its own client
+            # memo loads after this rename) straight into __tcz_tmux_sess_path/_name.
+            # A project-less rename (the gen-N promotion) writes no @tmux_lives_display,
+            # so unlike the claude+display case __tcz_session_title's docstring already
+            # covers, there is no live display read to short-circuit before the stale
+            # by-old-name lookup misses and falls through to an empty path — reproduced
+            # as an attached ShellFish/iTerm2 tab showing "<host>: " (blank dir) for
+            # this one in-pass tick instead of "<host>: ~". Flipping just the name in
+            # place keeps every other column (claude/auto/path) correctly aligned to
+            # the same row.
+            set -l __rk (__tcz_tmux_sess_index "$cur")
+            test -n "$__rk"; and set -g __tcz_tmux_sess_names[$__rk] "$desired"
             # Stamp with one silent retry: a lost stamp would permanently freeze the name
             # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
             set -l stamptgt (__tcz_session_target "$desired")

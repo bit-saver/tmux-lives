@@ -2444,6 +2444,52 @@ set -e tmux_lives_hostname
 rm -rf $HOME/tcz-rn-$fish_pid
 cleanup
 
+# ---------------------------------------------------------------------
+# rename-mid-pass, project-less counterpart (fix wave 2026-08-19): the
+# claude+display fixture above is proven safe only because __tcz_categorize
+# writes @tmux_lives_display for that SAME session in the SAME pass, and
+# __tcz_session_title's live (never-memoized) display read short-circuits
+# before the stale-by-old-name path/name memo lookups are ever consulted.
+# A project-less rename (numeric -> gen-N, __tcz_categorize's stable-gen-N
+# bailout) writes NO display at all, so nothing short-circuits: the
+# fallback #{session_path} lookup DOES get consulted, and it is
+# __tcz_tmux_sess_path -- the per-pass memo loaded before this rename and
+# still keyed by the pre-rename numeric name. Reproduced pre-fix: the
+# attached client's IN-PASS title read "<host>: " (blank dir, a by-name
+# lookup miss) instead of "<host>: ~".
+#
+# Started with -f /dev/null and a plain `sleep`, same reasoning as the g2
+# fixture above: this is the FIRST new-session after `cleanup` kills the
+# server, so it is what actually starts the new server process and decides
+# whether it loads the user's REAL (fisher-installed) ~/.tmux.conf. Without
+# -f /dev/null that real config's own live tmux-lives hooks fire the instant
+# the real client attaches below and race-rename this throwaway session
+# using a DIFFERENT (installed, possibly older) categorizer before our own
+# __tcz_main tick ever runs -- reproduced: session ended up named "sleep"
+# (the pane's running command, the installed version's naming scheme) and
+# every assertion below failed against a session that no longer existed
+# under this name.
+# ---------------------------------------------------------------------
+cleanup
+tmux -f /dev/null new-session -d -s 0 -c $HOME 'sleep 500'
+sleep 0.3
+env LC_TERMINAL=ShellFish TERM=xterm-256color script -qec "tmux attach -t 0" /dev/null >/dev/null 2>&1 &
+set -l pl_n 0
+while test $pl_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set pl_n (math $pl_n + 1)
+end
+set -g tmux_lives_hostname pltest
+set -l pl_tty (tmux list-clients -F '#{client_tty}')
+__tcz_main tick '#445566' >/dev/null 2>&1
+set -l pl_names (tmux list-sessions -F '#{session_name}')
+set -l pl_key (__tcz_emit_key $pl_tty)
+set -l pl_title (tmux show-option -gqv @tmux_lives_emit_"$pl_key"_title)
+t "rename-mid-pass, project-less: the session was promoted off its numeric name" "gen-1" "$pl_names"
+t "rename-mid-pass, project-less: the attached client's IN-PASS title carries the real dir, not a blank one left by the stale-by-old-name path memo" "pltest: ~" "$pl_title"
+set -e tmux_lives_hostname
+cleanup
+
 # --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
 set -e tmux_lives_host_kind
 set -l ssh_conn_save $SSH_CONNECTION

@@ -44,9 +44,14 @@ function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or beg
 # a command naming one of its own fixtures -- which is exactly the shape of the leak that
 # hit 99 times before (a send-keys command landing in a real, unseamed XDG_DATA_HOME, see
 # I-1 below). A human typing in another pane cannot produce that string, so this is
-# specific to the suite without losing sensitivity to the leak it exists to catch.
-function __ti_guard_history_ok --argument-names p --description 'true (rc0) unless p is gone or carries a fixture trace from THIS run'
-    test -f "$p"; or return 1
+# specific to the suite without losing sensitivity to the leak it exists to catch --
+# though "without losing sensitivity" overstates it: this greps for the literal
+# "tli-...$fish_pid" shape, so a future leak whose command text carries no fixture
+# name would be invisible to it. Both current send-keys payloads this suite guards
+# against embed such a path, so it discriminates today, but a new leaky call site
+# with different wording would slip past silently.
+function __ti_guard_history_ok --argument-names p --description 'true (rc0) unless p carries a fixture trace from THIS run. A MISSING file (fresh box, no shell history yet) is fine, not a failure -- there is nothing there for this run to have leaked into, same as empty==empty under the md5 check this replaced.'
+    test -f "$p"; or return 0
     not grep -qE -- "tli-[A-Za-z0-9_.-]*$fish_pid" "$p" 2>/dev/null
 end
 

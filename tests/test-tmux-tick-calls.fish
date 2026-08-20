@@ -159,6 +159,30 @@ t "tick tmux-call count vs session count is O(1), not O(sessions)" \
     (test $delta_sessions -gt $SMALL_CONST; and echo "O(sessions)"; or echo "O(1)")
 
 # ---------------------------------------------------------------------
+# 1b. Absolute batched-core count (fix wave 2026-08-19, review-found gap): the
+# O(1) classification above only asserts that the delta between a 2- and a
+# 6-session fixture stays under SMALL_CONST=3 -- it says nothing about the
+# ABSOLUTE number of calls a pass makes, so a regression that adds a FIXED
+# extra call per pass (independent of session count) sails through it
+# untouched. Demonstrated by the reviewer: adding one innocuous
+# `__tcz_tmux_global tabs_color` read at the top of __tcz_categorize grows the
+# per-pass call count with delta_sessions UNCHANGED at 0 -- because
+# __tcz_snapshot's own entry self-flush (its docstring: safe because it is
+# "called at most once per __tcz_main pass in production") wipes out a
+# `__tcz_tmux_load` a caller triggered ABOVE it in the same pass and forces a
+# second, silently duplicate show-g + list-sessions round-trip. The two calls
+# __tcz_tmux_load actually issues -- one `show -g`, one `list-sessions -F ...`
+# -- are pinned here at exactly 1 each on the (already-built, still-live)
+# 6-session/0-client fixture from section 1. This is fixture-SIZE-independent
+# (unlike delta_sessions, it cannot be tuned back to green by resizing
+# anything), so it is the guard that actually catches the self-flush-doubles-
+# the-batch class of regression the delta check structurally cannot see.
+set -l s6_showg (grep -c '^show -g$' $s6log)
+set -l s6_listsessions (grep -c '^list-sessions ' $s6log)
+t "batched-core: exactly one \`show -g\` per tick pass (absolute count, not just the O(1) delta classification)" 1 "$s6_showg"
+t "batched-core: exactly one \`list-sessions\` per tick pass (absolute count, not just the O(1) delta classification)" 1 "$s6_listsessions"
+
+# ---------------------------------------------------------------------
 # 2. Sensitivity self-tests: prove the counting mechanism itself is real.
 # "A harness that cannot distinguish states is worse than none" -- Method, task-1
 # brief. Two techniques, both from that brief: a same-size control (two fixtures
