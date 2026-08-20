@@ -49,6 +49,17 @@ end
 function cleanup
     command tmux -L $sock kill-server 2>/dev/null
     rm -f /tmp/tmux-(id -u)/$sock
+    # tick-call-batching task 4: the per-pass memo (session @options AND, as of
+    # this task, the pane walk) is keyed by SESSION NAME, and this suite reuses
+    # short names ("sA", "0", "alpha", ...) across many independently-built real
+    # -L $sock fixtures. Without this, a name fetched against an EARLIER fixture
+    # could satisfy a later __tcz_tmux_panes/__tcz_tmux_sess_* lookup against a
+    # DIFFERENT real session that merely happens to share the name, silently
+    # serving stale data instead of querying the fixture actually under test.
+    # cleanup already means "the tmux state below this point may be completely
+    # different" -- flushing here makes that true for the in-process read memo
+    # too, mirroring __tcz_main's own flush-per-pass discipline.
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 end
 
 set -g tmux_categorize_test 1
@@ -64,6 +75,8 @@ function fresh_server --description 'kill the test server, wait until it is gone
         command tmux -L $sock list-sessions >/dev/null 2>&1; or break
     end
     command tmux -L $sock new-session -d -x 120 -y 40
+    # Same reasoning as cleanup's own flush, immediately above -- see its comment.
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 end
 
 # ---------------------------------------------------------------------
@@ -1146,6 +1159,29 @@ t "has_claude: numeric session running claude is detected" "yes" (__tcz_session_
 t "has_claude: the neighbour is correctly claude-free" "no" (__tcz_session_has_claude plain-shell; and echo yes; or echo no)
 cleanup
 
+# tick-call-batching task 4: the pane-walk memo is keyed by SESSION NAME, and this
+# suite reuses short names ("probe", "0", "sA", ...) across many independently-built
+# real -L $sock fixtures. Reusing the SAME name for a claude-then-no-claude pair
+# across a cleanup boundary is what actually discriminates cleanup's own
+# __tcz_tmux_flush (added this task) from a coincidence: the block above measures
+# "0" claude -> yes THEN "0" claude-free never reused after it, so it cannot tell a
+# fresh read from a stale one still saying "yes" from an earlier fixture. This one
+# can, in both directions.
+tmux new-session -d -s probe "$shimdir/claude --name Probe One"
+sleep 0.4
+t "has_claude: fresh fixture (with claude)" "yes" (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+tmux new-session -d -s probe 'sleep 1000'
+sleep 0.4
+t "has_claude: same session NAME, rebuilt claude-free -- must not read the earlier fixture's cached yes" "no" \
+    (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+tmux new-session -d -s probe "$shimdir/claude --name Probe Two"
+sleep 0.4
+t "has_claude: same session NAME, rebuilt WITH claude again -- must not read the middle fixture's cached no" "yes" \
+    (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+
 # capture-pane does NOT accept the "=name" form that list-panes tolerates — it errors
 # "can't find pane: =name" — so the preview needs the bare-name/id shape instead. Routing
 # it through the pane-target helper blanked the picker preview for EVERY non-numeric
@@ -1941,32 +1977,36 @@ t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
 rm -f $ttl
 
 # session_has_claude / session_title via a tmux stub (switch on subcommand).
-# __tcz_session_title now reads #{session_path} via display-message (the session's
-# start dir, single-valued) rather than list-panes' active-pane pane_current_path,
-# and consults @tmux_lives_display between the claim and the dir fallback.
+# __tcz_session_title reads #{session_path} (the session's start dir,
+# single-valued), not list-panes' active-pane pane_current_path, and consults
+# @tmux_lives_display between the claim and the dir fallback.
 #
-# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read now comes
-# from the batched per-pass session memo (__tcz_tmux_load's `list-sessions -F`),
-# not a live show-option call -- so this stub grew a `case list-sessions` row for
-# it, and every $tcz_test_name change below needs an explicit __tcz_tmux_flush
-# before the next __tcz_session_title call, or that call would see a STALE
-# memoized name instead of the one just set (same idiom this file already uses
-# for __tcz_tmux_global/__tcz_heal_due). @tmux_lives_display stays a live
-# show-option read, deliberately NOT migrated (see __tcz_session_title's own
-# docstring for why), so it needs no such flush.
+# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read comes
+# from the batched per-pass session memo (__tcz_tmux_load's `list-sessions -F`).
+# tick-call-batching task 4: #{session_path} is now served from that SAME memo
+# (__tcz_tmux_sess_path) instead of a live display-message call, and
+# __tcz_session_has_claude's pane walk is now served from the shared per-pass
+# pane memo (__tcz_tmux_panes) instead of its own list-panes call -- so the
+# `case list-sessions` row below now carries $tcz_test_path in the real
+# session_path position (4), and `case display-message` is gone (nothing
+# calls it here any more). EVERY simulated state change below (panes OR path
+# OR name) needs an explicit __tcz_tmux_flush before the next
+# __tcz_session_has_claude/__tcz_session_title call, or that call would see a
+# STALE memoized value instead of the one just set (same idiom this file
+# already uses for __tcz_tmux_global/__tcz_heal_due). @tmux_lives_display
+# stays a live show-option read, deliberately NOT migrated (see
+# __tcz_session_title's own docstring for why), so it needs no such flush.
 function tmux
     switch "$argv[1]"
         case list-panes
             printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
-        case display-message
-            echo $tcz_test_path              # __tcz_session_title: session_path
         case show-option
             echo $tcz_test_display           # @tmux_lives_display override (still live)
         case list-sessions
-            # session_name/attached/last_attached/path/claude/auto_name/display are
-            # unused by __tcz_session_title (display is read live above instead) --
-            # only the last, greedy field (@tmux_lives_name) matters here.
-            printf 'sA\t0\t0\t\t\t\t\t%s\n' $tcz_test_name
+            # session_path (4) and @tmux_lives_name (8, last, greedy) are the
+            # only fields __tcz_session_title reads from this row; the rest
+            # (attached/last_attached/claude/auto_name/display) are unused.
+            printf 'sA\t0\t0\t%s\t\t\t\t%s\n' $tcz_test_path $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -1978,10 +2018,12 @@ functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_display 'My Project'
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
@@ -1995,13 +2037,14 @@ function tmux
     switch "$argv[1]"
         case list-panes
             printf 'claude\t999\n'           # session has claude
-        case display-message
-            echo ''                          # empty session_path
+        case list-sessions
+            printf 'sA\t0\t0\t\t\t\t\t\n'     # empty session_path (4), empty name (8)
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
 functions -e tmux
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 
 # ---------------------------------------------------------------------
@@ -2352,6 +2395,22 @@ set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt falls back to the pane title when there is no --name" yes (string match -q '*@tmux_lives_claude*TMUX Setup 21*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# tick-call-batching task 4: a title containing a literal embedded tab must survive
+# the round trip through the new pane memo (__tcz_tmux_pane_fetch splits -m 2 so
+# title stays the greedy-last field -> __tcz_tmux_panes re-serializes it verbatim,
+# tab included, via printf -> __tcz_set_claude_opt splits -m 2 again) exactly as it
+# did with the direct list-panes call this replaced -- same property this file
+# already pins for @tmux_lives_name's own greedy-last field (see the "Left\tRight"
+# test near the numeric-session block above), now proven for the pane TITLE path.
+set -l TABtc (printf '\t')
+set -l titletab (printf '⠂ Left\tRight')
+set -l wantfrag (printf 'Left%sRight' $TABtc)
+set -g tcz_claude_panes (printf 'claude\t4242\t%s' $titletab)
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_set_claude_opt sA
+t "set_claude_opt: a pane title containing a literal tab survives whole" "yes" \
+    (string match -q "*@tmux_lives_claude*$wantfrag*" -- "$CLAUDE_SET"; and echo yes; or echo no)
 # --name still WINS when present (stable flag beats a volatile title)
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''

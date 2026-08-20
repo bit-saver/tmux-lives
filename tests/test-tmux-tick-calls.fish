@@ -148,19 +148,14 @@ t "sanity: the 6-session fixture actually issued tmux calls" 1 (test $n6 -gt 0; 
 # far too tight for anything that still scales per-session.
 set -l SMALL_CONST 3
 
-# TODO(tick-call-batching): this documents TODAY's state (proven true against the
-# unbatched code below) rather than gating on it, precisely so this file stays
-# green through the early tasks of the cycle (see task-1-report.md for why: a
-# hard `delta <= SMALL_CONST` ceiling would fail here and stay red until the
-# session-@option and pane-walk batching lands, and this repo's own convention is
-# never to commit with a red gate -- see .superpowers/sdd/2026-08-19-tick-call-
-# batching/progress.md's own ruling on exactly this). Once a later task's own
-# change makes `test $delta_sessions -le $SMALL_CONST` true, flip the expected
-# literal below from "O(sessions)" to "O(1)" -- that is the ratchet this harness
-# exists to drive. Search this file for TODO(tick-call-batching) to find every
-# place that needs the same flip.
-t "today: tick tmux-call count vs session count (TODO(tick-call-batching): flip to O(1) once the read-path batching lands)" \
-    "O(sessions)" \
+# FLIPPED (tick-call-batching task 4): the pane-walk batching (the last
+# per-session list-panes call, in __tcz_set_claude_opt) collapsed the measured
+# delta 4 -> 0 -- see task-4-report.md. Was "O(sessions)" (delta > SMALL_CONST)
+# through tasks 1-3; the delta is now comfortably at/under SMALL_CONST, so this
+# now GATES on the property rather than merely documenting it: a regression
+# back to a per-session tmux call fails this loudly instead of silently.
+t "tick tmux-call count vs session count is O(1), not O(sessions)" \
+    "O(1)" \
     (test $delta_sessions -gt $SMALL_CONST; and echo "O(sessions)"; or echo "O(1)")
 
 # ---------------------------------------------------------------------
@@ -307,10 +302,16 @@ echo "MEASURED tick tmux-call count: 1-client fixture=$ncl1  3-client fixture=$n
 t "sanity: the 1-client fixture actually issued tmux calls" 1 (test $ncl1 -gt 0; and echo 1; or echo 0)
 t "sanity: the 3-client fixture actually issued tmux calls" 1 (test $ncl3 -gt 0; and echo 1; or echo 0)
 
-# TODO(tick-call-batching): same shape and same reason as the session-count
-# assertion above -- documents today's O(clients) reality (client reads are
-# batched later in the cycle) rather than gating the file red until then. Flip
-# once true.
+# TODO(tick-call-batching): still O(clients) after task 4 -- NOT flipped. Task
+# 4's pane-walk batching incidentally dropped the measured delta 16 -> 12 (two
+# of its three per-client reads -- __tcz_session_title's session_path and
+# __tcz_session_has_claude's pane walk -- are now served from shared per-pass
+# memos, so a SECOND+ client attached to a session __tcz_categorize already
+# walked costs nothing extra there), but 12 is still well above SMALL_CONST:
+# the per-client @tmux_lives_display show-option read (deliberately still
+# live, see __tcz_session_title's docstring) and the per-tty emit-cache/
+# list-clients reads remain. Client batching + the read-after-write audit are
+# task 5's. Flip once true.
 t "today: tick tmux-call count vs ShellFish/iTerm2 client count (TODO(tick-call-batching): flip to O(1) once the client batching lands)" \
     "O(clients)" \
     (test $delta_clients -gt $SMALL_CONST; and echo "O(clients)"; or echo "O(1)")

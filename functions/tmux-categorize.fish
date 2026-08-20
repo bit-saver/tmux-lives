@@ -204,6 +204,53 @@ function __tcz_tmux_sess_name --argument-names session --description 'memoized @
     test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_name[$i]
 end
 
+function __tcz_tmux_sess_path --argument-names session --description 'memoized #{session_path} for <session> (tick-call-batching task 4). Read-only in tmux -- fixed at session creation, no command ever reassigns it -- so, like @tmux_lives_name, safe to memoize with NO invalidation, unconditionally. Folds __tcz_session_title'"'"'s own `display-message -p -t <tgt> session_path` call into the SAME per-pass session memo its @tmux_lives_name read (__tcz_tmux_sess_name, called right after it) already lazily loads: that load fires regardless of caller (including the on-attach -> __tcz_retitle path, which has no preceding categorize/snapshot call), so this costs nothing extra there and removes a live call everywhere else.'
+    set -l i (__tcz_tmux_sess_index "$session")
+    test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_path[$i]
+end
+
+# --- pane-walk memo: ONE list-panes fetch per session, shared across the whole
+# pass (tick-call-batching task 4) ---------------------------------------
+# __tcz_snapshot already issues the canonical pane walk for a pass (-a
+# unnarrowed, or -s -t <only> narrowed -- see its own docstring) to build its
+# category/claude aggregation. It now ALSO stashes every parsed pane row
+# (session/cmd/pid/title) into these same parallel arrays as it goes, so
+# __tcz_set_claude_opt and __tcz_session_has_claude -- both of which used to
+# issue their OWN separate `list-panes -s -t <session>` call, per session and
+# per client respectively -- can read the SAME walk instead of repeating it.
+#
+# A session __tcz_snapshot never touched this pass (there is no preceding
+# categorize/snapshot call at all -- e.g. the on-attach -> __tcz_retitle path,
+# which fires straight off a client-attached hook) is simply not pre-loaded;
+# __tcz_tmux_panes falls back to exactly the one live per-session call this
+# replaces, so this is strictly load-bearing-neutral in the worst case and a
+# real reduction whenever __tcz_snapshot already walked that session in the
+# same pass.
+#
+# Deliberately NOT a `-a` fallback on a miss: that would defeat the narrowed
+# (fish_postexec) pass, whose entire point is touching only its own $only
+# session (see __tcz_snapshot's own docstring) -- a miss stays scoped to the
+# one session actually being asked for.
+function __tcz_tmux_pane_fetch --argument-names session --description 'internal: one live -s -t list-panes call for <session> (cmd/pid/title), appended into the shared per-pass pane memo and marking <session> loaded. Called only by __tcz_tmux_panes on a cache miss.'
+    set -l TAB (printf '\t')
+    for line in (tmux list-panes -s -t (__tcz_pane_target "$session") -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
+        set -l f (string split -m 2 $TAB -- $line)   # title last, greedy
+        test (count $f) -ge 2; or continue
+        set -ga __tcz_tmux_pane_sess $session
+        set -ga __tcz_tmux_pane_cmd $f[1]
+        set -ga __tcz_tmux_pane_pid $f[2]
+        set -ga __tcz_tmux_pane_title "$f[3]"
+    end
+    set -ga __tcz_tmux_pane_loaded $session
+end
+
+function __tcz_tmux_panes --argument-names session --description 'memoized "cmd<TAB>pid<TAB>title" rows, one per pane, for <session> this pass -- shared by __tcz_set_claude_opt and __tcz_session_has_claude. Already covered by __tcz_snapshot'"'"'s own walk this pass costs nothing here at all; a session it never touched falls back to __tcz_tmux_pane_fetch (one live call, same as before), cached so a second reader of the same session later in the pass is free.'
+    contains -- "$session" $__tcz_tmux_pane_loaded; or __tcz_tmux_pane_fetch "$session"
+    for i in (seq (count $__tcz_tmux_pane_sess))
+        test "$__tcz_tmux_pane_sess[$i]" = "$session"; and printf '%s\t%s\t%s\n' "$__tcz_tmux_pane_cmd[$i]" "$__tcz_tmux_pane_pid[$i]" "$__tcz_tmux_pane_title[$i]"
+    end
+end
+
 function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
@@ -497,11 +544,20 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set -l f (string split -m 4 $TAB -- $line)    # title is last; keep embedded tabs
         test (count $f) -ge 4; or continue
         set -l s $f[1]
+        # tick-call-batching task 4: stash this row into the shared per-pass pane
+        # memo as we go, so __tcz_set_claude_opt / __tcz_session_has_claude read
+        # the SAME walk instead of issuing their own list-panes call for a
+        # session this pass already has panes for. See __tcz_tmux_panes.
+        set -ga __tcz_tmux_pane_sess $s
+        set -ga __tcz_tmux_pane_cmd $f[2]
+        set -ga __tcz_tmux_pane_pid $f[3]
+        set -ga __tcz_tmux_pane_title "$f[5]"
         set -l i (contains -i -- $s $names)
         if test -z "$i"
             set -a names $s; set -a cats general
             set -a cpid ''; set -a ctitle ''
             set i (count $names)
+            set -ga __tcz_tmux_pane_loaded $s
         end
         # pane_current_command may report "sh" even when the pane_pid comm is "claude"
         # (tmux runs commands via sh -c and doesn't always update pane_current_command).
@@ -3371,27 +3427,24 @@ function __tcz_emit_title --argument-names tty title --description 'write the OS
     printf '\033]2;%s\a' "$title" > $tty
 end
 
-function __tcz_session_has_claude --argument-names session --description 'true if any pane in the session runs claude'
+function __tcz_session_has_claude --argument-names session --description 'true if any pane in the session runs claude. tick-call-batching task 4: served from the shared per-pass pane memo (__tcz_tmux_panes) instead of its own list-panes call -- see that function'"'"'s docstring for the fetch-or-reuse contract.'
     set -l TAB (printf '\t')
-    for line in (tmux list-panes -s -t (__tcz_pane_target "$session") -F "#{pane_current_command}$TAB#{pane_pid}" 2>/dev/null)
+    for line in (__tcz_tmux_panes "$session")
         set -l p (string split $TAB -- $line)
         __tcz_pane_is_claude "$p[1]" "$p[2]"; and return 0
     end
     return 1
 end
 
-function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). Options are targeted via __tcz_session_target (a bare-number -t would hit the CURRENT session).'
+function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). Options are targeted via __tcz_session_target (a bare-number -t would hit the CURRENT session). tick-call-batching task 4: the pane walk below is served from the shared per-pass pane memo (__tcz_tmux_panes) instead of its own list-panes call -- see that function'"'"'s docstring for the fetch-or-reuse contract (which already handles the numeric-session pane-target trap internally, via __tcz_pane_target).'
     test -n "$session"; or return
     set -l TAB (printf '\t')
     set -l name ''
-    # A purely numeric session name is unreliable in EVERY -t, not just options: with
-    # sessions "0" and "neighbour", `list-panes -t "=0"` returns NEIGHBOUR's panes (the
-    # "=" exact prefix does not rescue it) while `-t $id` is correct. So resolve once and
-    # use the id for both lookups; a non-numeric name keeps the exact-match "=" it needs
-    # for panes, and the bare form options require.
+    # Options (the set-option write below) reject "=name"; a purely numeric session
+    # name is unreliable in EVERY -t there too (a bare-number -t hits the CURRENT
+    # session), so resolve once via __tcz_session_target for the write.
     set -l tgt (__tcz_session_target "$session")
-    set -l ptgt (__tcz_pane_target "$session")
-    for line in (tmux list-panes -s -t "$ptgt" -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
+    for line in (__tcz_tmux_panes "$session")
         # -m 2: the title is last and may contain tabs.
         set -l parts (string split -m 2 $TAB -- $line)
         test "$parts[1]" = claude; or continue
@@ -3424,15 +3477,19 @@ end
 
 function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — the tab no longer tracks whichever WINDOW happens to be selected. `list-panes -t <session>` (no -s) resolves to a single target-window, the session'"'"'s CURRENTLY SELECTED one (verified: it is one row, not one per window) — so the old lookup made switching windows relabel the tab. #{session_path} is fixed at session-creation time and does not move when the selected window changes.'
     test -n "$session"; or return 0
-    # __tcz_session_target for the display-message + @tmux_lives_display calls below,
-    # not __tcz_pane_target: verified empirically that `display-message -p -t "=name"`
-    # returns EMPTY for #{session_path} (tmux -v: "format 'session_path' not found") —
-    # this is NOT limited to pane-scoped formats as the old pane_current_path-era
-    # comment assumed; display-message rejects "=name" altogether, same family as
-    # set-option/show-option/capture-pane. The "=name" form stays reliable for
-    # list-panes only (used elsewhere, e.g. __tcz_session_has_claude).
+    # __tcz_session_target still needed below, for the @tmux_lives_display show-option
+    # call only: verified empirically that `display-message -p -t "=name"` and
+    # `show-option -qv -t "=name"` both return EMPTY (tmux -v: "format ... not
+    # found" / an unset-option read) — this rejects "=name" altogether, same family
+    # as set-option/capture-pane. The "=name" form stays reliable for list-panes only
+    # (used elsewhere, e.g. __tcz_tmux_pane_fetch).
+    #
+    # #{session_path} itself: tick-call-batching task 4, served from the per-pass
+    # session memo (__tcz_tmux_sess_path) instead of a live display-message call --
+    # see that accessor's own docstring for why this is always safe (read-only tmux
+    # field, never reassigned).
     set -l tgt (__tcz_session_target "$session")
-    set -l path (tmux display-message -p -t "$tgt" '#{session_path}' 2>/dev/null)
+    set -l path (__tcz_tmux_sess_path "$session")
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
     # @tmux_lives_name: tick-call-batching task 3, served from the per-pass session
