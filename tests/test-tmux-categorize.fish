@@ -581,6 +581,26 @@ rm -rf /tmp/tcz-myproj-$fish_pid
 cleanup
 t "snap: no server -> empty" "" (__tcz_snapshot | string join ',')
 
+# tick-call-batching task 4 follow-up: the two assertions just above exercise
+# __tcz_snapshot's OWN local title aggregation ($ctitle, used for the DISPLAY
+# field) -- a separate mechanism from the NEW shared pane-walk memo
+# (__tcz_tmux_pane_title, populated by __tcz_snapshot's prefill and consumed by
+# __tcz_set_claude_opt via __tcz_tmux_panes). Nothing above touches @tmux_lives_claude,
+# so nothing above can catch a broken title stash on the memo side -- confirmed
+# unable to: mutating `set -ga __tcz_tmux_pane_title "$f[5]"` to always store empty
+# left all 1161 pre-follow-up assertions green. This one goes through the real
+# __tcz_categorize -> __tcz_snapshot (prefill) -> __tcz_set_claude_opt path with a
+# claude pane that has NO --name (so the readable name can only come from the
+# TITLE, via the memo) and checks the option __tcz_set_claude_opt actually writes.
+cleanup
+tmux new-session -d -s titleclaude -c $HOME "$shimdir/claude --enable-auto-mode"
+tmux select-pane -t titleclaude: -T "✳ Title Only Task"
+sleep 0.5
+__tcz_categorize
+t "categorize: a claude name sourced from the pane TITLE (no --name) reaches @tmux_lives_claude via the snapshot prefill" \
+    "Title Only Task" (tmux show-option -qv -t titleclaude @tmux_lives_claude 2>/dev/null)
+cleanup
+
 # ---------------------------------------------------------------------
 # Boring-command deprioritization: a session whose only non-shell pane
 # command is a pager/tailer (tail/less/watch/cat/more/bat) must NOT count
@@ -1180,6 +1200,22 @@ tmux new-session -d -s probe "$shimdir/claude --name Probe Two"
 sleep 0.4
 t "has_claude: same session NAME, rebuilt WITH claude again -- must not read the middle fixture's cached no" "yes" \
     (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+
+# fresh_server's own flush is the SAME fix as cleanup's, for the SAME reason -- not
+# mere symmetry, a reproducible bug with a completely realistic trigger: fresh_server
+# creates its one session with NO explicit -s name, so tmux auto-numbers it, and a
+# fresh server's first (only) session is ALWAYS named "0". Two consecutive
+# fresh_server calls therefore reuse the name "0" for two entirely different real
+# sessions, exactly like the "probe" pair above but via the OTHER helper.
+fresh_server
+tmux send-keys -t 0 "$shimdir/claude --name Zero Round A" Enter
+sleep 0.6
+t "has_claude: fresh_server round A, session 0 (with claude)" "yes" (__tcz_session_has_claude 0; and echo yes; or echo no)
+fresh_server
+sleep 0.4
+t "has_claude: fresh_server round B, same auto-numbered name 0, claude-free -- must not read round A's cached yes" "no" \
+    (__tcz_session_has_claude 0; and echo yes; or echo no)
 cleanup
 
 # capture-pane does NOT accept the "=name" form that list-panes tolerates — it errors
