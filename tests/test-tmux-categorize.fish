@@ -2353,6 +2353,97 @@ functions -q __tcz_ebc_bak; and functions -c __tcz_ebc_bak __tcz_emit_barcolor; 
 functions -q __tcz_ct_bak; and functions -c __tcz_ct_bak __tcz_client_terminal; and functions -e __tcz_ct_bak
 set -e EMITTED; set -e DEDUP_color
 
+# ---------------------------------------------------------------------
+# staleness: a value written mid-pass is visible to a same-pass read after it
+# (tick-call-batching task 5's explicit "add a staleness test"). Against a
+# REAL tmux server, not a stub -- a stub could accidentally answer correctly
+# without the memo'"'"'s write-through actually doing anything; this exercises
+# __tcz_emit_set's real tmux write AND its in-process memo write together,
+# and __tcz_emit_get's read of __tcz_tmux_global -> __tcz_tmux_load's real
+# `show -g` + __tcz_tmux_unquote parse for the cross-pass case.
+# ---------------------------------------------------------------------
+set -g stsock tcz-stale-$fish_pid
+command tmux -L $stsock new-session -d -s stale-sess 2>/dev/null
+sleep 0.2
+function tmux; command tmux -L $stsock $argv; end
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+set -g STTY /dev/pts/77
+t "staleness: an unset emit key reads empty before any write" "" (__tcz_emit_get $STTY color)
+
+__tcz_emit_set $STTY color '#abc123'
+# THE staleness assertion: write mid-pass, then read the SAME key right
+# after -- no flush between the write and this read -- must see the value
+# just written, not whatever was cached (nothing, here) before the write.
+t "staleness: a value written mid-pass is visible to a same-pass read after it" '#abc123' (__tcz_emit_get $STTY color)
+
+# a write only touches its own key -- an unrelated tty's cache is untouched
+t "staleness: a write does not leak into an unrelated cached key" "" (__tcz_emit_get /dev/pts/78 color)
+
+# a SECOND write to the SAME key is visible immediately too, not just the first
+__tcz_emit_set $STTY color '#def456'
+t "staleness: a second same-pass write is visible immediately as well" '#def456' (__tcz_emit_get $STTY color)
+
+# cross-pass: flushing and reloading must pick up what was actually persisted
+# to the real tmux option, not just the in-process memo half -- proves
+# __tcz_emit_set's tmux write and its memo write-through agree with each
+# other, not merely that the memo half looks right in isolation.
+__tcz_tmux_flush
+t "staleness: the write also reached real tmux, not only the in-process memo" '#def456' (__tcz_emit_get $STTY color)
+
+functions -e tmux
+command tmux -L $stsock kill-server 2>/dev/null
+set -e stsock; set -e STTY
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# ---------------------------------------------------------------------
+# real end-to-end: a session RENAMED by __tcz_categorize mid-pass still gets
+# a correctly-composed title for its already-attached client, in the SAME
+# `tick` pass (tick-call-batching task 5). This is the concrete scenario the
+# read-after-write audit exists to catch: __tcz_tmux_clients loads AFTER
+# __tcz_categorize's renames (own docstring), so #{client_session} in this
+# pass'"'"'s client memo is the NEW name -- but __tcz_tmux_sess_path/_name are
+# still keyed by the OLD (pre-rename) name in the session memo loaded at pass
+# start, since Task 5 did not add rename-tracking to that memo (see
+# __tcz_session_title'"'"'s own docstring for why -- deliberately left live).
+# Proven safe here, not assumed: the ONLY thing that triggers a rename
+# (a non-empty project) is also exactly what makes __tcz_categorize write
+# @tmux_lives_display for that SAME session in the SAME pass, and
+# __tcz_session_title'"'"'s live (never-memoized) display read picks that up
+# directly by the session'"'"'s NEW name -- short-circuiting before the stale
+# path/name memo lookups would ever be consulted.
+#
+# The project dir'"'"'s own basename is a WEAK discriminator on its own -- it is
+# by definition identical to __tcz_dir_display'"'"'s bare-name fallback, so a
+# fixture with no task suffix cannot tell "resolved via the live display read"
+# apart from "coincidentally fell through to the dir fallback and got the same
+# string anyway" (caught in review: an earlier cut of this fixture used a bare
+# sleep pane and passed even with the live display read stubbed out from under
+# it). A claude pane with --name adds a " · <task>" suffix the dir fallback
+# cannot produce, which is what actually discriminates the two paths.
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-rn-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-rn-$fish_pid "$shimdir/claude --enable-auto-mode --name Fix the thing"
+sleep 0.3
+env LC_TERMINAL=ShellFish TERM=xterm-256color script -qec "tmux attach -t 0" /dev/null >/dev/null 2>&1 &
+set -l rn_n 0
+while test $rn_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set rn_n (math $rn_n + 1)
+end
+set -g tmux_lives_hostname rntest
+set -l rn_tty (tmux list-clients -F '#{client_tty}')
+__tcz_main tick '#445566' >/dev/null 2>&1
+set -l rn_names (tmux list-sessions -F '#{session_name}')
+set -l rn_key (__tcz_emit_key $rn_tty)
+set -l rn_title (tmux show-option -gqv @tmux_lives_emit_"$rn_key"_title)
+t "rename-mid-pass: the session was actually renamed off its numeric name" "tcz-rn-$fish_pid" "$rn_names"
+t "rename-mid-pass: the attached client's title carries the task suffix (proves the live display read, not the stale-name dir fallback)" "rntest: tcz-rn-$fish_pid · Fix the thing (C)" "$rn_title"
+set -e tmux_lives_hostname
+rm -rf $HOME/tcz-rn-$fish_pid
+cleanup
+
 # --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
 set -e tmux_lives_host_kind
 set -l ssh_conn_save $SSH_CONNECTION
@@ -3264,15 +3355,28 @@ t "both snapshots carry -ww (BSD truncates the last column at 79 cols)" 2 (print
 t "pid_environ keeps eww, not e"                                        1 (printf '%s\n' "$__t_code" | grep -c 'ps eww -p')
 
 # tick-call-batching task 2: the three literal-keyed global reads must be
-# GONE from the categorizer (routed through __tcz_tmux_global instead), and
-# the per-tty emit-cache read (out of THIS task's scope on purpose — see
-# __tcz_tmux_load's own comment) must be UNCHANGED, still a direct show -gv.
+# GONE from the categorizer (routed through __tcz_tmux_global instead). The
+# per-tty emit-cache read was deliberately left alone by task 2 (see
+# __tcz_tmux_load's OLD comment, since rewritten) -- task 5 is the one that
+# routes it too, see the two guards right after this block.
 t "tab_color no longer calls show -gv @tmux_lives_tabs_color directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_tabs_color')
 t "heal_due no longer calls show -gv @tmux_lives_heal_interval directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_interval')
 t "heal_due no longer calls show -gv @tmux_lives_heal_at directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_at')
 t "tab_color routes through __tcz_tmux_global" 1 (awk '/^function __tcz_tab_color/,/^end$/' $catfile | grep -c '__tcz_tmux_global tabs_color')
 t "heal_due routes through __tcz_tmux_global" 2 (awk '/^function __tcz_heal_due/,/^end$/' $catfile | grep -c '__tcz_tmux_global')
-t "the per-tty emit-cache read is unchanged (out of task 2's scope)" 1 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_emit_')
+
+# tick-call-batching task 5: the per-tty emit-cache read is now ALSO routed
+# through the shared global memo (it was already inside __tcz_tmux_load's one
+# `show -g`, per that function's own docstring -- task 2 just never wired a
+# reader to it, pending this task's write-after-read audit). No more direct
+# `show -gv @tmux_lives_emit_...` anywhere in the file.
+t "the per-tty emit-cache read no longer calls show -gv directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_emit_')
+t "emit_get routes through __tcz_tmux_global" 1 (awk '/^function __tcz_emit_get/,/^end$/' $catfile | grep -c '__tcz_tmux_global emit_')
+# emit_set still WRITES tmux directly (a write can't be batched away — see the
+# CLAUDE.md map, "2 writes, stay") AND write-throughs the same key into the
+# memo so a later same-pass read (the staleness property) sees it.
+t "emit_set still writes tmux directly" 1 (awk '/^function __tcz_emit_set/,/^end$/' $catfile | grep -c 'tmux set -g @tmux_lives_emit_')
+t "emit_set write-throughs the memo entry for the same key it just wrote" 1 (awk '/^function __tcz_emit_set/,/^end$/' $catfile | grep -c 'set -g __tcz_tmux_g_emit_')
 t "__tcz_main flushes both the ps and tmux tables, in order" yes (string match -qr '(?s)__tcz_ps_flush\s*\n\s*__tcz_tmux_flush' -- "$__t_code"; and echo yes; or echo no)
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed

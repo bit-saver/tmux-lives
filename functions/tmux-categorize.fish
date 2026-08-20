@@ -122,14 +122,39 @@ end
 # per key), measured in production, collapse to the one bulk read `tmux show
 # -g` already proven (live server) to return all 37 @tmux_lives_* globals at
 # once. This first cut covers the THREE global keys the categorizer reads by a
-# literal, non-parameterized name: tabs_color, heal_interval, heal_at. The
-# per-tty emit-cache reads (@tmux_lives_emit_<tty>_<field>, __tcz_emit_get)
-# stay OUT of this table on purpose — they are keyed per CLIENT rather than
-# fixed, and __tcz_recolor's own force-mode pass re-reads one right after a
-# dedup-mode pass may have just WRITTEN it earlier in the same tick, which is
-# this project's own read-after-write staleness hazard; the task that owns
-# auditing every write-then-read in a pass (client batching, later in this
-# cycle) is the one that should decide how to memoize that, not this one.
+# literal, non-parameterized name: tabs_color, heal_interval, heal_at.
+#
+# tick-call-batching task 5: the per-tty emit-cache keys
+# (@tmux_lives_emit_<tty>_<field>) were left OUT of this table by task 2 on
+# purpose, pending the write-after-read audit — NOT because `show -g`'s bulk
+# read doesn't already carry them (it does; the parse loop below has no key
+# filter). __tcz_emit_get now reads them through __tcz_tmux_global exactly
+# like tabs_color/heal_interval/heal_at, and __tcz_emit_set WRITE-THROUGHS the
+# memo entry the instant it writes (see its own docstring) rather than
+# invalidating-and-reloading: a reload would re-issue this task's own
+# just-collapsed four-call batch, which defeats the point. That write-through
+# is what makes __tcz_recolor's force-mode re-read (right after its own
+# dedup-mode pass may have just written the same key, earlier in the same
+# tick) see the fresh value instead of a stale one — the exact read-after-
+# write hazard this comment used to flag as unsolved.
+#
+# One residual gap, found by direct probe against a real server (not assumed):
+# `tmux show -g`'s bulk format has no escape for an embedded TAB (it prints
+# the literal two bytes `\` `t`, indistinguishable from a value that legitimately
+# contains that same two-character text) and DROPS an embedded newline entirely
+# (verified: "line1\nline2" round-trips as "line1line2", with no representation
+# at all — a hard limit of tmux's own encoder, not of __tcz_tmux_unquote).
+# Verified SAFE for what actually reaches this table: hex colours, and title
+# text containing unicode, embedded quotes, and embedded backslashes all
+# round-trip byte-for-byte (probed live). The one path a tab could reach here
+# is a composed title incorporating an externally-set @tmux_lives_name that
+# itself contains a literal tab (the case Task 3 built greedy-last-field
+# handling for) — worst case on a stale first-of-pass read is a spurious
+# "changed" dedup verdict, i.e. one harmless extra re-emit, never a wrong
+# display and never a stuck one (the very next tick's fresh load — or, within
+# the same pass, __tcz_emit_set's own write-through — corrects it). Judged not
+# worth a fragile ordered multi-escape unescaper for a redraw-only, self-
+# healing edge case; documented rather than silently shipped.
 function __tcz_tmux_flush --description 'drop the per-pass tmux global-@option snapshot so the next lookup rebuilds it'
     # GLOB, not regex — the exact trap __tcz_ps_flush already carries a comment
     # for: `string match -r` with a prefix PATTERN returns the MATCHED
@@ -251,6 +276,36 @@ function __tcz_tmux_panes --argument-names session --description 'memoized "cmd<
     end
 end
 
+# --- client memo: ONE list-clients fetch per pass, shared by __tcz_recolor
+# and __tcz_retitle (tick-call-batching task 5) ---------------------------
+# Deliberately its OWN lazy trigger, NOT folded into __tcz_tmux_load'"'"'s
+# upfront batch. __tcz_categorize'"'"'s own reads trigger THAT load early --
+# before its per-session rename loop runs -- so a client'"'"'s #{client_session}
+# captured at that point would show the PRE-rename name for any client
+# attached to a session __tcz_categorize is about to rename, which is exactly
+# the staleness this task exists to prevent. Loading on first use instead
+# means that in the tick pass (categorize, then recolor/retitle in sequence)
+# this always fires AFTER every rename has already happened, reproducing the
+# timing the two separate live list-clients calls it replaces already had --
+# a client that attaches or detaches strictly between two same-pass readers
+# (recolor's dedup call and retitle's, or the later heal-triggered force
+# recolor) is not re-observed, but that is no different from today: a
+# just-attached client is handled immediately by __tcz_on_attach regardless of
+# the tick, and any drift is caught by the very next tick ~status-interval
+# later, exactly like every other snapshot-once-per-pass read in this file.
+function __tcz_tmux_clients --description 'memoized "pid<TAB>tty<TAB>session" rows, one per attached client, for this pass -- the union of the fields __tcz_recolor and __tcz_retitle used to fetch with their own separate list-clients calls. No-op once loaded (per pass); see the comment above for why this loads lazily rather than as part of __tcz_tmux_load'"'"'s upfront batch.'
+    if not set -q __tcz_tmux_cli_loaded
+        set -g __tcz_tmux_cli_loaded 1
+        set -l TAB (printf '\t')
+        for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}$TAB#{client_session}" 2>/dev/null)
+            set -ga __tcz_tmux_cli_rows "$line"
+        end
+    end
+    for line in $__tcz_tmux_cli_rows
+        printf '%s\n' $line
+    end
+end
+
 function __tcz_pid_comm --description 'pid -> executable name (portable: /proc on Linux, one shared ps snapshot elsewhere)'
     set -l pid $argv[1]
     test -n "$pid"; or return
@@ -361,11 +416,13 @@ end
 function __tcz_emit_key --argument-names tty --description 'sanitize a client tty into an @option-safe key (/dev/pts/9 -> devpts9)'
     string replace -ra '[^a-zA-Z0-9]' '' -- "$tty"
 end
-function __tcz_emit_get --argument-names tty field --description 'read the last-emitted <field> (title|color) cached for <tty>'
-    tmux show -gv @tmux_lives_emit_(__tcz_emit_key $tty)_$field 2>/dev/null
+function __tcz_emit_get --argument-names tty field --description 'read the last-emitted <field> (title|color) cached for <tty>. tick-call-batching task 5: served from the per-pass global @option memo (__tcz_tmux_global) instead of its own `show -gv` call -- the key composed here is one this table already carries out of __tcz_tmux_load'"'"'s single `show -g`, per that function'"'"'s own docstring. Correct for a same-pass read after an earlier same-pass write ONLY because __tcz_emit_set write-throughs this exact memo entry on every write -- see its docstring.'
+    __tcz_tmux_global emit_(__tcz_emit_key $tty)_$field
 end
-function __tcz_emit_set --argument-names tty field value --description 'cache the last-emitted <field> (title|color) for <tty>'
+function __tcz_emit_set --argument-names tty field value --description 'cache the last-emitted <field> (title|color) for <tty>: writes tmux'"'"'s global @option AND the memoized copy of that SAME key in the same call (tick-call-batching task 5), so a later same-pass reader (__tcz_recolor'"'"'s force-mode pass re-reads the very key its own dedup-mode pass may have just written, earlier in the same tick) sees this write instead of a stale pre-write snapshot. Write-through, not invalidate-and-reload: erasing just this one memo key would make a later read see "unset" (wrong -- it has a value, just not a cached one); reloading the whole per-pass table would re-issue the four-call batch this cycle exists to avoid. __tcz_tmux_load is called first so this is well-defined even as the very first tmux read/write of a pass (every current call site already triggers a load before reaching here, but this makes that a guarantee, not an accident).'
     tmux set -g @tmux_lives_emit_(__tcz_emit_key $tty)_$field "$value" 2>/dev/null
+    __tcz_tmux_load
+    set -g __tcz_tmux_g_emit_(__tcz_emit_key $tty)_$field "$value"
 end
 
 function __tcz_hostname --description 'short hostname (cache + test seam: tmux_lives_hostname)'
@@ -709,35 +766,45 @@ function __tcz_categorize --argument-names only --description 'rename every owne
     # remember to flush first.
     __tcz_tmux_flush
     set -l TAB (printf '\t')
-    # ONE batched session_path + current-@tmux_lives_display lookup for the whole pass,
-    # not a per-session display-message/show-option call — that would re-add the
-    # per-session tmux calls the 2026-08-17 narrowing work just removed. Parallel
-    # arrays, not `set -g paths_$name`: a dynamic variable name is either silent
-    # concatenation ("$paths_$cur" == "$cur" when paths_$cur is unset — measured) or an
-    # outright `set` error for a session name containing a space (also measured) —
-    # both wrong, neither erroring loudly.
-    set -l pnames; set -l ppaths; set -l pdisps
-    for l in (tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@tmux_lives_display}" 2>/dev/null)
-        set -l kv (string split -m 2 $TAB -- $l)
-        test (count $kv) -ge 2; or continue
-        set -a pnames $kv[1]; set -a ppaths $kv[2]
-        set -a pdisps (test (count $kv) -ge 3; and echo $kv[3]; or echo '')
-    end
+    # tick-call-batching task 5: this used to be its own standalone
+    # `list-sessions -F "name\tpath\tdisplay"` call, issued BEFORE __tcz_snapshot
+    # below, kept deliberately separate from __tcz_tmux_load's own session read
+    # (task 3's, which already carries name/path/display among other fields)
+    # because at the time nothing routed through it yet. It is a strict subset
+    # of that same call -- but capturing it via __tcz_tmux_load HERE, before
+    # __tcz_snapshot runs, does NOT collapse the two calls: __tcz_snapshot
+    # self-flushes at ITS OWN entry (own docstring, same reasoning as this
+    # function's), so an early load here would be wiped and immediately
+    # reloaded from scratch the instant __tcz_snapshot starts -- a real,
+    # measured regression (an EXTRA show-g + list-sessions pair caught by
+    # running the call-count harness after wiring this in the obvious order).
+    # So __tcz_snapshot runs FIRST -- its own internal __tcz_tmux_load call is
+    # what actually performs the one shared list-sessions fetch -- and pnames/
+    # ppaths/pdisps are read from the memo straight after: __tcz_tmux_load
+    # here is then a free no-op (already loaded), not a second call. Plain
+    # array reads, not accessor calls: this needs the WHOLE table (for the
+    # `contains -i -- $cur $pnames` lookup per session below), the same shape
+    # __tcz_snapshot already uses for its own copy of these same arrays.
+    set -l snap_rows (__tcz_snapshot $only)
+    __tcz_tmux_load
+    set -l pnames $__tcz_tmux_sess_names
+    set -l ppaths $__tcz_tmux_sess_path
+    set -l pdisps $__tcz_tmux_sess_display
     # Fail closed, mirroring __tcz_snapshot's own `test -n "$panes[1]"; or return`: a
-    # transient failure of THIS ONE tmux call (server hiccup, race) must not fall
+    # transient failure of THIS list-sessions call (server hiccup, race) must not fall
     # through with every $pi lookup empty, which would read every owned session as
     # project-less and rename the whole owned set to gen-N for a tick (reproduced —
-    # a real server still has sessions, so __tcz_snapshot's own list-panes/list-sessions
-    # calls can succeed independently and keep the per-session loop running). Bailing
-    # out of the WHOLE pass costs one self-healing tick of staleness; renaming
-    # everyone to gen-N costs a visible flap plus a round of display churn. Chose the
-    # early return over moving the lookup after __tcz_snapshot: reordering does not
-    # remove the race (any two separate tmux queries can still land on either side of
-    # a hiccup), it only relocates which call could fail — and a retry would be the
-    # real fix for that, which is out of scope here.
+    # a real server still has sessions, so list-panes/list-sessions can succeed
+    # independently and keep the per-session loop running). Bailing out of the WHOLE
+    # pass costs one self-healing tick of staleness; renaming everyone to gen-N costs
+    # a visible flap plus a round of display churn. The two calls now share one
+    # __tcz_snapshot invocation rather than being fully independent, so this check
+    # runs after both have already fired (a minor cost only in the failure case,
+    # already rare, and inherent to sharing the fetch — not worth restructuring
+    # __tcz_snapshot to abort mid-way for it).
     test -n "$pnames[1]"; or return
 
-    for line in (__tcz_snapshot $only)
+    for line in $snap_rows
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
         set -l cur $f[1]
@@ -3382,7 +3449,10 @@ function __tcz_recolor --argument-names color mode --description 'emit the Shell
     set color (__tcz_tab_color "$color")
     test -n "$color"; or return 0
     set -l TAB (printf '\t')
-    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}" 2>/dev/null)
+    # tick-call-batching task 5: served from the shared per-pass client memo
+    # (__tcz_tmux_clients) instead of its own list-clients call -- see that
+    # function's docstring for why it loads lazily rather than up front.
+    for line in (__tcz_tmux_clients)
         set -l parts (string split $TAB -- $line)
         set -l pid $parts[1]
         set -l tty $parts[2]
@@ -3501,8 +3571,25 @@ function __tcz_session_title --argument-names session --description 'session -> 
     # __tcz_categorize writes @tmux_lives_display for this same session earlier in the
     # very same `tick` pass (before __tcz_retitle -> here), so a memoized pre-tick
     # snapshot would read the STALE, pre-categorize value -- a real behaviour change,
-    # not the safe pre-write read __tcz_set_claude_opt relies on. Task 5 owns deciding
-    # how to invalidate a write like this one safely; out of scope here.
+    # not the safe pre-write read __tcz_set_claude_opt relies on (reproduced by
+    # mutation in task 3: "proj · My Task" silently became "proj (C)").
+    #
+    # tick-call-batching task 5 examined this (it was explicitly left for this task
+    # to decide) and chose to leave it live. Making it safe would require write-
+    # through tracking through a RENAME as well as a display write -- unlike the
+    # emit cache (a flat per-tty key __tcz_emit_set can update in place), a session
+    # can be RENAMED by this same __tcz_categorize pass before __tcz_retitle reads
+    # it back by name, so the memo's own #{session_name} index would ALSO need to
+    # move mid-pass to keep the lookup correct: real, if bounded, complexity and a
+    # second chance to reproduce the exact bug this task's mutation already found
+    # once. Not attempted because measurement showed it would not pay for that
+    # risk: on the call-count harness's fixture (fresh client attaches, so the
+    # per-tty emit cache starts empty), the two DEDUP writes plus the heal
+    # backstop's one FORCE write already cost 3 tmux calls per newly-attached
+    # client -- so even a perfect display fix (saving the 4th, this read) leaves
+    # the client-count delta at ~4 for a 1-vs-3-client fixture, still above this
+    # suite's SMALL_CONST=3. The "O(clients)" ratchet was going to stay unflipped
+    # either way; see test-tmux-tick-calls.fish and task-5-report.md.
     set -l name (__tcz_tmux_sess_name "$session")
     test -n "$name"; or set name (tmux show-option -qv -t "$tgt" @tmux_lives_display 2>/dev/null)
     test -n "$name"; or set name (__tcz_dir_display $path)
@@ -3511,7 +3598,11 @@ end
 
 function __tcz_retitle --argument-names mode --description 'emit each attached ShellFish/iTerm2 client its own OSC 2 title (title emission is identical for both terminal kinds — only the color-emit call differs, in __tcz_recolor/__tcz_on_attach). mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit.'
     set -l TAB (printf '\t')
-    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_tty}$TAB#{client_session}" 2>/dev/null)
+    # tick-call-batching task 5: served from the shared per-pass client memo
+    # (__tcz_tmux_clients) instead of its own list-clients call -- the SAME
+    # memo __tcz_recolor now shares, collapsing what were two separate
+    # list-clients reads into one.
+    for line in (__tcz_tmux_clients)
         set -l parts (string split $TAB -- $line)
         set -l pid $parts[1]
         set -l tty $parts[2]

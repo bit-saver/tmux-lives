@@ -302,17 +302,25 @@ echo "MEASURED tick tmux-call count: 1-client fixture=$ncl1  3-client fixture=$n
 t "sanity: the 1-client fixture actually issued tmux calls" 1 (test $ncl1 -gt 0; and echo 1; or echo 0)
 t "sanity: the 3-client fixture actually issued tmux calls" 1 (test $ncl3 -gt 0; and echo 1; or echo 0)
 
-# TODO(tick-call-batching): still O(clients) after task 4 -- NOT flipped. Task
-# 4's pane-walk batching incidentally dropped the measured delta 16 -> 12 (two
-# of its three per-client reads -- __tcz_session_title's session_path and
-# __tcz_session_has_claude's pane walk -- are now served from shared per-pass
-# memos, so a SECOND+ client attached to a session __tcz_categorize already
-# walked costs nothing extra there), but 12 is still well above SMALL_CONST:
-# the per-client @tmux_lives_display show-option read (deliberately still
-# live, see __tcz_session_title's docstring) and the per-tty emit-cache/
-# list-clients reads remain. Client batching + the read-after-write audit are
-# task 5's. Flip once true.
-t "today: tick tmux-call count vs ShellFish/iTerm2 client count (TODO(tick-call-batching): flip to O(1) once the client batching lands)" \
+# STILL O(clients) after task 5 -- deliberately NOT flipped, and this is not a
+# gap task 5 left behind: it batched the per-tty emit-cache reads (folded into
+# __tcz_tmux_load's existing show -g, task 2's table -- zero extra calls) and
+# merged the two list-clients calls into one shared __tcz_tmux_clients memo,
+# which is what dropped delta 12 -> 6 measured here. What is left is NOT a
+# read that could be batched away: on this fixture (fresh client attaches, so
+# the per-tty emit cache starts genuinely empty) every newly-attached client
+# costs 3 unavoidable tmux WRITES -- __tcz_recolor's dedup pass (color changed
+# from unset), __tcz_retitle's dedup pass (title changed from unset), and the
+# heal backstop's own force-mode __tcz_recolor pass (always writes,
+# unconditionally, by design) -- and a write cannot be folded into a batched
+# READ. 3 calls/client * 2 extra clients = 6, already above SMALL_CONST on its
+# own. The one remaining LIVE read, @tmux_lives_display (1 call/client, see
+# __tcz_session_title's own docstring for why task 5 left it live), was
+# measured too: even removing it entirely leaves delta ~4, still above
+# SMALL_CONST=3. So this classification was never going to flip this cycle
+# purely from read-batching, independent of the display decision -- see
+# task-5-report.md for the measurement this comment summarizes.
+t "today: tick tmux-call count vs ShellFish/iTerm2 client count (deliberately still O(clients); see comment above)" \
     "O(clients)" \
     (test $delta_clients -gt $SMALL_CONST; and echo "O(clients)"; or echo "O(1)")
 
