@@ -49,6 +49,17 @@ end
 function cleanup
     command tmux -L $sock kill-server 2>/dev/null
     rm -f /tmp/tmux-(id -u)/$sock
+    # tick-call-batching task 4: the per-pass memo (session @options AND, as of
+    # this task, the pane walk) is keyed by SESSION NAME, and this suite reuses
+    # short names ("sA", "0", "alpha", ...) across many independently-built real
+    # -L $sock fixtures. Without this, a name fetched against an EARLIER fixture
+    # could satisfy a later __tcz_tmux_panes/__tcz_tmux_sess_* lookup against a
+    # DIFFERENT real session that merely happens to share the name, silently
+    # serving stale data instead of querying the fixture actually under test.
+    # cleanup already means "the tmux state below this point may be completely
+    # different" -- flushing here makes that true for the in-process read memo
+    # too, mirroring __tcz_main's own flush-per-pass discipline.
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 end
 
 set -g tmux_categorize_test 1
@@ -64,6 +75,8 @@ function fresh_server --description 'kill the test server, wait until it is gone
         command tmux -L $sock list-sessions >/dev/null 2>&1; or break
     end
     command tmux -L $sock new-session -d -x 120 -y 40
+    # Same reasoning as cleanup's own flush, immediately above -- see its comment.
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 end
 
 # ---------------------------------------------------------------------
@@ -179,18 +192,135 @@ set -e tmux_lives_baseline_conf
 rm -f $oaf $oabase
 
 # ---------------------------------------------------------------------
+# __tcz_tmux_load / __tcz_tmux_flush / __tcz_tmux_global / __tcz_tmux_unquote
+# (tick-call-batching task 2): __tcz_ps_load's sibling — one `tmux show -g`
+# snapshot per pass, memoized into per-key globals, instead of a separate
+# `show -gv @tmux_lives_<key>` call for every read.
+# ---------------------------------------------------------------------
+fresh_server
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_tabs_color '#1f6feb' 2>/dev/null
+command tmux set -g @tmux_lives_heal_interval 42 2>/dev/null
+t "tmux_global reads a hex-color key (tmux quotes it on the leading #)" "#1f6feb" (__tcz_tmux_global tabs_color)
+t "tmux_global reads a bare-integer key" "42" (__tcz_tmux_global heal_interval)
+t "tmux_global returns empty for a key that was never set" "" (__tcz_tmux_global heal_at)
+
+# Memoization: a server-side change made AFTER the load must stay invisible
+# until the next explicit flush — this is the whole point of batching (one
+# read serves every accessor call for the rest of the pass), so proving the
+# memo does NOT self-refresh is as important as proving it loads correctly.
+command tmux set -g @tmux_lives_tabs_color '#abcdef' 2>/dev/null
+t "tmux_global is memoized: a change after load stays invisible until flushed" "#1f6feb" (__tcz_tmux_global tabs_color)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "tmux_global sees the change once flushed" "#abcdef" (__tcz_tmux_global tabs_color)
+
+# The actual point of task 2 (extended by task 3): three accessor calls for
+# three different GLOBAL keys, after one flush, must cost exactly TWO `tmux`
+# invocations, not six — one `show -g` for every global key, PLUS one
+# `list-sessions -F` (tick-call-batching task 3's session-scoped half, loaded
+# by the same __tcz_tmux_load and therefore paid on this same first touch even
+# though nothing here reads a session-scoped field). Was ONE invocation before
+# task 3 added the session half.
+set -g tgshim /tmp/tcz-tgshim-$fish_pid; set -g tglog /tmp/tcz-tglog-$fish_pid
+rm -rf $tgshim $tglog; mkdir -p $tgshim $tglog
+printf '#!/bin/bash\necho x >> %s/calls\nexec /usr/bin/tmux -L %s "$@"\n' $tglog $sock > $tgshim/tmux
+chmod +x $tgshim/tmux
+set -g tg_path_save $PATH
+set -gx PATH $tgshim $PATH
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_tmux_global tabs_color >/dev/null
+__tcz_tmux_global heal_interval >/dev/null
+__tcz_tmux_global heal_at >/dev/null
+set -l tg_calls 0
+test -f $tglog/calls; and set tg_calls (string trim -- (wc -l < $tglog/calls))
+t "tmux_global: three accessor calls after one flush cost exactly two tmux invocations (show -g + list-sessions)" 2 $tg_calls
+set -gx PATH $tg_path_save
+rm -rf $tgshim $tglog
+# This test's own accessor calls just loaded the memo from THIS block's real
+# $sock server state at whatever point in the suite this runs -- flush so that
+# snapshot cannot leak into any later test that forgets to flush before its
+# own first memo-backed read (this bit once: every downstream __tcz_snapshot
+# assertion failed en masse until this flush was added here).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# __tcz_tmux_unquote round-tripped against REAL tmux escaping, not hand-built
+# escape sequences (which this codebase has gotten subtly wrong before) —
+# tmux itself produces the `show -g` quoting, so proving __tcz_tmux_global
+# agrees with a direct `show -gv` on the SAME key for a variety of values is
+# a stronger, less error-prone check than asserting a specific quoted string.
+# Includes values beyond what any @tmux_lives_* key actually uses today
+# (semicolon, space, an embedded+doubled backslash) as bonus coverage; the two
+# genuinely out-of-scope shapes (a $, and a value tmux single-quote-wraps) are
+# pinned separately below as a documented, known gap rather than asserted here.
+fresh_server
+for v in '#1f6feb' plain42 '' 'a;b' 'has space' 'back\slash'
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    command tmux set -g @tmux_lives_rt_test "$v" 2>/dev/null
+    set -l want (command tmux show -gv @tmux_lives_rt_test 2>/dev/null)
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    set -l got (__tcz_tmux_global rt_test)
+    t "tmux_unquote agrees with a direct show -gv for value: '$v'" "$want" "$got"
+end
+
+# Known, documented limitation, pinned rather than silent: neither is reachable
+# for tabs_color/heal_interval/heal_at (always a bare integer or a #-led hex —
+# proven above), so __tcz_tmux_unquote's docstring says it does not attempt
+# either. A future change here is judged against what actually happens today,
+# not a guess at it.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_rt_test 'a$b' 2>/dev/null
+t "tmux_unquote known gap: a \$ inside double quotes is not unescaped" 'a\$b' (__tcz_tmux_global rt_test)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux set -g @tmux_lives_rt_test 'quote"inside' 2>/dev/null
+t "tmux_unquote known gap: tmux's single-quote wrap is not recognised" "'quote\"inside'" (__tcz_tmux_global rt_test)
+
+command tmux set -g -u @tmux_lives_rt_test 2>/dev/null
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+command tmux -L $sock kill-server 2>/dev/null
+
+# glob, not regex (the trap __tcz_ps_flush's own comment documents): a plain
+# per-key sentinel must be gone after flush. This is the exact class of bug a
+# `string match -r '^__tcz_tmux_'` mutation reintroduces — verified by hand:
+# `string match -r` on a bare prefix pattern returns the MATCHED SUBSTRING
+# (the literal "__tcz_tmux_" three times over, for three real names), so
+# `set -e` on that erases a variable that does not exist while every real
+# entry -- including this sentinel -- silently survives.
+set -g __tcz_tmux_g_probe_999999 SENTINEL
+set -g __tcz_tmux_loaded 1
+__tcz_tmux_flush
+t "tmux_flush clears a real per-key entry" "" "$__tcz_tmux_g_probe_999999"
+t "tmux_flush clears the loaded sentinel too" 0 (set -q __tcz_tmux_loaded; and echo 1; or echo 0)
+
+# pure: __tcz_tmux_unquote's own contract, independent of any tmux process
+t "tmux_unquote: bare token passes through unchanged" "abc123" (__tcz_tmux_unquote "abc123")
+t "tmux_unquote: two single quotes is the empty-value marker" "" (__tcz_tmux_unquote "''")
+
+# ---------------------------------------------------------------------
 # tabs-role resolution (v3 Phase 2): __tcz_tab_color resolves the live
 # @tmux_lives_tabs_color option (seeded by the themed fragment, tabs-role
 # sample when themed / '' under the legacy look) over the baked-in
 # fallback; __tcz_recolor/__tcz_on_attach route through it.
+#
+# __tcz_tab_color now reads through __tcz_tmux_load's per-PASS memo (tick-
+# call-batching task 2: nine `show -gv @tmux_lives_…` calls collapse to one
+# `tmux show -g`) -- so unlike a live `show -gv`, a second call inside this
+# same fish process will NOT see a state change unless the memo is flushed
+# first. __tcz_main flushes on every entry (production is always one pass per
+# process), but these three assertions call __tcz_tab_color directly, so each
+# state change below gets its own explicit flush -- same idiom this file
+# already uses for __tcz_ps_flush around the ps snapshot.
 # ---------------------------------------------------------------------
 fresh_server
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
 t "tab_color falls back when option unset" "#999999" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g @tmux_lives_tabs_color '#6e6e22' 2>/dev/null
 t "tab_color prefers the live tabs role" "#6e6e22" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g @tmux_lives_tabs_color '' 2>/dev/null
 t "tab_color: empty option falls back" "#999999" (__tcz_tab_color "#999999")
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 command tmux set -g -u @tmux_lives_tabs_color 2>/dev/null
 command tmux -L $sock kill-server 2>/dev/null
 t "recolor resolves via tab_color" yes (string match -q '*__tcz_tab_color*' -- (functions __tcz_recolor | string collect); and echo yes; or echo no)
@@ -450,6 +580,26 @@ t "snap: claude display from cwd"   "tcz-myproj-$fish_pid" \
 rm -rf /tmp/tcz-myproj-$fish_pid
 cleanup
 t "snap: no server -> empty" "" (__tcz_snapshot | string join ',')
+
+# tick-call-batching task 4 follow-up: the two assertions just above exercise
+# __tcz_snapshot's OWN local title aggregation ($ctitle, used for the DISPLAY
+# field) -- a separate mechanism from the NEW shared pane-walk memo
+# (__tcz_tmux_pane_title, populated by __tcz_snapshot's prefill and consumed by
+# __tcz_set_claude_opt via __tcz_tmux_panes). Nothing above touches @tmux_lives_claude,
+# so nothing above can catch a broken title stash on the memo side -- confirmed
+# unable to: mutating `set -ga __tcz_tmux_pane_title "$f[5]"` to always store empty
+# left all 1161 pre-follow-up assertions green. This one goes through the real
+# __tcz_categorize -> __tcz_snapshot (prefill) -> __tcz_set_claude_opt path with a
+# claude pane that has NO --name (so the readable name can only come from the
+# TITLE, via the memo) and checks the option __tcz_set_claude_opt actually writes.
+cleanup
+tmux new-session -d -s titleclaude -c $HOME "$shimdir/claude --enable-auto-mode"
+tmux select-pane -t titleclaude: -T "✳ Title Only Task"
+sleep 0.5
+__tcz_categorize
+t "categorize: a claude name sourced from the pane TITLE (no --name) reaches @tmux_lives_claude via the snapshot prefill" \
+    "Title Only Task" (tmux show-option -qv -t titleclaude @tmux_lives_claude 2>/dev/null)
+cleanup
 
 # ---------------------------------------------------------------------
 # Boring-command deprioritization: a session whose only non-shell pane
@@ -986,6 +1136,10 @@ cleanup
 tmux new-session -d -s 0 "$shimdir/claude --name Cross Write"
 tmux new-session -d -s neighbour
 sleep 0.5
+# tick-call-batching task 3: __tcz_set_claude_opt's dedup read is now served from
+# the per-pass session memo, so it must be fresh for sessions "0"/"neighbour" --
+# flush any load an earlier test in this suite left cached before they existed.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt 0
 set -g sid0 ''
 for l in (tmux list-sessions -F '#{session_name} #{session_id}' 2>/dev/null)
@@ -1023,6 +1177,45 @@ tmux new-session -d -s plain-shell
 sleep 0.5
 t "has_claude: numeric session running claude is detected" "yes" (__tcz_session_has_claude 0; and echo yes; or echo no)
 t "has_claude: the neighbour is correctly claude-free" "no" (__tcz_session_has_claude plain-shell; and echo yes; or echo no)
+cleanup
+
+# tick-call-batching task 4: the pane-walk memo is keyed by SESSION NAME, and this
+# suite reuses short names ("probe", "0", "sA", ...) across many independently-built
+# real -L $sock fixtures. Reusing the SAME name for a claude-then-no-claude pair
+# across a cleanup boundary is what actually discriminates cleanup's own
+# __tcz_tmux_flush (added this task) from a coincidence: the block above measures
+# "0" claude -> yes THEN "0" claude-free never reused after it, so it cannot tell a
+# fresh read from a stale one still saying "yes" from an earlier fixture. This one
+# can, in both directions.
+tmux new-session -d -s probe "$shimdir/claude --name Probe One"
+sleep 0.4
+t "has_claude: fresh fixture (with claude)" "yes" (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+tmux new-session -d -s probe 'sleep 1000'
+sleep 0.4
+t "has_claude: same session NAME, rebuilt claude-free -- must not read the earlier fixture's cached yes" "no" \
+    (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+tmux new-session -d -s probe "$shimdir/claude --name Probe Two"
+sleep 0.4
+t "has_claude: same session NAME, rebuilt WITH claude again -- must not read the middle fixture's cached no" "yes" \
+    (__tcz_session_has_claude probe; and echo yes; or echo no)
+cleanup
+
+# fresh_server's own flush is the SAME fix as cleanup's, for the SAME reason -- not
+# mere symmetry, a reproducible bug with a completely realistic trigger: fresh_server
+# creates its one session with NO explicit -s name, so tmux auto-numbers it, and a
+# fresh server's first (only) session is ALWAYS named "0". Two consecutive
+# fresh_server calls therefore reuse the name "0" for two entirely different real
+# sessions, exactly like the "probe" pair above but via the OTHER helper.
+fresh_server
+tmux send-keys -t 0 "$shimdir/claude --name Zero Round A" Enter
+sleep 0.6
+t "has_claude: fresh_server round A, session 0 (with claude)" "yes" (__tcz_session_has_claude 0; and echo yes; or echo no)
+fresh_server
+sleep 0.4
+t "has_claude: fresh_server round B, same auto-numbered name 0, claude-free -- must not read round A's cached yes" "no" \
+    (__tcz_session_has_claude 0; and echo yes; or echo no)
 cleanup
 
 # capture-pane does NOT accept the "=name" form that list-panes tolerates — it errors
@@ -1594,12 +1787,21 @@ set -g __tcz_ps_comm_999999 SENTINEL
 set -g __tcz_ps_args_999999 SENTINEL
 set -g __tcz_ps_kids_999999 SENTINEL
 set -g __tcz_ps_environ_999999 SENTINEL
+# Same property, same reason, for the tmux global-@option table __tcz_tmux_load
+# added (tick-call-batching task 2) -- __tcz_main must flush it on entry too, or
+# a long-lived caller could be served a global @option snapshot from a PRIOR
+# pass. Its own sentinel: __tcz_tmux_flush is glob-based (__tcz_tmux_*), so this
+# also re-covers the loaded flag by construction (same prefix).
+set -g __tcz_tmux_g_probe_999999 SENTINEL
+set -g __tcz_tmux_loaded 1
 __tcz_main host-kind >/dev/null 2>&1
 t "__tcz_main flushes the comm table on entry"    "" "$__tcz_ps_comm_999999"
 t "__tcz_main flushes the args table on entry"    "" "$__tcz_ps_args_999999"
 t "__tcz_main flushes the kids table on entry"    "" "$__tcz_ps_kids_999999"
 t "__tcz_main flushes the environ table on entry" "" "$__tcz_ps_environ_999999"
-set -e __tcz_ps_comm_999999 __tcz_ps_args_999999 __tcz_ps_kids_999999 __tcz_ps_environ_999999
+t "__tcz_main flushes the tmux global-@option table on entry" "" "$__tcz_tmux_g_probe_999999"
+t "__tcz_main flushes the tmux loaded sentinel on entry" 0 (set -q __tcz_tmux_loaded; and echo 1; or echo 0)
+set -e __tcz_ps_comm_999999 __tcz_ps_args_999999 __tcz_ps_kids_999999 __tcz_ps_environ_999999 __tcz_tmux_g_probe_999999
 
 # PLATFORM GATE, not per-pid readability. The gate was `test -r /proc/$pid/comm`,
 # so a pid that exits mid-pass fell through to the fallback ON LINUX and built
@@ -1764,6 +1966,12 @@ function tmux
         command tmux $argv
     end
 end
+# __tcz_recolor resolves @tmux_lives_tabs_color via __tcz_tab_color's memoized
+# read (tick-call-batching task 2) -- flush so this section's direct calls
+# (bypassing __tcz_main's own flush-on-entry) see the real, isolated test
+# server's current (unset) tabs_color rather than a table some earlier
+# section's assertions left behind.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
 __tcz_recolor '#1f6feb'
 t "recolor emits OSC to shellfish client 1" yes (test -s $tt1; and echo yes; or echo no)
@@ -1805,21 +2013,36 @@ t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
 rm -f $ttl
 
 # session_has_claude / session_title via a tmux stub (switch on subcommand).
-# __tcz_session_title now reads #{session_path} via display-message (the session's
-# start dir, single-valued) rather than list-panes' active-pane pane_current_path,
-# and consults @tmux_lives_display between the claim and the dir fallback.
+# __tcz_session_title reads #{session_path} (the session's start dir,
+# single-valued), not list-panes' active-pane pane_current_path, and consults
+# @tmux_lives_display between the claim and the dir fallback.
+#
+# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read comes
+# from the batched per-pass session memo (__tcz_tmux_load's `list-sessions -F`).
+# tick-call-batching task 4: #{session_path} is now served from that SAME memo
+# (__tcz_tmux_sess_path) instead of a live display-message call, and
+# __tcz_session_has_claude's pane walk is now served from the shared per-pass
+# pane memo (__tcz_tmux_panes) instead of its own list-panes call -- so the
+# `case list-sessions` row below now carries $tcz_test_path in the real
+# session_path position (4), and `case display-message` is gone (nothing
+# calls it here any more). EVERY simulated state change below (panes OR path
+# OR name) needs an explicit __tcz_tmux_flush before the next
+# __tcz_session_has_claude/__tcz_session_title call, or that call would see a
+# STALE memoized value instead of the one just set (same idiom this file
+# already uses for __tcz_tmux_global/__tcz_heal_due). @tmux_lives_display
+# stays a live show-option read, deliberately NOT migrated (see
+# __tcz_session_title's own docstring for why), so it needs no such flush.
 function tmux
     switch "$argv[1]"
         case list-panes
             printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
-        case display-message
-            echo $tcz_test_path              # __tcz_session_title: session_path
         case show-option
-            if string match -q '*@tmux_lives_display*' -- "$argv"
-                echo $tcz_test_display        # @tmux_lives_display override
-            else
-                echo $tcz_test_name           # @tmux_lives_name override
-            end
+            echo $tcz_test_display           # @tmux_lives_display override (still live)
+        case list-sessions
+            # session_path (4) and @tmux_lives_name (8, last, greedy) are the
+            # only fields __tcz_session_title reads from this row; the rest
+            # (attached/last_attached/claude/auto_name/display) are unused.
+            printf 'sA\t0\t0\t%s\t\t\t\t%s\n' $tcz_test_path $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -1827,17 +2050,22 @@ set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_path /home/x/workspace/tmux-lives
 set -g tcz_test_name ''
 set -g tcz_test_display ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
 t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_display 'My Project'
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title honors @tmux_lives_name over display and dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
 
 # empty session path must not shift args (arg-shift guard)
@@ -1845,13 +2073,14 @@ function tmux
     switch "$argv[1]"
         case list-panes
             printf 'claude\t999\n'           # session has claude
-        case display-message
-            echo ''                          # empty session_path
+        case list-sessions
+            printf 'sA\t0\t0\t\t\t\t\t\n'     # empty session_path (4), empty name (8)
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
 functions -e tmux
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
 
 # ---------------------------------------------------------------------
@@ -2009,11 +2238,19 @@ command tmux -L $tsock -f /dev/null new-session -d -s ts1 -c $twdir "cd $twdir/d
 sleep 0.3
 function tmux; command tmux -L $tsock $argv; end
 set -g tmux_lives_hostname boxhost
+# tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read is now
+# served from the per-pass session memo -- flush before the first read against
+# this fresh $tsock server, so nothing an earlier test cached leaks in here.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_title resolves the session's start dir (real tmux)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
 t "title: pinned to the session start dir, not the pane cwd after a cd" "boxhost: "(basename $twdir) (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
 t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
+# @tmux_lives_name is memoized (unlike @tmux_lives_display just above, which
+# stays a live read) -- the write above happened after the memo was loaded, so
+# it must be flushed or this read would see the pre-write empty name instead.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
 
 # multi-window regression: __tcz_session_title must stay stable across window
@@ -2030,6 +2267,10 @@ command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/d
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
 sleep 0.2
+# session "mw" postdates the memo load above -- flush so its (never-claimed, so
+# expected-empty either way, but this should not rely on that coincidence)
+# @tmux_lives_name read comes from a snapshot that actually contains it.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "title: multi-window baseline is the session's own start dir" "boxhost: mw-start" (__tcz_session_title mw)
 command tmux -L $tsock select-window -t mw:1 2>/dev/null
 t "title: unchanged after selecting a different window" "boxhost: mw-start" (__tcz_session_title mw)
@@ -2039,6 +2280,7 @@ t "title: unchanged after selecting a third window" "boxhost: mw-start" (__tcz_s
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
 set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
@@ -2074,11 +2316,14 @@ function tmux
         case list-clients; printf '111\t/dev/pts/9\n'
         case show
             # __tcz_recolor now resolves @tmux_lives_tabs_color (v3 Phase 2) via
-            # __tcz_tab_color BEFORE the per-tty emit-cache read below -- keep the
-            # two `show -gv` reads distinct or the tabs-role lookup would alias
-            # onto $DEDUP_color (the per-tty cache) and skew this dedup test.
-            if test "$argv[-1]" = @tmux_lives_tabs_color
-                echo ''
+            # __tcz_tab_color, which since tick-call-batching task 2 reads a
+            # memoized ONE-SHOT bulk `show -g` (argv[2] = -g) rather than a
+            # per-key `show -gv @key` (argv[2] = -gv) -- keep the two shapes
+            # distinct or the tabs-role lookup would alias onto $DEDUP_color
+            # (the per-tty cache, still read per-key/unbatched) and skew this
+            # dedup test.
+            if test "$argv[2]" = -g
+                echo "@tmux_lives_tabs_color ''"
             else
                 echo $DEDUP_color            # show -gv @..._color (per-tty cache)
             end
@@ -2086,6 +2331,9 @@ function tmux
         case '*'
     end
 end
+# __tcz_tab_color's bulk read is memoized per pass -- flush so THIS section's
+# stub (not whatever an earlier section left behind) is what gets loaded.
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 # key sanitization
 t "emit_key strips non-alnum" devpts9 (__tcz_emit_key /dev/pts/9)
 # force always emits + caches
@@ -2104,6 +2352,143 @@ functions -e tmux __tcz_emit_barcolor __tcz_client_terminal
 functions -q __tcz_ebc_bak; and functions -c __tcz_ebc_bak __tcz_emit_barcolor; and functions -e __tcz_ebc_bak
 functions -q __tcz_ct_bak; and functions -c __tcz_ct_bak __tcz_client_terminal; and functions -e __tcz_ct_bak
 set -e EMITTED; set -e DEDUP_color
+
+# ---------------------------------------------------------------------
+# staleness: a value written mid-pass is visible to a same-pass read after it
+# (tick-call-batching task 5's explicit "add a staleness test"). Against a
+# REAL tmux server, not a stub -- a stub could accidentally answer correctly
+# without the memo'"'"'s write-through actually doing anything; this exercises
+# __tcz_emit_set's real tmux write AND its in-process memo write together,
+# and __tcz_emit_get's read of __tcz_tmux_global -> __tcz_tmux_load's real
+# `show -g` + __tcz_tmux_unquote parse for the cross-pass case.
+# ---------------------------------------------------------------------
+set -g stsock tcz-stale-$fish_pid
+command tmux -L $stsock new-session -d -s stale-sess 2>/dev/null
+sleep 0.2
+function tmux; command tmux -L $stsock $argv; end
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+set -g STTY /dev/pts/77
+t "staleness: an unset emit key reads empty before any write" "" (__tcz_emit_get $STTY color)
+
+__tcz_emit_set $STTY color '#abc123'
+# THE staleness assertion: write mid-pass, then read the SAME key right
+# after -- no flush between the write and this read -- must see the value
+# just written, not whatever was cached (nothing, here) before the write.
+t "staleness: a value written mid-pass is visible to a same-pass read after it" '#abc123' (__tcz_emit_get $STTY color)
+
+# a write only touches its own key -- an unrelated tty's cache is untouched
+t "staleness: a write does not leak into an unrelated cached key" "" (__tcz_emit_get /dev/pts/78 color)
+
+# a SECOND write to the SAME key is visible immediately too, not just the first
+__tcz_emit_set $STTY color '#def456'
+t "staleness: a second same-pass write is visible immediately as well" '#def456' (__tcz_emit_get $STTY color)
+
+# cross-pass: flushing and reloading must pick up what was actually persisted
+# to the real tmux option, not just the in-process memo half -- proves
+# __tcz_emit_set's tmux write and its memo write-through agree with each
+# other, not merely that the memo half looks right in isolation.
+__tcz_tmux_flush
+t "staleness: the write also reached real tmux, not only the in-process memo" '#def456' (__tcz_emit_get $STTY color)
+
+functions -e tmux
+command tmux -L $stsock kill-server 2>/dev/null
+set -e stsock; set -e STTY
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# ---------------------------------------------------------------------
+# real end-to-end: a session RENAMED by __tcz_categorize mid-pass still gets
+# a correctly-composed title for its already-attached client, in the SAME
+# `tick` pass (tick-call-batching task 5). This is the concrete scenario the
+# read-after-write audit exists to catch: __tcz_tmux_clients loads AFTER
+# __tcz_categorize's renames (own docstring), so #{client_session} in this
+# pass'"'"'s client memo is the NEW name -- but __tcz_tmux_sess_path/_name are
+# still keyed by the OLD (pre-rename) name in the session memo loaded at pass
+# start, since Task 5 did not add rename-tracking to that memo (see
+# __tcz_session_title'"'"'s own docstring for why -- deliberately left live).
+# Proven safe here, not assumed: the ONLY thing that triggers a rename
+# (a non-empty project) is also exactly what makes __tcz_categorize write
+# @tmux_lives_display for that SAME session in the SAME pass, and
+# __tcz_session_title'"'"'s live (never-memoized) display read picks that up
+# directly by the session'"'"'s NEW name -- short-circuiting before the stale
+# path/name memo lookups would ever be consulted.
+#
+# The project dir'"'"'s own basename is a WEAK discriminator on its own -- it is
+# by definition identical to __tcz_dir_display'"'"'s bare-name fallback, so a
+# fixture with no task suffix cannot tell "resolved via the live display read"
+# apart from "coincidentally fell through to the dir fallback and got the same
+# string anyway" (caught in review: an earlier cut of this fixture used a bare
+# sleep pane and passed even with the live display read stubbed out from under
+# it). A claude pane with --name adds a " · <task>" suffix the dir fallback
+# cannot produce, which is what actually discriminates the two paths.
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-rn-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-rn-$fish_pid "$shimdir/claude --enable-auto-mode --name Fix the thing"
+sleep 0.3
+env LC_TERMINAL=ShellFish TERM=xterm-256color script -qec "tmux attach -t 0" /dev/null >/dev/null 2>&1 &
+set -l rn_n 0
+while test $rn_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set rn_n (math $rn_n + 1)
+end
+set -g tmux_lives_hostname rntest
+set -l rn_tty (tmux list-clients -F '#{client_tty}')
+__tcz_main tick '#445566' >/dev/null 2>&1
+set -l rn_names (tmux list-sessions -F '#{session_name}')
+set -l rn_key (__tcz_emit_key $rn_tty)
+set -l rn_title (tmux show-option -gqv @tmux_lives_emit_"$rn_key"_title)
+t "rename-mid-pass: the session was actually renamed off its numeric name" "tcz-rn-$fish_pid" "$rn_names"
+t "rename-mid-pass: the attached client's title carries the task suffix (proves the live display read, not the stale-name dir fallback)" "rntest: tcz-rn-$fish_pid · Fix the thing (C)" "$rn_title"
+set -e tmux_lives_hostname
+rm -rf $HOME/tcz-rn-$fish_pid
+cleanup
+
+# ---------------------------------------------------------------------
+# rename-mid-pass, project-less counterpart (fix wave 2026-08-19): the
+# claude+display fixture above is proven safe only because __tcz_categorize
+# writes @tmux_lives_display for that SAME session in the SAME pass, and
+# __tcz_session_title's live (never-memoized) display read short-circuits
+# before the stale-by-old-name path/name memo lookups are ever consulted.
+# A project-less rename (numeric -> gen-N, __tcz_categorize's stable-gen-N
+# bailout) writes NO display at all, so nothing short-circuits: the
+# fallback #{session_path} lookup DOES get consulted, and it is
+# __tcz_tmux_sess_path -- the per-pass memo loaded before this rename and
+# still keyed by the pre-rename numeric name. Reproduced pre-fix: the
+# attached client's IN-PASS title read "<host>: " (blank dir, a by-name
+# lookup miss) instead of "<host>: ~".
+#
+# Started with -f /dev/null and a plain `sleep`, same reasoning as the g2
+# fixture above: this is the FIRST new-session after `cleanup` kills the
+# server, so it is what actually starts the new server process and decides
+# whether it loads the user's REAL (fisher-installed) ~/.tmux.conf. Without
+# -f /dev/null that real config's own live tmux-lives hooks fire the instant
+# the real client attaches below and race-rename this throwaway session
+# using a DIFFERENT (installed, possibly older) categorizer before our own
+# __tcz_main tick ever runs -- reproduced: session ended up named "sleep"
+# (the pane's running command, the installed version's naming scheme) and
+# every assertion below failed against a session that no longer existed
+# under this name.
+# ---------------------------------------------------------------------
+cleanup
+tmux -f /dev/null new-session -d -s 0 -c $HOME 'sleep 500'
+sleep 0.3
+env LC_TERMINAL=ShellFish TERM=xterm-256color script -qec "tmux attach -t 0" /dev/null >/dev/null 2>&1 &
+set -l pl_n 0
+while test $pl_n -lt 25; and test (tmux list-clients 2>/dev/null | count) -eq 0
+    sleep 0.2
+    set pl_n (math $pl_n + 1)
+end
+set -g tmux_lives_hostname pltest
+set -l pl_tty (tmux list-clients -F '#{client_tty}')
+__tcz_main tick '#445566' >/dev/null 2>&1
+set -l pl_names (tmux list-sessions -F '#{session_name}')
+set -l pl_key (__tcz_emit_key $pl_tty)
+set -l pl_title (tmux show-option -gqv @tmux_lives_emit_"$pl_key"_title)
+t "rename-mid-pass, project-less: the session was promoted off its numeric name" "gen-1" "$pl_names"
+t "rename-mid-pass, project-less: the attached client's IN-PASS title carries the real dir, not a blank one left by the stale-by-old-name path memo" "pltest: ~" "$pl_title"
+set -e tmux_lives_hostname
+cleanup
 
 # --- host-kind detection (seeds @tmux_lives_host_kind -> which glyph) ---
 set -e tmux_lives_host_kind
@@ -2125,14 +2510,24 @@ set -e ssh_conn_save ssh_tty_save
 
 # --- @tmux_lives_claude population + DEDUP (only set-option when the value CHANGED; the
 #     unconditional per-tick/per-command set forced needless bar redraws → ShellFish cursor flicker) ---
+# tick-call-batching task 3: __tcz_set_claude_opt's dedup read now comes from the
+# batched per-pass session memo, not a live show-option call -- so the stub grew a
+# `case list-sessions` row (replacing `case show-option`) carrying $CLAUDE_CUR, and
+# EVERY simulated state change below needs an explicit __tcz_tmux_flush before the
+# next __tcz_set_claude_opt call, or that call would read a STALE memoized value
+# instead of the $CLAUDE_CUR just set (same idiom already used elsewhere in this
+# file for __tcz_tmux_global/__tcz_heal_due).
 set -g CLAUDE_SET ''
 set -g CLAUDE_CUR ''
 function tmux
     switch "$argv[1]"
         case set-option
             set -g CLAUDE_SET "$argv"   # capture the last set-option
-        case show-option
-            echo "$CLAUDE_CUR"          # simulated current @tmux_lives_claude
+        case list-sessions
+            # session_name/attached/last_attached/path/auto_name/display/name are
+            # unused by __tcz_set_claude_opt -- only the claude field (position 5,
+            # not greedy-last) matters here.
+            printf 'sA\t0\t0\t\t%s\t\t\t\n' $CLAUDE_CUR
         case list-panes
             printf '%s\n' $tcz_claude_panes
     end
@@ -2142,19 +2537,23 @@ functions -c __tcz_cmdline_name __tcz_cmdline_name_bak
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 # changed (cur empty -> opus): sets
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt writes @tmux_lives_claude when it changed" yes (string match -q '*set-option*sA*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # unchanged (cur already opus): SKIPS the set (no redraw)
 set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt skips the set when unchanged (no needless redraw)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 # claude went away (cur opus, now non-claude -> ''): sets (clears)
 set -g tcz_claude_panes (printf 'fish\t4242')
 set -g CLAUDE_CUR opus; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt clears @tmux_lives_claude when a claude went away" yes (string match -q '*@tmux_lives_claude*' -- "$CLAUDE_SET"; and not string match -q '*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # already empty non-claude: SKIPS
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 # --- title fallback: claude is usually started WITHOUT --name (e.g. `claude -c`), so
@@ -2166,20 +2565,40 @@ t "set_claude_opt skips when already empty (non-claude)" yes (test -z "$CLAUDE_S
 set -g tcz_claude_panes (printf 'claude\t4242\t⠂ TMUX Setup 21')
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt falls back to the pane title when there is no --name" yes (string match -q '*@tmux_lives_claude*TMUX Setup 21*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# tick-call-batching task 4: a title containing a literal embedded tab must survive
+# the round trip through the new pane memo (__tcz_tmux_pane_fetch splits -m 2 so
+# title stays the greedy-last field -> __tcz_tmux_panes re-serializes it verbatim,
+# tab included, via printf -> __tcz_set_claude_opt splits -m 2 again) exactly as it
+# did with the direct list-panes call this replaced -- same property this file
+# already pins for @tmux_lives_name's own greedy-last field (see the "Left\tRight"
+# test near the numeric-session block above), now proven for the pane TITLE path.
+set -l TABtc (printf '\t')
+set -l titletab (printf '⠂ Left\tRight')
+set -l wantfrag (printf 'Left%sRight' $TABtc)
+set -g tcz_claude_panes (printf 'claude\t4242\t%s' $titletab)
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_set_claude_opt sA
+t "set_claude_opt: a pane title containing a literal tab survives whole" "yes" \
+    (string match -q "*@tmux_lives_claude*$wantfrag*" -- "$CLAUDE_SET"; and echo yes; or echo no)
 # --name still WINS when present (stable flag beats a volatile title)
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; echo opus; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt prefers --name over the pane title" yes (string match -q '*@tmux_lives_claude*opus*' -- "$CLAUDE_SET"; and echo yes; or echo no)
 # an untrusted title (no leading glyph word) must NOT become the name
 set -g tcz_claude_panes (printf 'claude\t4242\tbare-title')
 functions -e __tcz_cmdline_name; function __tcz_cmdline_name; end
 set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt ignores an unparseable title" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
 functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET; set -e CLAUDE_CUR
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # ---------------------------------------------------------------------
 # scratch resize verbs
@@ -2234,18 +2653,34 @@ set -g HEAL_at ''; set -g HEAL_interval 120
 function tmux
     switch "$argv[1]"
         case show
-            string match -q '*heal_interval' -- "$argv[3]"; and echo $HEAL_interval
-            string match -q '*heal_at' -- "$argv[3]"; and echo $HEAL_at
+            # __tcz_heal_due now reads BOTH keys off one memoized bulk `show -g`
+            # (argv = (show -g), no per-key argv[3] to switch on) -- emit the
+            # bulk-line shape the real `tmux show -g` uses, one option per line,
+            # value bare (no quoting needed: these are always plain integers).
+            # An unset heal_at must be ABSENT from the bulk dump, matching real
+            # tmux's own "unset custom option never appears" behaviour.
+            echo "@tmux_lives_heal_interval $HEAL_interval"
+            test -n "$HEAL_at"; and echo "@tmux_lives_heal_at $HEAL_at"
         case set
             string match -q '*heal_at' -- "$argv[3]"; and set -g HEAL_at "$argv[-1]"
         case '*'
     end
 end
+# Each __tcz_heal_due call below is a direct call (not through __tcz_main, so
+# no automatic flush-on-entry) and this block deliberately exercises a
+# SEQUENCE of states -- unset, just-scheduled, before-schedule, at-schedule,
+# disabled -- so the memoized bulk read must be flushed before EVERY call, or
+# a later call in the sequence would silently see an earlier call's snapshot
+# (the exact read-after-write staleness hazard __tcz_tmux_load introduces).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal due when unset (schedules)" 0 (__tcz_heal_due 1000; echo $status)
 t "heal_at advanced to now+interval" 1120 "$HEAL_at"
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal not due before the interval" 1 (__tcz_heal_due 1100; echo $status)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal due at/after the schedule" 0 (__tcz_heal_due 1120; echo $status)
 set -g HEAL_interval 0
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "heal disabled when interval 0" 1 (__tcz_heal_due 999999; echo $status)
 functions -e tmux; set -e HEAL_at; set -e HEAL_interval
 
@@ -2964,6 +3399,31 @@ t "the ps snapshot feeds at least the three pid helpers" 1 (test (printf '%s\n' 
 # repo's own __tcz_pid_environ already carried `eww` for exactly this reason.
 t "both snapshots carry -ww (BSD truncates the last column at 79 cols)" 2 (printf '%s\n' "$__t_code" | grep -c 'ps -A -ww -o')
 t "pid_environ keeps eww, not e"                                        1 (printf '%s\n' "$__t_code" | grep -c 'ps eww -p')
+
+# tick-call-batching task 2: the three literal-keyed global reads must be
+# GONE from the categorizer (routed through __tcz_tmux_global instead). The
+# per-tty emit-cache read was deliberately left alone by task 2 (see
+# __tcz_tmux_load's OLD comment, since rewritten) -- task 5 is the one that
+# routes it too, see the two guards right after this block.
+t "tab_color no longer calls show -gv @tmux_lives_tabs_color directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_tabs_color')
+t "heal_due no longer calls show -gv @tmux_lives_heal_interval directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_interval')
+t "heal_due no longer calls show -gv @tmux_lives_heal_at directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_heal_at')
+t "tab_color routes through __tcz_tmux_global" 1 (awk '/^function __tcz_tab_color/,/^end$/' $catfile | grep -c '__tcz_tmux_global tabs_color')
+t "heal_due routes through __tcz_tmux_global" 2 (awk '/^function __tcz_heal_due/,/^end$/' $catfile | grep -c '__tcz_tmux_global')
+
+# tick-call-batching task 5: the per-tty emit-cache read is now ALSO routed
+# through the shared global memo (it was already inside __tcz_tmux_load's one
+# `show -g`, per that function's own docstring -- task 2 just never wired a
+# reader to it, pending this task's write-after-read audit). No more direct
+# `show -gv @tmux_lives_emit_...` anywhere in the file.
+t "the per-tty emit-cache read no longer calls show -gv directly" 0 (printf '%s\n' "$__t_code" | grep -c 'show -gv @tmux_lives_emit_')
+t "emit_get routes through __tcz_tmux_global" 1 (awk '/^function __tcz_emit_get/,/^end$/' $catfile | grep -c '__tcz_tmux_global emit_')
+# emit_set still WRITES tmux directly (a write can't be batched away — see the
+# CLAUDE.md map, "2 writes, stay") AND write-throughs the same key into the
+# memo so a later same-pass read (the staleness property) sees it.
+t "emit_set still writes tmux directly" 1 (awk '/^function __tcz_emit_set/,/^end$/' $catfile | grep -c 'tmux set -g @tmux_lives_emit_')
+t "emit_set write-throughs the memo entry for the same key it just wrote" 1 (awk '/^function __tcz_emit_set/,/^end$/' $catfile | grep -c 'set -g __tcz_tmux_g_emit_')
+t "__tcz_main flushes both the ps and tmux tables, in order" yes (string match -qr '(?s)__tcz_ps_flush\s*\n\s*__tcz_tmux_flush' -- "$__t_code"; and echo yes; or echo no)
 # fish performs NO command substitution inside double quotes: `math "(random …) * 5"`
 # hands math the LITERAL text (Unknown-function stderr into the popup) and the failed
 # substitution leaves an EMPTY LIST that vanishes from unquoted arg lists downstream
@@ -3005,8 +3465,20 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # new site (the set -U write). Net +1 = 8 -> 9. drop-autoapply-debounce-seed
 # Task 1 removed the A toggle and its write site outright (not merely the
 # settle-timeout caller — the toggle itself is gone). Net -1 = 9 -> 8.
-t "guard: exactly 8 action-site subprocesses" 8 (count (string match -ar 'fish -c' -- "$pbody"))
-# 8 = init + a-current + a-off + a-list (now inside __tcz_thp_apply_now) + esc-revert + seed-commit-on-save + 2 saves
+# tick-call-batching task 2 review fix: the 4 write-then-recolor sites
+# (a-current, a-off, a-list, esc-revert) moved OUT of __tcz_theme_picker's own
+# body into a shared top-level helper, __tcz_thp_apply_and_recolor, so the
+# flush this fix needed (a write from a fish -c CHILD is invisible to the
+# picker's own __tcz_tmux_load memo, which never re-fires across the picker's
+# one long-lived while-true pass) lives in exactly one place instead of four.
+# 8 -> 4 remaining directly in $pbody (init + seed-commit-on-save + 2 saves);
+# the other 4 are now pinned separately, against the helper's OWN body, below.
+t "guard: exactly 4 action-site subprocesses remain directly in the picker body" 4 (count (string match -ar 'fish -c' -- "$pbody"))
+# 4 = init + seed-commit-on-save + 2 saves
+set -l aarbody (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
+t "guard: apply_and_recolor body extraction is non-empty" 1 (test -n "$aarbody"; and echo 1; or echo 0)
+t "guard: apply_and_recolor is exactly one action-site subprocess (the 4 old sites share it)" 1 (count (string match -ar 'fish -c' -- "$aarbody"))
+t "guard: apply_and_recolor flushes the tmux memo right after its write, not before" yes (string match -qr '(?s)fish -c[^\n]*\n\s*__tcz_tmux_flush' -- "$aarbody"; and echo yes; or echo no)
 t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-install.fish*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Task 7: the reload composes, it does not swap the row source ----------------
@@ -3852,12 +4324,17 @@ t "apply_now body extraction is non-empty" 1 (test -n "$aabody"; and echo 1; or 
 # final review (M1): the only existing __tcz_recolor guard (further down this
 # file) greps the WHOLE picker body, so it stays green even with all three
 # calls inside THIS function deleted — case cancel's own __tcz_recolor call
-# satisfies it regardless. Scoped to aabody instead, and to the exact call
-# shape (`and __tcz_recolor "$tabhex"`) rather than a bare substring count —
-# the function's own --description text mentions "__tcz_recolor" too ("Always
-# followed by a __tcz_recolor tab emit."), so a plain substring count over
-# aabody reads 4, not the 3 real call sites.
-t "apply_now calls __tcz_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar 'and __tcz_recolor "\$tabhex"' -- (string split \n -- "$aabody")))
+# satisfies it regardless. Scoped to aabody instead of the whole picker body.
+# tick-call-batching task 2 review fix: the literal `and __tcz_recolor
+# "$tabhex"` shape this used to match moved OUT of apply_now entirely, into
+# the shared __tcz_thp_apply_and_recolor helper (so the flush the fix needed
+# lives in one place, not four) — apply_now's own body now only ever CALLS
+# that helper, once per branch, so the guard is scoped to counting those
+# call sites instead of the (now relocated) recolor shape. Still bound to
+# `bare call, not the --description text` the same way the old guard was:
+# a plain substring count would also match the function's own docstring,
+# which names __tcz_thp_apply_and_recolor too.
+t "apply_now calls __tcz_thp_apply_and_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar '^ +__tcz_thp_apply_and_recolor ' -- (string split \n -- "$aabody")))
 # Bounded to the current-row branch alone (the sel2 -eq 0 arm) so a fix that
 # flips the WRONG branch to previewed 2 can't pass by coincidence.
 set -l currowblock (string match -r '(?ms)sel2 -eq 0\b.*?else\b' -- "$aabody" | string collect)
@@ -3919,21 +4396,22 @@ set -l catfile $plugindir/functions/tmux-categorize.fish
 set -g SLB (functions __tcz_theme_picker | string collect)
 # the anchor snapshot carries the seed so cancel can restore it
 t "anchor snapshot captures the seed" 1 (string match -q '*set -l anch_seed $seed*' -- "$SLB"; and echo 1; or echo 0)
+# tick-call-batching task 2 review fix: the live-preview shadow, all three
+# case-a call sites' shared shadow, and cancel's restore-by-shadow all moved
+# OUT of __tcz_theme_picker's own body ($SLB, still used above/below for
+# other checks) into the shared top-level helper __tcz_thp_apply_and_recolor
+# — extracted fresh from source, since $SLB no longer contains any of this.
+set -l aarbody2 (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
 # live preview shadows the universal in the child rather than writing it
-t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$SLB"; and echo 1; or echo 0)
-# picker-legibility-autoapply Task 5 moved all three preview call sites out
-# of case a and into __tcz_thp_apply_now (originally also called by the
-# settle-timeout auto-apply so the two paths could not drift apart;
-# drop-autoapply-debounce-seed Task 1 removed that caller and kept
-# apply_now, renamed, as case a's sole body) — bound to the function body
-# directly rather than the old "case a...case cancel" span, which no longer
-# contains this logic at all (the vacuity risk the old comment warned about
-# — a bare '*case a*' substring also catching the "(case a/enter" comment
-# two arms up — does not apply to a function-name anchor).
-set -l casea (string match -r '(?s)function __tcz_thp_apply_now.*?\n    end' -- "$SLB" | string collect)
-t "all three case-a previews shadow the seed" 3 (count (string match -ar 'set -g tmux_lives_bar_color' -- "$casea"))
+t "preview shadows the seed in the child" 1 (string match -q '*set -g tmux_lives_bar_color*' -- "$aarbody2"; and echo 1; or echo 0)
+# The old "three case-a sites each shadow" count doesn't translate directly:
+# there is now exactly ONE shadow site (the helper just checked above),
+# shared by three call sites in apply_now — already pinned above by "apply_now
+# calls __tcz_thp_apply_and_recolor once per branch", 3. Both halves of the
+# original guarantee (one shadow mechanism; three branches wired to it) are
+# still each pinned, just against the two functions separately now.
 set -l cancelblock (string match -r '(?ms)^ *case cancel$.*?^ *end$' -- "$SLB" | string collect)
-t "cancel restores by shadowing the anchor seed" 1 (string match -q "*__tmux_lives_theme_apply_live' \"\$anch_seed\"*" -- "$cancelblock"; and echo 1; or echo 0)
+t "cancel restores by shadowing the anchor seed" 1 (string match -q '*__tcz_thp_apply_and_recolor "$anch_seed"*' -- "$cancelblock"; and echo 1; or echo 0)
 # saving commits the seed — exactly once, in the EXIT path, never in a seed
 # screen. awk scopes the seed screen out first (a NESTED function indented 4
 # spaces — verified non-empty below rather than trusted blind); the commit
@@ -5896,8 +6374,23 @@ t "case a calls __tcz_thp_apply_now" 1 (string match -qr '(?ms)^ *case a$\n *__t
 # $note change IN THE CALLER'S OWN SCOPE is what only --no-scope-shadowing
 # makes possible — without it this whole block still runs, but previewed
 # and note stay exactly as seeded (previewed 0 vs error, both wrong).
+# tick-call-batching task 2 review fix: `fish` shadows a real BINARY, so a
+# bare `functions -e fish` correctly un-shadows it (PATH resolution takes
+# back over — nothing to restore). __tcz_tab_color/__tcz_recolor are
+# themselves SOURCE-DEFINED fish functions with no such fallback: a bare
+# `function __tcz_tab_color; ...; end` here REPLACES the real one loaded at
+# this file's own `source functions/tmux-categorize.fish`, and the later
+# bare `functions -e __tcz_tab_color` was found (while building the
+# regression test just below) to erase that replacement into NOTHING rather
+# than reveal the original — leaving both functions permanently undefined
+# for the rest of this file. Pre-existing, harmless only because nothing
+# after this block used to call either again; backed up and restored
+# properly now, matching this file's own established convention elsewhere
+# (functions -c ORIGINAL ORIGINAL_bak / functions -c ORIGINAL_bak ORIGINAL).
 function fish; end
+functions -c __tcz_tab_color __tcz_tab_color_apply_now_bak
 function __tcz_tab_color; echo ''; end
+functions -c __tcz_recolor __tcz_recolor_apply_now_bak
 function __tcz_recolor; end
 eval $aabody
 set -l focus list
@@ -5911,6 +6404,66 @@ __tcz_thp_apply_now
 t "calling the real apply_now changes previewed in the caller (proves --no-scope-shadowing)" 1 "$previewed"
 t "calling the real apply_now changes note in the caller too" 1 (test -n "$note"; and echo 1; or echo 0)
 functions -e __tcz_thp_apply_now fish __tcz_tab_color __tcz_recolor
+functions -c __tcz_tab_color_apply_now_bak __tcz_tab_color; functions -e __tcz_tab_color_apply_now_bak
+functions -c __tcz_recolor_apply_now_bak __tcz_recolor; functions -e __tcz_recolor_apply_now_bak
+
+# ---------------------------------------------------------------------
+# CRITICAL review fix (tick-call-batching task 2): __tcz_thp_apply_and_recolor
+# writes @tmux_lives_tabs_color from a fish -c CHILD, then reads it straight
+# back via __tcz_tab_color to push the OSC. The theme picker's while-true
+# loop is the one genuinely long-lived pass in this codebase -- __tcz_tmux_load
+# never re-fires across the whole session -- so without a flush right after
+# the write, a SECOND apply in the same session would read back the FIRST
+# apply's memoized value: pressing `a` on one scheme then another would freeze
+# the user's ShellFish/iTerm2 tab colour at the first. The stub two blocks up
+# (`function __tcz_tab_color; echo ''; end`) is exactly what hid this — the
+# real accessor never met the real memo there. This test uses BOTH for real,
+# against a real isolated -L server, and is mutation-proven below (comment
+# out the flush, confirm both new assertions go red).
+#
+# __tcz_thp_apply_and_recolor's fish -c child needs a REAL, config-loaded
+# fish that can autoload __tmux_lives_theme_apply_live -- unlike this whole
+# suite's own outer isolation guard (a throwaway XDG_CONFIG_HOME with no
+# fish/conf.d in it, deliberately, so THIS process's own set -U calls never
+# touch the real store), so a second, dedicated throwaway XDG_CONFIG_HOME
+# with just a copy of the plugin's conf.d/tmux-lives-install.fish (NOT
+# conf.d/tmux.fish -- that file's autostart/session wiring is irrelevant here
+# and no top-level statement in tmux-lives-install.fish needs it; verified by
+# reading the file — its only top-level line seeds a harmless math constant)
+# is swapped in for the two calls only, then restored.
+set -l aarsock tcz-aar-$fish_pid
+set -l aarhome (mktemp -d /tmp/tcz-aar-home.XXXXXX)
+mkdir -p $aarhome/fish/conf.d
+cp $plugindir/conf.d/tmux-lives-install.fish $aarhome/fish/conf.d/tmux-lives-install.fish
+set -l aardir /tmp/tcz-aar-shim-$fish_pid
+rm -rf $aardir; mkdir -p $aardir
+printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $aarsock > $aardir/tmux
+chmod +x $aardir/tmux
+command tmux -L $aarsock kill-server 2>/dev/null
+for i in (seq 50)
+    command tmux -L $aarsock list-sessions >/dev/null 2>&1; or break
+end
+command tmux -L $aarsock -f /dev/null new-session -d -s aar 2>/dev/null
+sleep 0.2
+
+set -l aar_path_save $PATH
+set -l aar_xdg_save $XDG_CONFIG_HOME
+set -gx PATH $aardir $PATH
+set -gx XDG_CONFIG_HOME $aarhome
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_thp_apply_and_recolor '#111111' mono bar derived 0
+set -l aar_first (__tcz_tab_color '')
+__tcz_thp_apply_and_recolor '#222222' mono bar derived 0
+set -l aar_second (__tcz_tab_color '')
+set -l aar_live (command tmux -L $aarsock show -gv @tmux_lives_tabs_color 2>/dev/null)
+set -gx PATH $aar_path_save
+set -gx XDG_CONFIG_HOME $aar_xdg_save
+command tmux -L $aarsock kill-server 2>/dev/null
+rm -rf $aardir $aarhome
+
+t "apply_and_recolor: two successive applies both actually reach the real server" 1 (test -n "$aar_first"; and test -n "$aar_second"; and echo 1; or echo 0)
+t "apply_and_recolor: the second apply's read differs from the first (not stale)" yes (test "$aar_first" != "$aar_second"; and echo yes; or echo no)
+t "apply_and_recolor: the second read matches the real live value, not the first" "$aar_live" "$aar_second"
 
 # --- Task 4: edit-mode ↑↓ channel select must drain -------------------------
 # The non-editing branch of `case up down pgup pgdn` already drains held

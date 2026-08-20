@@ -379,7 +379,12 @@ set -l hist_before (md5sum $real_hist 2>/dev/null | string split ' ')[1]
 
 set -l ptydir /tmp/tl-shellkey-$fish_pid
 rm -rf $ptydir; mkdir -p $ptydir/fish/conf.d $ptydir/bin $ptydir/data/fish
-printf -- '- cmd: echo tlprobe\n  when: 1700000000\n' > $ptydir/data/fish/fish_history
+# fish's builtin printf does NOT honour `--` as an option terminator -- it
+# takes `--` itself as the format string and discards the rest, so a `printf --
+# '<yaml>'` here silently writes a 2-byte file containing only "--". Measured:
+# that left the seed genuinely empty, and the sudo-prepend assertions below
+# passed whether or not the production binding worked. Omit `--`.
+printf '- cmd: echo tlprobe\n  when: 1700000000\n' > $ptydir/data/fish/fish_history
 # `sudo` is a real binary, so a PATH stub shadows it. `tmux-lives` is NOT --
 # the plugin defines it as a FUNCTION, and fish resolves functions before
 # $PATH, so a stub binary is silently ignored and the real dispatcher runs
