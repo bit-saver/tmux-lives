@@ -1,5 +1,14 @@
 # Theme picker latency — root cause found, fix NOT built (on hold 2026-08-17)
 
+> **UNPARKED 2026-08-21. The open question at the bottom is ANSWERED: transmission is the cause.** The A/B was run and a second control was added to close a confound the first left open. Design approved at `docs/superpowers/specs/2026-08-21-picker-partial-repaint-design.md`. **One claim in this document is wrong** — see "Correction" at the bottom. Everything else re-measured within drift at `HEAD`.
+>
+> | | Aug 17 | at `HEAD`, Aug 21 |
+> |---|---|---|
+> | warm frame construction | 27-32 ms | 29.7 ms |
+> | bytes per frame | 14,485 | 12,697 |
+> | bytes that change | 821 | 747 |
+> | amplification | 17.6× | 17× |
+
 **Status: PARKED mid-investigation**, one question short of a decision. Phase 1 of systematic debugging is complete and the root cause is measured. Nothing was changed. Resume by answering the single open question at the bottom.
 
 ## The report
@@ -65,3 +74,29 @@ The picker runs on whichever host's tmux you are in and paints back to your term
 Emit only the changed rows (cursor-addressed) instead of the whole frame — 821 bytes instead of 14,485. Keep the construction caching exactly as it is; it is doing its job. The frame proof (`__t9_frame_rows`) asserts row COUNT and would not notice partial emission, so it needs a companion assertion on emitted BYTES, and the synchronized-output wrapper has to stay correct across a partial paint.
 
 Not designed, not planned, not built.
+
+---
+
+# ANSWER (2026-08-21): transmission, confirmed by a two-stage A/B
+
+The user ran the discriminating test and reported the iPad **stutters badly** on a held down/up/down reversal while local cmux is smooth. That alone was **not** sufficient: at the time of the report the two sides differed in host (rocket vs macwork), tmux version (3.3a vs 3.7b) **and** transport, because rocket had only been brought up to `HEAD` at 07:43 that morning.
+
+A second control closed it. Opening the theme picker on **rocket from cmux over the LAN** — same host, same tmux 3.3a, same code, same 29.7 ms construction — is **smooth**. Only the wire differs between that and the iPad case, so transport is the sole remaining variable.
+
+| test | result |
+|---|---|
+| iPad → ShellFish → rocket (wifi/cellular) | stutters |
+| cmux → macwork (local) | smooth |
+| **cmux → rocket (LAN)** | **smooth** |
+
+The reversal is the most sensitive probe available and it is worth knowing why, because it is the test to repeat after the fix. The arrow drain is discard-based, one step per frame, and deliberately direction-blind (`case up down` discards either token). When frames are wire-bound rather than CPU-bound the write blocks, autorepeat piles up in the tty buffer, and the drain swallows the entire queued burst as one net step — and on a reversal the swallowed taps are precisely the ones that change direction. Hold-down is merely slow; down → up → down is what makes it look broken.
+
+# Correction: the "no progressive paint" claim does not hold on tmux 3.3a
+
+This document states that the synchronized-output wrapper means the terminal paints nothing until the whole frame arrives, so a slow frame and an ignored keypress are indistinguishable. That was inferred from the bytes the picker *emits*; it was never checked against what tmux *forwards*.
+
+**Measured on rocket: tmux 3.3a drops app-sent `\e[?2026h`/`l` entirely.** It never reaches ShellFish. A bogus `\e[?9999h`/`l` control behaves identically, so this is not specific to 2026 — tmux simply does not forward private modes it does not implement, and app-sent DECSET 2026 support landed after 3.6a.
+
+So on the user's iPad path ShellFish paints **progressively** as the 12.7 KB arrives, and the symptom is pure throughput. That matches the user's word *stuttering*, and it differs from this document's original report ("I never know if my keypress worked"), which is the all-or-nothing signature. The feedback defect described above is real but applies to tmux ≥ 3.7 — macwork, where the project's own `terminal-features xterm*:sync` fix deliberately enables synchronized output — not to rocket.
+
+**Method note, because two earlier attempts at this measurement were void.** The agent shell here is zsh; it mangled the quoting, the pane printed the escape sequences as literal text, and a `grep` for `[?2026` matched those literals and reported "forwarded". The measurement above puts the emitter in a file so no quoting layer can corrupt it, verifies the emitter writes real ESC bytes, reads the client pty with a hexdump rather than a string match, and carries the `?9999` control. A probe that cannot discriminate returns a confident wrong answer — this file's own synthetic-probe lesson, hit again.
