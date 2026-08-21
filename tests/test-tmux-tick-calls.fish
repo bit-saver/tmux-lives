@@ -529,6 +529,66 @@ t "equivalence baseline: __tcz_overview is byte-identical to today's pinned outp
 t "equivalence baseline: the set of option writes is byte-identical to today's pinned output" "$EXPECT_WRITES" "$eq_writes"
 
 # ---------------------------------------------------------------------
+# 6. project-from-pane-cwd (2026-08-19/20): naming now comes from the active
+# pane's cwd, via a git-root walk (__tcz_git_root) when the pane sits inside a
+# repo. That walk must add NEITHER a tmux call NOR a subprocess fork -- this
+# project spent a whole cycle (the tick-call-batching cycle just above, and
+# before that the macOS pgrep/sysmond fix) removing exactly the shapes of cost
+# a careless version of this walk could reintroduce. Reuses this file's own
+# harness: a same-shape logging shim additionally captures `git` invocations,
+# and a fixture whose project dirs are real git repos, nested a level deep
+# (mirroring the measured pingy-android/user case the walk exists for, so it
+# actually has to climb rather than just checking one directory and stopping)
+# is compared against an equally-sized git-free fixture.
+# ---------------------------------------------------------------------
+
+function __tcb_make_git_shim --argument-names dir log --description 'write a logging git shim at <dir>/git: appends every invocation'"'"'s argv (one line) to <log>, then exits 1 without touching the real git binary at all -- the walk must never need a real answer from it (it only ever wants YES/NO ".git exists here", which is a plain `test -d`, not a git subcommand).'
+    mkdir -p $dir
+    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> %s\nexit 1\n' $log > $dir/git
+    chmod +x $dir/git
+end
+
+set -l gwdir /tmp/tcz-tcb-gw-$fish_pid
+set -l gwsock tcz-tcb-gw-$fish_pid
+set -l gwlog /tmp/tcz-tcb-gwlog-$fish_pid
+set -l gwgitlog /tmp/tcz-tcb-gwgitlog-$fish_pid
+set -l gwproj /tmp/tcz-tcb-gwproj-$fish_pid
+__tcb_track $gwdir; __tcb_track $gwlog; __tcb_track $gwgitlog; __tcb_track $gwproj
+__tcb_make_shim $gwdir $gwsock $gwlog
+__tcb_make_git_shim $gwdir $gwgitlog
+rm -rf $gwproj
+
+command tmux -L $gwsock kill-server 2>/dev/null
+for i in (seq 50)
+    command tmux -L $gwsock list-sessions >/dev/null 2>&1; or break
+end
+# 3 sessions, each rooted TWO levels inside its own git repo.
+for i in 1 2 3
+    mkdir -p $gwproj/repo$i/.git $gwproj/repo$i/src/deep
+    command tmux -L $gwsock -f /dev/null new-session -d -s "tcb$i" -c $gwproj/repo$i/src/deep "sleep 300" 2>/dev/null
+end
+sleep 0.3
+set -l n_git (__tcb_tick_calls $gwdir $gwsock $gwlog '#112233')
+command tmux -L $gwsock kill-server 2>/dev/null
+
+set -l git_invocations 0
+test -f $gwgitlog; and set git_invocations (string trim -- (wc -l < $gwgitlog))
+t "sanity: the git-repo fixture actually issued tmux calls" 1 (test $n_git -gt 0; and echo 1; or echo 0)
+t "project-from-pane-cwd: the git-root walk forks zero git subprocesses" 0 "$git_invocations"
+
+# Same tmux call count as an equally-sized, git-free fixture (this file's own
+# __tcb_sessions helper: 3 plain sessions, -c /tmp) -- the walk is
+# filesystem-only (test -d in a loop, per __tcz_git_root), so nesting sessions
+# inside real repos must not change the tick's tmux-call cost at all.
+__tcb_sessions $gwsock 3
+set -l n_nogit (__tcb_tick_calls $gwdir $gwsock $gwlog '#112233')
+command tmux -L $gwsock kill-server 2>/dev/null
+echo "MEASURED project-from-pane-cwd: git-repo fixture tmux calls=$n_git  git invocations=$git_invocations  git-free 3-session comparison=$n_nogit"
+t "project-from-pane-cwd: nesting sessions in real git repos costs zero extra tmux calls" "$n_nogit" "$n_git"
+
+rm -rf $gwproj
+
+# ---------------------------------------------------------------------
 # Hygiene: sweep every -L socket and shim/log/project dir THIS run created,
 # scoped to this run's own $fish_pid, failing closed rather than globbing
 # broadly if that pid were ever empty (it cannot be -- fish-protected -- but the

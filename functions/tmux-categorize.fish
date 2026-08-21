@@ -22,11 +22,27 @@ function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9
     test -n "$s"; and echo $s; or echo session
 end
 
-function __tcz_project_name --argument-names path --description 'session start dir -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
+function __tcz_git_root --argument-names path --description 'pure: walk up from <path> looking for a .git entry, stopping at $HOME or / -- returns the discovered repo root, or nothing if none is found before the walk reaches (and abandons) that boundary. No subprocess -- test -d in a loop, never git rev-parse: this runs per session per pass, and this project spent a whole cycle removing exactly this shape of per-session fork (a macOS process-enumeration tool routing through a root daemon). $HOME and / are themselves eligible (checked, then abandoned on no match) so a path that already IS a repo root resolves to itself.'
+    set -l p (string replace -r '/+$' '' -- "$argv[1]")
+    test -n "$p"; or set p /
+    while true
+        test -d "$p/.git"; and echo "$p"; and return 0
+        if test "$p" = "$HOME"; or test "$p" = "/"
+            return 1
+        end
+        set -l parent (path dirname -- "$p")
+        test "$parent" = "$p"; and return 1
+        set p "$parent"
+    end
+end
+
+function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp, /var/tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- the walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
     test -n "$path"; or return
     set -l p (string replace -r '/+$' '' -- "$path")
     test -n "$p"; or return              # "/" collapses to empty
     contains -- "$p" "$HOME" /tmp /var/tmp; and return
+    set -l root (__tcz_git_root "$p")
+    test -n "$root"; and set p "$root"
     path basename -- "$p"
 end
 
@@ -229,9 +245,14 @@ function __tcz_tmux_sess_name --argument-names session --description 'memoized @
     test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_name[$i]
 end
 
-function __tcz_tmux_sess_path --argument-names session --description 'memoized #{session_path} for <session> (tick-call-batching task 4). Read-only in tmux -- fixed at session creation, no command ever reassigns it -- so, like @tmux_lives_name, safe to memoize with NO invalidation, unconditionally. Folds __tcz_session_title'"'"'s own `display-message -p -t <tgt> session_path` call into the SAME per-pass session memo its @tmux_lives_name read (__tcz_tmux_sess_name, called right after it) already lazily loads: that load fires regardless of caller (including the on-attach -> __tcz_retitle path, which has no preceding categorize/snapshot call), so this costs nothing extra there and removes a live call everywhere else.'
+function __tcz_tmux_sess_path --argument-names session --description 'memoized #{session_path} for <session> (tick-call-batching task 4). Read-only in tmux -- fixed at session creation, no command ever reassigns it -- so, like @tmux_lives_name, safe to memoize with NO invalidation, unconditionally. SUPERSEDED for naming (project-from-pane-cwd design, 2026-08-19/20): session_path is never better than the active pane'"'"'s live cwd -- they agree until a `cd`, and after that the pane path is right -- so __tcz_categorize/__tcz_session_title now read __tcz_tmux_activepath instead. Left defined (still fetched by __tcz_tmux_load'"'"'s batched list-sessions call, at no extra cost) because nothing else in this file needs #{session_path} disturbed.'
     set -l i (__tcz_tmux_sess_index "$session")
     test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_path[$i]
+end
+
+function __tcz_tmux_activepath --argument-names session --description 'memoized active-pane cwd for <session> this pass (project-from-pane-cwd design, 2026-08-19/20) -- the cwd of the active pane of <session>'"'"'s active window, i.e. the one you'"'"'d see if you attached. Populated by __tcz_snapshot'"'"'s own pane walk as a side effect (zero extra tmux calls: the SAME list-panes row __tcz_snapshot already fetches for category aggregation carries #{pane_current_path}), re-keyed by __tcz_categorize on a successful rename exactly like __tcz_tmux_sess_names. Empty when no __tcz_snapshot has run yet this pass (the on-attach -> __tcz_retitle path has no preceding categorize/snapshot call) or when <session> is outside a narrowed snapshot'"'"'s one-session scope -- callers fall back to a live per-session lookup in that case, same pattern as @tmux_lives_display.'
+    set -l i (contains -i -- "$session" $__tcz_tmux_activepath_names)
+    test -n "$i"; and printf '%s\n' $__tcz_tmux_activepath_paths[$i]
 end
 
 # --- pane-walk memo: ONE list-panes fetch per session, shared across the whole
@@ -583,7 +604,13 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     # for the rest of that pass -- is fresh regardless of caller, including a
     # direct call from outside __tcz_main (this file's own tests).
     __tcz_tmux_flush
-    set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}')
+    # The 5th field (#{?#{&&:#{pane_active},#{window_active}},1,0}) marks the
+    # ONE row per session that is the active pane of that session's active
+    # window -- the pane you'd actually see if you attached (project-from-
+    # pane-cwd design, 2026-08-19/20). Naming is now anchored to THAT pane's
+    # cwd, never any other pane's, and never #{session_path} (fixed at
+    # creation, never better than the live pane path -- see the design doc).
+    set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{?#{&&:#{pane_active},#{window_active}},1,0}\t#{pane_title}')
     set -l panes
     if test -n "$only"
         # __tcz_pane_target: list-panes wants "=name" for exactness, but a purely
@@ -596,10 +623,10 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l TAB (printf '\t')
     # Per-session aggregation. list-panes -a arrives in session/window/pane order,
     # so "first" below honors the lowest-window-then-pane rule from the spec.
-    set -l names; set -l cats; set -l cpid; set -l ctitle
+    set -l names; set -l cats; set -l cpid; set -l ctitle; set -l cpath
     for line in $panes
-        set -l f (string split -m 4 $TAB -- $line)    # title is last; keep embedded tabs
-        test (count $f) -ge 4; or continue
+        set -l f (string split -m 5 $TAB -- $line)    # title is last; keep embedded tabs
+        test (count $f) -ge 5; or continue
         set -l s $f[1]
         # tick-call-batching task 4: stash this row into the shared per-pass pane
         # memo as we go, so __tcz_set_claude_opt / __tcz_session_has_claude read
@@ -608,11 +635,11 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set -ga __tcz_tmux_pane_sess $s
         set -ga __tcz_tmux_pane_cmd $f[2]
         set -ga __tcz_tmux_pane_pid $f[3]
-        set -ga __tcz_tmux_pane_title "$f[5]"
+        set -ga __tcz_tmux_pane_title "$f[6]"
         set -l i (contains -i -- $s $names)
         if test -z "$i"
             set -a names $s; set -a cats general
-            set -a cpid ''; set -a ctitle ''
+            set -a cpid ''; set -a ctitle ''; set -a cpath ''
             set i (count $names)
             set -ga __tcz_tmux_pane_loaded $s
         end
@@ -624,12 +651,21 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         if test $is_claude -eq 1
             set cats[$i] claude
             if test -z "$cpid[$i]"
-                set cpid[$i] $f[3]; set ctitle[$i] "$f[5]"
+                set cpid[$i] $f[3]; set ctitle[$i] "$f[6]"
             end
         else if not contains -- $f[2] $__tcz_shells; and not contains -- $f[2] $__tcz_boring
             test "$cats[$i]" = claude; or set cats[$i] running
         end
+        test "$f[5]" = 1; and set cpath[$i] "$f[4]"
     end
+    # Share this pass's active-pane-cwd-per-session with __tcz_categorize and
+    # __tcz_session_title (project-from-pane-cwd design): both need the SAME
+    # value __tcz_snapshot just computed, and re-deriving it would mean either
+    # a second pane walk (a tmux call this cycle exists to avoid) or a second
+    # fork (the walk this design forbids re-forking for). Re-keyed on rename
+    # by __tcz_categorize, same convention as __tcz_tmux_sess_names.
+    set -g __tcz_tmux_activepath_names $names
+    set -g __tcz_tmux_activepath_paths $cpath
     # attached / last_attached lookup -- served from the shared per-pass session
     # memo (tick-call-batching task 3) rather than __tcz_snapshot's own
     # list-sessions call: __tcz_tmux_load already fetches session_name/
@@ -641,7 +677,6 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l snames $__tcz_tmux_sess_names
     set -l satt $__tcz_tmux_sess_attached
     set -l slast $__tcz_tmux_sess_lastattached
-    set -l spath $__tcz_tmux_sess_path
     set -l sdisp $__tcz_tmux_sess_name
     set -l atts; set -l lasts; set -l disps; set -l claims
     for i in (seq (count $names))
@@ -652,8 +687,11 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
             test "$satt[$j]" = 0; or set att 1
             string match -qr '^[0-9]+$' -- "$slast[$j]"; and set last $slast[$j]
         end
-        set -l proj
-        test -n "$j"; and set proj (__tcz_project_name "$spath[$j]")
+        # Project = __tcz_project_name of THIS session's own active-pane cwd
+        # (project-from-pane-cwd design), never #{session_path} -- $cpath[$i]
+        # was just computed above, in the SAME per-line walk, indexed by the
+        # SAME $i as $names/$cats/$cpid/$ctitle.
+        set -l proj (__tcz_project_name "$cpath[$i]")
         set -l task
         if test "$cats[$i]" = claude
             set task (__tcz_cmdline_name $cpid[$i])
@@ -753,7 +791,7 @@ function __tcz_display_current --argument-names computed stored narrowed --descr
     string match -qr '^'"$re"' \[[0-9]+\]$' -- "$stored"
 end
 
-function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name from its PROJECT (basename of session_path), never the running process; also syncs @tmux_lives_display. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
+function __tcz_categorize --argument-names only --description 'rename every owned session to its live-state name from its PROJECT (the git root, else the basename, of its active pane'"'"'s cwd -- never #{session_path}, never the running process; project-from-pane-cwd design, 2026-08-19/20); also syncs @tmux_lives_display. With <only>, just that session — a command run in one pane cannot change another session\'s classification, so the per-command hook has no reason to walk the whole server. The periodic tick stays unnarrowed as the backstop. SAFE because $others below comes from a fresh `tmux list-sessions`, NOT from the snapshot, so the collision-avoidance universe is unaffected by the filter.'
     # Flush the shared per-pass tmux memo (tick-call-batching task 3) at our
     # own entry: __tcz_main already does this before dispatching here, so in
     # production this is a harmless no-op re-clear of an already-empty table
@@ -780,15 +818,18 @@ function __tcz_categorize --argument-names only --description 'rename every owne
     # running the call-count harness after wiring this in the obvious order).
     # So __tcz_snapshot runs FIRST -- its own internal __tcz_tmux_load call is
     # what actually performs the one shared list-sessions fetch -- and pnames/
-    # ppaths/pdisps are read from the memo straight after: __tcz_tmux_load
-    # here is then a free no-op (already loaded), not a second call. Plain
-    # array reads, not accessor calls: this needs the WHOLE table (for the
+    # pdisps are read from the memo straight after: __tcz_tmux_load here is
+    # then a free no-op (already loaded), not a second call. Plain array
+    # reads, not accessor calls: this needs the WHOLE table (for the
     # `contains -i -- $cur $pnames` lookup per session below), the same shape
     # __tcz_snapshot already uses for its own copy of these same arrays.
+    # Project (below) no longer comes from this table at all -- it comes from
+    # __tcz_tmux_activepath, __tcz_snapshot's OWN pane-walk memo (see there):
+    # a session's project source is its active pane's cwd, which list-sessions
+    # cannot supply (project-from-pane-cwd design, 2026-08-19/20).
     set -l snap_rows (__tcz_snapshot $only)
     __tcz_tmux_load
     set -l pnames $__tcz_tmux_sess_names
-    set -l ppaths $__tcz_tmux_sess_path
     set -l pdisps $__tcz_tmux_sess_display
     # Fail closed, mirroring __tcz_snapshot's own `test -n "$panes[1]"; or return`: a
     # transient failure of THIS list-sessions call (server hiccup, race) must not fall
@@ -830,11 +871,15 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             continue
         end
 
-        # Project = basename(session_path) is now the ONLY naming source — the running
-        # process/category is never used again (spec N8). Empty for $HOME, /, /tmp,
-        # /var/tmp (and unreadable/empty paths) by __tcz_project_name's own contract.
-        set -l proj
-        test -n "$pi"; and set proj (__tcz_project_name "$ppaths[$pi]")
+        # Project = the git root, else the basename, of the active pane's cwd
+        # (project-from-pane-cwd design, 2026-08-19/20) -- never #{session_path}
+        # (never better: they agree until a `cd`, and after that the pane path
+        # is right), never the running process/category (spec N8). Empty for
+        # $HOME, /, /tmp, /var/tmp (and unreadable/empty paths) by
+        # __tcz_project_name's own contract. __tcz_tmux_activepath is
+        # __tcz_snapshot's OWN pane-walk memo, already fresh for $cur from the
+        # $snap_rows call just above -- no extra tmux call, no fork.
+        set -l proj (__tcz_project_name (__tcz_tmux_activepath "$cur"))
         set -l desired
         if test -n "$proj"
             set desired (__tcz_slugify "$proj")
@@ -885,6 +930,14 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             # the same row.
             set -l __rk (__tcz_tmux_sess_index "$cur")
             test -n "$__rk"; and set -g __tcz_tmux_sess_names[$__rk] "$desired"
+            # Same re-key for the active-pane-cwd memo (project-from-pane-cwd
+            # design): __tcz_session_title reads it back by the NEW name later
+            # in this same tick pass (via __tcz_retitle), and a project-less
+            # (gen-N) rename writes no @tmux_lives_display to short-circuit
+            # that read first -- exactly the by-old-name-miss class of bug the
+            # sess_names re-key above already exists to prevent.
+            set -l __rk2 (contains -i -- "$cur" $__tcz_tmux_activepath_names)
+            test -n "$__rk2"; and set -g __tcz_tmux_activepath_names[$__rk2] "$desired"
             # Stamp with one silent retry: a lost stamp would permanently freeze the name
             # (ownership guard would treat it as hand-named), so one retry is cheap insurance.
             set -l stamptgt (__tcz_session_target "$desired")
@@ -3374,7 +3427,7 @@ function __tcz_unquote --description 'strip ONE matched pair of surrounding quot
     echo "$s"
 end
 
-function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (session_path is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
+function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (<pane>'"'"'s own cwd is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
     test -n "$pane"; or return 0
     # Flush the shared per-pass tmux memo (tick-call-batching task 3), same
     # reasoning as __tcz_categorize's own entry flush: __tcz_main already does
@@ -3384,14 +3437,18 @@ function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>
     # below see fresh state regardless of caller.
     __tcz_tmux_flush
     set -l TAB (printf '\t')
-    # One display-message call for both fields -- session_path per spec N3 (the
-    # pane's own $PWD follows `cd`; the session path does not, which is exactly
-    # why the caller no longer passes it).
-    set -l info (tmux display-message -pt "$pane" "#{session_name}$TAB#{session_path}" 2>/dev/null)
+    # One display-message call for both fields -- #{pane_current_path}, not
+    # #{session_path} (project-from-pane-cwd design, 2026-08-19/20: the
+    # session's own project source is its active pane's cwd, never the
+    # session's fixed creation dir). <pane> IS the exact pane the preexec hook
+    # fired in, so this needs no "active pane of the active window" logic --
+    # unlike __tcz_categorize/__tcz_session_title, which resolve a SESSION to
+    # its currently-active pane, this already has the pane.
+    set -l info (tmux display-message -pt "$pane" "#{session_name}$TAB#{pane_current_path}" 2>/dev/null)
     test -n "$info"; or return 0
     set -l parts (string split -m 1 $TAB -- $info)
     set -l cur $parts[1]
-    set -l spath $parts[2]
+    set -l cwd $parts[2]
     test -n "$cur"; or return 0
     __tcz_owned "$cur"; or return 0
     # @tmux_lives_name is an EXTERNAL claim (the verb here is also called "claim" --
@@ -3404,7 +3461,7 @@ function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>
     # was the single most likely call site in the file for the numeric -t bug).
     set -l claimed (__tcz_tmux_sess_name "$cur")
     test -z "$claimed"; or return 0
-    set -l proj (__tcz_project_name "$spath")
+    set -l proj (__tcz_project_name "$cwd")
     test -n "$proj"; or return 0
     set -l desired (__tcz_slugify "$proj")
     set -l others
@@ -3559,21 +3616,16 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
-function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (session START dir, not the active-pane cwd; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads #{session_path} on purpose, not the active pane'"'"'s current path: a shell `cd` inside the pane no longer relabels the tab, and — as a side effect — the tab no longer tracks whichever WINDOW happens to be selected. `list-panes -t <session>` (no -s) resolves to a single target-window, the session'"'"'s CURRENTLY SELECTED one (verified: it is one row, not one per window) — so the old lookup made switching windows relabel the tab. #{session_path} is fixed at session-creation time and does not move when the selected window changes.'
+function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (the active pane'"'"'s live cwd, not the session'"'"'s fixed creation dir; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads the active pane'"'"'s cwd on purpose, not #{session_path} (project-from-pane-cwd design, 2026-08-19/20, reversing the prior #{session_path} choice): this is what makes an unowned, hand-named session (e.g. myems-web-con) show its REAL directory instead of a stale/generic one, and it means a `cd` in the pane, or switching to a different window, now DOES move the tab -- intended, not a regression (session names in this system already track live state). display-message -p -t <tgt> #{pane_current_path} resolves to the CURRENTLY SELECTED window'"'"'s active pane (verified empirically), the same pane __tcz_categorize'"'"'s own pane walk targets, so both surfaces agree.'
     test -n "$session"; or return 0
     # __tcz_session_target still needed below, for the @tmux_lives_display show-option
-    # call only: verified empirically that `display-message -p -t "=name"` and
-    # `show-option -qv -t "=name"` both return EMPTY (tmux -v: "format ... not
-    # found" / an unset-option read) — this rejects "=name" altogether, same family
-    # as set-option/capture-pane. The "=name" form stays reliable for list-panes only
-    # (used elsewhere, e.g. __tcz_tmux_pane_fetch).
-    #
-    # #{session_path} itself: tick-call-batching task 4, served from the per-pass
-    # session memo (__tcz_tmux_sess_path) instead of a live display-message call --
-    # see that accessor's own docstring for why this is always safe (read-only tmux
-    # field, never reassigned).
+    # call (and the live path fallback'"'"'s display-message call) only: verified
+    # empirically that `display-message -p -t "=name"` and `show-option -qv -t
+    # "=name"` both return EMPTY (tmux -v: "format ... not found" / an
+    # unset-option read) — this rejects "=name" altogether, same family as
+    # set-option/capture-pane. The "=name" form stays reliable for list-panes
+    # only (used elsewhere, e.g. __tcz_tmux_pane_fetch).
     set -l tgt (__tcz_session_target "$session")
-    set -l path (__tcz_tmux_sess_path "$session")
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
     # @tmux_lives_name: tick-call-batching task 3, served from the per-pass session
@@ -3606,7 +3658,18 @@ function __tcz_session_title --argument-names session --description 'session -> 
     # either way; see test-tmux-tick-calls.fish and task-5-report.md.
     set -l name (__tcz_tmux_sess_name "$session")
     test -n "$name"; or set name (tmux show-option -qv -t "$tgt" @tmux_lives_display 2>/dev/null)
-    test -n "$name"; or set name (__tcz_dir_display $path)
+    if test -z "$name"
+        # Lazy: only fetched when neither a claim nor a display exists, so the
+        # common (named/displayed) case pays no extra cost at all. Prefer this
+        # pass's own __tcz_tmux_activepath memo (project-from-pane-cwd design)
+        # -- free, __tcz_snapshot already walked every pane this pass -- and
+        # fall back to one live call only when no snapshot has run yet this
+        # pass (e.g. the on-attach -> __tcz_retitle path) or <session> fell
+        # outside a narrowed snapshot's one-session scope.
+        set -l path (__tcz_tmux_activepath "$session")
+        test -n "$path"; or set path (tmux display-message -p -t "$tgt" '#{pane_current_path}' 2>/dev/null)
+        set name (__tcz_dir_display $path)
+    end
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
 

@@ -351,6 +351,74 @@ t "project: /tmp is not a project"            ""           "$pn4"
 t "project: / is not a project"               ""           "$pn5"
 t "project: empty path is not a project"      ""           "$pn6"
 t "project: spaces survive (display layer)"   "My Project" "$pn7"
+
+# ---------------------------------------------------------------------
+# __tcz_git_root (pure): the walk-up-for-.git helper behind the
+# project-from-pane-cwd design (2026-08-19/20, reversing session-naming's N3
+# and N9). No subprocess ever -- this project spent a whole cycle removing
+# exactly this shape of per-session fork (macOS pgrep -> sysmond), so a
+# regression back to `git rev-parse` here would be the same class of bug.
+# ---------------------------------------------------------------------
+set -g grbase /tmp/tcz-gitroot-$fish_pid
+rm -rf $grbase
+mkdir -p $grbase/repo/.git $grbase/repo/sub/deep
+mkdir -p $grbase/norepo/sub/deep
+mkdir -p "$grbase/repo with spaces/.git" "$grbase/repo with spaces/sub"
+t "git_root: finds the root from a nested subdirectory" "$grbase/repo" \
+    (__tcz_git_root $grbase/repo/sub/deep)
+t "git_root: the repo root itself resolves to itself" "$grbase/repo" \
+    (__tcz_git_root $grbase/repo)
+t "git_root: no repo anywhere in the chain -> nothing" "" \
+    (__tcz_git_root $grbase/norepo/sub/deep)
+t "git_root: a path with spaces survives" "$grbase/repo with spaces" \
+    (__tcz_git_root "$grbase/repo with spaces/sub")
+t "git_root: trailing slash ignored" "$grbase/repo" \
+    (__tcz_git_root "$grbase/repo/sub/deep/")
+t "git_root: empty path -> nothing" "" (__tcz_git_root "")
+
+# Boundary: must never walk ABOVE $HOME, even when a repo genuinely exists
+# one level up. Fake $HOME so the fixture is self-contained and does not
+# depend on where this checkout or the real $HOME happen to sit.
+set -g grhome $grbase/homeworld
+mkdir -p $grhome/.git $grhome/home/sub/deep
+set -g __tcz_grhome_save $HOME
+set -g HOME $grhome/home
+t "git_root: does not escape above \$HOME to find an outer repo" "" \
+    (__tcz_git_root $HOME/sub/deep)
+# ...but a repo genuinely INSIDE $HOME's own subtree is still found.
+mkdir -p $HOME/sub/inner/.git $HOME/sub/inner/deeper
+t "git_root: a repo inside \$HOME's own subtree is still found" "$HOME/sub/inner" \
+    (__tcz_git_root $HOME/sub/inner/deeper)
+set -g HOME $__tcz_grhome_save
+set -e __tcz_grhome_save grhome
+
+# Boundary: a path with no repo and OUTSIDE $HOME's tree must stop at / and
+# return nothing, not loop or error.
+t "git_root: no repo, outside \$HOME, stops at / -> nothing" "" \
+    (__tcz_git_root $grbase/norepo/sub/deep)
+
+# No subprocess: stub `git` as a function and prove it is never invoked.
+set -g grforkmarker /tmp/tcz-gitroot-forked-$fish_pid
+rm -f $grforkmarker
+function git; touch $grforkmarker; end
+__tcz_git_root $grbase/repo/sub/deep >/dev/null
+t "git_root: never forks a git subprocess" "no" \
+    (test -e $grforkmarker; and echo yes; or echo no)
+functions -e git
+rm -f $grforkmarker
+set -e grforkmarker
+
+# __tcz_project_name end to end: the walk exists for exactly one case (a
+# nested subdir whose OWN basename is useless, e.g. .../pingy-android/user)
+# -- confirm the project name comes from the REPO ROOT's basename, not the
+# pane cwd's own.
+t "project: nested subdir resolves to the git root's basename, not its own" "repo" \
+    (__tcz_project_name $grbase/repo/sub/deep)
+t "project: no repo -> falls back to the path's own basename (unchanged)" "deep" \
+    (__tcz_project_name $grbase/norepo/sub/deep)
+rm -rf $grbase
+set -e grbase
+
 set -g dn1 (__tcz_display_name claude  neurotto "Fix the picker lag")
 set -g dn2 (__tcz_display_name claude  neurotto "")
 set -g dn3 (__tcz_display_name claude  ""        "Fix the picker lag")
@@ -898,6 +966,52 @@ t "categorize: no duplicate session names" "yes" \
 rm -rf $HOME/tcz-dup-$fish_pid $HOME/tcz-cat-$fish_pid
 cleanup
 
+# ---------------------------------------------------------------------
+# THE DECISIVE ASSERTION (project-from-pane-cwd design, 2026-08-19/20):
+# cd-ing the pane to a different project RENAMES and RE-DISPLAYS the
+# session. This is what the whole design reduces to -- session_path is
+# never better than the pane's live cwd, because they agree until a `cd`
+# and after that the pane path is right. Verified by hand to FAIL against
+# the prior #{session_path} code (session_path is fixed at session creation
+# and does not move -- a stash of this branch's own changes reproduces the
+# old "stuck on tcz-cdA" behaviour).
+# ---------------------------------------------------------------------
+cleanup
+mkdir -p $HOME/tcz-cdA-$fish_pid $HOME/tcz-cdB-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-cdA-$fish_pid bash
+sleep 0.5
+__tcz_categorize
+t "cd-rename: named for the project it started in" "yes" \
+    (tmux has-session -t "=tcz-cdA-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cd-rename: displayed for the project it started in" "tcz-cdA-$fish_pid" \
+    (tmux show-option -qv -t "tcz-cdA-$fish_pid" @tmux_lives_display)
+tmux send-keys -t "tcz-cdA-$fish_pid" "cd $HOME/tcz-cdB-$fish_pid" Enter
+sleep 0.5
+__tcz_categorize
+t "cd-rename: THE decisive assertion -- cd to a different project renames the session" "yes" \
+    (tmux has-session -t "=tcz-cdB-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cd-rename: the old (pre-cd) project name is gone" "no" \
+    (tmux has-session -t "=tcz-cdA-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cd-rename: the display follows the cd too" "tcz-cdB-$fish_pid" \
+    (tmux show-option -qv -t "tcz-cdB-$fish_pid" @tmux_lives_display)
+rm -rf $HOME/tcz-cdA-$fish_pid $HOME/tcz-cdB-$fish_pid
+cleanup
+
+# The git-root walk, end to end through __tcz_categorize: a pane sitting in a
+# subdirectory of a repo whose own basename is useless (the measured
+# .../pingy-android/user case) must be named for the REPO, not the
+# subdirectory.
+mkdir -p $HOME/tcz-gitwalk-$fish_pid/.git $HOME/tcz-gitwalk-$fish_pid/user
+tmux new-session -d -s 0 -c $HOME/tcz-gitwalk-$fish_pid/user 'sleep 500'
+sleep 0.5
+__tcz_categorize
+t "cat: a pane in a repo subdirectory is named for the repo root, not its own dir" "yes" \
+    (tmux has-session -t "=tcz-gitwalk-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "cat: never named for the useless subdirectory basename" "no" \
+    (tmux has-session -t =user 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-gitwalk-$fish_pid
+cleanup
+
 # --- I1: anti-churn -- a second pass over an UNCHANGED server must emit ZERO
 # @tmux_lives_display set-option calls, not merely leave the end-state
 # unchanged. This is the property that guards against reintroducing the
@@ -1410,9 +1524,10 @@ t "menu: current not dimmed"     "no"  (string match -q '*#\[dim\]*' -- "$margs"
 # Task 5b: this must land on exactly the PROJECT slug the next categorize
 # pass would produce (spec N1) -- never the raw --name/task text, even
 # transiently -- so there is nothing left to flap. <raw> feeds only the
-# display's task half now; the third (cwd) argument is gone (session_path
-# is fetched from tmux itself, per spec N3 -- the pane's $PWD follows `cd`
-# and the session path does not).
+# display's task half now; the third (cwd) argument is gone (__tcz_claim
+# fetches #{pane_current_path} from tmux itself -- project-from-pane-cwd
+# design, 2026-08-19/20, reversing spec N3 -- so a separate cwd argument
+# from the caller would be redundant).
 # ---------------------------------------------------------------------
 
 # RED (pre-fix), proven against the unmodified function: it renamed straight
@@ -1433,6 +1548,23 @@ t "claim: stamped to the project slug" "tcz-claim-$fish_pid" \
 t "claim: display is project (dot) task" "tcz-claim-$fish_pid · Fix the picker lag" \
     (tmux show-option -qv -t "tcz-claim-$fish_pid" @tmux_lives_display)
 rm -rf $HOME/tcz-claim-$fish_pid
+
+# THE decisive claim-side assertion (project-from-pane-cwd design): __tcz_claim
+# names from the PANE's live cwd, not the session's creation dir -- a `cd`
+# BEFORE `claude` is launched (exactly what the preexec hook observes) must
+# land on the NEW project, never the one the session started in.
+cleanup
+mkdir -p $HOME/tcz-claimcdA-$fish_pid $HOME/tcz-claimcdB-$fish_pid
+tmux new-session -d -s 0 -c $HOME/tcz-claimcdA-$fish_pid bash
+set -l panecd (tmux list-panes -t 0 -F '#{pane_id}')
+tmux send-keys -t 0 "cd $HOME/tcz-claimcdB-$fish_pid" Enter
+sleep 0.5
+__tcz_claim $panecd "Fix the picker lag"
+t "claim: lands on the project the pane is CURRENTLY in, not where the session started" "yes" \
+    (tmux has-session -t "=tcz-claimcdB-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+t "claim: never named for the session's original (pre-cd) project" "no" \
+    (tmux has-session -t "=tcz-claimcdA-$fish_pid" 2>/dev/null; and echo yes; or echo no)
+rm -rf $HOME/tcz-claimcdA-$fish_pid $HOME/tcz-claimcdB-$fish_pid
 
 # Item 2 (fix wave 2026-08-18): a typed `claude --name "Fix the picker lag"`
 # is captured by the preexec hook's regex as the LITERAL quoted text, quotes
@@ -2013,36 +2145,39 @@ t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
 rm -f $ttl
 
 # session_has_claude / session_title via a tmux stub (switch on subcommand).
-# __tcz_session_title reads #{session_path} (the session's start dir,
-# single-valued), not list-panes' active-pane pane_current_path, and consults
-# @tmux_lives_display between the claim and the dir fallback.
+# __tcz_session_title reads the ACTIVE PANE's live cwd (project-from-pane-cwd
+# design, 2026-08-19/20), not #{session_path}, and consults @tmux_lives_display
+# between the claim and the dir fallback.
 #
 # tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read comes
 # from the batched per-pass session memo (__tcz_tmux_load's `list-sessions -F`).
-# tick-call-batching task 4: #{session_path} is now served from that SAME memo
-# (__tcz_tmux_sess_path) instead of a live display-message call, and
-# __tcz_session_has_claude's pane walk is now served from the shared per-pass
-# pane memo (__tcz_tmux_panes) instead of its own list-panes call -- so the
-# `case list-sessions` row below now carries $tcz_test_path in the real
-# session_path position (4), and `case display-message` is gone (nothing
-# calls it here any more). EVERY simulated state change below (panes OR path
-# OR name) needs an explicit __tcz_tmux_flush before the next
-# __tcz_session_has_claude/__tcz_session_title call, or that call would see a
-# STALE memoized value instead of the one just set (same idiom this file
-# already uses for __tcz_tmux_global/__tcz_heal_due). @tmux_lives_display
-# stays a live show-option read, deliberately NOT migrated (see
-# __tcz_session_title's own docstring for why), so it needs no such flush.
+# __tcz_session_has_claude's pane walk is served from the shared per-pass pane
+# memo (__tcz_tmux_panes) instead of its own list-panes call. No __tcz_snapshot
+# has run in this standalone test (no `case list-panes` row this stub returns
+# feeds __tcz_snapshot's own aggregation -- __tcz_session_has_claude calls
+# __tcz_tmux_panes directly), so the __tcz_tmux_activepath memo is always empty
+# here and every call below exercises the LIVE `display-message` fallback --
+# a new `case display-message` row supplies the active pane's cwd directly
+# (there is no more session_path position to carry it in). EVERY simulated
+# state change below (panes OR path OR name) needs an explicit
+# __tcz_tmux_flush before the next __tcz_session_has_claude/__tcz_session_title
+# call, or that call would see a STALE memoized value instead of the one just
+# set (same idiom this file already uses for __tcz_tmux_global/__tcz_heal_due).
+# @tmux_lives_display stays a live show-option read, deliberately NOT migrated
+# (see __tcz_session_title's own docstring for why), so it needs no such flush.
 function tmux
     switch "$argv[1]"
         case list-panes
             printf '%s\n' $tcz_test_panes    # __tcz_session_has_claude: cmd\tpid per pane
         case show-option
             echo $tcz_test_display           # @tmux_lives_display override (still live)
+        case display-message
+            echo $tcz_test_path              # the active pane's live cwd (fallback only)
         case list-sessions
-            # session_path (4) and @tmux_lives_name (8, last, greedy) are the
-            # only fields __tcz_session_title reads from this row; the rest
-            # (attached/last_attached/claude/auto_name/display) are unused.
-            printf 'sA\t0\t0\t%s\t\t\t\t%s\n' $tcz_test_path $tcz_test_name
+            # @tmux_lives_name (8, last, greedy) is the only field
+            # __tcz_session_title reads from this row; the rest (attached/
+            # last_attached/path/claude/auto_name/display) are unused.
+            printf 'sA\t0\t0\t\t\t\t\t%s\n' $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -2068,17 +2203,20 @@ functions -e tmux
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
 
-# empty session path must not shift args (arg-shift guard)
+# empty active-pane cwd must not shift args (arg-shift guard)
 function tmux
     switch "$argv[1]"
         case list-panes
             printf 'claude\t999\n'           # session has claude
+        case display-message
+            echo ''                          # empty active-pane cwd
         case list-sessions
-            printf 'sA\t0\t0\t\t\t\t\t\n'     # empty session_path (4), empty name (8)
+            printf 'sA\t0\t0\t\t\t\t\t\n'     # empty name (8)
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
-t "session_title empty path keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "session_title empty pane cwd keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
 functions -e tmux
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
@@ -2205,26 +2343,20 @@ t "identity: @tmux_lives_name overrides the claude name (still ✦-marked)" "#[f
 command tmux -L $idsock kill-server 2>/dev/null
 set -e idsock; set -e IDFMT
 
-# real-tmux integration: __tcz_session_title must resolve the SESSION's start dir
-# (#{session_path}), not the active pane's live cwd, and must consult
-# @tmux_lives_display before falling back to the dir. Two things this proves:
-# (1) REGRESSION (2026-07-09): `display-message -t "=$session" '#{pane_current_path}'`
-#     returns EMPTY in tmux 3.3a (the =exact-target quirk), so ShellFish tab titles
-#     rendered "<host>:  (C)" with a BLANK dir. Reading #{session_path} fixes it, but
-#     display-message rejects the "=name" form OUTRIGHT — verified empirically it
-#     returns nothing at all ("format 'session_path' not found" under -v), not just
-#     for pane-scoped formats — so this now targets via __tcz_session_target (bare
-#     name / $id), the same helper the neighbouring show-option calls already use.
-# (2) a shell `cd` inside the pane used to relabel the tab, because the old lookup
-#     read the active pane's LIVE cwd; #{session_path} is the session's fixed START
-#     dir, so a `cd` no longer moves the title. As a side effect this also fixes a
-#     latent multi-window bug nobody chose: `list-panes -t session` (no -s) resolves
-#     to a single target-window — the session's CURRENTLY SELECTED one, verified to
-#     return exactly one row, not one per window — so the old lookup made the tab
-#     TRACK whichever window was selected; switching windows relabeled the tab.
-#     #{session_path} is fixed at session creation and does not move with selection.
-# The stub tests above can't catch a real-tmux targeting quirk, so drive a private
-# -L socket, following the suite's existing pattern.
+# real-tmux integration: __tcz_session_title must resolve the ACTIVE PANE's
+# live cwd (project-from-pane-cwd design, 2026-08-19/20, reversing the prior
+# #{session_path} choice), not the session's fixed creation dir, and must
+# still consult @tmux_lives_display before falling back to the dir. This is
+# what restores pre-naming-cycle behaviour: a `cd` in the pane, or switching
+# to a different window, now DOES relabel the tab -- intended, since this is
+# what makes an unowned hand-named session (e.g. myems-web-con) show its REAL
+# directory instead of a stale/generic one. `display-message -p -t <tgt>
+# '#{pane_current_path}'` resolves to the CURRENTLY SELECTED window's active
+# pane (verified empirically -- see conf.d/tmux.fish's own probe history),
+# targeted via __tcz_session_target (bare name / $id) for the same "=name"
+# rejection reason the neighbouring show-option call already documents.
+# The stub tests above can't catch a real-tmux targeting quirk, so drive a
+# private -L socket, following the suite's existing pattern.
 set -g tsock tcz-title-$fish_pid
 set -g twdir /tmp/tcz-titledir-$fish_pid
 rm -rf $twdir; mkdir -p $twdir/deep
@@ -2241,9 +2373,12 @@ set -g tmux_lives_hostname boxhost
 # tick-call-batching task 3: __tcz_session_title's @tmux_lives_name read is now
 # served from the per-pass session memo -- flush before the first read against
 # this fresh $tsock server, so nothing an earlier test cached leaks in here.
+# No __tcz_snapshot has run against $tsock this pass, so __tcz_tmux_activepath
+# is empty and every call below exercises the LIVE display-message fallback --
+# the real-tick, zero-extra-call (memoized) path is proven separately below.
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "session_title resolves the session's start dir (real tmux)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
-t "title: pinned to the session start dir, not the pane cwd after a cd" "boxhost: "(basename $twdir) (__tcz_session_title ts1)
+t "session_title resolves the active pane's cwd (real tmux, no cd)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
+t "title: THE decisive assertion -- a cd inside the pane DOES relabel the tab (was pinned to session start dir pre-fix)" "boxhost: deep" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
 t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
@@ -2253,33 +2388,70 @@ command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
 
-# multi-window regression: __tcz_session_title must stay stable across window
-# selection. This is the bug the #{session_path} fix actually resolves (see the
-# corrected docstring/comment above) — `list-panes -t <session>` without -s
-# resolves to a single target-window, the CURRENTLY SELECTED one, so the old
-# lookup made the tab TRACK whichever window was selected. Judged on whether the
-# property could silently regress, not on whether it is currently correct: none
-# of the single-window fixtures above (realsess, ts1) can catch a future
-# "simplification" back toward a window-scoped lookup, because they never have
-# more than one window.
+# multi-window: __tcz_session_title must TRACK whichever window is currently
+# selected -- `list-panes`/`display-message -t session` (no -s) resolve to
+# the session's CURRENTLY SELECTED window's active pane (verified: exactly
+# one row, not one per window), so both creating a new window (which
+# activates it) and later re-selecting an older one must be visible in the
+# title. This is the reversal of the prior "stays stable across window
+# selection" guarantee -- session names in this system already track live
+# state, and a fixed session-start dir was the exception, not the rule.
 mkdir -p $twdir/mw-start $twdir/mw-w1 $twdir/mw-w2
 command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/dev/null
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "title: multi-window baseline is the lone window's active pane" "boxhost: mw-start" (__tcz_session_title mw)
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
+sleep 0.2
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "title: a newly-created (and thus newly-active) window relabels the tab" "boxhost: mw-w1" (__tcz_session_title mw)
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
 sleep 0.2
-# session "mw" postdates the memo load above -- flush so its (never-claimed, so
-# expected-empty either way, but this should not rely on that coincidence)
-# @tmux_lives_name read comes from a snapshot that actually contains it.
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: multi-window baseline is the session's own start dir" "boxhost: mw-start" (__tcz_session_title mw)
+t "title: a second new window relabels the tab again" "boxhost: mw-w2" (__tcz_session_title mw)
+command tmux -L $tsock select-window -t mw:0 2>/dev/null
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "title: re-selecting the FIRST window moves the tab back (genuinely tracks selection, not just 'latest')" "boxhost: mw-start" (__tcz_session_title mw)
 command tmux -L $tsock select-window -t mw:1 2>/dev/null
-t "title: unchanged after selecting a different window" "boxhost: mw-start" (__tcz_session_title mw)
-command tmux -L $tsock select-window -t mw:2 2>/dev/null
-t "title: unchanged after selecting a third window" "boxhost: mw-start" (__tcz_session_title mw)
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+t "title: selecting the middle window tracks it too" "boxhost: mw-w1" (__tcz_session_title mw)
 
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
 set -e tmux_lives_hostname; set -e tsock; rm -rf $twdir; set -e twdir
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# The memoized, zero-extra-call path: within a REAL tick pass, __tcz_categorize
+# already walked every pane (via __tcz_snapshot), so __tcz_session_title's
+# fallback must be served from that SAME memo (__tcz_tmux_activepath) rather
+# than issuing its own live display-message call. Proven by SPYING on emitted
+# tmux commands, not by end state (a live call and a memoized read produce the
+# identical title -- the whole point is which one gets used, exactly the
+# discipline test-tmux-tick-calls.fish applies to the tick as a whole).
+set -g mtsock tcz-title-memo-$fish_pid
+# -c $HOME (a generic, excluded dir): the session gets NO project and NO
+# display, which is what forces __tcz_session_title all the way through to
+# the dir-fallback branch this test exists to check -- a project dir would
+# get a live @tmux_lives_display show-option hit first (categorize writes
+# one), short-circuiting before __tcz_tmux_activepath is ever consulted and
+# making the assertion below pass vacuously regardless of memoization.
+set -g tmux_lives_hostname boxhost-memo
+command tmux -L $mtsock -f /dev/null new-session -d -s 0 -c $HOME 'sleep 500' 2>/dev/null
+sleep 0.3
+function tmux; command tmux -L $mtsock $argv; end
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_categorize   # populates __tcz_tmux_activepath for the (now-renamed, gen-1) session
+set -l mtname (command tmux -L $mtsock list-sessions -F '#{session_name}')
+t "title/memo fixture: the session was actually promoted to gen-N (no display to short-circuit on)" "gen-1" "$mtname"
+function tmux; set -a __mt_cmds "$argv"; command tmux -L $mtsock $argv; end
+set -g __mt_cmds
+set -l mttitle (__tcz_session_title "$mtname")
+functions -e tmux
+t "title: the memoized fallback still resolves the right dir" "boxhost-memo: ~" "$mttitle"
+t "title: within a tick pass, the memoized active-pane path costs zero display-message calls" "0" \
+    (count (string match -r 'display-message' -- $__mt_cmds))
+set -e __mt_cmds mtname mttitle tmux_lives_hostname
+command tmux -L $mtsock kill-server 2>/dev/null
+set -e mtsock
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
