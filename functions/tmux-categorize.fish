@@ -1455,7 +1455,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
     echo other
 end
 
-function __tcz_popup_emit --description 'Paint a popup frame differentially: emit only the rows whose text differs from the previously painted frame, each cursor-addressed, so a one-row cursor move ships ~747 bytes instead of the whole ~12.7KB frame. That is the difference between smooth and unusable over a remote SSH link — construction is only ~30ms, so on the iPad emission WAS the per-keypress cost (docs/superpowers/specs/2026-08-21-picker-partial-repaint-design.md). Falls back to the historical whole-frame paint when __tcz_pe_force is set, or when the incoming row count differs from the previous frame: frames of different heights cannot be meaningfully diffed, and a resized popup is the likeliest way for our model of the screen to stop matching reality. Owns __tcz_pe_prev (rows last painted), __tcz_pe_force, and __tcz_pe_partial (set when the last paint was partial, so the caller can schedule a full self-heal once input settles).'
+function __tcz_popup_emit --description 'Paint a popup frame differentially: emit only the rows whose text differs from the previously painted frame, each cursor-addressed, so a one-row cursor move ships ~851 bytes instead of the whole ~12.7KB frame (851 is the real wire byte count — the design docs 747 figure was a character count, which undercounts the multi-byte UTF-8 box-drawing/block glyphs the rows actually carry). That is the difference between smooth and unusable over a remote SSH link — construction is only ~30ms, so on the iPad emission WAS the per-keypress cost (docs/superpowers/specs/2026-08-21-picker-partial-repaint-design.md). Falls back to the historical whole-frame paint when __tcz_pe_force is set, or when the incoming row count differs from the previous frame: frames of different heights cannot be meaningfully diffed, and a resized popup is the likeliest way for our model of the screen to stop matching reality. Owns __tcz_pe_prev (rows last painted), __tcz_pe_force, and __tcz_pe_partial (set when the last paint was partial, so the caller can schedule a full self-heal once input settles).'
     set -l n (count $argv)
     test $n -eq 0; and return
     if test "$__tcz_pe_force" = 1; or test (count $__tcz_pe_prev) -ne $n
@@ -2981,8 +2981,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l noterow (__tcz_popup_truncate " $MUTED$note$RST" $IW)
         set -a lines (__tcz_thp_ln "$noterow" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
-        # Differential paint: only the rows that changed go out (~747 bytes
-        # instead of ~12,697). __tcz_popup_emit falls back to the whole frame
+        # Differential paint: only the rows that changed go out (~851 bytes
+        # instead of ~12,697 — 851 is the real wire byte count, see
+        # __tcz_popup_emit's own docstring for why the design doc's original
+        # 747 undercounts it). __tcz_popup_emit falls back to the whole frame
         # when forced or when the height changes.
         __tcz_popup_emit $lines
         set -l tok
@@ -3031,10 +3033,16 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # mix that no later partial paint corrects — later frames only
                 # touch rows that changed since the stale one. Input has now
                 # settled, so a whole repaint costs nothing anybody is waiting
-                # on. Clearing the partial flag is what terminates this: the
-                # next iteration has no flash, no batch and no partial paint
-                # outstanding, so it drops to a normal blocking read. One heal
-                # per scroll burst.
+                # on. What terminates this is BELT AND BRACES, not one thing:
+                # the partial flag is cleared HERE, directly, and it is cleared
+                # AGAIN as a side effect of the forced full paint this triggers
+                # (the emitter's own force branch always clears it). Verified by
+                # trace, not just by design — removing either clear alone still
+                # terminates, because the other one covers it; only removing
+                # BOTH loops, into a permanent ~0.7s full-repaint cycle. Once
+                # cleared (by whichever), the next iteration has no flash, no
+                # batch and no partial paint outstanding, so it drops to a
+                # normal blocking read. One heal per scroll burst.
                 if test "$__tcz_pe_partial" = 1
                     set -g __tcz_pe_force 1
                     set -g __tcz_pe_partial 0

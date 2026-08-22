@@ -5247,7 +5247,10 @@ t "emit: an empty row is preserved in the saved frame" 3 $__t10_emptycount
 # frames at the user's actual size (62-row client -> 52-row popup, expanded
 # catalog, one-row cursor move), via the same __t9_draw_nocc harness the frame
 # proof uses, which evals the REAL draw block rather than a reimplementation.
-# Measured today: the full frame is 12,697 bytes and 747 of them change.
+# Measured today (this fixture): 851 bytes change on a one-row cursor move
+# (real byte count, not the design doc's original character-count 747 —
+# see __tcz_popup_emit's own docstring). The spec's 12,697/747 figures are
+# from the real ShellFish geometry, a different fixture than $PAL9 below.
 # The 2000 threshold is deliberately loose — it must not go red because a
 # layout tweak alters a row's width — but it is nowhere near loose enough for
 # a whole-frame repaint to slip through. $PAL9 is the synthetic palette the
@@ -5398,10 +5401,32 @@ t "wiring: no inline whole-frame paint remains in the picker" 0 $__t10_inline
 # picker-partial-repaint Task 3 adds a FOURTH occurrence — the self-heal
 # block's own `__tcz_pe_force 1` — which is not a handover at all (no screen
 # hand-off happens; it forces a whole repaint of the SAME frame once input
-# settles after a partial paint). Count widened 3 -> 4 to match; the
-# self-heal block's own content is pinned separately below.
-set -g __t10_forcecount (string match -r '__tcz_pe_force 1' -- $__t10_bodylines | count)
-t "wiring: the picker forces a whole paint at all three handover sites, plus self-heal" 4 $__t10_forcecount
+# settles after a partial paint). The self-heal block's own content is
+# pinned separately below.
+#
+# final review (Minor 6): a bare total count over the whole body cannot tell
+# a real regression from a wash — delete one of the three handover forces,
+# add a stray `__tcz_pe_force 1` anywhere else in the body, and the total
+# stays 4 while this guard stays green. Split it: count occurrences INSIDE
+# the # BEGIN self-heal / # END self-heal markers separately from those
+# OUTSIDE. This needs the body BEFORE comment-stripping (the markers are
+# comments, already gone from $__t10_body/$__t10_bodylines above) — same
+# extraction technique the self-heal block below uses, computed fresh here
+# because this block runs first in file order.
+set -g __t10_rawbody (functions __tcz_theme_picker | string collect)
+set -g __t10_healraw (string match -r '# BEGIN self-heal(.|\n)*?# END self-heal' -- "$__t10_rawbody" | string collect)
+t "wiring: the raw self-heal block extraction is non-empty (guard precondition)" 1 (test -n "$__t10_healraw"; and echo 1; or echo 0)
+# `string replace` on a pattern spanning multiple lines against a multi-line
+# STRING returns one OUTPUT ITEM PER RESULTING LINE (the self-heal region
+# collapses to one empty line where it was cut out) — that is a fish LIST
+# already, so piping it straight into the comment filter is correct, no
+# re-collect/re-split needed.
+set -g __t10_outsidestripped (string replace -- "$__t10_healraw" '' "$__t10_rawbody" | string match -rv '^\s*#')
+set -g __t10_healstripped (string split \n -- "$__t10_healraw" | string match -rv '^\s*#')
+set -g __t10_forcecount_out (string match -r '__tcz_pe_force 1' -- $__t10_outsidestripped | count)
+set -g __t10_forcecount_heal (string match -r '__tcz_pe_force 1' -- $__t10_healstripped | count)
+t "wiring: the picker forces a whole paint at all three handover sites" 3 $__t10_forcecount_out
+t "wiring: the self-heal block forces its own whole paint (the fourth occurrence, counted separately so a handover regression can't hide behind it)" 1 $__t10_forcecount_heal
 
 set -g __t10_prevreset (string match -r 'set -e __tcz_pe_prev' -- $__t10_bodylines | count)
 t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prevreset
@@ -5994,6 +6019,16 @@ function __t9_hexentry_no_trailing_nl --description 'run the REAL __tcz_thp_hexe
     set -e __tcz_pe_prev
     set -g __tcz_pe_force 1
     set -l out (__tcz_thp_hexentry | string collect --no-trim-newlines)
+    # final review (Minor 4): expose the untouched raw capture via a side
+    # global — same convention as $__t9_last_lines elsewhere in this file —
+    # so the call site can self-check that the close marker this assertion
+    # searches for is even PRESENT before trusting a "no" answer. Without
+    # that self-check, deleting the two reset lines above (a real regression
+    # this repo has already shipped once, on __t9_hexentry_rows's sibling
+    # bug) makes the emitter find zero dirty rows and emit NOTHING — the
+    # close marker then never appears, "no" is reported for the WRONG
+    # reason, and the suite stays ALL PASS.
+    set -g __t9h_nonl_raw "$out"
     string match -qr '\n\x1b\[J\x1b\[\?2026l' -- "$out"; and echo yes; or echo no
 end
 
@@ -6006,8 +6041,18 @@ t "hexentry paints the expected row count (top+9+bottom)" 11 (count $HEROWS5)
 # The direct discriminator for a reintroduced trailing newline after the last
 # row — see __t9_hexentry_no_trailing_nl for why it checks the untouched raw
 # capture rather than $HEROWS5 (this extraction pipeline can't safely surface
-# that signal — see __t9_hexentry_rows' own comment on why).
-t "hexentry has no trailing empty row (top-border-scroll defect class)" no (__t9_hexentry_no_trailing_nl)
+# that signal — see __t9_hexentry_rows' own comment on why). Call it ONCE and
+# reuse the result for both assertions below — a second call would re-run
+# __tcz_thp_hexentry and could observe different __tcz_pe_* state.
+set -g __t9h_nonl_result (__t9_hexentry_no_trailing_nl)
+# final review (Minor 4): self-check that the probe actually captured a close
+# marker at all, BEFORE trusting the "no newline before it" answer below.
+# __t9_hexentry_rows' sibling assertion (row count == 11) is already immune
+# to this class on its own — an absent marker corrupts its literal-string
+# peel and the count visibly deviates from 11 — so only this one needed the
+# explicit guard to bring it to the same level of protection.
+t "hexentry no-trailing-nl probe actually captured the close marker (self-check against silent vacuity)" yes (string match -q '*'(printf '\e[J\e[?2026l')'*' -- "$__t9h_nonl_raw"; and echo yes; or echo no)
+t "hexentry has no trailing empty row (top-border-scroll defect class)" no "$__t9h_nonl_result"
 set -g HEBAD5 0
 for row in $HEROWS5
     set -l vis (__tcz_strip_sgr "$row")
