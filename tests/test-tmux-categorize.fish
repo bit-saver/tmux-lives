@@ -3242,8 +3242,9 @@ t "picker save no longer sends contrast/rotate" yes (begin; not string match -q 
 # subject matter) moved out of __tcz_theme_picker's own source and into
 # __tcz_popup_emit, which both picker frames now call — see the "the picker
 # routes BOTH its frames through the emitter" block below for the guard that
-# no inline paint remains in the picker itself.
-t "picker frame: last row printed without newline" yes (string match -q '*$argv[1..-2]*' -- (functions __tcz_popup_emit | string collect); and echo yes; or echo no)
+# no inline paint remains in the picker itself. Renamed emit: … (fix round,
+# Minor 3) so the name matches the function this now actually checks.
+t "emit: last row printed without newline" yes (string match -q '*$argv[1..-2]*' -- (functions __tcz_popup_emit | string collect); and echo yes; or echo no)
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
@@ -3444,8 +3445,18 @@ t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # picker-partial-repaint Task 2: same relocation as the guard above — the
 # sync-output wrapping now lives in __tcz_popup_emit, which the picker calls
-# for both its frames instead of writing the escapes itself.
-t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_popup_emit | string collect); and string match -q '*2026l*' -- (functions __tcz_popup_emit | string collect); and echo yes; or echo no)
+# for both its frames instead of writing the escapes itself. Fix round
+# (Minor 4): a match-ANYWHERE check is satisfiable by only ONE of the
+# emitter's two paint paths wrapping in sync — e.g. stripping the sync
+# escapes from the partial-diff path alone still leaves a 2026h/2026l pair
+# in the whole-frame fallback, and the old check would stay green.
+# __tcz_popup_emit has exactly one 2026h/2026l PAIR per path (whole-frame
+# and partial-diff), so requiring count 2 of each — not merely >=1 — is what
+# actually proves both paths are covered independently. Renamed emit: …
+# (Minor 3) to match the function this now checks.
+set -g __t10b_emitlines (string split \n -- (functions __tcz_popup_emit | string match -rv '^\s*#' | string collect))
+t "emit: both paint paths wrap in synchronized output (2026h)" 2 (string match -r '2026h' -- $__t10b_emitlines | count)
+t "emit: both paint paths wrap in synchronized output (2026l)" 2 (string match -r '2026l' -- $__t10b_emitlines | count)
 
 # perf fix + universal-persistence fix: the HOT path (reload/draw/readouts)
 # is in-process, but every universal-TOUCHING action must go through a
@@ -5261,6 +5272,25 @@ t "wiring: picker calls the emitter at both its frames" 2 $__t10_calls
 set -g __t10_inline (string match -r '2026h' -- $__t10_bodylines | count)
 t "wiring: no inline whole-frame paint remains in the picker" 0 $__t10_inline
 
+# The emitter's memoized __tcz_pe_prev is process-global, but each of these
+# three handovers hands the terminal to (or back from) a screen with
+# DIFFERENT content that the emitter has no way to know about — the exact
+# cross-call state-bleed class that broke __t9_hexentry_rows and
+# __t9_hexentry_no_trailing_nl above when THEY shared emitter state across
+# calls. Both forces are redundant-by-construction today (a fresh
+# fish --no-config popup starts with __tcz_pe_prev unset, and the admission
+# floor means the main frame's row count can never equal hex-entry's, so the
+# geometry guard alone already forces a whole paint) — cheap insurance kept
+# on purpose, not dead code to prune. Source-anchored, bounded to the picker
+# body like the wiring guards above; Task 1 already proves the flag works
+# behaviourally, so this only proves the picker still SETS it at all three
+# handover sites plus the one entry-time reset.
+set -g __t10_forcecount (string match -r '__tcz_pe_force 1' -- $__t10_bodylines | count)
+t "wiring: the picker forces a whole paint at all three handover sites" 3 $__t10_forcecount
+
+set -g __t10_prevreset (string match -r 'set -e __tcz_pe_prev' -- $__t10_bodylines | count)
+t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prevreset
+
 # NON-REGRESSION GUARD (correctly passes before AND after this task): the
 # session switcher is deliberately out of scope. Its per-keypress content is a
 # live capture-pane of a different session, so nearly every row genuinely
@@ -5818,6 +5848,17 @@ function __t9_hexentry_no_trailing_nl --description 'run the REAL __tcz_thp_hexe
     set -l BRAND (__tcz_theme brand)
     set -l IW 50
     set -g __t9h_rkq esc
+    # picker-partial-repaint Task 2 fix round: same cross-call state-bleed as
+    # __t9_hexentry_rows above — this runs AFTER HEROWS5 has already primed
+    # __tcz_pe_prev with an IDENTICAL IW=50/seed=#5f772b frame, so without a
+    # reset the emitter finds zero dirty rows and emits nothing at all (just
+    # __tcz_thp_hexentry's own leading/trailing \e[2J) — the close marker this
+    # assertion searches for is then simply absent, and `string match -q`
+    # reports "no" unconditionally, whether or not a trailing-newline
+    # regression exists. Force a fresh whole-frame paint, matching what this
+    # harness has always assumed.
+    set -e __tcz_pe_prev
+    set -g __tcz_pe_force 1
     set -l out (__tcz_thp_hexentry | string collect --no-trim-newlines)
     string match -qr '\n\x1b\[J\x1b\[\?2026l' -- "$out"; and echo yes; or echo no
 end
