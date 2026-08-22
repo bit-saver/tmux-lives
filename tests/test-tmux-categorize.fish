@@ -3238,7 +3238,12 @@ t "picker restores the terminal on signals" yes (string match -q '*__tcz_thp_cle
 # old save silently failed on every ⏎ before this fix.
 t "picker contrast toggle (case d) retired" yes (not string match -qr 'case d\b' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker save no longer sends contrast/rotate" yes (begin; not string match -q '*--contrast*' -- (functions __tcz_theme_picker | string collect); and not string match -q '*--rotate*' -- (functions __tcz_theme_picker | string collect); end; and echo yes; or echo no)
-t "picker frame: last row printed without newline" yes (string match -q '*$lines[1..-2]*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# picker-partial-repaint Task 2: the whole-frame emission (and this guard's
+# subject matter) moved out of __tcz_theme_picker's own source and into
+# __tcz_popup_emit, which both picker frames now call — see the "the picker
+# routes BOTH its frames through the emitter" block below for the guard that
+# no inline paint remains in the picker itself.
+t "picker frame: last row printed without newline" yes (string match -q '*$argv[1..-2]*' -- (functions __tcz_popup_emit | string collect); and echo yes; or echo no)
 # readkey's ESC/CSI-arrow branch leaves the tty in `min 1 time 0` (blocking) on
 # return, so each drain iteration must re-assert non-blocking BEFORE reading —
 # otherwise the second buffered read blocks forever (empirically confirmed hang).
@@ -3437,7 +3442,10 @@ t "guard: no command substitution inside quoted math" 0 (count (string match -ar
 # (DECSET 2026, the __tcz_popup_draw pattern) or each redraw visibly flickers.
 t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z]*\[(math' $catfile)
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
-t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_theme_picker | string collect); and string match -q '*2026l*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+# picker-partial-repaint Task 2: same relocation as the guard above — the
+# sync-output wrapping now lives in __tcz_popup_emit, which the picker calls
+# for both its frames instead of writing the escapes itself.
+t "picker: draw wrapped in synchronized output" yes (string match -q '*2026h*' -- (functions __tcz_popup_emit | string collect); and string match -q '*2026l*' -- (functions __tcz_popup_emit | string collect); and echo yes; or echo no)
 
 # perf fix + universal-persistence fix: the HOT path (reload/draw/readouts)
 # is in-process, but every universal-TOUCHING action must go through a
@@ -5242,6 +5250,25 @@ set -g __t10_gbytes (__t10_emit_bytes $__t10_g2)
 t "emit: a one-row cursor move at real geometry stays under 2000 bytes" 1 (test "$__t10_gbytes" -lt 2000; and echo 1; or echo 0)
 t "emit: ...and is not zero, i.e. the two fixture frames really do differ" 1 (test "$__t10_gbytes" -gt 0; and echo 1; or echo 0)
 
+# --- the picker routes BOTH its frames through the emitter -------------------
+set -g __t10_body (functions __tcz_theme_picker | string match -rv '^\s*#' | string collect)
+t "wiring: picker body extraction is non-empty" 1 (test -n "$__t10_body"; and echo 1; or echo 0)
+set -g __t10_bodylines (string split \n -- "$__t10_body")
+
+set -g __t10_calls (string match -r '__tcz_popup_emit ' -- $__t10_bodylines | count)
+t "wiring: picker calls the emitter at both its frames" 2 $__t10_calls
+
+set -g __t10_inline (string match -r '2026h' -- $__t10_bodylines | count)
+t "wiring: no inline whole-frame paint remains in the picker" 0 $__t10_inline
+
+# NON-REGRESSION GUARD (correctly passes before AND after this task): the
+# session switcher is deliberately out of scope. Its per-keypress content is a
+# live capture-pane of a different session, so nearly every row genuinely
+# differs and a diff would buy almost nothing. Do not report this as vacuous.
+set -g __t10_swlines (string split \n -- (functions __tcz_popup_draw | string match -rv '^\s*#' | string collect))
+t "wiring: the session switcher still paints whole frames" 1 (string match -r '2026h' -- $__t10_swlines | count)
+t "wiring: the session switcher does not use the emitter" 0 (string match -r '__tcz_popup_emit' -- $__t10_swlines | count)
+
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
 # not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its
 # early-return paths (non-hex tabshex — every non-ShellFish client — or an
@@ -5733,6 +5760,17 @@ function __t9_hexentry_rows --argument-names iw --description 'run the REAL __tc
     set -l BRAND (__tcz_theme brand)
     set -l IW $iw
     set -g __t9h_rkq esc
+    # picker-partial-repaint Task 2: __tcz_thp_hexentry now paints through
+    # __tcz_popup_emit, which memoizes the previous frame GLOBALLY across
+    # calls. Two calls at different widths (IW=50 then IW=70) produce the
+    # SAME row count, so without a reset the second call would see an
+    # unchanged geometry and diff against the first call's frame instead of
+    # painting whole — a partial paint has no \e[H/\e[J markers and no \n
+    # row separators, which this harness's literal peel below depends on.
+    # Force a fresh whole-frame paint every call, matching what this harness
+    # has always assumed.
+    set -e __tcz_pe_prev
+    set -g __tcz_pe_force 1
     set -l out (__tcz_thp_hexentry | string collect)
     # Peel the four wrapper escapes by EXACT literal match, in the order they
     # were printed (leading full-screen clear · sync-update open+home · the

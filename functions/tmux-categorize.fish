@@ -2494,14 +2494,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a helines (__tcz_thp_ln '' $IW $BORDER $RST)
             set -a helines (__tcz_thp_ln "$leg" $IW $BORDER $RST)
             set -a helines $hebot
-            # Synchronized update (DECSET 2026), same atomic-paint pattern as the
-            # main frame below — commits the entry paint in one go. Newlines
-            # BETWEEN rows only (the __tcz_popup_draw / main-frame convention): a
-            # trailing newline after the last row scrolls the top border off.
-            printf '\e[?2026h\e[H'
-            test (count $helines) -gt 1; and printf '%s\e[K\n' $helines[1..-2]
-            printf '%s\e[K' $helines[-1]
-            printf '\e[J\e[?2026l'
+            # Differential paint, same atomic-update pattern as the main frame
+            # below — commits only the rows that changed.
+            __tcz_popup_emit $helines
             set -l tok (__tcz_thp_readchar)
             switch $tok
                 case back
@@ -2690,6 +2685,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l seeddirty 0
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
+    # The screen was just cleared, so the emitter's model of it is stale by
+    # definition. Force the first paint to be whole.
+    set -e __tcz_pe_prev
+    set -g __tcz_pe_force 1
     set -l apply ''
     function __tcz_thp_apply_now --no-scope-shadowing --description 'apply whatever the cursor is currently on, live — the exact body case a runs. A scheme/off row previews its own recipe at the live phase; the current row re-previews its own frozen snapshot. Always followed by a __tcz_recolor tab emit.'
         if test $focus = state
@@ -2982,13 +2981,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l noterow (__tcz_popup_truncate " $MUTED$note$RST" $IW)
         set -a lines (__tcz_thp_ln "$noterow" $IW $BORDER $RST)
         set -a lines $BORDER"╰"(string repeat -n $IW ─)"╯"$RST
-        # Synchronized update (DECSET 2026): commit the whole frame atomically so a
-        # redraw never flickers mid-paint (the __tcz_popup_draw pattern; unsupported
-        # terminals ignore the private mode harmlessly).
-        printf '\e[?2026h\e[H'
-        test (count $lines) -gt 1; and printf '%s\e[K\n' $lines[1..-2]
-        printf '%s\e[K' $lines[-1]
-        printf '\e[J\e[?2026l'
+        # Differential paint: only the rows that changed go out (~747 bytes
+        # instead of ~12,697). __tcz_popup_emit falls back to the whole frame
+        # when forced or when the height changes.
+        __tcz_popup_emit $lines
         set -l tok
         if test -n "$flashfield"; or test "$seeddirty" = 1
             # flash active, and/or a batch reload is owed: wait up to ~0.7s
@@ -3243,7 +3239,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # draw section re-derives seedr/g/b from $seed every frame,
                 # so a hexentry commit is picked up with no extra plumbing).
                 # Idle (editing=0) it's a no-op, symmetric with b's own gate.
-                test "$editing" = 1; and __tcz_thp_hexentry
+                if test "$editing" = 1
+                    # The hex-entry screen owns the whole terminal while it
+                    # runs, and hands it back with different content. Force a
+                    # whole paint on each side of the handover so neither
+                    # frame diffs against the other's leftovers.
+                    set -g __tcz_pe_force 1
+                    __tcz_thp_hexentry
+                    set -g __tcz_pe_force 1
+                end
             case z
                 # shake: land on a random row across the FULL catalog. RELOAD
                 # BEFORE ROLLING so the bound is the real expanded size — the
