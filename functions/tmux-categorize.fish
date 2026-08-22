@@ -1842,7 +1842,7 @@ function __tcz_thp_band --argument-names hex cachekey --description 'memoizing f
     test (count $fresh) -gt 0; and printf '%s\n' $fresh
 end
 
-function __tcz_thp_row_uncached --argument-names hexes name selected current cachekey --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins. <cachekey> (Task 3) is NOT used to cache this functions own output — __tcz_thp_row above already owns that — it is forwarded verbatim to __tcz_thp_cells so the swatch strip can be memoized by the SAME scheme-index identity independently of whether this row itself was a cache hit or miss: a cursor move dirties this rows own __tcz_rc_ entry (selected changed) without changing <hexes>, so the cells lookup below still hits the __tcz_cc_ slot an earlier draw of this same index already populated.'
+function __tcz_thp_row_uncached --argument-names hexes name selected current cachekey dim --description 'pure: one scheme row = marker(1) + the area-weighted swatch strip (16 visible cols, see __tcz_thp_cells) + space + name; <hexes> is the engine-order palette (bar sep tabs active windows cap text), space-joined; non-hex cells degrade to blank gaps; <current> = 1 renders the name in brand bold (the current entry), unless the row is also the cursor, where the selection styling wins. <cachekey> (Task 3) is NOT used to cache this functions own output — __tcz_thp_row above already owns that — it is forwarded verbatim to __tcz_thp_cells so the swatch strip can be memoized by the SAME scheme-index identity independently of whether this row itself was a cache hit or miss: a cursor move dirties this rows own __tcz_rc_ entry (selected changed) without changing <hexes>, so the cells lookup below still hits the __tcz_cc_ slot an earlier draw of this same index already populated.'
     set -l cells (__tcz_thp_cells "$hexes" "$cachekey")
     set -l marker ' '
     set -l namecol (__tcz_theme muted)
@@ -1856,13 +1856,30 @@ function __tcz_thp_row_uncached --argument-names hexes name selected current cac
     if test "$current" = 1; and test "$selected" != 1
         set namecol (__tcz_theme brand)(printf '\e[1m')
     end
-    printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
+    # <dim> = 1 wraps the whole row in SGR 2 (faint): the seed has moved and
+    # these strips were computed from the OLD seed, so they are stale until `a`
+    # recomputes them. Faint costs nothing to render — no colour is recomputed,
+    # the swatch glyphs simply lose intensity — and it is legible on every
+    # terminal this runs on. SGR 22 (not 0) closes it, so the row's own colour
+    # resets stay meaningful.
+    set -l faint ''
+    set -l unfaint ''
+    if test "$dim" = 1
+        set faint (printf '\e[2m')
+        set unfaint (printf '\e[22m')
+    end
+    printf '%s%s%s %s%s%s%s' "$faint" "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset) "$unfaint"
 end
-function __tcz_thp_row --argument-names hexes name selected current cachekey --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild). Task 3: <cachekey> is ALSO forwarded straight through to __tcz_thp_row_uncached, which forwards it again to __tcz_thp_cells — both branches below pass it (empty in the first, the real key in the second), so an uncached call stays fully uncached at the cells layer too, and a cached call lets a row-cache MISS still hit the cells cache when only <selected>/<current> changed.'
-    test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey"; and return
-    set -l k "__tcz_rc_$cachekey"_"$selected"_"$current"
+function __tcz_thp_row --argument-names hexes name selected current cachekey dim --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild). Task 3: <cachekey> is ALSO forwarded straight through to __tcz_thp_row_uncached, which forwards it again to __tcz_thp_cells — both branches below pass it (empty in the first, the real key in the second), so an uncached call stays fully uncached at the cells layer too, and a cached call lets a row-cache MISS still hit the cells cache when only <selected>/<current> changed.'
+    test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey" "$dim"; and return
+    # <dim> MUST be part of the key. Without it the first draw of an index wins
+    # the slot and every later draw at the other staleness returns it, so the
+    # strips would never visibly dim (or never undim) while the whole suite
+    # stayed green — the row cache is invalidated only by __tcz_thp_cacheclear,
+    # which a mere seed change does not call.
+    set -l k "__tcz_rc_$cachekey"_"$selected"_"$current"_"$dim"
     set -q $k; and printf '%s\n' $$k; and return
-    set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey")
+    set -g $k (__tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey" "$dim")
     printf '%s\n' $$k
 end
 function __tcz_thp_staterow_uncached --argument-names w cells name label selected live --description 'pure: one SECOND-LIST row, exactly <w> visible cols: marker(1) + <cells> (the area-weighted strip, 16 visible cols — see __tcz_thp_cells) + space(1) + <name> left-aligned + pad + <label> flush right + one trailing space. <cells> is pre-rendered (__tcz_thp_cells for a palette, __tcz_thp_band for a single colour) so both lists draw their 16 columns identically; the padding math measures <cells> directly rather than assuming a fixed width, so a future resize of the strip cannot silently desync this row again. <live> = 1 renders the label BOLD in `brand` — it means this really is what is on the bar right now, which is the readout that replaced the chevron; otherwise muted.'
@@ -2435,6 +2452,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a tabsfgs "$f[4]"
             set -a recipes "$f[5]"
         end
+        # The strips now reflect $seed, whoever asked for the reload — init, m,
+        # z, a hexentry commit, or `a`. Recording it here rather than at the
+        # five call sites means a future sixth is correct for free.
+        set stripseed $seed
     end
     function __tcz_thp_hexentry --no-scope-shadowing --description 'typed-hex seed entry (raw; live swatch + hue/L/chroma readouts at parse-complete). Framed like every other picker screen (picker-seed-section Task 5): the popup itself opens with display-popup -B, so tmux draws no border of its own — an unframed screen used to float on the users scrollback. Reuses __tcz_thp_ln/__tcz_theme border rather than hand-rolling a new frame style; $BORDER/$RST/$BRAND/$IW are the callers own (shared via --no-scope-shadowing, already set before the interactive loop that can reach here).'
         set -l buf (string replace -r '^#' '' -- $seed)
@@ -2683,6 +2704,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # cancelled a pending batch. seeddirty is cleared ONLY where it is
     # consumed, in the settle block below.
     set -l seeddirty 0
+    # The seed the visible scheme strips were actually built from. Staleness is
+    # DERIVED from it (seeddirty = seed != stripseed) rather than tracked as a
+    # flag, because a flag cannot answer the case that matters: edit a channel,
+    # press `a` to recompute, then esc. The seed reverts but the strips still
+    # show the abandoned edit — genuinely stale — whereas a flag cleared by `a`
+    # and re-cleared by esc would call them fresh. Comparing against the source
+    # of truth is correct in every ordering without enumerating any of them.
+    set -l stripseed ''
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     # The screen was just cleared, so the emitter's model of it is stale by
@@ -2713,6 +2742,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
     end
     while true
+        # Staleness is derived, not tracked — see $stripseed's declaration.
+        set seeddirty 0
+        test "$seed" != "$stripseed"; and set seeddirty 1
         # cursor row palette — two lists, two lookups. focus=list: sel is
         # LINEAR 0..n-1 into $pals/$fgs/$tabsfgs (1-indexed, so capture sel+1
         # into a var FIRST — a math() expression written directly inside a
@@ -2845,7 +2877,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $focus = list; and test $si -eq $sel; and set selflag 1
                 set -l curflag 0
                 test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
-                set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag $idx)
+                set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag $idx $seeddirty)
                 if test $selflag -eq 1
                     # Pad to $IW BEFORE wrapping in SELBG: __tcz_thp_ln pads to the
                     # frame width AFTER this returns, and its own padstr carries no
@@ -2957,7 +2989,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # removed auto-apply and that pair with it, so browsing is back to 9
         # pairs / 3 rows and editing's pad is back to 1 blank row.
         if test "$editing" = 1
-            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex'  '⏎' keep esc revert "--cachekey=$editing")
+            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' keep esc revert "--cachekey=$editing")
             set -a leglines ''
         else
             set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z shake '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
@@ -2988,7 +3020,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # when forced or when the height changes.
         __tcz_popup_emit $lines
         set -l tok
-        if test -n "$flashfield"; or test "$seeddirty" = 1; or test "$__tcz_pe_partial" = 1
+        if test -n "$flashfield"; or test "$__tcz_pe_partial" = 1
             # flash active, and/or a batch reload is owed: wait up to ~0.7s
             # (drop-autoapply-debounce-seed Task 2 — was ~0.5s; the user
             # asked to debounce the seed harder, past a mid-adjustment
@@ -3009,23 +3041,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             stty min 1 time 0 2>/dev/null
             if test "$tok" = timeout
                 set flashfield ''
-                if test "$seeddirty" = 1
-                    # picker-seed-section Task 6: input has settled — no key
-                    # arrived within ~0.7s of the last live channel edit.
-                    # Batch reload the remaining visible strips (schemes
-                    # list) now, plus reanchor so the current row's band
-                    # tracks the new seed too (its own comment explains why:
-                    # nothing else recomputes it). Cheap even when this flash
-                    # came from something else (a hexentry commit already
-                    # reloaded synchronously) — reload's cache is
-                    # keyed on the seed, so an unchanged seed hits cache
-                    # instead of paying the 310-800ms batch again. Gated on
-                    # seeddirty, not flashfield: see its own declaration
-                    # comment above for why the two must stay independent.
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
-                    set seeddirty 0
-                end
                 # BEGIN self-heal
                 # A partial paint means our model of the screen is only as good
                 # as the assumption that nothing else touched it. A resize, a
@@ -3194,7 +3209,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # than the one deferred catch-up and the catch-up cannot
                     # be silently cancelled by an intervening keypress.
                     set flashfield seed
-                    set seeddirty 1
                 end
             case m
                 # expand/collapse the catalog: 14 curated rows <-> all 35.
@@ -3314,7 +3328,33 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             # theme on the bar — so `current` stays lit. It is never reset: `cancel`
             # needs it to know a revert is owed.
             case a
-                __tcz_thp_apply_now
+                if test "$editing" = 1; or test "$seeddirty" = 1
+                    # `a` means "make what I am looking at correct". While
+                    # editing the seed, or any time the strips are stale from
+                    # a seed change, that means recompute them from the seed
+                    # now showing in the colour block. Deliberately LOCAL: it
+                    # touches no tmux option and emits no tab OSC, so edit
+                    # mode stays entirely private, per the standing rule that
+                    # configuration is cheap and adoption is explicit.
+                    #
+                    # This arm also CLOSES a hole. `case a` used to be
+                    # ungated, so pressing it mid-slider-drag ran the full
+                    # apply-preview — nine tmux options plus the tab OSC,
+                    # 200-400ms, on the real bar — while you were still
+                    # dialling in a colour, and the editing legend never
+                    # advertised it. That is the same unasked bar contact the
+                    # auto-apply feature was cancelled for. Gating on the
+                    # stale flag TOO (not editing alone) matters twice: b
+                    # leaves edit mode without recomputing, so without it the
+                    # strips would stay dimmed with no way back short of
+                    # re-entering the editor; and entering edit mode without
+                    # touching a channel leaves the seed clean, which under an
+                    # editing-only gate would still let `a` reach the bar.
+                    __tcz_thp_reload
+                    __tcz_thp_reanchor
+                else
+                    __tcz_thp_apply_now
+                end
             case enter
                 if test "$editing" = 1
                     # BEGIN enter-edit
@@ -3358,7 +3398,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # which does exit and reverts all the way to $anch_seed).
                     set seed $editseed
                     set editing 0
-                    set seeddirty 1
+                    # Nothing to set: staleness is derived from $stripseed, so
+                    # reverting $seed automatically reports the strips fresh
+                    # again IF they were built from $editseed, and still stale
+                    # if an `a` during this edit rebuilt them for the seed we
+                    # are now abandoning. Both are correct without a flag.
                     set note ''
                     # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is

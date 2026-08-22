@@ -5374,6 +5374,81 @@ __tcz_popup_emit $EQA >$__t10_eq_f2
 t "emit: equivalence — full-paint path is byte-identical to the pre-branch emission" 0 (cmp -s $__t10_eq_f1 $__t10_eq_f2; echo $status)
 rm -f $__t10_eq_f1 $__t10_eq_f2
 
+# --- manual scheme recompute in seed-edit mode -------------------------------
+# The seed editor used to regenerate every visible scheme ~0.7s after typing
+# stopped. The user asked for that to become manual: while you are dialling in
+# a colour you are not looking at the schemes, so the 310-800ms regeneration
+# was being paid unasked and at the moment it was least wanted. `a` — which is
+# apply-preview while browsing and was silently reachable (ungated) while
+# editing, pushing a scheme to the REAL bar mid-slider-drag — now means
+# "recompute the strips from this seed" inside edit mode, and the strips render
+# dimmed until it is pressed.
+set -g __t11_hex '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+set -g __t11_esc (printf '\e')
+
+# (1) a stale row must render differently from a fresh one, and carry SGR 2.
+__tcz_thp_cacheclear
+set -g __t11_fresh (__tcz_thp_row "$__t11_hex" scheme1 0 0)
+set -g __t11_dim (__tcz_thp_row "$__t11_hex" scheme1 0 0 '' 1)
+t "stale: a dimmed row differs from a fresh one" 1 (test "$__t11_fresh" != "$__t11_dim"; and echo 1; or echo 0)
+t "stale: the dimmed row carries the faint attribute" 1 (string match -qr -- "$__t11_esc"'\[2m' "$__t11_dim"; and echo 1; or echo 0)
+t "stale: a fresh row does NOT carry it" 0 (string match -qr -- "$__t11_esc"'\[2m' "$__t11_fresh"; and echo 1; or echo 0)
+
+# (2) THE one that matters: the row cache is keyed by index+selected+current.
+# If dim is not in that key, the second call here returns the CACHED bright row
+# and the whole feature is invisible on screen while every other assertion
+# stays green.
+__tcz_thp_cacheclear
+set -g __t11_c1 (__tcz_thp_row "$__t11_hex" scheme1 0 0 7)
+set -g __t11_c2 (__tcz_thp_row "$__t11_hex" scheme1 0 0 7 1)
+t "stale: the row cache key includes the dim state" 1 (test "$__t11_c1" != "$__t11_c2"; and echo 1; or echo 0)
+
+# (3) the editing legend advertises the key.
+set -g __t11_body (functions __tcz_theme_picker | string match -rv '^\s*#' | string collect)
+set -g __t11_lines (string split \n -- "$__t11_body")
+t "recompute: picker body extraction is non-empty" 1 (test -n "$__t11_body"; and echo 1; or echo 0)
+t "recompute: the editing legend advertises a" 1 (string match -r "channel.*a schemes" -- $__t11_lines | count)
+
+# (4) NON-REGRESSION GUARD (passes before AND after): adding a sixth pair must
+# not grow the editing legend, or STATIC_EDIT silently stops describing the
+# frame and the popup overflows its own height. An `A auto` pair did exactly
+# that once. Do not report this as vacuous.
+t "recompute: the editing legend is still 2 rows with six pairs" 2 (count (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' keep esc revert))
+t "recompute: STATIC_EDIT is still 22" 22 (string match -rg 'set -l STATIC_EDIT (\d+)' -- "$__t11_body")
+
+# (5) `a` must be gated on edit mode. Ungated it applies a scheme to the real
+# bar mid-drag, which is the config-vs-adoption hole this closes.
+set -g __t11_aarm (string match -r 'case a\n(.|\n)*?case enter' -- "$__t11_body" | string collect)
+t "recompute: the case a arm was extracted" 1 (test -n "$__t11_aarm"; and echo 1; or echo 0)
+t "recompute: case a branches on editing" 1 (string match -q '*editing*' -- "$__t11_aarm"; and echo 1; or echo 0)
+t "recompute: case a also recomputes when merely stale (so b-ing out is not a dead end)" 1 (string match -q '*seeddirty*' -- "$__t11_aarm"; and echo 1; or echo 0)
+t "recompute: case a still reaches apply-preview when not editing" 1 (string match -q '*__tcz_thp_apply_now*' -- "$__t11_aarm"; and echo 1; or echo 0)
+t "recompute: case a reloads when editing" 1 (string match -q '*__tcz_thp_reload*' -- "$__t11_aarm"; and echo 1; or echo 0)
+
+# (6) the settle poll must no longer arm on a seed edit — that IS the auto
+# batch. Its other two clauses (the change-flash and the partial-paint
+# self-heal) must survive untouched.
+set -g __t11_gate (string match -r 'if test -n "\$flashfield"[^\n]*' -- "$__t11_body" | string collect)
+t "recompute: the settle gate was extracted" 1 (test -n "$__t11_gate"; and echo 1; or echo 0)
+t "recompute: the settle gate no longer arms on a seed edit" 0 (string match -q '*seeddirty*' -- "$__t11_gate"; and echo 1; or echo 0)
+t "recompute: the settle gate still arms on the change-flash" 1 (string match -q '*flashfield*' -- "$__t11_gate"; and echo 1; or echo 0)
+t "recompute: the settle gate still arms on a partial paint (self-heal)" 1 (string match -q '*__tcz_pe_partial*' -- "$__t11_gate"; and echo 1; or echo 0)
+
+# (7) esc while editing REVERTS the seed to the one the strips were already
+# computed from, so they are fresh again — not stale. Under the old deferred
+# batch this arm set seeddirty=1 to re-arm the reload; with the batch gone,
+# leaving it set would dim strips that are actually correct, and `a` would be
+# needed to undim something that never went stale.
+set -g __t11_raw (functions __tcz_theme_picker | string collect)
+set -g __t11_escarm (string match -r '# BEGIN edit-esc(.|\n)*?# END edit-esc' -- "$__t11_raw" | string collect)
+t "recompute: the edit-esc arm was extracted" 1 (test -n "$__t11_escarm"; and echo 1; or echo 0)
+# Staleness is derived from $stripseed, so the esc arm must not hand-maintain
+# the flag at all — reverting $seed reports fresh or stale on its own,
+# whichever is true, without this arm having to know which.
+t "recompute: the edit-esc arm does not hand-maintain the stale flag" 0 (string match -q '*seeddirty*' -- "$__t11_escarm"; and echo 1; or echo 0)
+t "recompute: staleness is derived from the seed the strips were built from" 1 (string match -r 'test "\$seed" != "\$stripseed"' -- $__t11_lines | count)
+t "recompute: every reload records the seed it built from" 1 (string match -r '^ *set stripseed \$seed$' -- $__t11_lines | count)
+
 # --- the picker routes BOTH its frames through the emitter -------------------
 set -g __t10_body (functions __tcz_theme_picker | string match -rv '^\s*#' | string collect)
 t "wiring: picker body extraction is non-empty" 1 (test -n "$__t10_body"; and echo 1; or echo 0)
@@ -5454,8 +5529,14 @@ t "self-heal: it clears the partial flag, which is what stops it looping" 1 (str
 # conditions. flashfield and seeddirty are deliberately independent — three
 # sibling key arms clear flashfield on unrelated keypresses, and coupling them
 # once silently cancelled a pending seed batch. Assert all three survive.
-set -g __t10_gate (string match -r 'if test -n "\$flashfield"; or test "\$seeddirty" = 1[^\n]*' -- "$__t10_raw" | string collect)
-t "self-heal: the settle gate still tests flashfield and seeddirty" 1 (test -n "$__t10_gate"; and echo 1; or echo 0)
+# The extraction anchors on flashfield ONLY. It used to require the seeddirty
+# clause too, which made it break the day that clause was legitimately removed
+# (manual scheme recompute, 2026-08-22) — taking the partial-paint assertion
+# below down with it, since both read this same variable. Anchor on the part
+# that is load-bearing for THIS block, not on the whole line as it happened to
+# read the day it was written.
+set -g __t10_gate (string match -r 'if test -n "\$flashfield"[^\n]*' -- "$__t10_raw" | string collect)
+t "self-heal: the settle gate still tests flashfield" 1 (test -n "$__t10_gate"; and echo 1; or echo 0)
 t "self-heal: the settle gate also arms on a partial paint" 1 (string match -q '*__tcz_pe_partial*' -- "$__t10_gate"; and echo 1; or echo 0)
 
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
@@ -6201,6 +6282,17 @@ t "drain invariant: exactly one while-true loop (the main event loop) lacks an i
 # intended boundary, so a runaway extraction fails loudly instead of
 # silently overrunning.
 set -g ARROWLR6 (awk '/^            case left right$/{f=1} f && /^            case m$/{exit} f{print}' $catfile | string collect)
+# `a` = the manual scheme recompute (2026-08-22). Extracted HERE, not beside its
+# CASE*6 siblings further down, because __t6_e2e is both defined and CALLED
+# above them — an eval of a not-yet-assigned wrapper is silently a no-op.
+# NB the flag must be set on `case a` BEFORE `case enter` can end the range:
+# `case enter` also occurs at __tcz_popup, earlier in the file, so an
+# exit-first range exits there and yields nothing.
+set -g CASEA6 (awk '/^            case a$/{f=1} f && /^            case enter$/{exit} f{print}' $catfile | string collect)
+set -g CASEA6WRAP "switch \$tok
+$CASEA6
+end"
+t "case-a extraction is non-empty" 1 (test -n "$CASEA6"; and echo 1; or echo 0)
 t "left/right arm extraction is non-empty (task 6)" 1 (test -n "$ARROWLR6"; and echo 1; or echo 0)
 t "left/right arm extraction stopped before case m (did not run to EOF)" 0 (string match -q '*case m*' -- "$ARROWLR6"; and echo 1; or echo 0)
 t "left/right arm extraction did not run all the way to the picker's teardown" 0 (string match -q '*functions -e __tcz_thp_reload*' -- "$ARROWLR6"; and echo 1; or echo 0)
@@ -6278,6 +6370,10 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
         set seedb (math "0x$m[3]")
     end
     set -l seed $seedhex
+    # The strips start in sync with the seed; the arm under test is what
+    # moves them apart. Without this, $stripseed is empty, every comparison
+    # reports stale, and the staleness assertions pass for the wrong reason.
+    set -l stripseed $seedhex
     set -l phase 0
     set -l flashfield ''
     set -l seeddirty 0
@@ -6289,7 +6385,11 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
     set -g __t6_pal_calls 0
     set -g __t6_rkq $argv[3..-1]
     eval $ARROWLR6WRAP
-    printf '%s\x1e%s\x1e%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls" "$seeddirty" "$__t6_pal_calls"
+    # Field 5 is DERIVED, exactly as the real loop derives it at the top of
+    # each iteration — the channel arm no longer sets a flag (2026-08-22).
+    set -l stale 0
+    test "$seed" != "$stripseed"; and set stale 1
+    printf '%s\x1e%s\x1e%s\x1e%s\x1e%s\x1e%s\n' "$pals[1]" "$flashfield" "$seed" "$__t6_reload_calls" "$stale" "$__t6_pal_calls"
 end
 
 set -g RES6A (__t6_arrow right '#000000')
@@ -6306,7 +6406,7 @@ t "channel edit does not call the batch reload" 0 "$f6a[4]"
 # that have no idea it also carries this obligation, which would otherwise
 # silently cancel the deferred reload+reanchor. Assert the dedicated flag
 # directly.
-t "channel edit marks the seed dirty (independent of flashfield)" 1 "$f6a[5]"
+t "channel edit moves the seed off the one the strips were built from (stale)" 1 "$f6a[5]"
 # THE discriminator: zero palette calls, not just "no batch reload call" —
 # a mistaken implementation could skip the batch while still recomputing the
 # cursor row inline, which only this count catches.
@@ -6322,7 +6422,7 @@ set -g f6b (string split \x1e -- $RES6B)
 t "a 3-press coalesced burst still moves only +8, not +24" '#080000' "$f6b[3]"
 t "a coalesced burst still leaves the scheme strip untouched" yes (test "$f6b[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
 t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
-t "a coalesced burst also marks the seed dirty" 1 "$f6b[5]"
+t "a coalesced burst also leaves the strips stale" 1 "$f6b[5]"
 t "a coalesced burst still calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6b[6]"
 
 # Restore the real engine palette function before anything downstream needs
@@ -6352,10 +6452,16 @@ end
 
 set -g RES6T (__t6_settle seed 1 timeout)
 set -g f6t (string split ' ' -- $RES6T)
-t "settle (no key within ~0.7s) calls the batch reload exactly once" 1 "$f6t[1]"
-t "settle (no key within ~0.7s) calls reanchor exactly once"         1 "$f6t[2]"
-t "settle clears flashfield"                                         '' "$f6t[3]"
-t "settle clears seeddirty"                                          0 "$f6t[4]"
+# INVERTED 2026-08-22. These four used to assert that settling fired the
+# deferred batch. The batch is gone: regenerating every visible scheme ~0.7s
+# after you stop dragging a slider spent 310-800ms at the one moment you are
+# looking at the colour block and not the strips. `a` does it on demand now.
+# Kept rather than deleted, and inverted rather than weakened, because they are
+# the guard against the auto-batch being reintroduced by accident.
+t "settle no longer fires a batch reload (it is manual now)"          0 "$f6t[1]"
+t "settle no longer fires a reanchor"                                 0 "$f6t[2]"
+t "settle still clears flashfield"                                    '' "$f6t[3]"
+t "settle leaves the stale flag SET — only `a` clears it"             1 "$f6t[4]"
 
 # fix round 1 (Important 1) — the core of the fix: seeddirty alone, WITHOUT
 # flashfield, must still drive the timed poll and fire the batch. This is
@@ -6365,9 +6471,11 @@ t "settle clears seeddirty"                                          0 "$f6t[4]"
 # owed batch was lost until another seed edit.
 set -g RES6D (__t6_settle '' 1 timeout)
 set -g f6d (string split ' ' -- $RES6D)
-t "settle fires on seeddirty alone (flashfield already empty)" 1 "$f6d[1]"
-t "settle's reanchor also fires on seeddirty alone"             1 "$f6d[2]"
-t "settle clears seeddirty even when flashfield started empty"  0 "$f6d[4]"
+# INVERTED 2026-08-22, same reason. A dirty seed on its own must no longer
+# arm the timed poll at all — that IS the automatic batch.
+t "a dirty seed alone no longer fires a batch"        0 "$f6d[1]"
+t "a dirty seed alone no longer fires a reanchor"     0 "$f6d[2]"
+t "a dirty seed survives a settle (still stale)"      1 "$f6d[4]"
 
 # Negative control: neither flag set -> no timed poll at all (falls to a
 # blocking read instead), so the batch cannot fire. Queueing "timeout" here
@@ -6430,6 +6538,7 @@ function __t6_e2e --argument-names old_seed --description 'end to end: the REAL 
         set seedb (math "0x$m[3]")
     end
     set -l seed $old_seed
+    set -l stripseed $old_seed
     set -l phase 0
     set -l flashfield ''
     set -l seeddirty 0
@@ -6447,19 +6556,19 @@ function __t6_e2e --argument-names old_seed --description 'end to end: the REAL 
     set -l tok right
     set -g __t6_rkq
     eval $ARROWLR6WRAP
-    set -l tok ''
-    set -g __t6_rkq timeout
-    for _pass in 1 2 3 4 5
-        eval $SETTLE6
-        break
-    end
+    # 2026-08-22: the recompute is MANUAL. Dispatch a real `a` through the
+    # same wrapper the other keys use, instead of eval'ing the settle block —
+    # settling deliberately does nothing to the strips now.
+    set -l tok a
+    set -g __t6_rkq
+    eval $CASEA6WRAP
     __tcz_thp_cells "$anchpal"
 end
 set -g BAND6BEFORE (__t6_band '#000000')
 set -g BAND6AFTER (__t6_e2e '#000000')
 set -g BAND6EXPECTED (__t6_band '#080000')
-t "end-to-end band is non-empty after a real channel edit + settle" yes (test -n "$BAND6AFTER"; and echo yes; or echo no)
-t "end-to-end: the current row's band actually changes after a live seed edit settles" no (test "$BAND6BEFORE" = "$BAND6AFTER"; and echo yes; or echo no)
+t "end-to-end band is non-empty after a real channel edit + a" yes (test -n "$BAND6AFTER"; and echo yes; or echo no)
+t "end-to-end: the current row's band actually changes once a is pressed" no (test "$BAND6BEFORE" = "$BAND6AFTER"; and echo yes; or echo no)
 # The "differs from before" check above is defeatable: a settle path that never
 # reaches reanchor at all would leave $anchpal empty, and __tcz_thp_cells("")
 # degrades to a 2-char blank strip (measured) — trivially different from the
@@ -6467,7 +6576,7 @@ t "end-to-end: the current row's band actually changes after a live seed edit se
 # band instead: a direct reanchor call for the seed the edit should have
 # produced (#000000 + one chan-1 press = #080000, same arithmetic case-left/
 # right itself performs).
-t "end-to-end: the settled band matches a direct reanchor call for the edited seed" "$BAND6EXPECTED" "$BAND6AFTER"
+t "end-to-end: pressing a refreshes the band to match the edited seed" "$BAND6EXPECTED" "$BAND6AFTER"
 
 set -g BAND6A (__t6_band '#5f772b')
 set -g BAND6B (__t6_band '#772b5f')
@@ -6489,6 +6598,9 @@ set -g CASEM6   (awk '/^            case b$/{exit} /^            case m$/{f=1} f
 set -g CASEB6   (awk '/^            case t$/{exit} /^            case b$/{f=1} f{print}' $catfile | string collect)
 set -g CASEZ6   (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
 set -g CASETAB6 (awk '/^            case a$/{exit} /^            case tab$/{f=1} f{print}' $catfile | string collect)
+# `a` is the manual scheme recompute inside edit mode (2026-08-22) — the key
+# that replaced the deferred batch. Extracted so the sequences below can
+# dispatch it for real instead of eval'ing the settle block.
 # case cancel (esc/q) is a distinct case label from case a/enter/m/b/z/tab, and
 # "case cancel" itself is NOT unique in the file (the switcher __tcz_popup has
 # its own, earlier one) — a plain start/exit awk pair the way CASETAB6 does it
@@ -6509,6 +6621,7 @@ $CASEM6
 $CASEB6
 $CASEZ6
 $CASETAB6
+$CASEA6
 $CASECANCEL6
 end"
 
@@ -6531,6 +6644,10 @@ function __t6_seq --argument-names old_seed --description 'end to end (fix round
         set seedb (math "0x$m[3]")
     end
     set -l seed $old_seed
+    # The strips start in sync with the seed; the arm under test is what
+    # moves them apart. Without this, $stripseed is empty, every comparison
+    # reports stale, and the staleness assertions pass for the wrong reason.
+    set -l stripseed $old_seed
     set -l phase 0
     set -l expanded 0
     set -l flashfield ''
@@ -6559,13 +6676,20 @@ function __t6_seq --argument-names old_seed --description 'end to end (fix round
         set -g __t6_rkq
         eval $SEQ6WRAP
     end
-    # Step 3: settle — a genuine timeout, queued once.
-    set tok ''
-    set -g __t6_rkq timeout
-    for _pass in 1 2 3 4 5
-        eval $SETTLE6
-        break
-    end
+    # The real loop derives staleness at the top of every iteration; do the
+    # same before dispatching `a`, or the b-out sequences arrive with a stale
+    # 0 and `a` correctly declines to recompute.
+    set seeddirty 0
+    test "$seed" != "$stripseed"; and set seeddirty 1
+    # Step 3: the manual recompute. These sequences used to prove that m/z/tab
+    # clearing $flashfield could not cancel the owed automatic batch. There is
+    # no owed batch any more, but the sibling property survives and still
+    # matters: none of those arms may clear the STALE flag, or the strips would
+    # silently un-dim while still showing the old seed. Pressing `a` afterwards
+    # must therefore still produce the fresh band.
+    set tok a
+    set -g __t6_rkq
+    eval $SEQ6WRAP
     __tcz_thp_cells "$anchpal"
 end
 
@@ -6575,9 +6699,9 @@ end
 set -g SEQ6_M    (__t6_seq '#000000' m)
 set -g SEQ6_Z    (__t6_seq '#000000' z)
 set -g SEQ6_BTAB (__t6_seq '#000000' b tab)
-t "→ m then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_M"
-t "→ z then settle: the current row's band ends up fresh, not stale"      "$BAND6EXPECTED" "$SEQ6_Z"
-t "→ b ⇥ then settle: the current row's band ends up fresh, not stale"    "$BAND6EXPECTED" "$SEQ6_BTAB"
+t "→ m then a: the band refreshes (m did not drop the stale flag)"      "$BAND6EXPECTED" "$SEQ6_M"
+t "→ z then a: the band refreshes (z did not drop the stale flag)"      "$BAND6EXPECTED" "$SEQ6_Z"
+t "→ b ⇥ then a: the band refreshes (tab did not drop the stale flag)"  "$BAND6EXPECTED" "$SEQ6_BTAB"
 
 # --- final review Finding 1: esc while editing must re-arm the deferred
 # recompute, not just revert $seed --------------------------------------
@@ -6609,6 +6733,7 @@ function __t6_esc_seq --argument-names old_seed --description 'end to end (Findi
         set seedb (math "0x$m[3]")
     end
     set -l seed $old_seed
+    set -l stripseed $old_seed
     set -l phase 0
     set -l expanded 0
     set -l flashfield ''
@@ -6631,28 +6756,20 @@ function __t6_esc_seq --argument-names old_seed --description 'end to end (Findi
     set -l tok right
     set -g __t6_rkq
     eval $SEQ6WRAP
-    # Step 2: settle — discharges the batch for the EDITED seed, clearing
-    # seeddirty back to 0 (exactly what a hexentry commit or an earlier
-    # settle already does before the esc in the live repro).
-    set tok ''
-    set -g __t6_rkq timeout
-    for _pass in 1 2 3 4 5
-        eval $SETTLE6
-        break
-    end
-    # Step 3: esc while editing, with seeddirty already discharged — the fix
-    # under test.
+    # Step 2: `a` — recompute the strips FOR THE EDITED SEED. This is what
+    # makes step 3 interesting: the strips now hold a palette for a seed we
+    # are about to abandon.
+    set tok a
+    set -g __t6_rkq
+    eval $CASEA6WRAP
+    # Step 3: esc while editing — reverts $seed to $editseed. The strips still
+    # show the abandoned edit, so they are genuinely STALE, and a flag cleared
+    # by step 2 and left alone by step 3 would wrongly call them fresh. This is
+    # the ordering the $stripseed derivation exists for.
     set tok cancel
     set -g __t6_rkq
     eval $SEQ6WRAP
-    # Step 4: settle again — a genuine timeout, queued once.
-    set tok ''
-    set -g __t6_rkq timeout
-    for _pass in 1 2 3 4 5
-        eval $SETTLE6
-        break
-    end
-    printf '%s\x1e%s\n' (__tcz_thp_cells "$anchpal") "$pals[1]"
+    printf '%s\x1e%s\n' "$seed" "$stripseed"
 end
 
 function __t6_pal1 --argument-names seedhex --description 'direct control (Finding 1 fix): the REAL __tcz_thp_reload for the given seed (phase 0, unexpanded), no dispatch — returns the first catalog rows rendered palette (pals[1]), the scheme-strip counterpart to __t6_band, above, own current-row check.'
@@ -6670,9 +6787,13 @@ end
 
 set -g SEQ6_ESC (__t6_esc_seq '#000000')
 set -g f6esc (string split \x1e -- $SEQ6_ESC)
-t "→ esc then settle: the current row's band reverts to the pre-edit seed, not the abandoned edit" "$BAND6BEFORE" "$f6esc[1]"
+t "→ a then esc: the seed reverts to the pre-edit value" '#000000' "$f6esc[1]"
 set -g expected6esc (__t6_pal1 '#000000')
-t "→ esc then settle: a scheme strip also reverts to the pre-edit seed, not the abandoned edit" "$expected6esc" "$f6esc[2]"
+# The payoff: the strips still hold the ABANDONED seed's palette, so seed and
+# stripseed disagree and the rows are correctly reported stale. A boolean flag
+# cleared by `a` and untouched by esc would have called this fresh.
+t "→ a then esc: the strips still hold the abandoned edit, so they read STALE" '#080000' "$f6esc[2]"
+t "→ a then esc: seed and stripseed genuinely disagree" 1 (test "$f6esc[1]" != "$f6esc[2]"; and echo 1; or echo 0)
 
 # Restore what this section stubbed.
 eval $__t6_real_readkey
@@ -6720,7 +6841,11 @@ t "browsing legend no longer names A auto" 0 (string match -ra "'A' auto" -- "$P
 # __tcz_thp_apply_now's definition (the `a` arm, its only caller, becomes
 # erroring no-ops, since the function then gets its own fresh scope and
 # can no longer reach the caller's $focus/$sel/$previewed/$note at all).
-t "case a calls __tcz_thp_apply_now" 1 (string match -qr '(?ms)^ *case a$\n *__tcz_thp_apply_now$' -- "$PB9"; and echo 1; or echo 0)
+# `a` is mode-dependent since 2026-08-22: apply-preview while browsing,
+# manual scheme recompute while editing the seed. It used to be ungated, which
+# meant it pushed a scheme to the REAL bar mid-slider-drag.
+t "case a still reaches apply-preview" 1 (string match -q '*__tcz_thp_apply_now*' -- "$PB9"; and echo 1; or echo 0)
+t "case a is gated on edit mode or staleness" 1 (string match -qr '(?ms)^ *case a$\n *if test "\$editing" = 1; or test "\$seeddirty" = 1' -- "$PB9"; and echo 1; or echo 0)
 # Behavioural, not another grep: eval the REAL extracted function body
 # ($aabody, from the "current is a live-state readout" section above) and
 # call it for real, with fish/__tcz_tab_color/__tcz_recolor stubbed so no
