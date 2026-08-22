@@ -5261,6 +5261,116 @@ set -g __t10_gbytes (__t10_emit_bytes $__t10_g2)
 t "emit: a one-row cursor move at real geometry stays under 2000 bytes" 1 (test "$__t10_gbytes" -lt 2000; and echo 1; or echo 0)
 t "emit: ...and is not zero, i.e. the two fixture frames really do differ" 1 (test "$__t10_gbytes" -gt 0; and echo 1; or echo 0)
 
+# --- __tcz_popup_emit: end-to-end screen EQUIVALENCE -------------------------
+# The spec requires TWO assertions "because neither is sufficient alone":
+# byte reduction (assertion h above) and equivalence. Byte reduction alone
+# cannot tell an emitter that DROPS a changed row from a correct one — both
+# read as "under 2000 bytes". Equivalence is a pure screen MODEL: paint frame
+# A in full, apply frame B's EMITTED bytes to the model (parsing the real
+# \e[<n>;1H addresses, not reimplementing the diff), and assert the model now
+# equals B rendered in full. That is the property that actually matters — a
+# partial paint must produce the same screen a full repaint would.
+#
+# Final-review finding: no assertion anywhere in this file performs TWO
+# partial paints back to back, so a stale-model bug (the emitter's own
+# __tcz_pe_prev never advancing on the partial path) can ship invisibly —
+# `down` then `up` would emit nothing at all and leave the wrong row
+# highlighted. The chained block below closes that gap.
+function __t10_eq_emit_raw --description 'emit rows via __tcz_popup_emit and return exactly what it wrote, as ONE raw string — via a file, so no shell layer reshapes the bytes'
+    set -l f (mktemp)
+    __tcz_popup_emit $argv >$f
+    set -l s (cat $f | string collect --no-trim-newlines)
+    rm -f $f
+    printf '%s' "$s"
+end
+
+function __t10_eq_apply --description '__t10_eq_apply <raw>: apply cursor-addressed writes (\e[<n>;1H<text>\e[K) parsed out of <raw> onto the __t10_eq_screen list, mutating it in place. A partial paint has no other escape shape to produce — see assertion (a) above, which pins the wire format this depends on. -ra with capture groups interleaves matches as full, group1, group2, full, group1, group2, ... (verified against real fish before trusting it here).'
+    set -l raw $argv[1]
+    set -l pairs (string match -ra '\x1b\[([0-9]+);1H(.*?)\x1b\[K' -- "$raw")
+    set -l i 1
+    while test $i -le (count $pairs)
+        set -l idx $pairs[(math "$i + 1")]
+        set -l txt $pairs[(math "$i + 2")]
+        set -g __t10_eq_screen[$idx] "$txt"
+        set i (math "$i + 3")
+    end
+end
+
+function __t10_eq_case --description '__t10_eq_case <label>: paint __t10_eq_A in full, emit __t10_eq_B differentially, apply the emitted bytes to a model seeded from A, and assert the model now equals B exactly, row for row.'
+    set -l label $argv[1]
+    set -g __t10_eq_screen $__t10_eq_A
+    set -l raw (__t10_eq_emit_raw $__t10_eq_B)
+    __t10_eq_apply "$raw"
+    set -l diffcount 0
+    for i in (seq 52)
+        test "$__t10_eq_screen[$i]" = "$__t10_eq_B[$i]"; or set diffcount (math $diffcount + 1)
+    end
+    t "emit: equivalence — $label — partial paint reproduces the full frame exactly (rows wrong)" 0 $diffcount
+end
+
+# Frame variants at the user's real geometry (52-row popup), covering the
+# transitions a live session actually makes: a cursor move, entering/editing/
+# leaving seed mode, collapsing/expanding the catalog, switching list focus,
+# a changed note, and a changed seed swatch. $PAL9/$DRAWTEXT9 are the same
+# script-scoped fixtures the frame proof and assertion (h) above already use.
+set -g EQA        (__t9_draw_nocc_text list  0 35 21 0 mono "$PAL9" '' 1 14 52 0 1)
+set -g EQB        (__t9_draw_nocc_text list  0 35 22 0 mono "$PAL9" '' 1 14 52 0 1)
+set -g EQEDIT     (__t9_draw_nocc_text list  0 35 21 0 mono "$PAL9" '' 1 14 52 1 1)
+set -g EQEDIT2    (__t9_draw_nocc_text list  0 35 21 0 mono "$PAL9" '' 1 14 52 1 2)
+set -g EQCOLLAPSE (__t9_draw_nocc_text list  0 14 5  0 mono "$PAL9" '' '' '' 52 0 1)
+set -g EQSTATE    (__t9_draw_nocc_text state 0 35 21 0 mono "$PAL9" '' 1 14 52 0 1)
+set -g EQNOTE     (__t9_draw_nocc_text list  0 35 21 0 mono "$PAL9" '' 1 14 52 0 1 'a different note entirely')
+set -g EQSEED     (__t9_draw_nocc_text list  0 35 21 0 mono "$PAL9" '' 1 14 52 0 1 '' '#b04020')
+
+for v in EQA EQB EQEDIT EQEDIT2 EQCOLLAPSE EQSTATE EQNOTE EQSEED
+    t "emit: equivalence fixture $v is 52 rows" 52 (count $$v)
+end
+
+# Every transition: previous frame painted FULL first (fresh state), then the
+# next diffed against it.
+for pair in "cursor-move:EQA:EQB" "enter-edit:EQA:EQEDIT" "edit-channel:EQEDIT:EQEDIT2" "leave-edit:EQEDIT:EQA" "collapse:EQA:EQCOLLAPSE" "expand:EQCOLLAPSE:EQA" "focus-state:EQA:EQSTATE" "changed-note:EQA:EQNOTE" "changed-seed:EQA:EQSEED" "identity:EQA:EQA"
+    set -l p (string split ':' -- $pair)
+    set -g __t10_eq_A $$p[2]
+    set -g __t10_eq_B $$p[3]
+    set -e __tcz_pe_prev
+    set -e __tcz_pe_force
+    set -e __tcz_pe_partial
+    __tcz_popup_emit $__t10_eq_A >/dev/null      # full first paint
+    __t10_eq_case $p[1]
+end
+
+# --- chained: many consecutive partial paints, no intervening full ----------
+# This is the assertion the stale-model mutation cannot pass: if
+# __tcz_pe_prev never advances on the partial path, every diff after the
+# first is computed against the wrong baseline and the chain drifts off the
+# real screen instead of tracking it.
+set -e __tcz_pe_prev; set -e __tcz_pe_force; set -e __tcz_pe_partial
+__tcz_popup_emit $EQA >/dev/null
+set -g __t10_eq_screen $EQA
+for nxt in EQB EQEDIT EQEDIT2 EQA EQNOTE EQSEED EQCOLLAPSE EQSTATE EQA
+    __t10_eq_apply (__t10_eq_emit_raw $$nxt)
+end
+set -g __t10_eq_chaindiff 0
+for i in (seq 52)
+    test "$__t10_eq_screen[$i]" = "$EQA[$i]"; or set __t10_eq_chaindiff (math $__t10_eq_chaindiff + 1)
+end
+t "emit: equivalence — 9 chained partial paints still land on the right screen" 0 $__t10_eq_chaindiff
+
+# --- the full-paint path stays byte-identical to the pre-branch emission ----
+function __t10_eq_oldpaint --description 'the pre-branch inline whole-frame emission, verbatim from 19416e3 — kept ONLY as a regression anchor for the assertion below'
+    set -l rows $argv
+    printf '\e[?2026h\e[H'
+    test (count $rows) -gt 1; and printf '%s\e[K\n' $rows[1..-2]
+    printf '%s\e[K' $rows[-1]
+    printf '\e[J\e[?2026l'
+end
+set -g __t10_eq_f1 (mktemp); set -g __t10_eq_f2 (mktemp)
+__t10_eq_oldpaint $EQA >$__t10_eq_f1
+set -e __tcz_pe_prev; set -e __tcz_pe_force; set -e __tcz_pe_partial
+__tcz_popup_emit $EQA >$__t10_eq_f2
+t "emit: equivalence — full-paint path is byte-identical to the pre-branch emission" 0 (cmp -s $__t10_eq_f1 $__t10_eq_f2; echo $status)
+rm -f $__t10_eq_f1 $__t10_eq_f2
+
 # --- the picker routes BOTH its frames through the emitter -------------------
 set -g __t10_body (functions __tcz_theme_picker | string match -rv '^\s*#' | string collect)
 t "wiring: picker body extraction is non-empty" 1 (test -n "$__t10_body"; and echo 1; or echo 0)
