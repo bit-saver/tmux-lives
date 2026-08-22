@@ -5285,8 +5285,13 @@ t "wiring: no inline whole-frame paint remains in the picker" 0 $__t10_inline
 # body like the wiring guards above; Task 1 already proves the flag works
 # behaviourally, so this only proves the picker still SETS it at all three
 # handover sites plus the one entry-time reset.
+# picker-partial-repaint Task 3 adds a FOURTH occurrence — the self-heal
+# block's own `__tcz_pe_force 1` — which is not a handover at all (no screen
+# hand-off happens; it forces a whole repaint of the SAME frame once input
+# settles after a partial paint). Count widened 3 -> 4 to match; the
+# self-heal block's own content is pinned separately below.
 set -g __t10_forcecount (string match -r '__tcz_pe_force 1' -- $__t10_bodylines | count)
-t "wiring: the picker forces a whole paint at all three handover sites" 3 $__t10_forcecount
+t "wiring: the picker forces a whole paint at all three handover sites, plus self-heal" 4 $__t10_forcecount
 
 set -g __t10_prevreset (string match -r 'set -e __tcz_pe_prev' -- $__t10_bodylines | count)
 t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prevreset
@@ -5298,6 +5303,25 @@ t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prev
 set -g __t10_swlines (string split \n -- (functions __tcz_popup_draw | string match -rv '^\s*#' | string collect))
 t "wiring: the session switcher still paints whole frames" 1 (string match -r '2026h' -- $__t10_swlines | count)
 t "wiring: the session switcher does not use the emitter" 0 (string match -r '__tcz_popup_emit' -- $__t10_swlines | count)
+
+# --- the settle poll also heals a partially-painted screen -------------------
+# NB: un-stripped body. The BEGIN/END markers are comments, so the
+# comment-stripped $__t10_body from the wiring block above cannot see them.
+set -g __t10_raw (functions __tcz_theme_picker | string collect)
+t "self-heal: raw picker body extraction is non-empty" 1 (test -n "$__t10_raw"; and echo 1; or echo 0)
+
+set -g __t10_heal (string match -r '# BEGIN self-heal(.|\n)*?# END self-heal' -- "$__t10_raw" | string collect)
+t "self-heal: the marked block exists" 1 (test -n "$__t10_heal"; and echo 1; or echo 0)
+t "self-heal: it forces a whole repaint" 1 (string match -q '*__tcz_pe_force 1*' -- "$__t10_heal"; and echo 1; or echo 0)
+t "self-heal: it clears the partial flag, which is what stops it looping" 1 (string match -q '*__tcz_pe_partial 0*' -- "$__t10_heal"; and echo 1; or echo 0)
+
+# The gate must arm on a partial paint IN ADDITION to the two existing
+# conditions. flashfield and seeddirty are deliberately independent — three
+# sibling key arms clear flashfield on unrelated keypresses, and coupling them
+# once silently cancelled a pending seed batch. Assert all three survive.
+set -g __t10_gate (string match -r 'if test -n "\$flashfield"; or test "\$seeddirty" = 1[^\n]*' -- "$__t10_raw" | string collect)
+t "self-heal: the settle gate still tests flashfield and seeddirty" 1 (test -n "$__t10_gate"; and echo 1; or echo 0)
+t "self-heal: the settle gate also arms on a partial paint" 1 (string match -q '*__tcz_pe_partial*' -- "$__t10_gate"; and echo 1; or echo 0)
 
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
 # not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its

@@ -2986,7 +2986,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # when forced or when the height changes.
         __tcz_popup_emit $lines
         set -l tok
-        if test -n "$flashfield"; or test "$seeddirty" = 1
+        if test -n "$flashfield"; or test "$seeddirty" = 1; or test "$__tcz_pe_partial" = 1
             # flash active, and/or a batch reload is owed: wait up to ~0.7s
             # (drop-autoapply-debounce-seed Task 2 — was ~0.5s; the user
             # asked to debounce the seed harder, past a mid-adjustment
@@ -3024,6 +3024,22 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     __tcz_thp_reanchor
                     set seeddirty 0
                 end
+                # BEGIN self-heal
+                # A partial paint means our model of the screen is only as good
+                # as the assumption that nothing else touched it. A resize, a
+                # redraw from underneath, or a dropped byte would leave a stale
+                # mix that no later partial paint corrects — later frames only
+                # touch rows that changed since the stale one. Input has now
+                # settled, so a whole repaint costs nothing anybody is waiting
+                # on. Clearing the partial flag is what terminates this: the
+                # next iteration has no flash, no batch and no partial paint
+                # outstanding, so it drops to a normal blocking read. One heal
+                # per scroll burst.
+                if test "$__tcz_pe_partial" = 1
+                    set -g __tcz_pe_force 1
+                    set -g __tcz_pe_partial 0
+                end
+                # END self-heal
                 continue
             end
         else
