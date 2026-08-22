@@ -1868,7 +1868,19 @@ function __tcz_thp_row_uncached --argument-names hexes name selected current cac
         set faint (printf '\e[2m')
         set unfaint (printf '\e[22m')
     end
-    printf '%s%s%s %s%s%s%s' "$faint" "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset) "$unfaint"
+    if test "$dim" = 1
+        # __tcz_thp_cells separates its colour groups with SGR 0, and SGR 0
+        # resets INTENSITY as well as colour — so a single leading \e[2m dies
+        # at the first group boundary. Measured before this: 6 of 26 columns
+        # dimmed on an unselected row, and on the CURSOR row (the one you are
+        # actually looking at while dialling in a seed) only the marker. Re-arm
+        # the attribute after every reset in the finished row rather than
+        # threading it through the memoized cells builder.
+        set -l body (printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset))
+        printf '%s%s%s' "$faint" (string replace -a (__tcz_theme reset) (__tcz_theme reset)"$faint" -- "$body") "$unfaint"
+        return
+    end
+    printf '%s%s %s%s%s' "$marker" "$cells" "$namecol" "$name" (__tcz_theme reset)
 end
 function __tcz_thp_row --argument-names hexes name selected current cachekey dim --description 'memoizing front for __tcz_thp_row_uncached. With <cachekey> (the scheme index) the rendered row is cached in a global and reused; without it, nothing is cached and the call is byte-identical to the uncached builder. The key is built by plain interpolation only — deriving one from <hexes> would need string replace to strip # and spaces, at two command substitutions per lookup, which costs more than it saves (measured 0.06ms interpolated vs 5.6ms to rebuild). Task 3: <cachekey> is ALSO forwarded straight through to __tcz_thp_row_uncached, which forwards it again to __tcz_thp_cells — both branches below pass it (empty in the first, the real key in the second), so an uncached call stays fully uncached at the cells layer too, and a cached call lets a row-cache MISS still hit the cells cache when only <selected>/<current> changed.'
     test -z "$cachekey"; and __tcz_thp_row_uncached "$hexes" "$name" "$selected" "$current" "$cachekey" "$dim"; and return
@@ -2546,6 +2558,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         printf '\e[2J'
     end
+    # The seed the visible scheme strips were actually built from. Staleness is
+    # DERIVED from it (seeddirty = seed != stripseed) rather than tracked as a
+    # flag, because a flag cannot answer the case that matters: edit a channel,
+    # press `a` to recompute, then esc. The seed reverts but the strips still
+    # show the abandoned edit — genuinely stale — whereas a flag cleared by `a`
+    # and re-cleared by esc would call them fresh. Comparing against the source
+    # of truth is correct in every ordering without enumerating any of them.
+    #
+    # MUST be declared BEFORE the init reload below. __tcz_thp_reload is
+    # --no-scope-shadowing and writes this variable; a `set -l` AFTER the call
+    # re-assigns the existing local back to empty, which made every seed differ
+    # from it and opened the picker permanently stale — the whole list drawn
+    # faint and the first `a` swallowed recomputing strips that were already
+    # correct, on every single open.
+    set -l stripseed ''
     __tcz_thp_reload
     set -l n (count $toks)          # n = catalog rows (14/35); the scheme list is sel 0..n-1
     # anchor snapshot: the persisted theme, frozen for this picker session
@@ -2704,14 +2731,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # cancelled a pending batch. seeddirty is cleared ONLY where it is
     # consumed, in the settle block below.
     set -l seeddirty 0
-    # The seed the visible scheme strips were actually built from. Staleness is
-    # DERIVED from it (seeddirty = seed != stripseed) rather than tracked as a
-    # flag, because a flag cannot answer the case that matters: edit a channel,
-    # press `a` to recompute, then esc. The seed reverts but the strips still
-    # show the abandoned edit — genuinely stale — whereas a flag cleared by `a`
-    # and re-cleared by esc would call them fresh. Comparing against the source
-    # of truth is correct in every ordering without enumerating any of them.
-    set -l stripseed ''
     stty -icanon -echo min 1 time 0
     printf '\e[?25l\e[2J'
     # The screen was just cleared, so the emitter's model of it is stale by
@@ -2742,9 +2761,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
     end
     while true
+        # BEGIN stale-derive
         # Staleness is derived, not tracked — see $stripseed's declaration.
         set seeddirty 0
         test "$seed" != "$stripseed"; and set seeddirty 1
+        # END stale-derive
         # cursor row palette — two lists, two lookups. focus=list: sel is
         # LINEAR 0..n-1 into $pals/$fgs/$tabsfgs (1-indexed, so capture sel+1
         # into a var FIRST — a math() expression written directly inside a
@@ -3352,6 +3373,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # editing-only gate would still let `a` reach the bar.
                     __tcz_thp_reload
                     __tcz_thp_reanchor
+                    # Say so. Without a note the recompute is silent, any
+                    # earlier `● previewing X` stays on screen through it, and
+                    # `a` reads as having done nothing.
+                    set note '● schemes rebuilt for this seed'
                 else
                     __tcz_thp_apply_now
                 end

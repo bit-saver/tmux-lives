@@ -5431,7 +5431,6 @@ t "recompute: case a reloads when editing" 1 (string match -q '*__tcz_thp_reload
 set -g __t11_gate (string match -r 'if test -n "\$flashfield"[^\n]*' -- "$__t11_body" | string collect)
 t "recompute: the settle gate was extracted" 1 (test -n "$__t11_gate"; and echo 1; or echo 0)
 t "recompute: the settle gate no longer arms on a seed edit" 0 (string match -q '*seeddirty*' -- "$__t11_gate"; and echo 1; or echo 0)
-t "recompute: the settle gate still arms on the change-flash" 1 (string match -q '*flashfield*' -- "$__t11_gate"; and echo 1; or echo 0)
 t "recompute: the settle gate still arms on a partial paint (self-heal)" 1 (string match -q '*__tcz_pe_partial*' -- "$__t11_gate"; and echo 1; or echo 0)
 
 # (7) esc while editing REVERTS the seed to the one the strips were already
@@ -5448,6 +5447,50 @@ t "recompute: the edit-esc arm was extracted" 1 (test -n "$__t11_escarm"; and ec
 t "recompute: the edit-esc arm does not hand-maintain the stale flag" 0 (string match -q '*seeddirty*' -- "$__t11_escarm"; and echo 1; or echo 0)
 t "recompute: staleness is derived from the seed the strips were built from" 1 (string match -r 'test "\$seed" != "\$stripseed"' -- $__t11_lines | count)
 t "recompute: every reload records the seed it built from" 1 (string match -r '^ *set stripseed \$seed$' -- $__t11_lines | count)
+
+# (8) CRITICAL, found in review. __tcz_thp_reload is --no-scope-shadowing and
+# WRITES $stripseed, so a `set -l stripseed` placed AFTER the init reload
+# re-assigns that local straight back to empty. Every seed then differs from
+# it, and the picker opens permanently stale: the whole list drawn faint and
+# the first `a` swallowed recomputing strips that were already correct. Order
+# is the whole property, so order is what this asserts.
+set -g __t11_declpos (string match -r '^ *set -l stripseed' -- $__t11_lines | count)
+t "recompute: stripseed is declared exactly once" 1 $__t11_declpos
+set -g __t11_declline (contains -i -- (string match -r '^ *set -l stripseed.*' -- $__t11_lines)[1] $__t11_lines)
+set -g __t11_initline (contains -i -- '    __tcz_thp_reload' $__t11_lines)
+t "recompute: the init reload call was located" 1 (test -n "$__t11_initline"; and echo 1; or echo 0)
+t "recompute: stripseed is declared BEFORE the init reload that writes it" 1 (test "$__t11_declline" -lt "$__t11_initline"; and echo 1; or echo 0)
+
+# (9) IMPORTANT, found in review. __tcz_thp_cells separates its colour groups
+# with SGR 0, which resets INTENSITY too — so one leading faint died at the
+# first group boundary and only 6 of 26 columns actually dimmed (1 of 26 on the
+# cursor row). The row must re-arm the attribute after EVERY reset it contains.
+set -g __t11_rst (__tcz_theme reset)
+set -g __t11_dimrow (__tcz_thp_row "$__t11_hex" myscheme 0 0 '' 1)
+set -g __t11_orphans (math (string replace -a -- "$__t11_rst"(printf '\e[2m') '' "$__t11_dimrow" | string split -- "$__t11_rst" | count) - 1)
+t "stale: a dimmed row leaves no reset un-rearmed" 0 $__t11_orphans
+# ...and the re-arm must be a real faint, not one cancelled in the same breath
+t "stale: the faint is never immediately cancelled" 0 (string match -a -- '*'(printf '\e[2m')"$__t11_rst"'*' "$__t11_dimrow" | count)
+set -g __t11_selrow (__tcz_thp_row "$__t11_hex" myscheme 1 0 '' 1)
+t "stale: the CURSOR row dims too (it was the worst case)" 0 (math (string replace -a -- "$__t11_rst"(printf '\e[2m') '' "$__t11_selrow" | string split -- "$__t11_rst" | count) - 1)
+
+# (10) IMPORTANT, found in review. Two one-line mutations of shipped code each
+# deleted half the feature with the whole suite green: dropping `set seeddirty
+# 0` turns staleness into a one-way latch (stale forever, `a` never applies
+# again), and passing a literal 0 as the row's dim argument means nothing ever
+# dims. Pin the real derivation block and the real call site.
+set -g __t11_deriv (string match -r '# BEGIN stale-derive(.|\n)*?# END stale-derive' -- "$__t11_raw" | string collect)
+t "recompute: the derivation block is uniquely anchored and non-empty" 1 (test -n "$__t11_deriv"; and echo 1; or echo 0)
+function __t11_derive --argument-names seed stripseed --description 'eval the REAL loop-top staleness derivation (BEGIN/END stale-derive) instead of re-implementing it, so a change to either of its two lines is visible here.'
+    set -l seeddirty ignored
+    eval $__t11_deriv
+    echo $seeddirty
+end
+t "derive: a seed matching the strips reads FRESH" 0 (__t11_derive '#112233' '#112233')
+t "derive: a seed differing from the strips reads STALE" 1 (__t11_derive '#112233' '#445566')
+t "derive: it RESETS — staleness is not a one-way latch" 0 (__t11_derive '#112233' '#112233')
+t "recompute: the draw passes the live flag to the row builder, not a literal" 1 (string match -r '__tcz_thp_row .*\$idx \$seeddirty\)' -- $__t11_lines | count)
+t "recompute: a says what it did" 1 (string match -q '*schemes rebuilt*' -- "$__t11_aarm"; and echo 1; or echo 0)
 
 # --- the picker routes BOTH its frames through the emitter -------------------
 set -g __t10_body (functions __tcz_theme_picker | string match -rv '^\s*#' | string collect)
