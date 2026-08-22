@@ -5146,6 +5146,102 @@ t "frame: the current rows swatch is reused across an unchanged-anchpal redraw (
 functions --erase __tcz_thp_cells_uncached
 functions --copy __t3b_real __tcz_thp_cells_uncached
 
+# --- __tcz_popup_emit: differential frame emission ---------------------------
+# The picker repainted its whole 52-row frame on every keypress: 12,697 bytes
+# to communicate a 747-byte change. Fine locally, unusable over the iPad's SSH
+# link. See docs/superpowers/specs/2026-08-21-picker-partial-repaint-design.md.
+function __t10_emit --description 'run __tcz_popup_emit with the given rows and return what it emitted, AS CAPTURED. The split fish performs on the command substitution is deliberate and is the assertion signal: the whole-frame path writes a newline BETWEEN rows so it yields one element per row, while a differential paint is cursor-addressed with no newlines and yields exactly one. Verified against real fish.'
+    __tcz_popup_emit $argv
+end
+
+function __t10_emit_bytes --description 'byte count of what __tcz_popup_emit emitted for the given rows. Goes through a file so no shell layer can reshape the bytes being counted.'
+    set -l f (mktemp)
+    __tcz_popup_emit $argv >$f
+    set -l n (wc -c <$f | string trim)
+    rm -f $f
+    echo $n
+end
+
+function __t10_reset --description 'clear the emitters state so a test starts from a known first-paint'
+    set -e __tcz_pe_prev
+    set -e __tcz_pe_force
+    set -e __tcz_pe_partial
+end
+
+set -g __t10_exists (functions -q __tcz_popup_emit; and echo 1; or echo 0)
+t "emit: __tcz_popup_emit is defined" 1 $__t10_exists
+
+# (a) WIRE FORMAT — pinned against a hand-written expected string, no parser.
+# The partial path has no newlines, so it captures as a single element and can
+# be compared exactly. This is the assertion that stops the test and the
+# implementation from sharing a wrong assumption about the escape shape.
+__t10_reset
+__tcz_popup_emit AAA BBB CCC >/dev/null           # first paint, discarded
+set -g __t10_part (__t10_emit AAA XXX CCC)        # row 2 only
+set -g __t10_want (printf '\e[?2026h\e[2;1HXXX\e[K\e[?2026l')
+t "emit: one changed row emits exactly one addressed write" "$__t10_want" "$__t10_part"
+t "emit: a partial paint captures as a single element (no newlines)" 1 (count $__t10_part)
+
+# (b) FIRST PAINT IS FULL. Three rows, three elements.
+__t10_reset
+set -g __t10_first (__t10_emit AAA BBB CCC)
+t "emit: the first paint is a whole-frame paint" 3 (count $__t10_first)
+
+# (c) NOTHING CHANGED — emits nothing at all.
+__t10_reset
+__tcz_popup_emit AAA BBB CCC >/dev/null
+set -g __t10_same (__t10_emit_bytes AAA BBB CCC)
+t "emit: an identical frame emits zero bytes" 0 $__t10_same
+
+# (d) ROW-COUNT CHANGE forces a full paint (the geometry guard).
+__t10_reset
+__tcz_popup_emit AAA BBB CCC >/dev/null
+set -g __t10_grew (__t10_emit AAA BBB CCC DDD)
+t "emit: a different row count forces a whole-frame paint" 4 (count $__t10_grew)
+
+# (e) FORCE flag.
+__t10_reset
+__tcz_popup_emit AAA BBB CCC >/dev/null
+set -g __tcz_pe_force 1
+set -g __t10_forced (__t10_emit AAA BBB CCC)
+t "emit: __tcz_pe_force repaints in full even when nothing changed" 3 (count $__t10_forced)
+t "emit: a full paint clears the force flag" 0 "$__tcz_pe_force"
+
+# (f) PARTIAL flag drives Task 3's self-heal, so pin both transitions.
+__t10_reset
+__tcz_popup_emit AAA BBB CCC >/dev/null
+set -g __t10_pf_full "$__tcz_pe_partial"
+__tcz_popup_emit AAA XXX CCC >/dev/null
+set -g __t10_pf_part "$__tcz_pe_partial"
+t "emit: a full paint leaves __tcz_pe_partial 0" 0 "$__t10_pf_full"
+t "emit: a partial paint sets __tcz_pe_partial 1" 1 "$__t10_pf_part"
+
+# (g) EMPTY ROWS survive. If fish ever dropped an empty element from the saved
+# frame the row COUNT would shift and every later diff would be garbage. This
+# guards a fish behaviour the emitter depends on, not the emitter itself.
+__t10_reset
+__tcz_popup_emit AAA '' CCC >/dev/null
+set -g __t10_emptycount (count $__tcz_pe_prev)
+t "emit: an empty row is preserved in the saved frame" 3 $__t10_emptycount
+
+# (h) REAL GEOMETRY — the number this whole change exists for. Two consecutive
+# frames at the user's actual size (62-row client -> 52-row popup, expanded
+# catalog, one-row cursor move), via the same __t9_draw_nocc harness the frame
+# proof uses, which evals the REAL draw block rather than a reimplementation.
+# Measured today: the full frame is 12,697 bytes and 747 of them change.
+# The 2000 threshold is deliberately loose — it must not go red because a
+# layout tweak alters a row's width — but it is nowhere near loose enough for
+# a whole-frame repaint to slip through. $PAL9 is the synthetic palette the
+# frame proof above already uses; it is script-scoped and in scope here.
+__t10_reset
+set -g __t10_g1 (__t9_draw_nocc_text list 0 35 21 0 mono "$PAL9" '' 1 14 52 0 1)
+set -g __t10_g2 (__t9_draw_nocc_text list 0 35 22 0 mono "$PAL9" '' 1 14 52 0 1)
+t "emit: the real-geometry fixture really is 52 rows" 52 (count $__t10_g1)
+__tcz_popup_emit $__t10_g1 >/dev/null
+set -g __t10_gbytes (__t10_emit_bytes $__t10_g2)
+t "emit: a one-row cursor move at real geometry stays under 2000 bytes" 1 (test "$__t10_gbytes" -lt 2000; and echo 1; or echo 0)
+t "emit: ...and is not zero, i.e. the two fixture frames really do differ" 1 (test "$__t10_gbytes" -gt 0; and echo 1; or echo 0)
+
 # --- review I-2: a keyed call to a zero-output builder must emit ZERO bytes,
 # not a stray blank line. __tcz_thp_tabstrip_uncached returns nothing on its
 # early-return paths (non-hex tabshex — every non-ShellFish client — or an

@@ -1455,6 +1455,41 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
     echo other
 end
 
+function __tcz_popup_emit --description 'Paint a popup frame differentially: emit only the rows whose text differs from the previously painted frame, each cursor-addressed, so a one-row cursor move ships ~747 bytes instead of the whole ~12.7KB frame. That is the difference between smooth and unusable over a remote SSH link — construction is only ~30ms, so on the iPad emission WAS the per-keypress cost (docs/superpowers/specs/2026-08-21-picker-partial-repaint-design.md). Falls back to the historical whole-frame paint when __tcz_pe_force is set, or when the incoming row count differs from the previous frame: frames of different heights cannot be meaningfully diffed, and a resized popup is the likeliest way for our model of the screen to stop matching reality. Owns __tcz_pe_prev (rows last painted), __tcz_pe_force, and __tcz_pe_partial (set when the last paint was partial, so the caller can schedule a full self-heal once input settles).'
+    set -l n (count $argv)
+    test $n -eq 0; and return
+    if test "$__tcz_pe_force" = 1; or test (count $__tcz_pe_prev) -ne $n
+        # The historical whole-frame emission, unchanged. Newlines BETWEEN rows
+        # only: a trailing newline after the last row scrolls the top border off.
+        printf '\e[?2026h\e[H'
+        test $n -gt 1; and printf '%s\e[K\n' $argv[1..-2]
+        printf '%s\e[K' $argv[-1]
+        printf '\e[J\e[?2026l'
+        set -g __tcz_pe_prev $argv
+        set -g __tcz_pe_force 0
+        set -g __tcz_pe_partial 0
+        return
+    end
+    # Collect dirty indices first, THEN emit. Two passes over 52 strings is
+    # free, and it means the sync wrapper is never written for a frame with
+    # nothing in it.
+    set -l dirty
+    for i in (seq $n)
+        test "$argv[$i]" = "$__tcz_pe_prev[$i]"; or set -a dirty $i
+    end
+    set -g __tcz_pe_prev $argv
+    test (count $dirty) -eq 0; and return
+    printf '\e[?2026h'
+    for i in $dirty
+        # Row content goes through %s as an ARGUMENT, never into the format
+        # string: rows carry arbitrary text and a literal % would otherwise be
+        # interpreted as a conversion.
+        printf '\e[%d;1H%s\e[K' $i "$argv[$i]"
+    end
+    printf '\e[?2026l'
+    set -g __tcz_pe_partial 1
+end
+
 function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
