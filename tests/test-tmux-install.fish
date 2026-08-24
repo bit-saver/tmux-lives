@@ -2838,6 +2838,73 @@ t "render: round-robin gives a square palette four hue families" 4 (__t6_familie
 set -g V6MONO (__tmux_lives_theme_render '#5f772b' mono 0.40 0.18 0.5 deep)
 t "render: mono stays one hue family" 1 (__t6_families $V6MONO)
 
+# The family COUNT above still cannot see round-robin's actual ORDERING, and
+# three separate mutations prove it. Visiting the anchors in REVERSE is still
+# round-robin and leaves every family count identical. CONTIGUOUS blocks — the
+# exact thing round-robin exists to prevent — still yield three families at
+# triadic and fail only at square, so half the count assertions passed for the
+# wrong reason. And blocks chosen to preserve anchor MULTIPLICITY (1 1 1 2 2 3 3)
+# would evade a multiplicity check too. So pin the documented mapping itself:
+# ramp position p must carry hue anchor ((p - 1) % na) + 1.
+#
+# render returns ROLE order, so recover ramp order first by asking arrange where
+# seven distinguishable inputs land. DERIVED, never hardcoded — the pattern's
+# index list lives inside a switch the test cannot read, and a hardcoded inverse
+# would rot silently if the pattern were ever retuned. The fixture is WIDE on
+# purpose, so arrange's text floor is satisfied by the swap alone and stage two
+# never fires; a replaced colour would break the recovery, which is why the
+# fixture's integrity is asserted rather than assumed.
+set -g V6FIX '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
+set -g V6PERM (__tmux_lives_theme_arrange deep $V6FIX)
+set -g V6FIXOK 1
+for h in $V6PERM
+    contains -- $h $V6FIX; or set -g V6FIXOK 0
+end
+t "render: the permutation-recovery fixture survives arrange intact" 1 $V6FIXOK
+set -g V6IDX
+for r in (seq 7)
+    for p in (seq 7)
+        test "$V6PERM[$r]" = "$V6FIX[$p]"; and set -a V6IDX $p
+    end
+end
+t "render: the recovery resolved all seven ramp positions" 7 (count $V6IDX)
+
+function __t6_mapping_ok --argument-names seedHex mode --description 'v6 test helper: render <seedHex> in <mode> with the deep arrangement, recover ramp order through the $V6IDX map built above, and return 1 only if ramp position p carries hue anchor ((p - 1) % na) + 1. Tolerance is 10 degrees rather than something tighter because the ramps two end positions sit at the chroma floor (0.012), where the sRGB round trip shifts hue by a couple of degrees — measured worst case 2.7, and the smallest real anchor separation is 30, so 10 has margin on both sides.'
+    set -l pal (__tmux_lives_theme_render "$seedHex" "$mode" 0.40 0.18 0.5 deep)
+    test (count $pal) -eq 7; or begin
+        echo 0
+        return
+    end
+    set -l s (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "$seedHex"))
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    set -l na (count $anchors)
+    set -l ramp
+    for p in (seq 7)
+        for r in (seq 7)
+            test "$V6IDX[$r]" -eq "$p"; and set -a ramp $pal[$r]
+        end
+    end
+    for p in (seq 7)
+        # Capture the index FIRST: a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l want (math "(($p - 1) % $na) + 1")
+        set -l wh $anchors[$want]
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $ramp[$p]))
+        set -l d (math "abs($o[3] - $wh)")
+        test "$d" -gt 180; and set d (math "360 - $d")
+        test "$d" -le 10; or begin
+            echo 0
+            return
+        end
+    end
+    echo 1
+end
+
+t "render: triadic maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' triadic)
+t "render: square maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' square)
+t "render: analogous maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' analogous)
+t "render: complementary maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' complementary)
+
 # determinism — the same recipe must always render the same palette, or a saved
 # scheme could not be trusted
 t "render: the same recipe renders identically twice" (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',') (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',')
