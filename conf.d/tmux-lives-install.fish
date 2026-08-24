@@ -679,6 +679,95 @@ function __tmux_lives_theme_ramp --argument-names seedL Lspan peakC peakPos n --
     end
 end
 
+function __tmux_lives_theme_arrangements --description 'v6: the six arrangement pattern names, fixed order. A fixed enumerable set rather than one of 7! orderings, so the roll space is a known size and every pattern is testable.'
+    printf '%s\n' deep bright centre split stack accent
+end
+
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, keeping the hue and chroma it drew from the harmony. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
+    set -l hexes $argv[2..8]
+    test (count $hexes) -eq 7; or return 1
+    set -l idx
+    switch "$pattern"
+        case deep
+            set idx 1 4 2 6 5 3 7
+        case bright
+            set idx 7 4 6 2 3 5 1
+        case centre
+            set idx 4 2 3 6 5 7 1
+        case split
+            set idx 1 3 6 4 5 2 7
+        case stack
+            set idx 2 5 3 6 4 7 1
+        case accent
+            set idx 3 5 4 6 2 7 1
+        case '*'
+            return 1
+    end
+    set -l out
+    for i in $idx
+        set -a out $hexes[$i]
+    end
+    # The floor. Role 1 is bar, role 7 is text.
+    set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    if test (math "abs($lt[1] - $lb[1])") -lt 0.40
+        # Find the colour furthest in lightness from bar and swap it into text,
+        # preserving the permutation (the displaced colour takes text's old slot)
+        # so no colour is dropped or duplicated.
+        set -l best 7
+        set -l bestd (math "abs($lt[1] - $lb[1])")
+        for i in (seq 2 6)
+            set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
+            set -l d (math "abs($li[1] - $lb[1])")
+            if test "$d" -gt "$bestd"
+                set best $i
+                set bestd $d
+            end
+        end
+        if test $best -ne 7
+            set -l tmp $out[7]
+            set out[7] $out[$best]
+            set out[$best] $tmp
+        end
+        # Stage two. A mid-ramp bar can have NOTHING far enough away inside its
+        # own palette — measured, centre reaches only 0.309 and accent 0.358
+        # against a 0.40 floor. Legibility is correctness, not taste, so push
+        # text's LIGHTNESS to the floor while keeping the hue and chroma it drew
+        # from the harmony. It stays a generated colour; only L is constrained,
+        # and only when the swap was not enough.
+        set -l lt2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+        if test (math "abs($lt2[1] - $lb[1])") -lt 0.40
+            set -l up (math "$lb[1] + 0.40")
+            set -l dn (math "$lb[1] - 0.40")
+            set -l newL $up
+            set -l dir 1
+            test "$up" -gt 0.97; and set newL $dn; and set dir -1
+            if test "$newL" -lt 0.05
+                set newL $up
+                set dir 1
+            end
+            # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
+            # so a target placed exactly ON the floor can round to just under
+            # it (measured: accent lands 0.001 short of 0.40 without this).
+            # Nudge outward in the same direction until the ACTUAL round-tripped
+            # gap clears the floor, rather than trusting the requested L.
+            set -l cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+            set -l tries 0
+            while test $tries -lt 10
+                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                test (math "abs($back[1] - $lb[1])") -ge 0.40; and break
+                set newL (math "$newL + $dir * 0.01")
+                test "$newL" -gt 1; and set newL 1
+                test "$newL" -lt 0; and set newL 0
+                set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+                set tries (math "$tries + 1")
+            end
+            set out[7] $cand
+        end
+    end
+    printf '%s\n' $out
+end
+
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
     test (count $m) -eq 1; or begin; echo '#f5f5f5'; return; end

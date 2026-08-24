@@ -2673,4 +2673,55 @@ set -g R6GL (for p in $R6LIGHT; echo (string split ' ' -- $p)[1]; end)
 t "ramp: a light seed's window stays in gamut" 1 (test "$R6GL[7]" -le 0.97; and echo 1; or echo 0)
 t "ramp: ...and a light seed keeps its full span too" 1 (test (math "abs(($R6GL[7] - $R6GL[1]) - 0.60)") -lt 0.01; and echo 1; or echo 0)
 
+# --- v6 arrangement: ramp positions -> roles ---------------------------------
+# Roles, in order: bar sep tabs active windows cap text.
+set -g A6PATS (__tmux_lives_theme_arrangements)
+t "arrange: there are exactly six patterns" 6 (count $A6PATS)
+
+# every pattern must be a genuine permutation of 1..7 — a duplicated index would
+# silently drop a colour and repeat another, which looks plausible on screen
+# A WIDE fixture (L 0.115 to 0.961), chosen so the swap alone satisfies the
+# floor in all six patterns and stage two never fires. With a narrow fixture
+# stage two legitimately REPLACES a colour, so the output is no longer a
+# permutation of the input and this assertion would be testing the wrong thing.
+# Stage two's own behaviour is asserted separately below.
+set -g A6PERMOK 1
+for p in $A6PATS
+    set -l out (__tmux_lives_theme_arrange $p '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2')
+    test (count $out) -eq 7; or set -g A6PERMOK 0
+    test (count (printf '%s\n' $out | sort -u)) -eq 7; or set -g A6PERMOK 0
+end
+t "arrange: every pattern is a permutation, no colour dropped or repeated" 1 $A6PERMOK
+
+# THE one hard rule: text must clear a lightness-contrast floor against bar.
+# Fed seven near-identical colours, no arrangement can satisfy it naturally, so
+# this proves the floor is ENFORCED rather than merely usually true.
+set -g A6FLAT (__tmux_lives_theme_arrange deep '#303030' '#313131' '#323232' '#333333' '#343434' '#353535' '#363636')
+t "arrange: a flat input still returns seven" 7 (count $A6FLAT)
+
+set -g A6FLOOROK 1
+for p in $A6PATS
+    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; or set -g A6FLOOROK 0
+end
+t "arrange: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
+
+# ...and specifically for the two a swap alone CANNOT rescue. These two fail
+# unless stage two exists, so they are what prove it runs.
+for p in centre accent
+    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    t "arrange: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
+end
+
+t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
+
+# the patterns must actually differ — six names mapping to one order would be
+# the v5 failure in miniature
+set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac' | string join ','; end | sort -u | count)
+t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
