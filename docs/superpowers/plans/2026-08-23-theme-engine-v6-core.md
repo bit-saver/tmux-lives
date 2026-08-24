@@ -26,7 +26,7 @@ That split is deliberate, not arbitrary. The core is verifiable on its own — p
 - **The seed's hue is always anchor one**, in every mode.
 - **The seed's chroma is NOT a ramp input.** The recipe's `peakC` is authoritative so a saved scheme renders identically whatever the seed's saturation. Seed chroma biases the *roll*, which is the surface plan's concern, not this one.
 - **One hard rule in arrangement:** `text` must clear a lightness-contrast floor against `bar`. Nothing else is constrained — over-constraining is what produced the collapse this design exists to escape.
-- Gate before every commit: `for t in tests/test-*.fish; fish $t; end` and again with `fish --no-config`. All 9 suites `ALL PASS`. `test-tmux-install.fish` reports **708 plain / 707 `--no-config`** today — **that 1-count delta is BY DESIGN**, one isolation assertion is gated on plain fish. Both numbers rise as this plan adds assertions; the delta stays 1.
+- Gate before every commit: `for t in tests/test-*.fish; fish $t; end` and again with `fish --no-config`. All 9 suites `ALL PASS`. `test-tmux-install.fish` reported **708 plain / 707 `--no-config`** when this plan was written; after Tasks 1-3 the verified baseline is **758 plain / 757 `--no-config`** (re-measured 2026-08-24 — use this figure, not 708). **That 1-count delta is BY DESIGN**, one isolation assertion is gated on plain fish. Both numbers rise as this plan adds assertions; the delta stays 1.
 
 ### Operational notes — read before dispatching or implementing
 
@@ -529,15 +529,36 @@ t "render: a non-hex seed returns nothing" 0 (count (__tmux_lives_theme_render '
 t "render: an unknown mode returns nothing" 0 (count (__tmux_lives_theme_render '#5f772b' nonsense 0.40 0.15 0.5 deep))
 t "render: an unknown arrangement returns nothing" 0 (count (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 nonsense))
 
-# THE headline: the seed's own chroma and lightness must now reach the output.
-# In v5 they were discarded — seeds #80ff00 (C 0.264) and #7a00ff (C 0.293) both
-# produced a bar at C 0.063. Only hue survived.
+# THE headline: the seed's own LIGHTNESS must now reach the output. In v5 the
+# seed contributed hue and nothing else. Seed CHROMA deliberately still does not
+# reach the output — peakC is authoritative, per Global Constraints, so a saved
+# scheme renders identically whatever the seed's saturation. Do not add an
+# assertion demanding seed chroma move the palette; it would contradict the
+# design (measured: two seeds identical in H and L but C 0.03 vs 0.12 render the
+# same palette to within one hex unit of round-trip noise).
 set -g V6A (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)
 set -g V6B (__tmux_lives_theme_render '#5f7fbb' mono 0.40 0.15 0.5 deep)
 t "render: a different seed HUE changes the palette" 1 (test "$V6A" != "$V6B"; and echo 1; or echo 0)
-set -g V6DARK (__tmux_lives_theme_render '#1a2010' mono 0.40 0.15 0.5 deep)
-set -g V6LIGHT (__tmux_lives_theme_render '#dfe8c8' mono 0.40 0.15 0.5 deep)
-t "render: a different seed LIGHTNESS changes the palette" 1 (test "$V6DARK" != "$V6LIGHT"; and echo 1; or echo 0)
+# The two seeds are HUE-MATCHED on purpose (#1b2602 H 124.94, #a5b58c H 125.13
+# — 0.19 degrees apart) so only lightness varies. An earlier draft used #1a2010
+# and #dfe8c8, which differ by 5.4 degrees of hue, so "the palettes differ" could
+# be satisfied by the hue difference alone and proved nothing about lightness.
+# And string inequality is a weak claim: assert the resulting lightness WINDOWS
+# are disjoint. Measured: 0.058-0.459 for the dark seed, 0.550-0.962 for the
+# light one.
+set -g V6DARK (__tmux_lives_theme_render '#1b2602' mono 0.40 0.15 0.5 deep)
+set -g V6LIGHT (__tmux_lives_theme_render '#a5b58c' mono 0.40 0.15 0.5 deep)
+set -g V6DARKMAXL 0
+for h in $V6DARK
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
+end
+set -g V6LIGHTMINL 1
+for h in $V6LIGHT
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
+end
+t "render: the seeds own LIGHTNESS places the whole palette" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
 
 # the recipe fields must each move the output
 t "render: peak chroma moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.04 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.24 0.5 deep | string join ','); and echo 1; or echo 0)
@@ -546,11 +567,115 @@ t "render: peak position moves the palette" 1 (test (__tmux_lives_theme_render '
 t "render: arrangement moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 split | string join ','); and echo 1; or echo 0)
 t "render: mode moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' triadic 0.40 0.15 0.5 deep | string join ','); and echo 1; or echo 0)
 
-# round-robin distribution: with a multi-hue mode, adjacent ramp positions must
-# carry DIFFERENT hues, which is what makes a multi-hue palette cohere
+# Round-robin distribution: with a multi-hue mode, adjacent ramp positions must
+# carry DIFFERENT hues, which is what makes a multi-hue palette cohere.
+#
+# Hue families need a TOLERANCE, never distinct rounded hues. Every colour
+# round-trips through sRGB and the gamut clamp shifts each one slightly, so a
+# MONO palette also reports seven distinct rounded hues. Measured directly
+# against this task's own Step 5 mutation: counting rounded hues gives 7 for the
+# correct round-robin AND 7 for the all-one-anchor mutation — it discriminates
+# nothing at all. Clustering with a 25-degree gap gives, through the full
+# pipeline including arrange: mono 1/1, complementary 2/1, triadic 3/1,
+# analogous 3/1, split 3/1, square 4/1, tetradic 4/1 (correct/mutated).
+#
+# __t6_families is defined HERE and reused by Task 5's range guard — one
+# clustering implementation, not two.
+function __t6_families --description 'v6 test helper: seven hexes -> hue-family count. Clusters the CHROMATIC hues (C >= 0.020; a near-grey has no meaningful hue) with a 25-degree gap. Shared by the round-robin assertion and Task 5s range guard.'
+    set -l chro
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        test "$o[2]" -ge 0.020; and set -a chro $o[3]
+    end
+    if test (count $chro) -eq 0
+        echo 0
+        return
+    end
+    set -l sorted (printf '%s\n' $chro | sort -g)
+    set -l f 1
+    for i in (seq 2 (count $sorted))
+        # Capture the index FIRST: a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l prev (math $i - 1)
+        set -l gap (math "$sorted[$i] - $sorted[$prev]")
+        test "$gap" -gt 25; and set f (math $f + 1)
+    end
+    echo $f
+end
+
 set -g V6TRI (__tmux_lives_theme_render '#5f772b' triadic 0.40 0.18 0.5 deep)
-set -g V6HUES (for h in $V6TRI; set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h)); echo $o[3]; end)
-t "render: a triadic palette carries more than one hue" 1 (test (count (printf '%s\n' $V6HUES | sort -u)) -gt 1; and echo 1; or echo 0)
+t "render: round-robin gives a triadic palette three hue families" 3 (__t6_families $V6TRI)
+set -g V6SQ (__tmux_lives_theme_render '#5f772b' square 0.40 0.18 0.5 deep)
+t "render: round-robin gives a square palette four hue families" 4 (__t6_families $V6SQ)
+set -g V6MONO (__tmux_lives_theme_render '#5f772b' mono 0.40 0.18 0.5 deep)
+t "render: mono stays one hue family" 1 (__t6_families $V6MONO)
+
+# The family COUNT above still cannot see round-robin's actual ORDERING, and
+# three separate mutations prove it. Visiting the anchors in REVERSE is still
+# round-robin and leaves every family count identical. CONTIGUOUS blocks — the
+# exact thing round-robin exists to prevent — still yield three families at
+# triadic and fail only at square, so half the count assertions passed for the
+# wrong reason. And blocks chosen to preserve anchor MULTIPLICITY (1 1 1 2 2 3 3)
+# would evade a multiplicity check too. So pin the documented mapping itself:
+# ramp position p must carry hue anchor ((p - 1) % na) + 1.
+#
+# render returns ROLE order, so recover ramp order first by asking arrange where
+# seven distinguishable inputs land. DERIVED, never hardcoded — the pattern's
+# index list lives inside a switch the test cannot read, and a hardcoded inverse
+# would rot silently if the pattern were ever retuned. The fixture is WIDE on
+# purpose, so arrange's text floor is satisfied by the swap alone and stage two
+# never fires; a replaced colour would break the recovery, which is why the
+# fixture's integrity is asserted rather than assumed.
+set -g V6FIX '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
+set -g V6PERM (__tmux_lives_theme_arrange deep $V6FIX)
+set -g V6FIXOK 1
+for h in $V6PERM
+    contains -- $h $V6FIX; or set -g V6FIXOK 0
+end
+t "render: the permutation-recovery fixture survives arrange intact" 1 $V6FIXOK
+set -g V6IDX
+for r in (seq 7)
+    for p in (seq 7)
+        test "$V6PERM[$r]" = "$V6FIX[$p]"; and set -a V6IDX $p
+    end
+end
+t "render: the recovery resolved all seven ramp positions" 7 (count $V6IDX)
+
+function __t6_mapping_ok --argument-names seedHex mode --description 'v6 test helper: render <seedHex> in <mode> with the deep arrangement, recover ramp order through the $V6IDX map built above, and return 1 only if ramp position p carries hue anchor ((p - 1) % na) + 1. Tolerance is 10 degrees rather than something tighter because the ramps two end positions sit at the chroma floor (0.012), where the sRGB round trip shifts hue by a couple of degrees — measured worst case 2.7, and the smallest real anchor separation is 30, so 10 has margin on both sides.'
+    set -l pal (__tmux_lives_theme_render "$seedHex" "$mode" 0.40 0.18 0.5 deep)
+    test (count $pal) -eq 7; or begin
+        echo 0
+        return
+    end
+    set -l s (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "$seedHex"))
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    set -l na (count $anchors)
+    set -l ramp
+    for p in (seq 7)
+        for r in (seq 7)
+            test "$V6IDX[$r]" -eq "$p"; and set -a ramp $pal[$r]
+        end
+    end
+    for p in (seq 7)
+        # Capture the index FIRST: a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l want (math "(($p - 1) % $na) + 1")
+        set -l wh $anchors[$want]
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $ramp[$p]))
+        set -l d (math "abs($o[3] - $wh)")
+        test "$d" -gt 180; and set d (math "360 - $d")
+        test "$d" -le 10; or begin
+            echo 0
+            return
+        end
+    end
+    echo 1
+end
+
+t "render: triadic maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' triadic)
+t "render: square maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' square)
+t "render: analogous maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' analogous)
+t "render: complementary maps ramp positions onto anchors round-robin" 1 (__t6_mapping_ok '#5f772b' complementary)
 
 # determinism — the same recipe must always render the same palette, or a saved
 # scheme could not be trusted
@@ -589,7 +714,21 @@ end
 
 `cp conf.d/tmux-lives-install.fish /tmp/t4.fish` first.
 
-Replace the round-robin index with a constant first anchor: change `set -l ai (math "(($i - 1) % $na) + 1")` to `set -l ai 1`. Run the suite. **Expect `render: a triadic palette carries more than one hue` to FAIL** — this is the mutation that silently turns every multi-hue mode back into mono, which is precisely the v5 collapse. Restore and `diff`.
+Replace the round-robin index with a constant first anchor: change `set -l ai (math "(($i - 1) % $na) + 1")` to `set -l ai 1`. Run the suite. **Expect BOTH `render: round-robin gives a triadic palette three hue families` and `render: round-robin gives a square palette four hue families` to FAIL** (each reporting 1), and expect `render: mono stays one hue family` to keep PASSING — mono has a single anchor, so the mutation cannot change it, and its still-green state is what proves the other two failed for the right reason rather than because the helper broke. This is the mutation that silently turns every multi-hue mode back into mono, which is precisely the v5 collapse. Restore and `diff`.
+
+**Ask for discrimination, not just failure.** Confirm the two failures report family count `1`, not an error or `0` — a `0` would mean `__t6_families` found no chromatic colours and the assertion failed for an unrelated reason.
+
+**Then run three more mutations, because the family counts alone do NOT pin round-robin** — a review proved each of these leaves the count assertions green or half-green:
+
+| mutation | replace the `ai` line with | expect |
+|---|---|---|
+| anchors in reverse | `set -l ai (math "$na - ((($i - 1) % $na) + 1) + 1")` | all four `maps ramp positions onto anchors round-robin` FAIL; every family-count assertion still PASSES |
+| contiguous blocks | `set -l ai (math "ceil($i * $na / 7)")` | all four mapping assertions FAIL; the **square** family count fails but **triadic** still passes — that half-pass is the whole reason the mapping assertions exist |
+| multiplicity-preserving blocks | `set -l blocks 1 1 1 2 2 3 3; set -l ai $blocks[$i]; test "$ai" -gt "$na"; and set ai $na` | all four mapping assertions FAIL, **and so does the square family count** (`got 3`) — **five** failures, not four |
+
+Each mutation is restored from the copy and `diff`-verified before the next. **Confirm the mapping assertions are what fail** — if a family-count assertion is doing the work in the reverse case, the mapping assertions are not earning their place.
+
+The third row's extra failure is worth understanding rather than pattern-matching: the fixed block list `1 1 1 2 2 3 3` never reaches index 4, so at `square` (four anchors) the palette really does collapse to three hue families. The family count is therefore correct to fail there — it just cannot fail in the reverse case, which is the gap the mapping assertions close. **The first version of this table predicted four failures and a re-review measured five;** if your run disagrees with a prediction here, trust your run and say so.
 
 - [ ] **Step 6: Full gate and commit**
 
@@ -633,13 +772,15 @@ carry different hues. Not wired to anything yet — v5 stays live."
 # The users own liked palettes span peak chroma 0.044-0.247 and lightness span
 # 0.20-0.69; the engine must be able to cover that, or it has the same defect
 # wearing different code.
-function __t6_env --description 'render a recipe and print "<peakC> <Lspan> <huefamilies>" measured back out of the seven hexes'
+function __t6_env --description 'render a recipe and print "<peakC> <Lspan_ramp> <huefamilies> <Lspan_full>" measured back out of the seven hexes. Lspan_ramp covers the SIX non-text roles; Lspan_full covers all seven. See the comment below for why the recipe assertions use the ramp span.'
     set -l pal (__tmux_lives_theme_render $argv)
-    test (count $pal) -eq 7; or begin; echo "0 0 0"; return; end
-    set -l Ls; set -l Cs; set -l Hs
+    test (count $pal) -eq 7; or begin; echo "0 0 0 0"; return; end
+    # No Hs accumulator: hue is __t6_families' business, and an unread list here
+    # would just be dead code.
+    set -l Ls; set -l Cs
     for h in $pal
         set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
-        set -a Ls $o[1]; set -a Cs $o[2]; set -a Hs $o[3]
+        set -a Ls $o[1]; set -a Cs $o[2]
     end
     set -l maxC 0
     for c in $Cs; test "$c" -gt "$maxC"; and set maxC $c; end
@@ -648,29 +789,37 @@ function __t6_env --description 'render a recipe and print "<peakC> <Lspan> <hue
         test "$l" -lt "$minL"; and set minL $l
         test "$l" -gt "$maxL"; and set maxL $l
     end
-    # Hue families need a TOLERANCE, not distinct rounded hues. Measured: mono
-    # reports FOUR distinct rounded hues, because every colour round-trips
-    # through sRGB and the gamut clamp shifts each one slightly. Cluster with a
-    # 25-degree gap instead — that gives mono 1, analogous 3, triadic 3,
-    # square 4, which is what the modes actually mean.
-    set -l chro
-    for i in (seq 7)
-        test "$Cs[$i]" -ge 0.020; and set -a chro $Hs[$i]
+    # TWO lightness spans, because they answer different questions.
+    #
+    # Lspan_full (all seven roles) is what is on screen, and it is FLOORED near
+    # 0.40 for every recipe that exists — the one hard rule forces `text` to sit
+    # 0.40 from `bar`, so when the ramp is too narrow to supply that gap,
+    # arrange's stage two manufactures it. Measured across all six arrangements
+    # at a requested span of 0.20: 0.4008 0.4014 0.4779 0.4008 0.4433 0.4655.
+    # An assertion of the form "a narrow recipe has a narrow FULL span" is
+    # therefore unsatisfiable for any recipe whatsoever — the first draft of
+    # this task asserted < 0.35 and could never have gone green.
+    #
+    # Lspan_ramp (the six non-text roles) is the span the RECIPE controls, and
+    # it tracks the request cleanly — measured, requested 0.10/0.20/0.30/0.40/
+    # 0.50/0.60 yields 0.083/0.167/0.251/0.334/0.415/0.501, a consistent 5/6 of
+    # the request because dropping the text role drops one of seven positions.
+    # The recipe assertions below use this one. Do NOT "fix" the discrepancy by
+    # loosening the text floor: legibility is the one thing the spec calls
+    # correctness rather than taste.
+    set -l rampL
+    for h in $pal[1..6]
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a rampL $o[1]
     end
-    set -l fam 0
-    if test (count $chro) -gt 0
-        set -l sorted (printf '%s\n' $chro | sort -g)
-        set fam 1
-        for i in (seq 2 (count $sorted))
-            # Capture the index FIRST: a command substitution inside a quoted
-            # list subscript is a fish "Invalid index value" ERROR. This repo
-            # bans the shape and I tripped it writing this very helper.
-            set -l prev (math $i - 1)
-            set -l gap (math "$sorted[$i] - $sorted[$prev]")
-            test "$gap" -gt 25; and set fam (math $fam + 1)
-        end
-    end
-    printf '%s %s %s\n' $maxC (math "$maxL - $minL") $fam
+    set -l rsorted (printf '%s\n' $rampL | sort -g)
+    # Hue families need a TOLERANCE, not distinct rounded hues — every colour
+    # round-trips through sRGB and the gamut clamp shifts each one slightly, so
+    # even a MONO palette reports seven distinct rounded hues. __t6_families
+    # (defined in Task 4) does the 25-degree clustering; call it rather than
+    # inlining a second copy of the same logic.
+    set -l fam (__t6_families $pal)
+    printf '%s %s %s %s\n' $maxC (math "$rsorted[-1] - $rsorted[1]") $fam (math "$maxL - $minL")
 end
 
 # NB the VIVID probe uses a PURPLE seed deliberately. Peak chroma is capped by
@@ -686,9 +835,19 @@ t "range: a muted recipe stays muted" 1 (test "$E6MUTED[1]" -lt 0.08; and echo 1
 t "range: a vivid recipe actually reaches high chroma" 1 (test "$E6VIVID[1]" -gt 0.20; and echo 1; or echo 0)
 t "range: peak chroma spans a REAL interval, not v5's 0.001" 1 (test (math "$E6VIVID[1] - $E6MUTED[1]") -gt 0.10; and echo 1; or echo 0)
 
-t "range: a narrow recipe has a narrow lightness span" 1 (test "$E6MUTED[2]" -lt 0.35; and echo 1; or echo 0)
-t "range: a wide recipe has a wide lightness span" 1 (test "$E6VIVID[2]" -gt 0.55; and echo 1; or echo 0)
+# Field 2 is the RAMP span (six non-text roles) — the span the recipe actually
+# controls. Thresholds are measured, not guessed: the muted recipe yields
+# 0.2099 and the vivid one 0.5417. Every one of these still rejects v5, which
+# measures 0.4676-0.4684 under BOTH span definitions.
+t "range: a narrow recipe has a narrow lightness span" 1 (test "$E6MUTED[2]" -lt 0.30; and echo 1; or echo 0)
+t "range: a wide recipe has a wide lightness span" 1 (test "$E6VIVID[2]" -gt 0.50; and echo 1; or echo 0)
 t "range: lightness span VARIES, unlike v5's identical 0.47" 1 (test (math "$E6VIVID[2] - $E6MUTED[2]") -gt 0.20; and echo 1; or echo 0)
+
+# ...and the cross-subsystem interaction that forced the two-span split above:
+# even when the ramp is far too narrow to supply it, the FULL palette still
+# spans at least the text floor, because arrange manufactures the gap. Nothing
+# else in the suite pins the ramp and the hard rule meeting each other.
+t "range: the text floor widens the full palette even on a narrow ramp" 1 (test "$E6MUTED[4]" -ge 0.40; and echo 1; or echo 0)
 
 t "range: mono yields one hue family" 1 "$E6MUTED[3]"
 set -g E6SQ (string split ' ' -- (__t6_env '#5f772b' square 0.70 0.19 0.3 split))
@@ -718,21 +877,26 @@ These assertions pass against a correct Task 4. To prove they are not decorative
 # /tmp/v5check.fish
 set -g __fish_config_dir /home/bitsaver/.config/fish
 source conf.d/tmux-lives-install.fish 2>/dev/null
-for combo in 'mono bar' 'coral cap' 'teal tabs'
+for combo in 'mono bar' 'coral cap' 'teal tabs' 'ember tabs'
     set -l f (string split ' ' -- $combo)
     set -l pal (__tmux_lives_theme_palette '#5f772b' $f[1] $f[2] derived 0)
-    set -l maxC 0; set -l minL 1; set -l maxL 0
+    set -l maxC 0; set -l a7; set -l a6
     for h in $pal
         set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
         test "$o[2]" -gt "$maxC"; and set maxC $o[2]
-        test "$o[1]" -lt "$minL"; and set minL $o[1]
-        test "$o[1]" -gt "$maxL"; and set maxL $o[1]
+        set -a a7 $o[1]
     end
-    printf 'v5 %-12s peakC %s  Lspan %s\n' "$combo" $maxC (math "$maxL - $minL")
+    for h in $pal[1..6]
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a a6 $o[1]
+    end
+    set -l s7 (printf '%s\n' $a7 | sort -g)
+    set -l s6 (printf '%s\n' $a6 | sort -g)
+    printf 'v5 %-12s peakC %.4f  Lspan_full %.4f  Lspan_ramp %.4f\n' "$combo" $maxC (math "$s7[-1] - $s7[1]") (math "$s6[-1] - $s6[1]")
 end
 ```
 
-Run: `fish /tmp/v5check.fish`. Expected: peak chroma around 0.084-0.085 and lightness span 0.47 for every combination — well inside the bounds the new assertions reject. **Record the output verbatim in your report**; it is the evidence that the guard discriminates. Then `rm /tmp/v5check.fish`.
+Run: `fish /tmp/v5check.fish`. **Expected, already measured on this branch — your run should match closely:** peak chroma `0.0846`-`0.0851` and BOTH lightness spans `0.4676`-`0.4684` for every combination. Note the two spans come out identical for v5, because v5's `text` is never the lightness extreme — which is exactly why the guard discriminates v5 whichever span it uses. Those numbers sit outside every bound the new assertions accept. **Record the output verbatim in your report**; it is the evidence that the guard discriminates. Then `rm /tmp/v5check.fish`.
 
 - [ ] **Step 3: Run the suite and verify the guard passes on v6**
 
@@ -746,7 +910,9 @@ If any `range:` assertion fails, **that is the plan's most important possible ou
 
 Re-create the v5 collapse: in `__tmux_lives_theme_ramp`, replace `set -l C (math "$cfloor + ($peakC - $cfloor) * $frac")` with `set -l C 0.084`. Run the suite. **Expect the peak-chroma range assertions to FAIL.** Restore and `diff`.
 
-Then re-take the copy and pin the span: replace `set -l half (math "$Lspan / 2")` with `set -l half 0.235`. **Expect the lightness-span assertions to FAIL.** Restore and `diff`.
+Then re-take the copy and pin the span: replace `set -l half (math "$Lspan / 2")` with `set -l half 0.235`. **Expect all three of `range: a narrow recipe has a narrow lightness span`, `range: a wide recipe has a wide lightness span` and `range: lightness span VARIES` to FAIL** — a pinned half of 0.235 fixes the ramp span at ~0.392 for every recipe, so the narrow bound, the wide bound and the difference all go. Restore and `diff`.
+
+**Ask for discrimination, not merely failure.** For each mutation, confirm the assertions that fail are the ones naming the mutated dimension and that the OTHERS still pass: mutation one must leave the lightness-span assertions green, mutation two must leave the peak-chroma assertions green, and both must leave the hue-family assertions green. One mutation felling everything means the guard is coupled, not sharp. Note that `range: the text floor widens the full palette even on a narrow ramp` is expected to keep PASSING under both mutations — it pins the hard rule, not the recipe.
 
 Both mutations reproduce v5's exact measured behaviour. If either leaves the suite green, the guard is decorative — say so plainly rather than proceeding.
 
