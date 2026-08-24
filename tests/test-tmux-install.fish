@@ -2737,7 +2737,7 @@ t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arr
 set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac' | string join ','; end | sort -u | count)
 t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
 
-# Stage two must preserve hue and chroma, only pushing lightness — a grey
+# Stage two only GUARANTEES hue; chroma is REQUESTED, not preserved — a grey
 # fixture (used above) has no hue to preserve, so this needs a COLOURFUL one.
 # Built with the SAME lightness profile as the floor fixture above (so the
 # swap decision — which looks only at L — is identical: `centre` does not
@@ -2754,8 +2754,42 @@ set -g A6CBAR (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[1]))
 set -g A6CTXT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[7]))
 
 t "arrange: stage two actually moved lightness (precondition for the next two)" 1 (test (math "abs($A6CTXT[1] - $A6CBAR[1])") -ge 0.40; and echo 1; or echo 0)
-t "arrange: stage two preserves chroma (within tolerance)" 1 (test (math "abs($A6CTXT[2] - $A6CSRC[2])") -lt 0.01; and echo 1; or echo 0)
+# NOT a general guarantee — renamed from "stage two preserves chroma" because
+# it isn't one. This fixture's push lands at a lightness where sRGB still has
+# chroma headroom, so the loss happens to be tiny here; it is NOT tiny in
+# general. Proof the claim was false: changing ONLY this fixture's bar
+# lightness (index 4) from 0.481931 to 0.560000 — still an ordinary in-range
+# value, production code untouched — pushes text to L 0.97 instead of L 0.89
+# and the SAME assertion (same 0.01 tolerance) measures a 70% chroma loss and
+# fails. Near white or black, sRGB simply has nowhere for chroma to go; see
+# the corrected docstring on __tmux_lives_theme_arrange and the sweep below,
+# which pins the property that IS always true instead.
+t "arrange: stage two's chroma request happens to survive at this bar lightness (NOT a general guarantee)" 1 (test (math "abs($A6CTXT[2] - $A6CSRC[2])") -lt 0.01; and echo 1; or echo 0)
 t "arrange: stage two preserves hue (within tolerance)" 1 (test (math "abs($A6CTXT[3] - $A6CSRC[3])") -lt 2; and echo 1; or echo 0)
+
+# The property that IS universal is hue preservation — prove it across a
+# SWEEP of bar lightnesses, not a single point. Fixture: text's candidate
+# (index 1) is pinned at L 0.15/C 0.05/H 20 for every step; every OTHER
+# candidate (indices 2,3,5,6,7) is set to bar's OWN lightness (index 4) each
+# step, so it always loses the swap's "furthest from bar" contest by
+# construction (its distance to bar is ~0, while index 1's is not) —
+# guaranteeing text's source is index 1 on every step regardless of where bar
+# sits, so the sweep isolates stage two's PUSH behaviour from the swap.
+set -g A6HSWEEP_OK 1
+for barL in 0.20 0.30 0.40 0.50 0.60 0.70 0.80 0.90
+    set -l hx
+    for spec in "0.15 0.05 20" "$barL 0.05 80" "$barL 0.05 140" "$barL 0.05 200" "$barL 0.05 260" "$barL 0.05 300" "$barL 0.05 340"
+        set -l p (string split ' ' -- $spec)
+        set -a hx (__tmux_lives_oklch_hex $p[1] $p[2] $p[3])
+    end
+    set -l src (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $hx[1]))
+    set -l out (__tmux_lives_theme_arrange centre $hx)
+    set -l txt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    set -l dh (math "abs($txt[3] - $src[3])")
+    test "$dh" -gt 180; and set dh (math "360 - $dh")
+    test "$dh" -lt 2; or set -g A6HSWEEP_OK 0
+end
+t "arrange: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
 
 # --- v6 render: the three stages composed -----------------------------------
 set -g V6 (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)
