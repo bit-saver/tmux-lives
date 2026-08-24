@@ -2671,5 +2671,6 @@ t "ramp: ...and keeps its full span" 1 (test (math "abs(($R6DL[7] - $R6DL[1]) - 
 set -g R6LIGHT (__tmux_lives_theme_ramp 0.95 0.60 0.15 0.5 7)
 set -g R6GL (for p in $R6LIGHT; echo (string split ' ' -- $p)[1]; end)
 t "ramp: a light seed's window stays in gamut" 1 (test "$R6GL[7]" -le 0.97; and echo 1; or echo 0)
+t "ramp: ...and a light seed keeps its full span too" 1 (test (math "abs(($R6GL[7] - $R6GL[1]) - 0.60)") -lt 0.01; and echo 1; or echo 0)
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
