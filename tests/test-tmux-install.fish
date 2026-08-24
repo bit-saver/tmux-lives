@@ -2611,4 +2611,65 @@ t "anchors: an over-360 offset wraps into range" 80 "$A6WRAP2[2]"
 
 t "anchors: an unknown mode returns nothing" 0 (count (__tmux_lives_theme_anchors 120 nonsense))
 
+# --- v6 ramp: lightness span, peak chroma, peak position ---------------------
+# These three are INDEPENDENT dimensions, not one "intensity" axis. Measured on
+# the users 16 coolors palettes: peakC vs Lspan r = -0.29, peakC vs peakPos
+# +0.25, Lspan vs peakPos +0.06. No evidence any pair moves together.
+set -g R6 (__tmux_lives_theme_ramp 0.50 0.40 0.15 0.5 7)
+t "ramp: returns n pairs" 7 (count $R6)
+
+set -g R6L (for p in $R6; echo (string split ' ' -- $p)[1]; end)
+set -g R6C (for p in $R6; echo (string split ' ' -- $p)[2]; end)
+
+# lightness is monotonic dark -> light
+set -g R6MONO 1
+for i in (seq 2 7)
+    set -l __r6pi (math $i - 1)
+    test "$R6L[$i]" -gt "$R6L[$__r6pi]"; or set -g R6MONO 0
+end
+t "ramp: lightness is monotonic" 1 $R6MONO
+
+# the span is honoured
+t "ramp: span is honoured" 1 (test (math "abs(($R6L[7] - $R6L[1]) - 0.40)") -lt 0.01; and echo 1; or echo 0)
+
+# the seeds own L falls INSIDE the window — this is how the seed stops being
+# hue-only, which is the v5 defect this whole cycle exists to fix
+t "ramp: the seed's L is inside the window" 1 (test "$R6L[1]" -le 0.50 -a "$R6L[7]" -ge 0.50; and echo 1; or echo 0)
+
+# chroma peaks where peakPos asks
+set -g R6MAXI 1
+for i in (seq 2 7)
+    test "$R6C[$i]" -gt "$R6C[$R6MAXI]"; and set -g R6MAXI $i
+end
+t "ramp: chroma peaks mid-ramp when asked to" 4 $R6MAXI
+t "ramp: the peak reaches peakC" 1 (test (math "abs($R6C[$R6MAXI] - 0.15)") -lt 0.005; and echo 1; or echo 0)
+
+set -g R6LO (__tmux_lives_theme_ramp 0.50 0.40 0.15 0.0 7)
+set -g R6LOC (for p in $R6LO; echo (string split ' ' -- $p)[2]; end)
+t "ramp: peakPos 0 peaks at the dark end" 1 (test "$R6LOC[1]" -gt "$R6LOC[7]"; and echo 1; or echo 0)
+set -g R6HI (__tmux_lives_theme_ramp 0.50 0.40 0.15 1.0 7)
+set -g R6HIC (for p in $R6HI; echo (string split ' ' -- $p)[2]; end)
+t "ramp: peakPos 1 peaks at the light end" 1 (test "$R6HIC[7]" -gt "$R6HIC[1]"; and echo 1; or echo 0)
+
+# the three dimensions must be INDEPENDENT: changing one must not move another
+set -g R6A (__tmux_lives_theme_ramp 0.50 0.40 0.05 0.5 7)
+set -g R6B (__tmux_lives_theme_ramp 0.50 0.40 0.25 0.5 7)
+set -g R6AL (for p in $R6A; echo (string split ' ' -- $p)[1]; end)
+set -g R6BL (for p in $R6B; echo (string split ' ' -- $p)[1]; end)
+t "ramp: changing peak chroma does NOT move lightness" "$R6AL" "$R6BL"
+set -g R6C1 (__tmux_lives_theme_ramp 0.50 0.20 0.15 0.5 7)
+set -g R6C2 (__tmux_lives_theme_ramp 0.50 0.70 0.15 0.5 7)
+set -g R6C1C (for p in $R6C1; echo (string split ' ' -- $p)[2]; end)
+set -g R6C2C (for p in $R6C2; echo (string split ' ' -- $p)[2]; end)
+t "ramp: changing lightness span does NOT move chroma" "$R6C1C" "$R6C2C"
+
+# clamping: a window that would run off either end shifts rather than shrinking
+set -g R6DARK (__tmux_lives_theme_ramp 0.10 0.60 0.15 0.5 7)
+set -g R6DL (for p in $R6DARK; echo (string split ' ' -- $p)[1]; end)
+t "ramp: a dark seed's window stays in gamut" 1 (test "$R6DL[1]" -ge 0.05; and echo 1; or echo 0)
+t "ramp: ...and keeps its full span" 1 (test (math "abs(($R6DL[7] - $R6DL[1]) - 0.60)") -lt 0.01; and echo 1; or echo 0)
+set -g R6LIGHT (__tmux_lives_theme_ramp 0.95 0.60 0.15 0.5 7)
+set -g R6GL (for p in $R6LIGHT; echo (string split ' ' -- $p)[1]; end)
+t "ramp: a light seed's window stays in gamut" 1 (test "$R6GL[7]" -le 0.97; and echo 1; or echo 0)
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

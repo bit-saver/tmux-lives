@@ -645,6 +645,40 @@ function __tmux_lives_theme_anchors --argument-names hue mode --description 'v6 
     end
 end
 
+function __tmux_lives_theme_ramp --argument-names seedL Lspan peakC peakPos n --description 'v6 value structure: <n> (L, C) pairs, dark to light, one per line as "<L> <C>". Lightness spreads across a window of width <Lspan> positioned so the SEEDS OWN L falls inside it — that is how the seed stops being hue-only, which is the v5 defect this replaces (there, seed chroma and lightness were discarded entirely and every saturated seed converged on the same bar). Chroma peaks at <peakPos> (0 = darkest end, 1 = lightest) with maximum <peakC>, falling toward a floor away from the peak. The three are INDEPENDENT by design and by test: measured on 16 real palettes, peakC vs Lspan r = -0.29, so collapsing them into one "intensity" axis would be wrong.'
+    test "$n" -lt 2; and return 1
+    # Centre the window on the seed, then SHIFT (never shrink) to stay in gamut,
+    # so a dark or light seed keeps the span the recipe asked for.
+    set -l half (math "$Lspan / 2")
+    set -l lo (math "$seedL - $half")
+    set -l hi (math "$seedL + $half")
+    if test "$lo" -lt 0.05
+        set hi (math "$hi + (0.05 - $lo)")
+        set lo 0.05
+    end
+    if test "$hi" -gt 0.97
+        set lo (math "$lo - ($hi - 0.97)")
+        set hi 0.97
+    end
+    test "$lo" -lt 0.05; and set lo 0.05
+    set -l step (math "($hi - $lo) / ($n - 1)")
+    # Chroma floor: away from the peak the ramp relaxes toward this rather than
+    # to zero, so a muted recipe still reads as tinted rather than grey.
+    set -l cfloor 0.012
+    set -l far (math "max($peakPos, 1 - $peakPos)")
+    test "$far" -lt 0.0001; and set far 1
+    for i in (seq $n)
+        set -l L (math "$lo + $step * ($i - 1)")
+        set -l tpos (math "($i - 1) / ($n - 1)")
+        set -l d (math "abs($tpos - $peakPos)")
+        set -l frac (math "1 - ($d / $far)")
+        test "$frac" -lt 0; and set frac 0
+        set -l C (math "$cfloor + ($peakC - $cfloor) * $frac")
+        test "$C" -lt 0; and set C 0
+        printf '%s %s\n' $L $C
+    end
+end
+
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
     test (count $m) -eq 1; or begin; echo '#f5f5f5'; return; end
