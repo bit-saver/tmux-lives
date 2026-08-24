@@ -783,6 +783,26 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
     printf '%s\n' $out
 end
 
+function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles under the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+    set -l rgb (__tmux_lives_hex_to_rgb01 "$seedHex")
+    test (count $rgb) -eq 3; or return
+    set -l s (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    test (count $s) -eq 3; or return
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    test (count $anchors) -ge 1; or return
+    set -l pairs (__tmux_lives_theme_ramp $s[1] "$Lspan" "$peakC" "$peakPos" 7)
+    test (count $pairs) -eq 7; or return
+    set -l na (count $anchors)
+    set -l hexes
+    for i in (seq 7)
+        set -l lc (string split ' ' -- $pairs[$i])
+        # round-robin: 1,2,..,na,1,2,..
+        set -l ai (math "(($i - 1) % $na) + 1")
+        set -a hexes (__tmux_lives_oklch_hex $lc[1] $lc[2] $anchors[$ai])
+    end
+    __tmux_lives_theme_arrange "$arrangement" $hexes
+end
+
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
     test (count $m) -eq 1; or begin; echo '#f5f5f5'; return; end

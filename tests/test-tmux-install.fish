@@ -2744,4 +2744,102 @@ t "arrange: stage two actually moved lightness (precondition for the next two)" 
 t "arrange: stage two preserves chroma (within tolerance)" 1 (test (math "abs($A6CTXT[2] - $A6CSRC[2])") -lt 0.01; and echo 1; or echo 0)
 t "arrange: stage two preserves hue (within tolerance)" 1 (test (math "abs($A6CTXT[3] - $A6CSRC[3])") -lt 2; and echo 1; or echo 0)
 
+# --- v6 render: the three stages composed -----------------------------------
+set -g V6 (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)
+t "render: returns seven role hexes" 7 (count $V6)
+set -g V6HEXOK 1
+for h in $V6
+    string match -qr '^#[0-9a-f]{6}$' -- $h; or set -g V6HEXOK 0
+end
+t "render: every role is a valid lowercase hex" 1 $V6HEXOK
+
+t "render: a non-hex seed returns nothing" 0 (count (__tmux_lives_theme_render 'notacolour' mono 0.40 0.15 0.5 deep))
+t "render: an unknown mode returns nothing" 0 (count (__tmux_lives_theme_render '#5f772b' nonsense 0.40 0.15 0.5 deep))
+t "render: an unknown arrangement returns nothing" 0 (count (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 nonsense))
+
+# THE headline: the seed's own LIGHTNESS must now reach the output. In v5 the
+# seed contributed hue and nothing else. Seed CHROMA deliberately still does not
+# reach the output — peakC is authoritative, per Global Constraints, so a saved
+# scheme renders identically whatever the seed's saturation. Do not add an
+# assertion demanding seed chroma move the palette; it would contradict the
+# design (measured: two seeds identical in H and L but C 0.03 vs 0.12 render the
+# same palette to within one hex unit of round-trip noise).
+set -g V6A (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)
+set -g V6B (__tmux_lives_theme_render '#5f7fbb' mono 0.40 0.15 0.5 deep)
+t "render: a different seed HUE changes the palette" 1 (test "$V6A" != "$V6B"; and echo 1; or echo 0)
+# The two seeds are HUE-MATCHED on purpose (#1b2602 H 124.94, #a5b58c H 125.13
+# — 0.19 degrees apart) so only lightness varies. An earlier draft used #1a2010
+# and #dfe8c8, which differ by 5.4 degrees of hue, so "the palettes differ" could
+# be satisfied by the hue difference alone and proved nothing about lightness.
+# And string inequality is a weak claim: assert the resulting lightness WINDOWS
+# are disjoint. Measured: 0.058-0.459 for the dark seed, 0.550-0.962 for the
+# light one.
+set -g V6DARK (__tmux_lives_theme_render '#1b2602' mono 0.40 0.15 0.5 deep)
+set -g V6LIGHT (__tmux_lives_theme_render '#a5b58c' mono 0.40 0.15 0.5 deep)
+set -g V6DARKMAXL 0
+for h in $V6DARK
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
+end
+set -g V6LIGHTMINL 1
+for h in $V6LIGHT
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
+end
+t "render: the seeds own LIGHTNESS places the whole palette" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
+
+# the recipe fields must each move the output
+t "render: peak chroma moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.04 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.24 0.5 deep | string join ','); and echo 1; or echo 0)
+t "render: lightness span moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.20 0.15 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.70 0.15 0.5 deep | string join ','); and echo 1; or echo 0)
+t "render: peak position moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.0 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 1.0 deep | string join ','); and echo 1; or echo 0)
+t "render: arrangement moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 split | string join ','); and echo 1; or echo 0)
+t "render: mode moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' triadic 0.40 0.15 0.5 deep | string join ','); and echo 1; or echo 0)
+
+# Round-robin distribution: with a multi-hue mode, adjacent ramp positions must
+# carry DIFFERENT hues, which is what makes a multi-hue palette cohere.
+#
+# Hue families need a TOLERANCE, never distinct rounded hues. Every colour
+# round-trips through sRGB and the gamut clamp shifts each one slightly, so a
+# MONO palette also reports seven distinct rounded hues. Measured directly
+# against this task's own Step 5 mutation: counting rounded hues gives 7 for the
+# correct round-robin AND 7 for the all-one-anchor mutation — it discriminates
+# nothing at all. Clustering with a 25-degree gap gives, through the full
+# pipeline including arrange: mono 1/1, complementary 2/1, triadic 3/1,
+# analogous 3/1, split 3/1, square 4/1, tetradic 4/1 (correct/mutated).
+#
+# __t6_families is defined HERE and reused by Task 5's range guard — one
+# clustering implementation, not two.
+function __t6_families --description 'v6 test helper: seven hexes -> hue-family count. Clusters the CHROMATIC hues (C >= 0.020; a near-grey has no meaningful hue) with a 25-degree gap. Shared by the round-robin assertion and Task 5s range guard.'
+    set -l chro
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        test "$o[2]" -ge 0.020; and set -a chro $o[3]
+    end
+    if test (count $chro) -eq 0
+        echo 0
+        return
+    end
+    set -l sorted (printf '%s\n' $chro | sort -g)
+    set -l f 1
+    for i in (seq 2 (count $sorted))
+        # Capture the index FIRST: a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l prev (math $i - 1)
+        set -l gap (math "$sorted[$i] - $sorted[$prev]")
+        test "$gap" -gt 25; and set f (math $f + 1)
+    end
+    echo $f
+end
+
+set -g V6TRI (__tmux_lives_theme_render '#5f772b' triadic 0.40 0.18 0.5 deep)
+t "render: round-robin gives a triadic palette three hue families" 3 (__t6_families $V6TRI)
+set -g V6SQ (__tmux_lives_theme_render '#5f772b' square 0.40 0.18 0.5 deep)
+t "render: round-robin gives a square palette four hue families" 4 (__t6_families $V6SQ)
+set -g V6MONO (__tmux_lives_theme_render '#5f772b' mono 0.40 0.18 0.5 deep)
+t "render: mono stays one hue family" 1 (__t6_families $V6MONO)
+
+# determinism — the same recipe must always render the same palette, or a saved
+# scheme could not be trusted
+t "render: the same recipe renders identically twice" (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',') (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',')
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
