@@ -343,6 +343,8 @@ never reached the engine."
 
 Every list is a permutation of `1..7`; Step 1 asserts that rather than trusting the table.
 
+**Enforcing the floor takes two stages, and the second is not optional.** First, `text` swaps with whichever remaining colour is furthest in lightness from `bar`. That is not always enough: measured on an evenly-spaced fixture running L 0.173 to 0.744, `centre` puts `bar` at L 0.482 where the furthest available colour is only **0.309** away, and `accent` reaches only **0.358** — both under the floor, because a mid-ramp `bar` has nothing far enough inside its own palette. So second, if the swap still falls short, **`text`'s lightness is pushed to `bar ± 0.40`**, toward whichever side has headroom, **keeping the hue and chroma it drew from the harmony**. It stays a generated colour; only its `L` is constrained, and only when legibility demands it.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```fish
@@ -353,9 +355,14 @@ t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 
 # every pattern must be a genuine permutation of 1..7 — a duplicated index would
 # silently drop a colour and repeat another, which looks plausible on screen
+# A WIDE fixture (L 0.115 to 0.961), chosen so the swap alone satisfies the
+# floor in all six patterns and stage two never fires. With a narrow fixture
+# stage two legitimately REPLACES a colour, so the output is no longer a
+# permutation of the input and this assertion would be testing the wrong thing.
+# Stage two's own behaviour is asserted separately below.
 set -g A6PERMOK 1
 for p in $A6PATS
-    set -l out (__tmux_lives_theme_arrange $p '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777')
+    set -l out (__tmux_lives_theme_arrange $p '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2')
     test (count $out) -eq 7; or set -g A6PERMOK 0
     test (count (printf '%s\n' $out | sort -u)) -eq 7; or set -g A6PERMOK 0
 end
@@ -376,6 +383,15 @@ for p in $A6PATS
 end
 t "arrange: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
 
+# ...and specifically for the two a swap alone CANNOT rescue. These two fail
+# unless stage two exists, so they are what prove it runs.
+for p in centre accent
+    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    t "arrange: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
+end
+
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
 
 # the patterns must actually differ — six names mapping to one order would be
@@ -393,7 +409,7 @@ function __tmux_lives_theme_arrangements --description 'v6: the six arrangement 
     printf '%s\n' deep bright centre split stack accent
 end
 
-function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — by swapping text to whichever remaining colour is furthest from bar when the pattern alone does not satisfy it. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, keeping the hue and chroma it drew from the harmony. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
     set -l hexes $argv[2..8]
     test (count $hexes) -eq 7; or return 1
     set -l idx
@@ -438,6 +454,21 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
             set -l tmp $out[7]
             set out[7] $out[$best]
             set out[$best] $tmp
+        end
+        # Stage two. A mid-ramp bar can have NOTHING far enough away inside its
+        # own palette — measured, centre reaches only 0.309 and accent 0.358
+        # against a 0.40 floor. Legibility is correctness, not taste, so push
+        # text's LIGHTNESS to the floor while keeping the hue and chroma it drew
+        # from the harmony. It stays a generated colour; only L is constrained,
+        # and only when the swap was not enough.
+        set -l lt2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+        if test (math "abs($lt2[1] - $lb[1])") -lt 0.40
+            set -l up (math "$lb[1] + 0.40")
+            set -l dn (math "$lb[1] - 0.40")
+            set -l newL $up
+            test "$up" -gt 0.97; and set newL $dn
+            test "$newL" -lt 0.05; and set newL $up
+            set out[7] (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
         end
     end
     printf '%s\n' $out
