@@ -788,13 +788,32 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
 end
 
 function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles under the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+    # Reject a malformed seed BEFORE it ever reaches __tmux_lives_hex_to_rgb01:
+    # that function has no shape check of its own, so a non-hex string (e.g.
+    # "notacolour") reaches `math "0xno/255"` and fish's math diagnostics print
+    # straight to stderr — they bypass in-process redirection entirely (2>
+    # on the call, a begin/end wrapper, and a command substitution all fail to
+    # silence it), so the only fix is never calling it with bad input.
+    string match -qr '^#?[0-9a-fA-F]{6}$' -- "$seedHex"; or return 1
     set -l rgb (__tmux_lives_hex_to_rgb01 "$seedHex")
+    # Defensive, not reachable: every string the shape check above admits is a
+    # valid 6-hex-digit colour, and __tmux_lives_hex_to_rgb01 always emits
+    # exactly 3 lines for one. Kept as a fail-safe contract guard, not a live
+    # path — see the same note on the two guards immediately below it.
     test (count $rgb) -eq 3; or return
     set -l s (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    # Defensive, not reachable: __tmux_lives_rgb_to_oklch always prints
+    # exactly L, C, H (3 lines) for any numeric r,g,b, which $rgb always is
+    # once the two guards above have passed. Kept as a fail-safe contract
+    # guard, not a live path.
     test (count $s) -eq 3; or return
     set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
     test (count $anchors) -ge 1; or return
     set -l pairs (__tmux_lives_theme_ramp $s[1] "$Lspan" "$peakC" "$peakPos" 7)
+    # Defensive, not reachable: called here with a literal n=7, and
+    # __tmux_lives_theme_ramp only ever refuses (n < 2) or emits exactly n
+    # lines — never anything in between. Kept as a fail-safe contract guard,
+    # not a live path.
     test (count $pairs) -eq 7; or return
     set -l na (count $anchors)
     set -l hexes
