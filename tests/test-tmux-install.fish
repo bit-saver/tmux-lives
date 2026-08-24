@@ -2909,4 +2909,110 @@ t "render: complementary maps ramp positions onto anchors round-robin" 1 (__t6_m
 # scheme could not be trusted
 t "render: the same recipe renders identically twice" (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',') (__tmux_lives_theme_render '#5f772b' square 0.55 0.19 0.3 accent | string join ',')
 
+# --- v6 range guard ---------------------------------------------------------
+# THE regression guard for the actual v5 failure. Measured on v5 across all 24
+# relationship x placement combinations at one seed: peak chroma spanned 0.001
+# (0.084-0.085) and lightness span was byte-identical at 0.47-0.47. The whole
+# 708-assertion suite passed. Nothing measured RANGE, so nothing could see it.
+#
+# Sample a spread of recipes and assert the OUTPUT ENVELOPE is genuinely wide.
+# The users own liked palettes span peak chroma 0.044-0.247 and lightness span
+# 0.20-0.69; the engine must be able to cover that, or it has the same defect
+# wearing different code.
+function __t6_env --description 'render a recipe and print "<peakC> <Lspan_ramp> <huefamilies> <Lspan_full>" measured back out of the seven hexes. Lspan_ramp covers the SIX non-text roles; Lspan_full covers all seven. See the comment below for why the recipe assertions use the ramp span.'
+    set -l pal (__tmux_lives_theme_render $argv)
+    test (count $pal) -eq 7; or begin; echo "0 0 0 0"; return; end
+    # No Hs accumulator: hue is __t6_families' business, and an unread list here
+    # would just be dead code.
+    set -l Ls; set -l Cs
+    for h in $pal
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a Ls $o[1]; set -a Cs $o[2]
+    end
+    set -l maxC 0
+    for c in $Cs; test "$c" -gt "$maxC"; and set maxC $c; end
+    set -l minL 1; set -l maxL 0
+    for l in $Ls
+        test "$l" -lt "$minL"; and set minL $l
+        test "$l" -gt "$maxL"; and set maxL $l
+    end
+    # TWO lightness spans, because they answer different questions.
+    #
+    # Lspan_full (all seven roles) is what is on screen, and it is FLOORED near
+    # 0.40 for every recipe that exists — the one hard rule forces `text` to sit
+    # 0.40 from `bar`, so when the ramp is too narrow to supply that gap,
+    # arrange's stage two manufactures it. Measured across all six arrangements
+    # at a requested span of 0.20: 0.4008 0.4014 0.4779 0.4008 0.4433 0.4655.
+    # An assertion of the form "a narrow recipe has a narrow FULL span" is
+    # therefore unsatisfiable for any recipe whatsoever — the first draft of
+    # this task asserted < 0.35 and could never have gone green.
+    #
+    # Lspan_ramp (the six non-text roles) is the span the RECIPE controls, and
+    # it tracks the request cleanly — measured, requested 0.10/0.20/0.30/0.40/
+    # 0.50/0.60 yields 0.083/0.167/0.251/0.334/0.415/0.501, a consistent 5/6 of
+    # the request because dropping the text role drops one of seven positions.
+    # The recipe assertions below use this one. Do NOT "fix" the discrepancy by
+    # loosening the text floor: legibility is the one thing the spec calls
+    # correctness rather than taste.
+    set -l rampL
+    for h in $pal[1..6]
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a rampL $o[1]
+    end
+    set -l rsorted (printf '%s\n' $rampL | sort -g)
+    # Hue families need a TOLERANCE, not distinct rounded hues — every colour
+    # round-trips through sRGB and the gamut clamp shifts each one slightly, so
+    # even a MONO palette reports seven distinct rounded hues. __t6_families
+    # (defined in Task 4) does the 25-degree clustering; call it rather than
+    # inlining a second copy of the same logic.
+    set -l fam (__t6_families $pal)
+    printf '%s %s %s %s\n' $maxC (math "$rsorted[-1] - $rsorted[1]") $fam (math "$maxL - $minL")
+end
+
+# NB the VIVID probe uses a PURPLE seed deliberately. Peak chroma is capped by
+# the sRGB gamut and that cap is hue-dependent: requesting 0.26 yields 0.260 at
+# purple, 0.254 at red and 0.240 at pink, but only 0.153 at green and 0.140 at
+# cyan. peakC is a REQUEST, not a guarantee. A green seed here would make the
+# high-end assertion unsatisfiable through no fault of the engine — which is
+# exactly what the first draft of this plan did.
+set -g E6MUTED (string split ' ' -- (__t6_env '#5f772b' mono 0.25 0.04 0.5 deep))
+set -g E6VIVID (string split ' ' -- (__t6_env '#7a00ff' triadic 0.65 0.26 0.5 accent))
+
+t "range: a muted recipe stays muted" 1 (test "$E6MUTED[1]" -lt 0.08; and echo 1; or echo 0)
+t "range: a vivid recipe actually reaches high chroma" 1 (test "$E6VIVID[1]" -gt 0.20; and echo 1; or echo 0)
+t "range: peak chroma spans a REAL interval, not v5's 0.001" 1 (test (math "$E6VIVID[1] - $E6MUTED[1]") -gt 0.10; and echo 1; or echo 0)
+
+# Field 2 is the RAMP span (six non-text roles) — the span the recipe actually
+# controls. Thresholds are measured, not guessed: the muted recipe yields
+# 0.2099 and the vivid one 0.5417. Every one of these still rejects v5, which
+# measures 0.4676-0.4684 under BOTH span definitions.
+t "range: a narrow recipe has a narrow lightness span" 1 (test "$E6MUTED[2]" -lt 0.30; and echo 1; or echo 0)
+t "range: a wide recipe has a wide lightness span" 1 (test "$E6VIVID[2]" -gt 0.50; and echo 1; or echo 0)
+t "range: lightness span VARIES, unlike v5's identical 0.47" 1 (test (math "$E6VIVID[2] - $E6MUTED[2]") -gt 0.20; and echo 1; or echo 0)
+
+# ...and the cross-subsystem interaction that forced the two-span split above:
+# even when the ramp is far too narrow to supply it, the FULL palette still
+# spans at least the text floor, because arrange manufactures the gap. Nothing
+# else in the suite pins the ramp and the hard rule meeting each other.
+t "range: the text floor widens the full palette even on a narrow ramp" 1 (test "$E6MUTED[4]" -ge 0.40; and echo 1; or echo 0)
+
+t "range: mono yields one hue family" 1 "$E6MUTED[3]"
+set -g E6SQ (string split ' ' -- (__t6_env '#5f772b' square 0.70 0.19 0.3 split))
+t "range: square yields four hue families" 4 "$E6SQ[3]"
+t "range: triadic yields more than one" 1 (test "$E6VIVID[3]" -gt 1; and echo 1; or echo 0)
+
+# The envelope must COVER the neighbourhood of the user's liked palettes, which
+# span peak chroma 0.044-0.247 and lightness span 0.20-0.69. Held as a holdout,
+# never as training data: the question they answered was "do I like these
+# colours", not "should this be a scheme".
+t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.06; and echo 1; or echo 0)
+t "range: the envelope reaches the high end of the users liked palettes" 1 (test "$E6VIVID[1]" -ge 0.22; and echo 1; or echo 0)
+
+# The gamut cap is hue-dependent and that is CORRECT — sRGB cannot hold high
+# chroma at every hue. Pin it so nobody later "fixes" the green case by
+# uncapping the clamp and shipping out-of-gamut colours.
+set -g E6GREEN (string split ' ' -- (__t6_env '#5f772b' mono 0.45 0.26 0.5 deep))
+set -g E6PURPLE (string split ' ' -- (__t6_env '#7a00ff' mono 0.45 0.26 0.5 deep))
+t "range: the same requested chroma is gamut-capped differently by hue" 1 (test (math "$E6PURPLE[1] - $E6GREEN[1]") -gt 0.05; and echo 1; or echo 0)
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
