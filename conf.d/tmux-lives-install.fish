@@ -746,10 +746,6 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
             set -l newL $up
             set -l dir 1
             test "$up" -gt 0.97; and set newL $dn; and set dir -1
-            if test "$newL" -lt 0.05
-                set newL $up
-                set dir 1
-            end
             # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
             # so a target placed exactly ON the floor can round to just under
             # it (measured: accent lands 0.001 short of 0.40 without this).
