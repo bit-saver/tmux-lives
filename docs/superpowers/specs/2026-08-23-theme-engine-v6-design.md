@@ -82,7 +82,11 @@ Round-robin is chosen over contiguous blocks because it guarantees that adjacent
 
 Arrangement is a **fixed set of exactly six named permutation patterns**, each a mapping from ramp position to role, so the set stays enumerable and testable rather than being one of `7!` orderings. The six are named and pinned in the implementation plan; the count is fixed here so the roll space is a known size.
 
-**One hard rule and only one: `text` must clear a contrast floor against `bar`.** If the chosen arrangement fails it, `text` is moved to the contrasting end of the ramp. Nothing else is constrained.
+**One hard rule and only one: `text` must clear a contrast floor against `bar`.**
+
+Enforcement takes two stages, discovered during planning. First `text` swaps with whichever remaining colour is furthest in lightness from `bar`. **That is not always sufficient:** a mid-ramp `bar` can have nothing far enough away inside its own palette — measured on an evenly-spaced seven-colour fixture, the `centre` pattern reaches only **0.309** and `accent` only **0.358** against a 0.40 floor. So second, if the swap still falls short, `text`'s **lightness** is pushed to `bar ± 0.40` toward whichever side has headroom, keeping its **hue** (measured preserved to within ~1 degree across a spread of bar lightnesses) while requesting the chroma it drew from the harmony — chroma is preserved only as far as the sRGB gamut allows at the new lightness, and that headroom shrinks fast near white or black (measured losses of 20%-93% pushing a chroma 0.05-0.20 colour toward L 0.97), so only hue is an actual guarantee.
+
+`text` therefore remains a generated colour rather than a computed one; only its lightness is constrained, and only when legibility would otherwise fail. Nothing else is constrained.
 
 Over-constraining is what produced the single destination this design exists to escape, so the floor is deliberately minimal and the curated shortlist (below) is what guarantees something good is on screen rather than a generation-time filter.
 
