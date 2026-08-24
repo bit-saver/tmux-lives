@@ -2563,4 +2563,47 @@ rm -f $__ti_sockdir/*-$fish_pid 2>/dev/null
 set -l __ti_leftover (count (string match -r ".*$fish_pid.*" -- (ls $__ti_sockdir 2>/dev/null)))
 t "hygiene: this run leaves no tmux socket files behind" 0 $__ti_leftover
 
+# --- v6 harmony: hue anchors ------------------------------------------------
+# The v5 relationships (mono/wheat/amber/ember/coral/mint/sage/teal) are all
+# signed hue TRAVEL along an arc, so they structurally cannot produce separated
+# hue families — measured, 21 of 24 relationship x placement combinations yield
+# exactly one family. Triadic and square need hues to JUMP. This is that table.
+set -g A6MONO (__tmux_lives_theme_anchors 120 mono)
+t "anchors: mono is one hue" 1 (count $A6MONO)
+t "anchors: mono returns the seed hue" 120 "$A6MONO[1]"
+
+set -g A6ANA (__tmux_lives_theme_anchors 120 analogous)
+t "anchors: analogous is three hues" 3 (count $A6ANA)
+t "anchors: the seed hue is ALWAYS anchor one" 120 "$A6ANA[1]"
+t "anchors: analogous reaches -30" 90 "$A6ANA[2]"
+t "anchors: analogous reaches +30" 150 "$A6ANA[3]"
+
+set -g A6COMP (__tmux_lives_theme_anchors 120 complementary)
+t "anchors: complementary is two hues" 2 (count $A6COMP)
+t "anchors: complementary is opposite" 300 "$A6COMP[2]"
+
+set -g A6SPLIT (__tmux_lives_theme_anchors 120 split)
+t "anchors: split is three hues" 3 (count $A6SPLIT)
+t "anchors: split lands at +150" 270 "$A6SPLIT[2]"
+t "anchors: split lands at +210" 330 "$A6SPLIT[3]"
+
+set -g A6TRI (__tmux_lives_theme_anchors 120 triadic)
+t "anchors: triadic is three hues" 3 (count $A6TRI)
+t "anchors: triadic is evenly spaced" 240 "$A6TRI[2]"
+t "anchors: triadic wraps the third" 0 "$A6TRI[3]"
+
+set -g A6TET (__tmux_lives_theme_anchors 120 tetradic)
+t "anchors: tetradic is four hues" 4 (count $A6TET)
+set -g A6SQ (__tmux_lives_theme_anchors 120 square)
+t "anchors: square is four hues" 4 (count $A6SQ)
+t "anchors: square is evenly spaced" 210 "$A6SQ[2]"
+
+# wrap-around must be handled, not left negative or past 360
+set -g A6WRAP (__tmux_lives_theme_anchors 10 analogous)
+t "anchors: a negative offset wraps into range" 340 "$A6WRAP[2]"
+set -g A6WRAP2 (__tmux_lives_theme_anchors 350 square)
+t "anchors: an over-360 offset wraps into range" 80 "$A6WRAP2[2]"
+
+t "anchors: an unknown mode returns nothing" 0 (count (__tmux_lives_theme_anchors 120 nonsense))
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

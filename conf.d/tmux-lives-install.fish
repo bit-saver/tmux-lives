@@ -619,6 +619,31 @@ function __tmux_lives_norm360 --argument h --description 'wrap a hue in degrees 
     while test $hh -ge 360; set hh (math "$hh - 360"); end
     echo $hh
 end
+function __tmux_lives_theme_anchors --argument-names hue mode --description 'v6 harmony: a seed hue + a harmony mode -> 1-4 hue angles, wrapped into [0,360). Hues ONLY — no lightness, no chroma; those are the ramps job. The seeds own hue is always anchor one in every mode, so the seed anchors the palette rather than merely influencing it. This replaces the v5 signed-travel relationships, which walk an arc and therefore cannot produce SEPARATED hue families: triadic and square need hues to jump. Unknown mode -> nothing, status 1.'
+    set -l offs
+    switch "$mode"
+        case mono
+            set offs 0
+        case analogous
+            # 0 first, not -30: the seed must be anchor ONE in every mode.
+            set offs 0 -30 30
+        case complementary
+            set offs 0 180
+        case split
+            set offs 0 150 210
+        case triadic
+            set offs 0 120 240
+        case tetradic
+            set offs 0 60 180 240
+        case square
+            set offs 0 90 180 270
+        case '*'
+            return 1
+    end
+    for o in $offs
+        __tmux_lives_norm360 (math "$hue + $o")
+    end
+end
 
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
