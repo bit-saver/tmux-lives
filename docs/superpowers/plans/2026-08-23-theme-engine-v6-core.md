@@ -197,7 +197,8 @@ set -g R6C (for p in $R6; echo (string split ' ' -- $p)[2]; end)
 # lightness is monotonic dark -> light
 set -g R6MONO 1
 for i in (seq 2 7)
-    test "$R6L[$i]" -gt "$R6L[(math $i - 1)]"; or set -g R6MONO 0
+    set -g R6PREV (math $i - 1)
+    test "$R6L[$i]" -gt "$R6L[$R6PREV]"; or set -g R6MONO 0
 end
 t "ramp: lightness is monotonic" 1 $R6MONO
 
