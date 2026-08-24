@@ -666,6 +666,10 @@ function __tmux_lives_theme_ramp --argument-names seedL Lspan peakC peakPos n --
     # to zero, so a muted recipe still reads as tinted rather than grey.
     set -l cfloor 0.012
     set -l far (math "max($peakPos, 1 - $peakPos)")
+    # Defensive, not reachable: max(p, 1-p) >= 0.5 for every real p, so $far
+    # can never fall below 0.0001 (it would require peakPos simultaneously
+    # closer than 0.0001 to both 0 and 1). Kept as a fail-safe contract guard
+    # against a future division by a near-zero $far, not a live path.
     test "$far" -lt 0.0001; and set far 1
     for i in (seq $n)
         set -l L (math "$lo + $step * ($i - 1)")
