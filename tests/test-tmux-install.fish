@@ -2822,27 +2822,78 @@ t "render: mode moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' 
 #
 # __t6_families is defined HERE and reused by Task 5's range guard — one
 # clustering implementation, not two.
-function __t6_families --description 'v6 test helper: seven hexes -> hue-family count. Clusters the CHROMATIC hues (C >= 0.020; a near-grey has no meaningful hue) with a 25-degree gap. Shared by the round-robin assertion and Task 5s range guard.'
+#
+# CIRCULAR, not linear: a plain sort-and-split treats 0 and 360 as maximally
+# far apart instead of the same point, so an anchor whose two round-robin
+# renders land on OPPOSITE sides of the seam (e.g. 359.76 and 0.24, 0.48
+# degrees apart in reality) gets reported as two separate families. Measured
+# through the real render pipeline by sweeping every integer seed hue 0-359
+# through every mode and comparing the linear count against the mode's own
+# anchor count (ground truth, since round-robin + the chroma floor never
+# produces more or fewer chromatic families than there are anchors): 7 of
+# 2520 hue/mode combinations over-count, all of them exactly this seam
+# crossing. Regression assertions for four of them sit right below.
+function __t6_families --description 'v6 test helper: seven hexes -> hue-family count. Clusters the CHROMATIC hues (C >= 0.020; a near-grey has no meaningful hue) with a 25-degree gap, treated CIRCULARLY (0 and 360 are the same point) so two renders of one anchor landing on opposite sides of the seam are not counted as separate families. Shared by the round-robin assertion and Task 5s range guard.'
     set -l chro
     for h in $argv
         set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
         test "$o[2]" -ge 0.020; and set -a chro $o[3]
     end
-    if test (count $chro) -eq 0
+    set -l n (count $chro)
+    if test $n -eq 0
         echo 0
         return
     end
+    if test $n -eq 1
+        echo 1
+        return
+    end
     set -l sorted (printf '%s\n' $chro | sort -g)
+    # n hues on a circle have n gaps, not n-1 -- the WRAP gap, from the
+    # largest sorted value back around through 360/0 to the smallest, is a
+    # real gap too, and it is exactly the one a linear sort-and-split never
+    # computes at all.
+    set -l gaps
+    for i in (seq 1 $n)
+        if test $i -eq $n
+            set -a gaps (math "(360 - $sorted[$n]) + $sorted[1]")
+        else
+            # Capture the index FIRST: a command substitution inside a quoted
+            # list subscript is a fish "Invalid index value" ERROR, banned in
+            # this repo.
+            set -l j (math "$i + 1")
+            set -a gaps (math "$sorted[$j] - $sorted[$i]")
+        end
+    end
+    # The largest of the n circular gaps IS the seam: excluding only it from
+    # the split count is equivalent to rotating the circle so clustering
+    # starts right after it, without ever building a rotated (and therefore
+    # non-monotonic, wraparound-broken) array to walk linearly.
+    set -l maxgap -1
+    set -l maxidx $n
+    for i in (seq 1 $n)
+        if test "$gaps[$i]" -gt "$maxgap"
+            set maxgap $gaps[$i]
+            set maxidx $i
+        end
+    end
     set -l f 1
-    for i in (seq 2 (count $sorted))
-        # Capture the index FIRST: a command substitution inside a quoted list
-        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
-        set -l prev (math $i - 1)
-        set -l gap (math "$sorted[$i] - $sorted[$prev]")
-        test "$gap" -gt 25; and set f (math $f + 1)
+    for i in (seq 1 $n)
+        test $i -eq $maxidx; and continue
+        test "$gaps[$i]" -gt 25; and set f (math "$f + 1")
     end
     echo $f
 end
+
+# The seam bug is not hypothetical: these four seeds are real, reproducible
+# over-counts against the OLD linear-sort implementation (found by the sweep
+# described above), re-verified directly against it (mono #a33460 -> 2,
+# triadic #5b6c00 -> 4, triadic #006a9d -> 4, square #435ab8 -> 5, all wrong)
+# before being pinned here against the fixed one.
+t "families: mono at a seed hue of exactly 0 is still one family (seam)" 1 (__t6_families (__tmux_lives_theme_render '#a33460' mono 0.40 0.18 0.5 deep))
+t "families: triadic at seed hue ~120 stays three families across the seam" 3 (__t6_families (__tmux_lives_theme_render '#5b6c00' triadic 0.40 0.18 0.5 deep))
+t "families: triadic at seed hue ~240 stays three families across the seam" 3 (__t6_families (__tmux_lives_theme_render '#006a9d' triadic 0.40 0.18 0.5 deep))
+t "families: square at seed hue ~270 stays four families across the seam" 4 (__t6_families (__tmux_lives_theme_render '#435ab8' square 0.40 0.18 0.3 deep))
 
 set -g V6TRI (__tmux_lives_theme_render '#5f772b' triadic 0.40 0.18 0.5 deep)
 t "render: round-robin gives a triadic palette three hue families" 3 (__t6_families $V6TRI)
