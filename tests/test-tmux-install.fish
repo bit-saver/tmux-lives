@@ -2685,11 +2685,24 @@ t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 # stage two legitimately REPLACES a colour, so the output is no longer a
 # permutation of the input and this assertion would be testing the wrong thing.
 # Stage two's own behaviour is asserted separately below.
+#
+# Cardinality (count -eq 7) and uniqueness (sort -u -eq 7) do NOT prove a
+# permutation -- they hold just as well if arrange fabricates colours that
+# merely happen to be distinct from each other. Proven: with the stage-one
+# swap disabled (conf.d/tmux-lives-install.fish:727, `if test $best -ne 7`
+# forced to `if false`), patterns `stack` and `accent` emit #a5a5a5 and
+# #d6d6d6 on this exact fixture -- neither is an input colour -- while count
+# and sort -u both still read 7 and the whole suite stays ALL PASS. Membership
+# is the check that actually distinguishes a reordering from a fabrication.
+set -g A6PERMFIX '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2'
 set -g A6PERMOK 1
 for p in $A6PATS
-    set -l out (__tmux_lives_theme_arrange $p '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2')
+    set -l out (__tmux_lives_theme_arrange $p $A6PERMFIX)
     test (count $out) -eq 7; or set -g A6PERMOK 0
     test (count (printf '%s\n' $out | sort -u)) -eq 7; or set -g A6PERMOK 0
+    for h in $out
+        contains -- $h $A6PERMFIX; or set -g A6PERMOK 0
+    end
 end
 t "arrange: every pattern is a permutation, no colour dropped or repeated" 1 $A6PERMOK
 
