@@ -683,7 +683,7 @@ function __tmux_lives_theme_arrangements --description 'v6: the six arrangement 
     printf '%s\n' deep bright centre split stack accent
 end
 
-function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, keeping the hue and chroma it drew from the harmony. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, keeping the hue and chroma it drew from the harmony, and verifying the ACTUAL round-tripped gap (hex encoding is lossy) rather than trusting the requested value -- best effort, never a silent floor violation: an unreachable target falls back to whichever extreme (0.97 or 0.05) is further from bar. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
     set -l hexes $argv[2..8]
     test (count $hexes) -eq 7; or return 1
     set -l idx
@@ -757,10 +757,25 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
                 set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
                 test (math "abs($back[1] - $lb[1])") -ge 0.40; and break
                 set newL (math "$newL + $dir * 0.01")
-                test "$newL" -gt 1; and set newL 1
-                test "$newL" -lt 0; and set newL 0
+                test "$newL" -gt 0.97; and set newL 0.97
+                test "$newL" -lt 0.05; and set newL 0.05
                 set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
                 set tries (math "$tries + 1")
+            end
+            # Verify the loop's OWN result rather than trusting it exited
+            # clean — the loop can exhaust its budget without ever re-checking
+            # the final nudge it computed, which would silently ship a `text`
+            # that violates the one hard rule. Best effort, never silent: if
+            # ten nudges were not enough, fall back to whichever extreme is
+            # further from bar (0.97 or 0.05), which maximises the achievable
+            # gap.
+            set -l final (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+            if test (math "abs($final[1] - $lb[1])") -lt 0.40
+                set -l dHi (math "abs(0.97 - $lb[1])")
+                set -l dLo (math "abs($lb[1] - 0.05)")
+                set -l extremeL 0.97
+                test "$dLo" -gt "$dHi"; and set extremeL 0.05
+                set cand (__tmux_lives_oklch_hex $extremeL $lt2[2] $lt2[3])
             end
             set out[7] $cand
         end
