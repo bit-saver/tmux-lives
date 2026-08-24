@@ -2580,22 +2580,27 @@ t "anchors: analogous reaches +30" 150 "$A6ANA[3]"
 
 set -g A6COMP (__tmux_lives_theme_anchors 120 complementary)
 t "anchors: complementary is two hues" 2 (count $A6COMP)
+t "anchors: complementary seed is anchor one" 120 "$A6COMP[1]"
 t "anchors: complementary is opposite" 300 "$A6COMP[2]"
 
 set -g A6SPLIT (__tmux_lives_theme_anchors 120 split)
 t "anchors: split is three hues" 3 (count $A6SPLIT)
+t "anchors: split seed is anchor one" 120 "$A6SPLIT[1]"
 t "anchors: split lands at +150" 270 "$A6SPLIT[2]"
 t "anchors: split lands at +210" 330 "$A6SPLIT[3]"
 
 set -g A6TRI (__tmux_lives_theme_anchors 120 triadic)
 t "anchors: triadic is three hues" 3 (count $A6TRI)
+t "anchors: triadic seed is anchor one" 120 "$A6TRI[1]"
 t "anchors: triadic is evenly spaced" 240 "$A6TRI[2]"
 t "anchors: triadic wraps the third" 0 "$A6TRI[3]"
 
 set -g A6TET (__tmux_lives_theme_anchors 120 tetradic)
 t "anchors: tetradic is four hues" 4 (count $A6TET)
+t "anchors: tetradic seed is anchor one" 120 "$A6TET[1]"
 set -g A6SQ (__tmux_lives_theme_anchors 120 square)
 t "anchors: square is four hues" 4 (count $A6SQ)
+t "anchors: square seed is anchor one" 120 "$A6SQ[1]"
 t "anchors: square is evenly spaced" 210 "$A6SQ[2]"
 
 # wrap-around must be handled, not left negative or past 360
