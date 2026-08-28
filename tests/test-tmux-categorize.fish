@@ -1696,7 +1696,9 @@ set -gx PATH $ps_path_save
 rm -rf $psshim
 
 # ---------------------------------------------------------------------
-# macOS pgrep -> sysmond storm (handoff docs/2026-08-17-handoff-pgrep-sysmond-macos.md)
+# macOS pgrep -> sysmond storm. Verified on the Mac in
+# docs/2026-08-18-verification-pgrep-sysmond-fix-on-macos.md; the originating
+# handoff was pruned after the fix landed (see git history).
 #
 # On macOS there is no /proc, so EVERY call takes the fallback branch, and
 # /usr/bin/pgrep there links libsysmon.dylib -- it delegates enumeration to the
