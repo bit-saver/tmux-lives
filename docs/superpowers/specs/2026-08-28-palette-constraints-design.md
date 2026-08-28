@@ -85,7 +85,21 @@ Ramp positions 6 and 7 are where L 0.88-0.97 lives. Five of six arrangements pla
 
 `deep` is also the arrangement behind the mono palette the user repeatedly called their favourite. That is not a coincidence worth ignoring.
 
-**The constraint:** every arrangement must place `bar`, `tabs` and `cap` on ramp indices whose lightness satisfies bound 3. The simplest formulation, and the one this spec proposes: **no big role may take ramp index 6 or 7.** Arrangements that violate this are either re-indexed or removed.
+**A static index rule is necessary but NOT sufficient, and this was measured rather than assumed.** The obvious formulation — "no big role may take ramp index 6 or 7" — does not hold, because the ramp window is positioned by the seed's own lightness. Worst-case lightness at each ramp index, swept across eight seeds and five lightness spans:
+
+| ramp index | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| max L reached | **0.77** | 0.80 | 0.84 | 0.87 | 0.90 | 0.94 | 0.97 |
+
+**Even index 1 can reach 0.77.** A light seed with a narrow span puts the entire window above the bound — at seed lightness 0.92 with span 0.20 the window is roughly [0.82, 0.97] and every position breaches. No arrangement table can fix that.
+
+So the constraint has two parts:
+
+**C1a — re-index the arrangements so `bar`, `tabs` and `cap` draw from ramp indices 1-4.** This removes the common case cheaply and statically, and is checkable against the arrangement table itself. Indices 5, 6 and 7 go to the small roles.
+
+**C1b — clamp any big role that still exceeds the bound**, pulling its lightness down to it while keeping hue and chroma. This is the same mechanism the text floor already uses in its stage two, so it is a known, tested shape rather than new machinery. It handles the light-seed case that C1a structurally cannot.
+
+C1b has a deliberate consequence worth stating plainly: **the big surfaces stay dark regardless of how light the seed is.** The seed's lightness continues to position the ramp and therefore shapes the small roles and the overall spread, but it no longer drags the large surfaces pale. That is the intended reading of bound 3 — a pale large surface was rejected at every seed it appeared at — but it does narrow v6's "the seed's lightness reaches the output" claim to the small roles at light seeds.
 
 Whether the catalog keeps six arrangements or fewer is deliberately left open — see Open questions.
 
@@ -123,7 +137,8 @@ Proposed thresholds, to be confirmed against renders rather than argued: no role
 The bounds are directly assertable on rendered output, which makes this unusually testable for colour work — the v6 range guard already demonstrates the pattern.
 
 - **Bounds guard.** For every catalog recipe at several seeds, assert all three bounds hold. This is the regression guard for the entire spec.
-- **Structural guard for C1.** Assert no arrangement places `bar`, `tabs` or `cap` on ramp index 6 or 7. This must be checked against the arrangement table itself, not inferred from rendered output, so a future arrangement cannot be added that violates it silently.
+- **Structural guard for C1a.** Assert no arrangement places `bar`, `tabs` or `cap` on a ramp index above 4. This must be checked against the arrangement table itself, not inferred from rendered output, so a future arrangement cannot be added that violates it silently.
+- **Behavioural guard for C1b.** Assert that a deliberately light seed with a narrow span — the case C1a cannot reach — still yields big roles under the bound. Without this the clamp could be deleted and every static check would stay green.
 - **Stability guard for C2.** Assert the role-to-ramp-index mapping for a given arrangement is identical across several different palettes. This is the assertion that would have caught the swap defect.
 - **Holdout.** The three rejected palettes recorded above must fail the bounds guard. If a change ever makes them pass, the bounds have been loosened too far.
 
