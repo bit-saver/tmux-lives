@@ -1,6 +1,6 @@
 # The project comes from where you ARE, and a session is born where you were
 
-**Status: APPROVED, NOT BUILT.** Written 2026-08-19, revised 2026-08-29 to add a second half. Reverses decisions N3 and N9 of the session-naming design (`2026-08-18-session-naming-design.md`), which shipped at `6da151f`. Everything else in that design — the two-layer name/display model, the claim precedence, `gen-N` stability, the ownership guard, the category model — is unchanged.
+**Status: SHIPPED**, 2026-08-29, to `feat/project-from-pane-cwd` (commits `5343bf8` `__tcz_new_general` pins `$HOME`, `b646169` `__tmux_lives_new` inherits the invoking cwd; the naming half itself was inherited from an interrupted prior session at `41daabc` and mutation-verified this cycle before either commit). Written 2026-08-19, revised 2026-08-29 to add a second half. Reverses decisions N3 and N9 of the session-naming design (`2026-08-18-session-naming-design.md`), which shipped at `6da151f`. Everything else in that design — the two-layer name/display model, the claim precedence, `gen-N` stability, the ownership guard, the category model — is unchanged.
 
 The design now covers two independent rules that were originally treated as one topic and one non-topic:
 
