@@ -209,7 +209,7 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     exec tmux -u attach-session -d -t "=$target" \; run-shell -b "$pop"
 end
 
-function __tmux_lives_new --description 'Create a new categorized session in $HOME. tmux-lives new [name]'
+function __tmux_lives_new --description 'Create a new categorized session in the invoking cwd. tmux-lives new [name]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
@@ -222,7 +222,7 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
     end
     if set -q TMUX
         if test -n "$name"
-            tmux new-session -d -c "$HOME" -s "$name"
+            tmux new-session -d -s "$name"
             tmux switch-client -t "=$name"
         else
             # Identify the new session by its stable #{session_id} ($N), not its name:
@@ -230,7 +230,7 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
             # id never changes, so the switch lands on it regardless. Resolving by the
             # numeric name failed — that name is gone after the rename, so switch-client
             # got a dead target ("can't find session: N").
-            set -l sid (tmux new-session -dP -F '#{session_id}' -c "$HOME")
+            set -l sid (tmux new-session -dP -F '#{session_id}')
             test -n "$sid"; or begin
                 echo "tmux-lives new: could not create a session" >&2
                 return 1
@@ -242,9 +242,9 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
     end
     __tmux_ensure_server
     if test -n "$name"
-        exec tmux -u new-session -A -c "$HOME" -s "$name"
+        exec tmux -u new-session -A -s "$name"
     else
-        exec tmux -u new-session -c "$HOME"
+        exec tmux -u new-session
     end
 end
 
