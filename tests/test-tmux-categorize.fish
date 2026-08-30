@@ -1012,6 +1012,41 @@ t "cat: never named for the useless subdirectory basename" "no" \
 rm -rf $HOME/tcz-gitwalk-$fish_pid
 cleanup
 
+# The pane walk picks the active pane of the ACTIVE WINDOW -- the pane you
+# would actually see if you attached -- not merely the last pane_active row
+# the walk happens to visit. Every other naming fixture in this file is
+# single-window/single-pane, so nothing else in the suite can tell those two
+# apart: both mutations that break this (dropping the #{window_active}
+# conjunct from the format's 5th field, and ignoring that flag at the $cpath
+# accumulator) leave the whole suite green without it. Two windows, two
+# DIFFERENT projects, first window selected -- and then the selection moved,
+# so this tracks the selection rather than merely the lowest window index.
+set -g wwbase /tmp/tcz-winwalk-$fish_pid
+rm -rf $wwbase
+mkdir -p $wwbase/alphaproj $wwbase/betaproj
+# Address by #{session_id}/#{window_id} throughout: the session is born with a
+# purely numeric name, which tmux 3.3a mis-resolves under -t even with "="
+# (see __tcz_session_target). Ids have no such trap.
+set -g wwid (tmux new-session -dP -F '#{session_id}' -c $wwbase/alphaproj)
+tmux new-window -t "$wwid" -c $wwbase/betaproj
+set -g wwwins (tmux list-windows -t "$wwid" -F '#{window_id}')
+t "cat/win: the fixture really has two windows" "2" (count $wwwins)
+tmux select-window -t "$wwwins[1]"
+sleep 0.5
+__tcz_categorize
+t "cat: named for the SELECTED window's project" "yes" \
+    (tmux has-session -t =alphaproj 2>/dev/null; and echo yes; or echo no)
+t "cat: NOT named for the unselected window's project" "no" \
+    (tmux has-session -t =betaproj 2>/dev/null; and echo yes; or echo no)
+tmux select-window -t "$wwwins[2]"
+sleep 0.3
+__tcz_categorize
+t "cat: re-selecting the other window re-names the session" "yes" \
+    (tmux has-session -t =betaproj 2>/dev/null; and echo yes; or echo no)
+rm -rf $wwbase
+set -e wwbase wwid wwwins
+cleanup
+
 # --- I1: anti-churn -- a second pass over an UNCHANGED server must emit ZERO
 # @tmux_lives_display set-option calls, not merely leave the end-state
 # unchanged. This is the property that guards against reintroducing the
