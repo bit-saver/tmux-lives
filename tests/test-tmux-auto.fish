@@ -251,6 +251,37 @@ set -l sess_before (tmux list-sessions -F '#{session_name}' 2>/dev/null | count)
 __tmux_lives_new 2>/dev/null
 set -l sess_after (tmux list-sessions -F '#{session_name}' 2>/dev/null | count)
 t "new: no-name inside tmux creates a session" "yes" (test $sess_after -gt $sess_before; and echo yes; or echo no)
+
+# Creation cwd: a session is born where you were. Both in-tmux branches
+# inherit the invoking shell's cwd instead of forcing the home directory,
+# so `tmux-lives new` from a project pane starts in that project.
+set -l ncdir /tmp/tl-newcwd-$fish_pid
+mkdir -p $ncdir
+set -l nc_saved $PWD
+set -l nc_before (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+# The no-name branch calls __tmux_categorize, which SHELLS OUT -- and this
+# suite's tmux shim is a fish function, which does not reach a subprocess.
+# Today that is saved only by the bogus TMUX set above making the subprocess's
+# tmux fail to connect at all. Stub it rather than lean on that coincidence:
+# the assertion below is about the birth directory, not about categorizing.
+functions -c __tmux_categorize __tl_cwd_cat_bak
+function __tmux_categorize; end
+cd $ncdir
+__tmux_lives_new proj 2>/dev/null
+__tmux_lives_new 2>/dev/null
+cd $nc_saved
+functions -e __tmux_categorize; functions -c __tl_cwd_cat_bak __tmux_categorize
+t "new: a named session is born in the invoking cwd" "$ncdir" \
+    (tmux list-panes -t =proj -F '#{pane_start_path}' 2>/dev/null)
+set -l nc_created
+for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    test "$s" = proj; and continue
+    contains -- $s $nc_before; or set nc_created $s
+end
+t "new: the no-name session is born in the invoking cwd" "$ncdir" \
+    (tmux list-panes -t "=$nc_created" -F '#{pane_start_path}' 2>/dev/null)
+rm -rf $ncdir
+
 set -e TMUX
 cleanup
 
@@ -279,6 +310,35 @@ t "new no-name: switch targets a live session" "yes" (test -n "$_sw_target"; and
 functions -e __tmux_categorize; functions -c __tl_cat_bak __tmux_categorize
 set -e TMUX
 cleanup
+
+# The two outside-tmux branches replace the process, so they cannot be driven
+# the way the two above are. These are SOURCE-SHAPE checks over the whole
+# function body, and that is all they are: they prove no creation site passes
+# an explicit -c and that nothing in the body chdirs before creating a
+# session. They do NOT prove a session lands anywhere -- the two behavioural
+# assertions above do that, for the two in-tmux branches only.
+#
+# Both checks read the WHOLE extracted body, not just the `new-session` lines.
+# An earlier version greped only those lines for the substring HOME, which a
+# bare `cd $HOME` inserted anywhere above them evaded completely (verified:
+# the suite stayed ALL PASS). Since those two branches exec and have no
+# behavioural coverage, this grep is the only guard there is.
+#
+# Whole-line comments are stripped, trailing ones deliberately are NOT: one of
+# these call sites carries a tmux format in single quotes whose first character
+# is the same one that starts a fish comment, and stripping to end-of-line
+# would swallow that entire line out of the count.
+set -l nl_src (awk '/^function __tmux_lives_new/,/^end$/' $plugindir/conf.d/tmux.fish | string replace -r '^\s*#.*$' '')
+t "new: the body extraction is non-empty (this guard is not vacuous)" "yes" \
+    (test (count $nl_src) -gt 10; and echo yes; or echo no)
+t "new: all four creation sites are still present" "4" \
+    (printf '%s\n' $nl_src | grep -c 'new-session')
+# The -c FLAG, not the substring HOME: -c is the only way new-session pins a
+# birth directory, so this matches the property instead of one spelling of it.
+t "new: no creation site passes an explicit -c" "0" \
+    (printf '%s\n' $nl_src | grep 'new-session' | grep -cE '(^|[[:space:]])-c([[:space:]]|$)')
+t "new: the body never chdirs before creating a session" "0" \
+    (printf '%s\n' $nl_src | grep -cE '(^|[[:space:];&|(])cd([[:space:]]|$)')
 
 # ---------------------------------------------------------------------
 # attach: missing-session errors; existing inside tmux switches.

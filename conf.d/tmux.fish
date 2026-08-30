@@ -209,7 +209,7 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     exec tmux -u attach-session -d -t "=$target" \; run-shell -b "$pop"
 end
 
-function __tmux_lives_new --description 'Create a new categorized session in $HOME. tmux-lives new [name]'
+function __tmux_lives_new --description 'Create a new categorized session in the invoking cwd. tmux-lives new [name]'
     if not command -q tmux
         echo "tmux not installed" >&2
         return 1
@@ -222,7 +222,7 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
     end
     if set -q TMUX
         if test -n "$name"
-            tmux new-session -d -c "$HOME" -s "$name"
+            tmux new-session -d -s "$name"
             tmux switch-client -t "=$name"
         else
             # Identify the new session by its stable #{session_id} ($N), not its name:
@@ -230,7 +230,7 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
             # id never changes, so the switch lands on it regardless. Resolving by the
             # numeric name failed — that name is gone after the rename, so switch-client
             # got a dead target ("can't find session: N").
-            set -l sid (tmux new-session -dP -F '#{session_id}' -c "$HOME")
+            set -l sid (tmux new-session -dP -F '#{session_id}')
             test -n "$sid"; or begin
                 echo "tmux-lives new: could not create a session" >&2
                 return 1
@@ -242,9 +242,9 @@ function __tmux_lives_new --description 'Create a new categorized session in $HO
     end
     __tmux_ensure_server
     if test -n "$name"
-        exec tmux -u new-session -A -c "$HOME" -s "$name"
+        exec tmux -u new-session -A -s "$name"
     else
-        exec tmux -u new-session -c "$HOME"
+        exec tmux -u new-session
     end
 end
 
@@ -255,9 +255,9 @@ function __tmux_rename_on_preexec --on-event fish_preexec --description 'Instant
     set -l raw (string match -r -- '--name\s+(.+)$' "$argv[1]")[2]
     # Drop trailing flags (" --resume", " -r") — same rule as __tcz_cmdline_name.
     set raw (string replace -r '(\s+--?\S+)+$' '' -- "$raw")
-    # No $PWD arg: the categorizer names from the SESSION path (spec N3), fetched
-    # inside `claim` itself via display-message -- the pane's $PWD follows `cd`
-    # and would reintroduce the drift N3 removed.
+    # No $PWD arg: __tcz_claim fetches the pane's cwd itself via display-message
+    # (project-from-pane-cwd design, 2026-08-19/20 -- reversing spec N3), so a
+    # separate $PWD argument here would be redundant, not wrong.
     fish --no-config $tmux_categorize_script claim "$TMUX_PANE" "$raw" >/dev/null 2>&1 &
     disown
 end
