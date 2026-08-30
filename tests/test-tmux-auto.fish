@@ -312,9 +312,17 @@ set -e TMUX
 cleanup
 
 # The two outside-tmux branches replace the process, so they cannot be driven
-# the way the two above are. This asserts their argument construction instead
-# -- weaker on purpose, and stated as such: it proves the source no longer
-# forces a directory, not that a session lands anywhere.
+# the way the two above are. These are SOURCE-SHAPE checks over the whole
+# function body, and that is all they are: they prove no creation site passes
+# an explicit -c and that nothing in the body chdirs before creating a
+# session. They do NOT prove a session lands anywhere -- the two behavioural
+# assertions above do that, for the two in-tmux branches only.
+#
+# Both checks read the WHOLE extracted body, not just the `new-session` lines.
+# An earlier version greped only those lines for the substring HOME, which a
+# bare `cd $HOME` inserted anywhere above them evaded completely (verified:
+# the suite stayed ALL PASS). Since those two branches exec and have no
+# behavioural coverage, this grep is the only guard there is.
 #
 # Whole-line comments are stripped, trailing ones deliberately are NOT: one of
 # these call sites carries a tmux format in single quotes whose first character
@@ -325,8 +333,12 @@ t "new: the body extraction is non-empty (this guard is not vacuous)" "yes" \
     (test (count $nl_src) -gt 10; and echo yes; or echo no)
 t "new: all four creation sites are still present" "4" \
     (printf '%s\n' $nl_src | grep -c 'new-session')
-t "new: no creation site forces a fixed directory" "0" \
-    (printf '%s\n' $nl_src | grep 'new-session' | grep -c 'HOME')
+# The -c FLAG, not the substring HOME: -c is the only way new-session pins a
+# birth directory, so this matches the property instead of one spelling of it.
+t "new: no creation site passes an explicit -c" "0" \
+    (printf '%s\n' $nl_src | grep 'new-session' | grep -cE '(^|[[:space:]])-c([[:space:]]|$)')
+t "new: the body never chdirs before creating a session" "0" \
+    (printf '%s\n' $nl_src | grep -cE '(^|[[:space:];&|(])cd([[:space:]]|$)')
 
 # ---------------------------------------------------------------------
 # attach: missing-session errors; existing inside tmux switches.
