@@ -22,11 +22,11 @@ function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9
     test -n "$s"; and echo $s; or echo session
 end
 
-function __tcz_git_root --argument-names path --description 'pure: walk up from <path> looking for a .git entry, stopping at $HOME or / -- returns the discovered repo root, or nothing if none is found before the walk reaches (and abandons) that boundary. No subprocess -- test -d in a loop, never git rev-parse: this runs per session per pass, and this project spent a whole cycle removing exactly this shape of per-session fork (a macOS process-enumeration tool routing through a root daemon). $HOME and / are themselves eligible (checked, then abandoned on no match) so a path that already IS a repo root resolves to itself.'
+function __tcz_git_root --argument-names path --description 'pure: walk up from <path> looking for a .git entry, stopping at $HOME or / -- returns the discovered repo root, or nothing if none is found before the walk reaches (and abandons) that boundary. No subprocess -- test -e in a loop, never git rev-parse: this runs per session per pass, and this project spent a whole cycle removing exactly this shape of per-session fork (a macOS process-enumeration tool routing through a root daemon). test -e, not -d, and that is load-bearing: in a linked WORKTREE or a SUBMODULE .git is a regular FILE holding a `gitdir:` pointer, and a -d probe misses both -- a pane inside one would fall back to the deepest directory own basename, exactly the failure this walk exists to fix. This project uses git worktree for its own isolated builds. $HOME and / are themselves eligible (checked, then abandoned on no match) so a path that already IS a repo root resolves to itself; whether a root that IS a generic directory should COUNT as a project is the caller decision -- see __tcz_project_name.'
     set -l p (string replace -r '/+$' '' -- "$argv[1]")
     test -n "$p"; or set p /
     while true
-        test -d "$p/.git"; and echo "$p"; and return 0
+        test -e "$p/.git"; and echo "$p"; and return 0
         if test "$p" = "$HOME"; or test "$p" = "/"
             return 1
         end
@@ -36,12 +36,24 @@ function __tcz_git_root --argument-names path --description 'pure: walk up from 
     end
 end
 
-function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp, /var/tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- the walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
+function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp, /var/tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- and a walk result that itself LANDS on a generic directory (a dotfiles repo at $HOME/.git, say) counts as no repo found, so it takes that same basename fallback rather than naming every subdirectory of home after home. The walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
     test -n "$path"; or return
     set -l p (string replace -r '/+$' '' -- "$path")
     test -n "$p"; or return              # "/" collapses to empty
     contains -- "$p" "$HOME" /tmp /var/tmp; and return
     set -l root (__tcz_git_root "$p")
+    # A walk result that LANDS on a generic directory counts as "no repo found",
+    # not as a project -- the same exclusion applied to the input path above,
+    # applied again to what the walk returned. With a dotfiles repo at
+    # $HOME/.git (an ordinary setup) every non-repo subdirectory of home would
+    # otherwise resolve to the home directory's own basename, and __tcz_unique
+    # would then collide them into name / name-2 / name-3: materially worse
+    # than the gen-N they replace. Falling back to the OWN basename of <path>
+    # rather than yielding nothing is the consistent reading -- "no repo found
+    # -> basename" is this function's documented fallback. "/" is in this list but
+    # not the input one because the input "/" already collapsed to empty above,
+    # while the walk can genuinely return "/" for a /.git.
+    contains -- "$root" "$HOME" / /tmp /var/tmp; and set root ''
     test -n "$root"; and set p "$root"
     path basename -- "$p"
 end
@@ -199,6 +211,10 @@ function __tcz_tmux_load --description 'build the per-pass tmux read-side memo f
         set -ga __tcz_tmux_sess_names $f[1]
         set -ga __tcz_tmux_sess_attached $f[2]
         set -ga __tcz_tmux_sess_lastattached $f[3]
+        # Field 4 (#{session_path}) has no accessor any more — naming reads the
+        # active pane's cwd instead — but it stays in sfmt and stays captured
+        # here BECAUSE the split is positional: removing it would renumber
+        # fields 5-8 onto the wrong accessors, silently.
         set -ga __tcz_tmux_sess_path $f[4]
         set -ga __tcz_tmux_sess_claude $f[5]
         set -ga __tcz_tmux_sess_auto $f[6]
@@ -245,10 +261,15 @@ function __tcz_tmux_sess_name --argument-names session --description 'memoized @
     test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_name[$i]
 end
 
-function __tcz_tmux_sess_path --argument-names session --description 'memoized #{session_path} for <session> (tick-call-batching task 4). Read-only in tmux -- fixed at session creation, no command ever reassigns it -- so, like @tmux_lives_name, safe to memoize with NO invalidation, unconditionally. SUPERSEDED for naming (project-from-pane-cwd design, 2026-08-19/20): session_path is never better than the active pane'"'"'s live cwd -- they agree until a `cd`, and after that the pane path is right -- so __tcz_categorize/__tcz_session_title now read __tcz_tmux_activepath instead. Left defined (still fetched by __tcz_tmux_load'"'"'s batched list-sessions call, at no extra cost) because nothing else in this file needs #{session_path} disturbed.'
-    set -l i (__tcz_tmux_sess_index "$session")
-    test -n "$i"; and printf '%s\n' $__tcz_tmux_sess_path[$i]
-end
+# __tcz_tmux_sess_path (the accessor) is GONE. #{session_path} was superseded
+# for naming by the project-from-pane-cwd design (2026-08-19/20) -- it is never
+# better than the active pane's live cwd, since the two agree until a `cd` and
+# the pane path is right after one -- which left the accessor with zero callers
+# in production and in the suite. This repo deleted __tmux_lives_theme_schemes
+# for exactly that reason, so this follows suit rather than being "left
+# defined". The FORMAT FIELD and the $__tcz_tmux_sess_path array it fills stay
+# (see __tcz_tmux_load): field 4 of sfmt is positional, and dropping it would
+# silently renumber fields 5-8 onto the wrong accessors.
 
 function __tcz_tmux_activepath --argument-names session --description 'memoized active-pane cwd for <session> this pass (project-from-pane-cwd design, 2026-08-19/20) -- the cwd of the active pane of <session>'"'"'s active window, i.e. the one you'"'"'d see if you attached. Populated by __tcz_snapshot'"'"'s own pane walk as a side effect (zero extra tmux calls: the SAME list-panes row __tcz_snapshot already fetches for category aggregation carries #{pane_current_path}), re-keyed by __tcz_categorize on a successful rename exactly like __tcz_tmux_sess_names. Empty when no __tcz_snapshot has run yet this pass (the on-attach -> __tcz_retitle path has no preceding categorize/snapshot call) or when <session> is outside a narrowed snapshot'"'"'s one-session scope -- callers fall back to a live per-session lookup in that case, same pattern as @tmux_lives_display.'
     set -l i (contains -i -- "$session" $__tcz_tmux_activepath_names)
@@ -919,7 +940,7 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             # Re-key the per-pass session memo the instant the rename succeeds: it was
             # loaded (by __tcz_snapshot, above) under $cur, and later in THIS SAME pass
             # __tcz_retitle reads a client's session by its NEW name (its own client
-            # memo loads after this rename) straight into __tcz_tmux_sess_path/_name.
+            # memo loads after this rename) straight into __tcz_tmux_sess_name.
             # A project-less rename (the gen-N promotion) writes no @tmux_lives_display,
             # so unlike the claude+display case __tcz_session_title's docstring already
             # covers, there is no live display read to short-circuit before the stale
@@ -3571,7 +3592,7 @@ function __tcz_unquote --description 'strip ONE matched pair of surrounding quot
     echo "$s"
 end
 
-function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (<pane>'"'"'s own cwd is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names.'
+function __tcz_claim --argument-names pane raw --description 'claim <pane> <raw>: instant claude rename from preexec, landing on exactly the project-slug name the next __tcz_categorize pass would produce (spec N1: no raw/task text ever reaches the tmux address, even transiently) -- so there is nothing left to flap. <raw> feeds only the display'"'"'s task half, never the tmux name. No project (<pane>'"'"'s own cwd is $HOME/tmp/etc, per __tcz_project_name'"'"'s own contract) -> do nothing at all and let the tick assign gen-N against ITS OWN fresh $others universe; inventing a gen-N here would be a second, independent generator and a route to duplicate names. NB this names from the LITERAL preexec pane cwd, while __tcz_categorize names a session from the active pane of its active WINDOW -- the two agree whenever `claude` is typed interactively (you must be focused on a pane to type in it), which is why nothing observes the difference today, but a send-keys- or run-shell-driven launch into a NON-focused pane would name the session for that pane and the next tick would rename it to the visible one: a one-pass flap, not a wrong end state.'
     test -n "$pane"; or return 0
     # Flush the shared per-pass tmux memo (tick-call-batching task 3), same
     # reasoning as __tcz_categorize's own entry flush: __tcz_main already does

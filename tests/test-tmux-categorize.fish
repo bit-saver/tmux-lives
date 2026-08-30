@@ -376,6 +376,16 @@ t "git_root: trailing slash ignored" "$grbase/repo" \
     (__tcz_git_root "$grbase/repo/sub/deep/")
 t "git_root: empty path -> nothing" "" (__tcz_git_root "")
 
+# A linked worktree or a submodule carries .git as a regular FILE, not a
+# directory (it holds a `gitdir:` pointer). A `test -d` probe misses both, and
+# a pane inside one then falls back to the deepest directory's own basename --
+# precisely the failure the walk exists to fix. This project uses `git
+# worktree` for its own isolated builds, so it is a live case, not a hypothetical.
+mkdir -p $grbase/wtree/sub
+printf 'gitdir: %s/repo/.git/worktrees/wtree\n' $grbase > $grbase/wtree/.git
+t "git_root: a .git FILE (worktree/submodule) is a repo root too" "$grbase/wtree" \
+    (__tcz_git_root $grbase/wtree/sub)
+
 # Boundary: must never walk ABOVE $HOME, even when a repo genuinely exists
 # one level up. Fake $HOME so the fixture is self-contained and does not
 # depend on where this checkout or the real $HOME happen to sit.
@@ -416,6 +426,28 @@ t "project: nested subdir resolves to the git root's basename, not its own" "rep
     (__tcz_project_name $grbase/repo/sub/deep)
 t "project: no repo -> falls back to the path's own basename (unchanged)" "deep" \
     (__tcz_project_name $grbase/norepo/sub/deep)
+
+# A walk result that LANDS on a generic directory ($HOME, /, /tmp, /var/tmp)
+# counts as "no repo found", not as a project. With a dotfiles repo at
+# $HOME/.git -- an ordinary setup -- every non-repo subdirectory of home would
+# otherwise resolve to the home directory's own basename, and they would all
+# then collide into name / name-2 / name-3 via __tcz_unique: materially worse
+# than the gen-N they replace. Falling back to the path's OWN basename (rather
+# than yielding nothing) is the consistent reading: __tcz_project_name already
+# yields nothing for a generic INPUT path, and "no repo found -> basename" is
+# its documented fallback. Fake $HOME -- same idiom as the boundary tests
+# above -- rather than create a real $HOME/.git on this machine.
+mkdir -p $grbase/dotfiles/.git $grbase/dotfiles/notarepo/sub
+set -g __tcz_grhome_save2 $HOME
+set -g HOME $grbase/dotfiles
+t "project: a .git at a generic root is not a project (basename instead)" "sub" \
+    (__tcz_project_name $grbase/dotfiles/notarepo/sub)
+# The exclusion belongs to __tcz_project_name, not to the walk: __tcz_git_root
+# still reports what it found, so a future caller wanting the raw root gets it.
+t "git_root: still reports a generic-root repo (the exclusion is the caller's)" "$grbase/dotfiles" \
+    (__tcz_git_root $grbase/dotfiles/notarepo/sub)
+set -g HOME $__tcz_grhome_save2
+set -e __tcz_grhome_save2
 rm -rf $grbase
 set -e grbase
 
@@ -2669,9 +2701,11 @@ functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 # `tick` pass (tick-call-batching task 5). This is the concrete scenario the
 # read-after-write audit exists to catch: __tcz_tmux_clients loads AFTER
 # __tcz_categorize's renames (own docstring), so #{client_session} in this
-# pass'"'"'s client memo is the NEW name -- but __tcz_tmux_sess_path/_name are
-# still keyed by the OLD (pre-rename) name in the session memo loaded at pass
-# start, since Task 5 did not add rename-tracking to that memo (see
+# pass'"'"'s client memo is the NEW name -- but the per-pass session memo
+# (__tcz_tmux_sess_name, and the active-pane-cwd memo beside it) was loaded at
+# pass start under the OLD (pre-rename) name, and Task 5 added no
+# rename-tracking to it -- only __tcz_categorize'"'"'s own re-key, below, moves
+# those keys when a rename lands (see
 # __tcz_session_title'"'"'s own docstring for why -- deliberately left live).
 # Proven safe here, not assumed: the ONLY thing that triggers a rename
 # (a non-empty project) is also exactly what makes __tcz_categorize write
@@ -2719,9 +2753,11 @@ cleanup
 # before the stale-by-old-name path/name memo lookups are ever consulted.
 # A project-less rename (numeric -> gen-N, __tcz_categorize's stable-gen-N
 # bailout) writes NO display at all, so nothing short-circuits: the
-# fallback #{session_path} lookup DOES get consulted, and it is
-# __tcz_tmux_sess_path -- the per-pass memo loaded before this rename and
-# still keyed by the pre-rename numeric name. Reproduced pre-fix: the
+# fallback path lookup DOES get consulted, and it is __tcz_tmux_activepath
+# (the active-pane cwd, since the project-from-pane-cwd design; #{session_path}
+# when this fixture was written) -- the per-pass memo loaded before this rename
+# and, absent __tcz_categorize'"'"'s re-key, still keyed by the pre-rename
+# numeric name. Reproduced pre-fix: the
 # attached client's IN-PASS title read "<host>: " (blank dir, a by-name
 # lookup miss) instead of "<host>: ~".
 #
