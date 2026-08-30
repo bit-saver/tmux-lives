@@ -1183,13 +1183,12 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
     end
 end
 
-function __tcz_new_general --description 'Create a detached general session named with the smallest free gen-N; echo its name'
+function __tcz_new_general --argument-names dir --description 'Create a detached general session named with the smallest free gen-N; echo its name. <dir> is the birth directory: pass one to PIN it, omit it to INHERIT the caller cwd (no -c emitted at all). The pin belongs to the call site, not here, because the two callers genuinely differ. __tcz_commandeer passes $HOME: it is reached only from the client-attached -> run-shell springboard path, and run-shell was measured to execute at the tmux SERVER cwd -- an artifact of wherever the server was started, which pane-cwd naming would surface as a spurious project name on a brand-new tab. The `new-general` dispatcher case passes NOTHING: its caller is __tmux_lives_picker outside tmux, a plain child of the user interactive shell with a real cwd they chose, so pinning there would contradict rule 2 of the project-from-pane-cwd design (a session inherits the cwd of the shell that asked for it) in the direction opposite that design own headline.'
     set -l name (__tcz_free_gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
-    # A commandeered springboard tab is created via client-attached, which dispatches
-    # a run-shell at the tmux SERVER's cwd, not a directory the user chose. Pin home
-    # explicitly to avoid surfacing a spurious project name from the server's startup
-    # directory; under pane-cwd naming a bare new tab would be misidentified.
-    tmux new-session -d -c "$HOME" -s "$name" 2>/dev/null; and echo $name
+    # Empty list -> zero args, so a bare call emits no -c and inherits.
+    set -l cflag
+    test -n "$dir"; and set cflag -c "$dir"
+    tmux new-session -d $cflag -s "$name" 2>/dev/null; and echo $name
 end
 
 function __tcz_commandeer --argument-names client session --description 'commandeer <client> <session>: bounce a fresh ShellFish springboard onto a real session'
@@ -1204,7 +1203,16 @@ function __tcz_commandeer --argument-names client session --description 'command
     set -l created 0
     set -l target (__tcz_pick_general "$session")
     if test -z "$target"
-        set target (__tcz_new_general)
+        # Pin $HOME here, not inside __tcz_new_general: THIS path is the one
+        # whose caller has no cwd worth honouring. client-attached dispatches a
+        # run-shell, which was measured on an isolated -L socket to execute at
+        # the tmux SERVER's cwd (on rocket, ~/workspace/tmux-lives — wherever
+        # the server happened to be started), so an inherited birth dir would
+        # name a fresh commandeered tab after that directory under pane-cwd
+        # naming. The other caller of __tcz_new_general — the `new-general`
+        # dispatcher case, reached from __tmux_lives_picker outside tmux — is a
+        # plain child of the user's interactive shell and deliberately inherits.
+        set target (__tcz_new_general "$HOME")
         set created 1
     end
     test -n "$target"; or return 0
@@ -3971,6 +3979,12 @@ function __tcz_main
         case slug
             __tcz_slugify $argv[2..]
         case new-general
+            # No directory argument, deliberately: this verb's caller is
+            # __tmux_lives_picker's outside-tmux branch (conf.d/tmux.fish), a
+            # plain child of the user's interactive shell, so the session it
+            # creates INHERITS the cwd they asked from. Only __tcz_commandeer
+            # pins $HOME, and it does so at its own call site — do not add an
+            # argv passthrough here.
             __tcz_new_general
         case host-kind
             __tcz_host_kind

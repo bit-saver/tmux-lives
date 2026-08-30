@@ -1732,21 +1732,32 @@ tmux new-session -d -s busy 'sleep 1000'
 tmux new-session -d -s shellfish-8
 sleep 0.3
 t "newgen: creates smallest-free general" "gen-1" (__tcz_new_general)
-# Creation cwd: a commandeered springboard tab has no invoking cwd worth
-# honouring, so this site pins the home directory explicitly rather than
-# inheriting its caller's. On the client-attached path that caller is a
-# run-shell, which executes at the tmux SERVER's cwd -- an artifact of
-# wherever the server was started, and under pane-cwd naming it would
-# surface as a spurious project name on a brand-new tab.
+# Creation cwd: __tcz_new_general itself INHERITS -- the $HOME pin belongs to
+# the caller that needs it, because its two callers genuinely differ.
+# __tcz_commandeer is reached only from client-attached -> run-shell, which
+# executes at the tmux SERVER's cwd (an artifact of wherever the server was
+# started), so it pins $HOME explicitly -- covered behaviourally below. The
+# `new-general` dispatcher case, reached from __tmux_lives_picker's
+# outside-tmux branch, is a plain child of the user's interactive shell and
+# passes nothing, so that session is born where they asked for it (rule 2 of
+# the project-from-pane-cwd design: a session inherits the cwd of the shell
+# that asked for it).
 set -l ngdir /tmp/tcz-ngcwd-$fish_pid
 mkdir -p $ngdir
 set -l ng_saved $PWD
 cd $ngdir
 set -l ng_name (__tcz_new_general)
 cd $ng_saved
-t "newgen: born in \$HOME, not the caller's cwd" "$HOME" \
+t "newgen: a bare call inherits the caller's cwd" "$ngdir" \
     (tmux list-panes -t "=$ng_name" -F '#{pane_start_path}' 2>/dev/null)
 tmux kill-session -t "=$ng_name" 2>/dev/null
+# ...and an explicit directory argument pins it.
+cd $ngdir
+set -l ng_pin (__tcz_new_general "$HOME")
+cd $ng_saved
+t "newgen: an explicit directory pins the birth dir" "$HOME" \
+    (tmux list-panes -t "=$ng_pin" -F '#{pane_start_path}' 2>/dev/null)
+tmux kill-session -t "=$ng_pin" 2>/dev/null
 rm -rf $ngdir
 t "pickgen: MRU detached general, springboard excluded" "gen-1" (__tcz_pick_general shellfish-8)
 t "commandeer: non-shellfish name no-op" "0" (__tcz_commandeer /dev/null busy; echo $status)
@@ -1761,6 +1772,37 @@ tmux kill-session -t gen-1
 __tcz_commandeer /dev/pts/nonexistent shellfish-8
 t "commandeer: fallback session cleaned up on failed switch" "busy,shellfish-8,shellfish-9" \
     (tmux list-sessions -F '#{session_name}' | sort | string join ',')
+cleanup
+
+# The $HOME pin lives at the ONE call site whose justification it is:
+# __tcz_commandeer is reached only from the client-attached -> run-shell
+# springboard path, and run-shell was measured (isolated -L socket) to execute
+# at the tmux SERVER's cwd -- so a brand-new commandeered tab must not inherit
+# that, or pane-cwd naming surfaces a spurious project name. Behavioural, not
+# a source grep: drive the real __tcz_commandeer from a cwd that is NOT $HOME
+# and read the created session's own birth directory. switch-client can never
+# succeed headless and commandeer disposes of the session it created on a
+# failed switch, so shim exactly that one verb to succeed and leave every
+# other tmux call real.
+cleanup
+tmux new-session -d -s shellfish-3
+sleep 0.3
+set -l cmdir /tmp/tcz-cmdcwd-$fish_pid
+mkdir -p $cmdir
+set -l cm_saved $PWD
+cd $cmdir
+function tmux
+    test "$argv[1]" = switch-client; and return 0
+    command tmux -L $sock $argv
+end
+__tcz_commandeer /dev/null shellfish-3
+functions -e tmux
+cd $cm_saved
+rm -rf $cmdir
+t "commandeer: switch succeeded, springboard disposed of" "gen-1" \
+    (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
+t "commandeer: the session it creates is born in \$HOME, not the caller's cwd" "$HOME" \
+    (tmux list-panes -t =gen-1 -F '#{pane_start_path}' 2>/dev/null)
 cleanup
 
 # ---------------------------------------------------------------------
