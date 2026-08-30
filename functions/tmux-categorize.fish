@@ -1185,7 +1185,11 @@ end
 
 function __tcz_new_general --description 'Create a detached general session named with the smallest free gen-N; echo its name'
     set -l name (__tcz_free_gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
-    tmux new-session -d -s "$name" 2>/dev/null; and echo $name
+    # A commandeered springboard tab is created via client-attached, which dispatches
+    # a run-shell at the tmux SERVER's cwd, not a directory the user chose. Pin home
+    # explicitly to avoid surfacing a spurious project name from the server's startup
+    # directory; under pane-cwd naming a bare new tab would be misidentified.
+    tmux new-session -d -c "$HOME" -s "$name" 2>/dev/null; and echo $name
 end
 
 function __tcz_commandeer --argument-names client session --description 'commandeer <client> <session>: bounce a fresh ShellFish springboard onto a real session'

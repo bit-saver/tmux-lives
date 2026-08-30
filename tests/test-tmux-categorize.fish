@@ -1732,6 +1732,22 @@ tmux new-session -d -s busy 'sleep 1000'
 tmux new-session -d -s shellfish-8
 sleep 0.3
 t "newgen: creates smallest-free general" "gen-1" (__tcz_new_general)
+# Creation cwd: a commandeered springboard tab has no invoking cwd worth
+# honouring, so this site pins the home directory explicitly rather than
+# inheriting its caller's. On the client-attached path that caller is a
+# run-shell, which executes at the tmux SERVER's cwd -- an artifact of
+# wherever the server was started, and under pane-cwd naming it would
+# surface as a spurious project name on a brand-new tab.
+set -l ngdir /tmp/tcz-ngcwd-$fish_pid
+mkdir -p $ngdir
+set -l ng_saved $PWD
+cd $ngdir
+set -l ng_name (__tcz_new_general)
+cd $ng_saved
+t "newgen: born in \$HOME, not the caller's cwd" "$HOME" \
+    (tmux list-panes -t "=$ng_name" -F '#{pane_start_path}' 2>/dev/null)
+tmux kill-session -t "=$ng_name" 2>/dev/null
+rm -rf $ngdir
 t "pickgen: MRU detached general, springboard excluded" "gen-1" (__tcz_pick_general shellfish-8)
 t "commandeer: non-shellfish name no-op" "0" (__tcz_commandeer /dev/null busy; echo $status)
 tmux new-session -d -s shellfish-9 'sleep 1000'
