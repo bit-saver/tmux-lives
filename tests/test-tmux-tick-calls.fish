@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 # The invariant harness for the tick-call-batching cycle (2026-08-19, task 1 of 6).
-# See docs/superpowers/specs/2026-08-19-tick-tmux-call-batching-design.md and
-# docs/superpowers/plans/2026-08-19-tick-call-batching.md -- this file is "the
-# measurement every later task is judged by" that plan's task 1 asks for.
+# See docs/superpowers/specs/2026-08-19-tick-tmux-call-batching-design.md. This
+# file is "the measurement every later task is judged by" that cycle's plan asked
+# for; the plan itself was pruned once the work shipped (see git history).
 #
 # What it builds and checks:
 #   1. An isolated-socket harness (shim recipe from the design doc's handoff, plus

@@ -619,6 +619,212 @@ function __tmux_lives_norm360 --argument h --description 'wrap a hue in degrees 
     while test $hh -ge 360; set hh (math "$hh - 360"); end
     echo $hh
 end
+function __tmux_lives_theme_anchors --argument-names hue mode --description 'v6 harmony: a seed hue + a harmony mode -> 1-4 hue angles, wrapped into [0,360). Hues ONLY — no lightness, no chroma; those are the ramps job. The seeds own hue is always anchor one in every mode, so the seed anchors the palette rather than merely influencing it. This replaces the v5 signed-travel relationships, which walk an arc and therefore cannot produce SEPARATED hue families: triadic and square need hues to jump. Unknown mode -> nothing, status 1.'
+    set -l offs
+    switch "$mode"
+        case mono
+            set offs 0
+        case analogous
+            # 0 first, not -30: the seed must be anchor ONE in every mode.
+            set offs 0 -30 30
+        case complementary
+            set offs 0 180
+        case split
+            set offs 0 150 210
+        case triadic
+            set offs 0 120 240
+        case tetradic
+            set offs 0 60 180 240
+        case square
+            set offs 0 90 180 270
+        case '*'
+            return 1
+    end
+    for o in $offs
+        __tmux_lives_norm360 (math "$hue + $o")
+    end
+end
+
+function __tmux_lives_theme_ramp --argument-names seedL Lspan peakC peakPos n --description 'v6 value structure: <n> (L, C) pairs, dark to light, one per line as "<L> <C>". Lightness spreads across a window of width <Lspan> positioned so the SEEDS OWN L falls inside it — that is how the seed stops being hue-only, which is the v5 defect this replaces (there, seed chroma and lightness were discarded entirely and every saturated seed converged on the same bar). Chroma peaks at <peakPos> (0 = darkest end, 1 = lightest) with maximum <peakC>, falling toward a floor away from the peak. The three are INDEPENDENT by design and by test: measured on 16 real palettes, peakC vs Lspan r = -0.29, so collapsing them into one "intensity" axis would be wrong.'
+    test "$n" -lt 2; and return 1
+    # Centre the window on the seed, then SHIFT (never shrink) to stay in gamut,
+    # so a dark or light seed keeps the span the recipe asked for.
+    set -l half (math "$Lspan / 2")
+    set -l lo (math "$seedL - $half")
+    set -l hi (math "$seedL + $half")
+    if test "$lo" -lt 0.05
+        set hi (math "$hi + (0.05 - $lo)")
+        set lo 0.05
+    end
+    if test "$hi" -gt 0.97
+        set lo (math "$lo - ($hi - 0.97)")
+        set hi 0.97
+    end
+    test "$lo" -lt 0.05; and set lo 0.05
+    set -l step (math "($hi - $lo) / ($n - 1)")
+    # Chroma floor: away from the peak the ramp relaxes toward this rather than
+    # to zero, so a muted recipe still reads as tinted rather than grey.
+    set -l cfloor 0.012
+    set -l far (math "max($peakPos, 1 - $peakPos)")
+    # Defensive, not reachable: max(p, 1-p) >= 0.5 for every real p, so $far
+    # can never fall below 0.0001 (it would require peakPos simultaneously
+    # closer than 0.0001 to both 0 and 1). Kept as a fail-safe contract guard
+    # against a future division by a near-zero $far, not a live path.
+    test "$far" -lt 0.0001; and set far 1
+    for i in (seq $n)
+        set -l L (math "$lo + $step * ($i - 1)")
+        set -l tpos (math "($i - 1) / ($n - 1)")
+        set -l d (math "abs($tpos - $peakPos)")
+        set -l frac (math "1 - ($d / $far)")
+        test "$frac" -lt 0; and set frac 0
+        set -l C (math "$cfloor + ($peakC - $cfloor) * $frac")
+        test "$C" -lt 0; and set C 0
+        printf '%s %s\n' $L $C
+    end
+end
+
+function __tmux_lives_theme_arrangements --description 'v6: the six arrangement pattern names, fixed order. A fixed enumerable set rather than one of 7! orderings, so the roll space is a known size and every pattern is testable.'
+    printf '%s\n' deep bright centre split stack accent
+end
+
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, KEEPING ITS HUE (measured preserved to ~1 degree across a spread of bar lightnesses) while REQUESTING the chroma it drew from the harmony — chroma is preserved only as far as the sRGB gamut allows at the new lightness, and that headroom shrinks fast near white or black (measured losses 20%-93% pushing a chroma 0.05-0.20 colour toward L 0.97) — and verifying the ACTUAL round-tripped gap (hex encoding is lossy) rather than trusting the requested value -- best effort, never a silent floor violation: an unreachable target falls back to whichever extreme (0.97 or 0.05) is further from bar. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
+    set -l hexes $argv[2..8]
+    test (count $hexes) -eq 7; or return 1
+    set -l idx
+    switch "$pattern"
+        case deep
+            set idx 1 4 2 6 5 3 7
+        case bright
+            set idx 7 4 6 2 3 5 1
+        case centre
+            set idx 4 2 3 6 5 7 1
+        case split
+            set idx 1 3 6 4 5 2 7
+        case stack
+            set idx 2 5 3 6 4 7 1
+        case accent
+            set idx 3 5 4 6 2 7 1
+        case '*'
+            return 1
+    end
+    set -l out
+    for i in $idx
+        set -a out $hexes[$i]
+    end
+    # The floor. Role 1 is bar, role 7 is text.
+    set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    if test (math "abs($lt[1] - $lb[1])") -lt 0.40
+        # Find the colour furthest in lightness from bar and swap it into text,
+        # preserving the permutation (the displaced colour takes text's old slot)
+        # so no colour is dropped or duplicated.
+        set -l best 7
+        set -l bestd (math "abs($lt[1] - $lb[1])")
+        for i in (seq 2 6)
+            set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
+            set -l d (math "abs($li[1] - $lb[1])")
+            if test "$d" -gt "$bestd"
+                set best $i
+                set bestd $d
+            end
+        end
+        if test $best -ne 7
+            set -l tmp $out[7]
+            set out[7] $out[$best]
+            set out[$best] $tmp
+        end
+        # Stage two. A mid-ramp bar can have NOTHING far enough away inside its
+        # own palette — measured, centre reaches only 0.309 and accent 0.358
+        # against a 0.40 floor. Legibility is correctness, not taste, so push
+        # text's LIGHTNESS to the floor while keeping its HUE and REQUESTING
+        # the chroma it drew from the harmony. Only hue is actually guaranteed:
+        # sRGB has little to no chroma headroom near white or black, so a push
+        # toward the light or dark extreme can lose most of the requested
+        # chroma (measured 20%-93% loss) even though the hue survives intact.
+        # It stays a generated colour; only L is constrained, and only when the
+        # swap was not enough.
+        set -l lt2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+        if test (math "abs($lt2[1] - $lb[1])") -lt 0.40
+            set -l up (math "$lb[1] + 0.40")
+            set -l dn (math "$lb[1] - 0.40")
+            set -l newL $up
+            set -l dir 1
+            test "$up" -gt 0.97; and set newL $dn; and set dir -1
+            # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
+            # so a target placed exactly ON the floor can round to just under
+            # it (measured: accent lands 0.001 short of 0.40 without this).
+            # Nudge outward in the same direction until the ACTUAL round-tripped
+            # gap clears the floor, rather than trusting the requested L.
+            set -l cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+            set -l tries 0
+            while test $tries -lt 10
+                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                test (math "abs($back[1] - $lb[1])") -ge 0.40; and break
+                set newL (math "$newL + $dir * 0.01")
+                test "$newL" -gt 0.97; and set newL 0.97
+                test "$newL" -lt 0.05; and set newL 0.05
+                set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+                set tries (math "$tries + 1")
+            end
+            # Verify the loop's OWN result rather than trusting it exited
+            # clean — the loop can exhaust its budget without ever re-checking
+            # the final nudge it computed, which would silently ship a `text`
+            # that violates the one hard rule. Best effort, never silent: if
+            # ten nudges were not enough, fall back to whichever extreme is
+            # further from bar (0.97 or 0.05), which maximises the achievable
+            # gap.
+            set -l final (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+            if test (math "abs($final[1] - $lb[1])") -lt 0.40
+                set -l dHi (math "abs(0.97 - $lb[1])")
+                set -l dLo (math "abs($lb[1] - 0.05)")
+                set -l extremeL 0.97
+                test "$dLo" -gt "$dHi"; and set extremeL 0.05
+                set cand (__tmux_lives_oklch_hex $extremeL $lt2[2] $lt2[3])
+            end
+            set out[7] $cand
+        end
+    end
+    printf '%s\n' $out
+end
+
+function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles under the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+    # Reject a malformed seed BEFORE it ever reaches __tmux_lives_hex_to_rgb01:
+    # that function has no shape check of its own, so a non-hex string (e.g.
+    # "notacolour") reaches `math "0xno/255"` and fish's math diagnostics print
+    # straight to stderr — they bypass in-process redirection entirely (2>
+    # on the call, a begin/end wrapper, and a command substitution all fail to
+    # silence it), so the only fix is never calling it with bad input.
+    string match -qr '^#?[0-9a-fA-F]{6}$' -- "$seedHex"; or return 1
+    set -l rgb (__tmux_lives_hex_to_rgb01 "$seedHex")
+    # Defensive, not reachable: every string the shape check above admits is a
+    # valid 6-hex-digit colour, and __tmux_lives_hex_to_rgb01 always emits
+    # exactly 3 lines for one. Kept as a fail-safe contract guard, not a live
+    # path — see the same note on the two guards immediately below it.
+    test (count $rgb) -eq 3; or return
+    set -l s (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    # Defensive, not reachable: __tmux_lives_rgb_to_oklch always prints
+    # exactly L, C, H (3 lines) for any numeric r,g,b, which $rgb always is
+    # once the two guards above have passed. Kept as a fail-safe contract
+    # guard, not a live path.
+    test (count $s) -eq 3; or return
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    test (count $anchors) -ge 1; or return
+    set -l pairs (__tmux_lives_theme_ramp $s[1] "$Lspan" "$peakC" "$peakPos" 7)
+    # Defensive, not reachable: called here with a literal n=7, and
+    # __tmux_lives_theme_ramp only ever refuses (n < 2) or emits exactly n
+    # lines — never anything in between. Kept as a fail-safe contract guard,
+    # not a live path.
+    test (count $pairs) -eq 7; or return
+    set -l na (count $anchors)
+    set -l hexes
+    for i in (seq 7)
+        set -l lc (string split ' ' -- $pairs[$i])
+        # round-robin: 1,2,..,na,1,2,..
+        set -l ai (math "(($i - 1) % $na) + 1")
+        set -a hexes (__tmux_lives_oklch_hex $lc[1] $lc[2] $anchors[$ai])
+    end
+    __tmux_lives_theme_arrange "$arrangement" $hexes
+end
 
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))

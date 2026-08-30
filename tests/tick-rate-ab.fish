@@ -14,7 +14,7 @@
 # by hand: `fish tests/tick-rate-ab.fish`.
 #
 # WHAT IT MEASURES AND WHY THE METHOD DIFFERS FROM THE ORIGINAL RECIPE:
-# the original finding (docs/2026-08-19-handoff-tick-rate-and-tmux-client-spawns.md)
+# the original finding (a handoff pruned after the fix shipped; see git history)
 # sampled `pgrep -f 'tmux-categorize.fish tick'` every ~100-300ms for ~15s and
 # counted distinct pids. That works when a tick's wall time is close to 1s (the
 # ORIGINAL macwork pathology) -- the process lives long enough to be caught by
