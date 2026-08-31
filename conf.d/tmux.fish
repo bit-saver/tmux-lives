@@ -99,8 +99,22 @@ function __tmux_dispose_restored --description 'Post-restore: keep claude breadc
     for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
         if contains -- $s $crumbs
             # Claude breadcrumb: a bare shell at the project cwd, ready for
-            # `claude -r`. Deliberately UNSTAMPED so the ownership guard
-            # preserves its meaningful name instead of reverting it to a number.
+            # `claude -r`. Kept (never killed, however idle it looks) and STAMPED.
+            #
+            # It used to be left unstamped, so the ownership guard would preserve
+            # its meaningful name "instead of reverting it to a number". That
+            # rationale died with pane-cwd naming (2026-08-29): an owned session
+            # is now named for its pane's project, not a number, and resurrect
+            # restores each pane's directory (save-file field 8, replayed by
+            # restore.sh as `-c "$dir"`), so a restored breadcrumb comes back
+            # sitting in its project and is named for it.
+            #
+            # Leaving it unstamped is what actively hurt: unowned means the
+            # ownership guard blocks every later rename AND every display write,
+            # so the session's name freezes at whatever it was at save time while
+            # its pane moves on -- observed live, a session still called
+            # `tmux-lives` whose pane had been in ~/workspace/neuro for days.
+            tmux set-option -t "$s" @tmux_auto_name "$s" 2>/dev/null
             continue
         end
         if __tmux_session_is_idle "$s"

@@ -3,11 +3,18 @@
 # A `tmux` PATH shim makes resurrect's bash scripts target our private socket, and
 # tmux_resurrect_dir points at a temp save dir. Never touches the real tmux server.
 #
-# Disposal contract (2026-06-12, post-incident): login restore is HEADLESS, so
-# resurrect never relaunches anything — every session returns as bare shells.
-# The SAVE FILE therefore decides: save-time-claude sessions are kept as
-# UNSTAMPED breadcrumb shells (name + cwd preserved, resume with `claude -r`);
-# everything else live-idle is killed.
+# Disposal contract (2026-06-12, post-incident; amended 2026-08-30): login
+# restore is HEADLESS, so resurrect never relaunches anything — every session
+# returns as bare shells. The SAVE FILE therefore decides: save-time-claude
+# sessions are KEPT as breadcrumb shells (cwd preserved, resume with
+# `claude -r`); everything else live-idle is killed.
+#
+# Those breadcrumbs are now STAMPED like every other kept session. They used to
+# be left unstamped so the ownership guard would freeze their name, which under
+# pane-cwd naming (2026-08-29) meant they could never track their pane again —
+# and since the guard also blocks the display write, they showed nothing at all.
+# Resurrect restores each pane's directory, so a stamped breadcrumb is named for
+# the project it comes back sitting in.
 
 if not set -q TMUX_LIVES_TEST_UVARS; or test "$TMUX_LIVES_TEST_UVARS" != "$XDG_CONFIG_HOME"
     set -l d (mktemp -d /tmp/tmux-lives-uv.XXXXXX)
@@ -83,7 +90,7 @@ t "restore: claude breadcrumb survives, others killed" "Neuro-X" \
     (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
 t "restore: breadcrumb is a bare shell" "yes" \
     (tmux list-panes -t Neuro-X -F '#{pane_current_command}' 2>/dev/null | string match -qr '^(fish|bash|sh|zsh|dash)$'; and echo yes; or echo no)
-t "restore: breadcrumb unstamped (guard keeps its name)" "" \
+t "restore: breadcrumb is STAMPED, so pane-cwd naming can track it" "Neuro-X" \
     (tmux show-option -qv -t Neuro-X @tmux_auto_name 2>/dev/null)
 
 cleanup

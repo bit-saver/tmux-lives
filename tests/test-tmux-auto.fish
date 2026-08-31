@@ -146,7 +146,10 @@ tmux new-session -d -s liveS 'sleep 1000'
 tmux new-session -d -s deadS
 __tmux_dispose_restored
 t "dispose: breadcrumb + live kept, idle killed" "crumbS,liveS" (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
-t "dispose: breadcrumb left unstamped" "" (tmux show-option -qv -t crumbS @tmux_auto_name)
+# Stamped like every other kept session (2026-08-30). Unstamped meant the
+# ownership guard froze the name AND blocked the display write, so a restored
+# breadcrumb could never track its pane once naming moved to the pane's cwd.
+t "dispose: breadcrumb is stamped, so it can still be renamed later" "crumbS" (tmux show-option -qv -t crumbS @tmux_auto_name)
 t "dispose: live work stamped" "liveS" (tmux show-option -qv -t liveS @tmux_auto_name)
 set -e tmux_resurrect_dir
 rm -rf $rdir_d
