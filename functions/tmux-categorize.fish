@@ -490,8 +490,10 @@ function __tcz_dir_display --argument-names path --description 'path -> display 
     test "$path" = "$HOME"; and echo '~'; or basename -- "$path"
 end
 
-function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "<host>: <dir>[ (C)]"'
-    set -l s "$argv[1]: $argv[2]"
+function __tcz_format_title --description 'host, dir, is_claude(0/1) -> "[<h>] <dir>[ (C)]", where <h> is the host'"'"'s FIRST CHARACTER only. The ShellFish/iTerm2 tab strip is the scarcest space in this UI -- several tabs share one row -- and the host is the least surprising thing on it, so it gets one column rather than a whole word plus a colon. An empty host degrades to the bare dir, never an empty bracket.'
+    set -l h (string sub -l 1 -- "$argv[1]")
+    set -l s "$argv[2]"
+    test -n "$h"; and set s "[$h] $s"
     test "$argv[3]" = 1; and set s "$s (C)"
     echo $s
 end
@@ -945,8 +947,8 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             # so unlike the claude+display case __tcz_session_title's docstring already
             # covers, there is no live display read to short-circuit before the stale
             # by-old-name lookup misses and falls through to an empty path — reproduced
-            # as an attached ShellFish/iTerm2 tab showing "<host>: " (blank dir) for
-            # this one in-pass tick instead of "<host>: ~". Flipping just the name in
+            # as an attached ShellFish/iTerm2 tab showing "[<h>] " (blank dir) for
+            # this one in-pass tick instead of "[<h>] ~". Flipping just the name in
             # place keeps every other column (claude/auto/path) correctly aligned to
             # the same row.
             set -l __rk (__tcz_tmux_sess_index "$cur")
@@ -3781,7 +3783,7 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     tmux set-option -t "$tgt" @tmux_lives_claude "$name" 2>/dev/null
 end
 
-function __tcz_session_title --argument-names session --description 'session -> "<host>: <dir>[ (C)]" (the active pane'"'"'s live cwd, not the session'"'"'s fixed creation dir; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads the active pane'"'"'s cwd on purpose, not #{session_path} (project-from-pane-cwd design, 2026-08-19/20, reversing the prior #{session_path} choice): this is what makes an unowned, hand-named session (e.g. myems-web-con) show its REAL directory instead of a stale/generic one, and it means a `cd` in the pane, or switching to a different window, now DOES move the tab -- intended, not a regression (session names in this system already track live state). display-message -p -t <tgt> #{pane_current_path} resolves to the CURRENTLY SELECTED window'"'"'s active pane (verified empirically), the same pane __tcz_categorize'"'"'s own pane walk targets, so both surfaces agree.'
+function __tcz_session_title --argument-names session --description 'session -> "[<h>] <dir>[ (C)]" (<h> = the first character of the short hostname; the active pane'"'"'s live cwd, not the session'"'"'s fixed creation dir; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads the active pane'"'"'s cwd on purpose, not #{session_path} (project-from-pane-cwd design, 2026-08-19/20, reversing the prior #{session_path} choice): this is what makes an unowned, hand-named session (e.g. myems-web-con) show its REAL directory instead of a stale/generic one, and it means a `cd` in the pane, or switching to a different window, now DOES move the tab -- intended, not a regression (session names in this system already track live state). display-message -p -t <tgt> #{pane_current_path} resolves to the CURRENTLY SELECTED window'"'"'s active pane (verified empirically), the same pane __tcz_categorize'"'"'s own pane walk targets, so both surfaces agree.'
     test -n "$session"; or return 0
     # __tcz_session_target still needed below, for the @tmux_lives_display show-option
     # call (and the live path fallback'"'"'s display-message call) only: verified

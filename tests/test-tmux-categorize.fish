@@ -142,8 +142,14 @@ set -g __tcz_oldhome $HOME; set -g HOME /home/x
 t "dir_display basenames a path" tmux-lives (__tcz_dir_display /home/x/workspace/tmux-lives)
 t "dir_display shows ~ for HOME" '~' (__tcz_dir_display /home/x)
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome
-t "format_title plain" "rocket: neurotto" (__tcz_format_title rocket neurotto 0)
-t "format_title with claude" "macwork: tmux-lives (C)" (__tcz_format_title macwork tmux-lives 1)
+t "format_title plain" "[r] neurotto" (__tcz_format_title rocket neurotto 0)
+t "format_title with claude" "[m] tmux-lives (C)" (__tcz_format_title macwork tmux-lives 1)
+# The host is abbreviated to its first character -- the tab strip is the
+# scarcest space in the UI and the host is the least surprising thing on it.
+t "format_title takes only the host's first character" "[b] proj" (__tcz_format_title bigserver01 proj 0)
+# Degrade to the bare dir rather than rendering an empty bracket.
+t "format_title with no host at all" "proj" (__tcz_format_title "" proj 0)
+t "format_title with no host, claude" "proj (C)" (__tcz_format_title "" proj 1)
 set -e tmux_lives_hostname
 
 # ---------------------------------------------------------------------
@@ -2314,18 +2320,18 @@ set -g tcz_test_name ''
 set -g tcz_test_display ''
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude false for shells" no (__tcz_session_has_claude sA; and echo yes; or echo no)
-t "session_title no claude" "macwork: tmux-lives" (__tcz_session_title sA)
+t "session_title no claude" "[m] tmux-lives" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'claude\t999')
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 t "session_has_claude true with a claude pane" yes (__tcz_session_has_claude sA; and echo yes; or echo no)
-t "session_title with claude" "macwork: tmux-lives (C)" (__tcz_session_title sA)
+t "session_title with claude" "[m] tmux-lives (C)" (__tcz_session_title sA)
 set -g tcz_test_panes (printf 'fish\t999')
 set -g tcz_test_display 'My Project'
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "session_title honors @tmux_lives_display over dir" "macwork: My Project" (__tcz_session_title sA)
+t "session_title honors @tmux_lives_display over dir" "[m] My Project" (__tcz_session_title sA)
 set -g tcz_test_name 'Neurotto CLI'
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "session_title honors @tmux_lives_name over display and dir" "macwork: Neurotto CLI" (__tcz_session_title sA)
+t "session_title honors @tmux_lives_name over display and dir" "[m] Neurotto CLI" (__tcz_session_title sA)
 functions -e tmux
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname; set -e tcz_test_panes; set -e tcz_test_path; set -e tcz_test_name; set -e tcz_test_display
@@ -2343,7 +2349,7 @@ function tmux
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "session_title empty pane cwd keeps the (C) flag (no arg-shift)" "macwork:  (C)" (__tcz_session_title sA)
+t "session_title empty pane cwd keeps the (C) flag (no arg-shift)" "[m]  (C)" (__tcz_session_title sA)
 functions -e tmux
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 set -g HOME $__tcz_oldhome; set -e __tcz_oldhome; set -e tmux_lives_hostname
@@ -2504,16 +2510,16 @@ set -g tmux_lives_hostname boxhost
 # is empty and every call below exercises the LIVE display-message fallback --
 # the real-tick, zero-extra-call (memoized) path is proven separately below.
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "session_title resolves the active pane's cwd (real tmux, no cd)" "boxhost: "(basename $twdir) (__tcz_session_title realsess)
-t "title: THE decisive assertion -- a cd inside the pane DOES relabel the tab (was pinned to session start dir pre-fix)" "boxhost: deep" (__tcz_session_title ts1)
+t "session_title resolves the active pane's cwd (real tmux, no cd)" "[b] "(basename $twdir) (__tcz_session_title realsess)
+t "title: THE decisive assertion -- a cd inside the pane DOES relabel the tab (was pinned to session start dir pre-fix)" "[b] deep" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_display "My Project" 2>/dev/null
-t "title: honors @tmux_lives_display over the dir" "boxhost: My Project" (__tcz_session_title ts1)
+t "title: honors @tmux_lives_display over the dir" "[b] My Project" (__tcz_session_title ts1)
 command tmux -L $tsock set-option -t ts1 @tmux_lives_name "Claimed" 2>/dev/null
 # @tmux_lives_name is memoized (unlike @tmux_lives_display just above, which
 # stays a live read) -- the write above happened after the memo was loaded, so
 # it must be flushed or this read would see the pre-write empty name instead.
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_title ts1)
+t "title: the claim still wins over display" "[b] Claimed" (__tcz_session_title ts1)
 
 # multi-window: __tcz_session_title must TRACK whichever window is currently
 # selected -- `list-panes`/`display-message -t session` (no -s) resolve to
@@ -2526,21 +2532,21 @@ t "title: the claim still wins over display" "boxhost: Claimed" (__tcz_session_t
 mkdir -p $twdir/mw-start $twdir/mw-w1 $twdir/mw-w2
 command tmux -L $tsock -f /dev/null new-session -d -s mw -c $twdir/mw-start 2>/dev/null
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: multi-window baseline is the lone window's active pane" "boxhost: mw-start" (__tcz_session_title mw)
+t "title: multi-window baseline is the lone window's active pane" "[b] mw-start" (__tcz_session_title mw)
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w1 2>/dev/null
 sleep 0.2
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: a newly-created (and thus newly-active) window relabels the tab" "boxhost: mw-w1" (__tcz_session_title mw)
+t "title: a newly-created (and thus newly-active) window relabels the tab" "[b] mw-w1" (__tcz_session_title mw)
 command tmux -L $tsock -f /dev/null new-window -t mw -c $twdir/mw-w2 2>/dev/null
 sleep 0.2
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: a second new window relabels the tab again" "boxhost: mw-w2" (__tcz_session_title mw)
+t "title: a second new window relabels the tab again" "[b] mw-w2" (__tcz_session_title mw)
 command tmux -L $tsock select-window -t mw:0 2>/dev/null
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: re-selecting the FIRST window moves the tab back (genuinely tracks selection, not just 'latest')" "boxhost: mw-start" (__tcz_session_title mw)
+t "title: re-selecting the FIRST window moves the tab back (genuinely tracks selection, not just 'latest')" "[b] mw-start" (__tcz_session_title mw)
 command tmux -L $tsock select-window -t mw:1 2>/dev/null
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-t "title: selecting the middle window tracks it too" "boxhost: mw-w1" (__tcz_session_title mw)
+t "title: selecting the middle window tracks it too" "[b] mw-w1" (__tcz_session_title mw)
 
 functions -e tmux
 command tmux -L $tsock kill-server 2>/dev/null
@@ -2573,7 +2579,7 @@ function tmux; set -a __mt_cmds "$argv"; command tmux -L $mtsock $argv; end
 set -g __mt_cmds
 set -l mttitle (__tcz_session_title "$mtname")
 functions -e tmux
-t "title: the memoized fallback still resolves the right dir" "boxhost-memo: ~" "$mttitle"
+t "title: the memoized fallback still resolves the right dir" "[b] ~" "$mttitle"
 t "title: within a tick pass, the memoized active-pane path costs zero display-message calls" "0" \
     (count (string match -r 'display-message' -- $__mt_cmds))
 set -e __mt_cmds mtname mttitle tmux_lives_hostname
@@ -2740,7 +2746,7 @@ set -l rn_names (tmux list-sessions -F '#{session_name}')
 set -l rn_key (__tcz_emit_key $rn_tty)
 set -l rn_title (tmux show-option -gqv @tmux_lives_emit_"$rn_key"_title)
 t "rename-mid-pass: the session was actually renamed off its numeric name" "tcz-rn-$fish_pid" "$rn_names"
-t "rename-mid-pass: the attached client's title carries the task suffix (proves the live display read, not the stale-name dir fallback)" "rntest: tcz-rn-$fish_pid · Fix the thing (C)" "$rn_title"
+t "rename-mid-pass: the attached client's title carries the task suffix (proves the live display read, not the stale-name dir fallback)" "[r] tcz-rn-$fish_pid · Fix the thing (C)" "$rn_title"
 set -e tmux_lives_hostname
 rm -rf $HOME/tcz-rn-$fish_pid
 cleanup
@@ -2789,7 +2795,7 @@ set -l pl_names (tmux list-sessions -F '#{session_name}')
 set -l pl_key (__tcz_emit_key $pl_tty)
 set -l pl_title (tmux show-option -gqv @tmux_lives_emit_"$pl_key"_title)
 t "rename-mid-pass, project-less: the session was promoted off its numeric name" "gen-1" "$pl_names"
-t "rename-mid-pass, project-less: the attached client's IN-PASS title carries the real dir, not a blank one left by the stale-by-old-name path memo" "pltest: ~" "$pl_title"
+t "rename-mid-pass, project-less: the attached client's IN-PASS title carries the real dir, not a blank one left by the stale-by-old-name path memo" "[p] ~" "$pl_title"
 set -e tmux_lives_hostname
 cleanup
 

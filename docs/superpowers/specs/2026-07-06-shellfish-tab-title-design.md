@@ -7,11 +7,11 @@
 
 ## Why
 
-ShellFish tabs default to an uninformative title. ShellFish's shell integration added a `settitle` helper that sets the tab/window title via the **standard OSC 2** escape (`\033]2;<title>\a`; inside tmux it wraps in a passthrough DCS, but that's only for interactive use). tmux-lives already knows, per session, the program / directory / claude-state, and already emits the ShellFish bar color directly to each client's tty. A tab title is the same shape of emission — so each ShellFish tab can show `<host>: <dir> [(C)]` and always tell you where you are.
+ShellFish tabs default to an uninformative title. ShellFish's shell integration added a `settitle` helper that sets the tab/window title via the **standard OSC 2** escape (`\033]2;<title>\a`; inside tmux it wraps in a passthrough DCS, but that's only for interactive use). tmux-lives already knows, per session, the program / directory / claude-state, and already emits the ShellFish bar color directly to each client's tty. A tab title is the same shape of emission — so each ShellFish tab can show `[<h>] <dir> [(C)]` and always tell you where you are.
 
 ## Goals
 
-- Each attached ShellFish tab shows `<host>: <dir> [(C)]` — short hostname, the active pane's directory basename, and ` (C)` when claude runs in that session. E.g. `macwork: tmux-lives (C)`, `rocket: neurotto`.
+- Each attached ShellFish tab shows `[<h>] <dir> [(C)]` — the short hostname's FIRST CHARACTER, the active pane's directory basename, and ` (C)` when claude runs in that session. E.g. `[m] tmux-lives (C)`, `[r] neurotto`. (Shortened from the original `<host>: ` prefix on 2026-08-31: several tabs share one row, and the host is the least surprising thing on it.)
 - The title reflects **that tab's** current session (per-client), and refreshes on attach, on session-switch (instant), and on the ~15s tick (drift/self-heal) — the same resilience model as the bar color.
 - Zero effect on non-ShellFish clients.
 - No test touches the live tmux server / universals (the project's hard isolation invariant).
@@ -19,7 +19,7 @@ ShellFish tabs default to an uninformative title. ShellFish's shell integration 
 ## Non-goals (YAGNI)
 
 - No `setup title on/off` config surface yet (always-on for ShellFish; a toggle is a trivial later add, deferred).
-- No user-templatable format — the format is fixed (`<host>: <dir> [(C)]`).
+- No user-templatable format — the format is fixed (`[<h>] <dir> [(C)]`).
 - No title for non-ShellFish terminals (OSC 2 would work universally, but the request is ShellFish and we keep parity with the bar-color gating; universal titles are a possible later extension).
 - No instant refresh on *window* switch within a session — the ≤15s tick covers it (only cross-session switch gets a dedicated hook).
 
@@ -38,7 +38,7 @@ Two new categorizer functions, siblings of `__tcz_emit_barcolor` / `__tcz_recolo
 
 ### Title content — `__tcz_session_title <session>`
 
-Builds `<host>: <dir> [(C)]` for a given session:
+Builds `[<h>] <dir> [(C)]` for a given session:
 - **host** — `hostname -s` (short name; works on Linux + macOS), read once and cached in a script-scoped/universal var (`tmux_lives_hostname`) to avoid a subprocess per emit.
 - **dir** — the session's active-window active-pane `#{pane_current_path}`, taken to `basename`, with `$HOME` shown as `~`.
 - **(C)** — appended when the session is a claude session, reusing `__tcz_pane_is_claude` over the session's panes (session-wide, matching the existing claude *category*, so the flag means "claude is running in this session" regardless of which window is focused).

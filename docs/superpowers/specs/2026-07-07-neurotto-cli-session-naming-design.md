@@ -33,7 +33,7 @@ The categorizer already emits a per-session `display` distinct from the tmux ses
 - **In `__tcz_snapshot`:** if a session has option `@tmux_lives_name` set (non-empty), its `display` is that value verbatim (ahead of claude/running/general logic). Read it in the per-session pass alongside the existing pane format.
 - **In `__tcz_categorize` (rename logic):** a session with `@tmux_lives_name` set is treated as **claimed** — the categorizer does **not** `rename-session` it (its tmux name/slug is left exactly as the app set it). This mirrors the existing "leave un-owned/hand-named sessions alone" guard.
 - **Switcher / overview:** already render `display`, so "Neurotto CLI" appears there for free once `display` carries it; the switch target stays the slug `name`. (Confirm the switcher labels by `display` and targets by `name` — it already separates them.)
-- **Feature-(a) ShellFish title:** `__tcz_session_title` uses `@tmux_lives_name` for the `<middle>` when set (instead of the dir basename) → the tab reads `<host>: Neurotto CLI [(C)]`.
+- **Feature-(a) ShellFish title:** `__tcz_session_title` uses `@tmux_lives_name` for the `<middle>` when set (instead of the dir basename) → the tab reads `[<h>] Neurotto CLI [(C)]`.
 
 Net: `@tmux_lives_name "X"` makes a session read as **X** everywhere a human looks, with the tmux name untouched.
 
@@ -58,7 +58,7 @@ A general safety net (protects any app, not just neurotto): when `__tcz_snapshot
 
 ## Testing & isolation (hard invariant)
 
-- **tmux-lives** (fish, `-L` socket seam / stubs, no live-server touch): `@tmux_lives_name` set on a stub/`-L` session → `__tcz_snapshot` `display` == the value AND `__tcz_categorize` does not rename it; a session with a `tail` pane → not named `tail` (dir fallback); `__tcz_session_title` returns `<host>: Neurotto CLI` when `@tmux_lives_name` is set. Reuse the recolor/categorize stub harness.
+- **tmux-lives** (fish, `-L` socket seam / stubs, no live-server touch): `@tmux_lives_name` set on a stub/`-L` session → `__tcz_snapshot` `display` == the value AND `__tcz_categorize` does not rename it; a session with a `tail` pane → not named `tail` (dir fallback); `__tcz_session_title` returns `[<h>] Neurotto CLI` when `@tmux_lives_name` is set. Reuse the recolor/categorize stub harness.
 - **neurotto** (`x/cli.sh`): the create-or-switch logic is integration/tmux-shaped; test the branch decision against a private `-L` socket where feasible (seam like the tmux-lives pattern), else cover by the live smoke. The malformed `has-session` probe fix in `index.ts` is unit-checkable.
 
 ## Rollout
