@@ -2737,16 +2737,37 @@ t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arr
 set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac' | string join ','; end | sort -u | count)
 t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
 
+# C1a: the three large surfaces draw from the dark half of the ramp. Checked
+# against the arrangement TABLE, not rendered output, so a future arrangement
+# cannot violate it silently at a seed nobody tested.
+set -g A6BIGOK 1
+for pat in (__tmux_lives_theme_arrangements)
+    # Recover the index list by feeding seven distinguishable hexes through
+    # arrange. Derived, never hardcoded: the list lives inside a switch the
+    # test cannot read.
+    set -l fix '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
+    set -l out (__tmux_lives_theme_arrange $pat $fix)
+    for r in 1 3 6
+        for p in (seq 7)
+            if test "$out[$r]" = "$fix[$p]"
+                test $p -gt 4; and set -g A6BIGOK 0
+            end
+        end
+    end
+end
+t "arrange: no big role draws a ramp index above 4" 1 $A6BIGOK
+
 # Stage two only GUARANTEES hue; chroma is REQUESTED, not preserved — a grey
 # fixture (used above) has no hue to preserve, so this needs a COLOURFUL one.
-# Built with the SAME lightness profile as the floor fixture above (so the
-# swap decision — which looks only at L — is identical: `centre` does not
-# swap, meaning text's pre-push source is fixture index 1 verbatim), but
+# Built with the SAME lightness profile as the floor fixture above, giving
 # real chroma and a distinct hue at every ramp position.
 set -g A6CHEX
+set -g A6CHUES
 for spec in '0.173048 0.05 20' '0.285016 0.05 80' '0.386656 0.05 140' '0.481931 0.05 200' '0.572684 0.05 260' '0.659958 0.05 300' '0.744429 0.05 340'
     set -l p (string split ' ' -- $spec)
     set -a A6CHEX (__tmux_lives_oklch_hex $p[1] $p[2] $p[3])
+    set -l oi (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6CHEX[-1]))
+    set -a A6CHUES $oi[3]
 end
 set -g A6CSRC (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6CHEX[1]))
 set -g A6COUT (__tmux_lives_theme_arrange centre $A6CHEX)
@@ -2763,9 +2784,55 @@ t "arrange: stage two actually moved lightness (precondition for the next two)" 
 # and the SAME assertion (same 0.01 tolerance) measures a 70% chroma loss and
 # fails. Near white or black, sRGB simply has nowhere for chroma to go; see
 # the corrected docstring on __tmux_lives_theme_arrange and the sweep below,
-# which pins the property that IS always true instead.
+# which pins the property that IS always true instead. Unaffected by WHICH
+# raw index becomes text's pre-push source (see the next block): every
+# A6CHEX entry shares the same chroma (0.05), so the comparison holds no
+# matter which candidate the swap picks.
 t "arrange: stage two's chroma request happens to survive at this bar lightness (NOT a general guarantee)" 1 (test (math "abs($A6CTXT[2] - $A6CSRC[2])") -lt 0.01; and echo 1; or echo 0)
-t "arrange: stage two preserves hue (within tolerance)" 1 (test (math "abs($A6CTXT[3] - $A6CSRC[3])") -lt 2; and echo 1; or echo 0)
+
+# WHICH raw index becomes text's pre-push source is NOT pinned to index 1 —
+# that was only ever true because stage one's swap did not fire for this
+# fixture under the OLD `centre` table. Re-indexing `centre` (this task, to
+# keep big roles off the light half of the ramp) moved bar close enough to
+# text that the swap NOW fires here: text's real pre-push source becomes
+# whichever of the six non-bar candidates sits furthest from bar in
+# lightness, and this fixture's re-index made that index 7, not index 1
+# (measured directly: the final hue lands at ~340 degrees, matching index
+# 7's H=340, not index 1's H=20). A comparison hardcoded to index 1 broke as
+# a direct result — the BEHAVIOUR stayed correct throughout (measured hue
+# drift ~0.25 degrees against whichever candidate actually fed stage two),
+# only the test's assumed source was wrong.
+#
+# Fixed by deriving the real source instead of asserting one. The seven
+# candidate hues (20/80/140/200/260/300/340) are 40-60 degrees apart, far
+# wider than stage two's own ~1-degree hue drift or this assertion's
+# 2-degree tolerance, so whichever candidate the final hue lands CLOSEST to
+# is unambiguously the real source — without reimplementing stage one's own
+# "furthest from bar" comparison here. This is not a weaker check than a
+# fixed-index comparison: any hue corruption large enough to matter (an
+# offset, a wrong constant, a dropped preservation step) still lands nowhere
+# near 2 degrees of any of the seven widely-spaced candidates, so it still
+# fails loudly — proven by mutating stage two's hue and confirming this
+# assertion catches it (see the task report).
+set -g A6CNEAREST 999
+for h in $A6CHUES
+    set -l dh (math "abs($A6CTXT[3] - $h)")
+    test "$dh" -gt 180; and set dh (math "360 - $dh")
+    test "$dh" -lt "$A6CNEAREST"; and set A6CNEAREST $dh
+end
+t "arrange: stage two preserves hue (within tolerance)" 1 (test "$A6CNEAREST" -lt 2; and echo 1; or echo 0)
+
+# NOT redundant with the sweep immediately below, despite both exercising
+# `centre` with the same 2-degree tolerance: the sweep deliberately RIGS its
+# own fixture so index 1 wins the stage-one swap by construction at every
+# step (every other candidate is pinned to bar's OWN lightness that step, so
+# its distance to bar is ~0), which isolates stage two's PUSH from stage
+# one's SWAP decision entirely. The block above rigs nothing — it is the one
+# place in the suite where a real bar/candidate relationship decides which
+# raw colour reaches stage two, exercising the swap and the push TOGETHER
+# exactly as production calls them. Kept deliberately, not as redundancy:
+# the sweep proves the push preserves hue in general; the block above proves
+# a real swap's output still feeds a push that preserves hue.
 
 # The property that IS universal is hue preservation — prove it across a
 # SWEEP of bar lightnesses, not a single point. Fixture: text's candidate

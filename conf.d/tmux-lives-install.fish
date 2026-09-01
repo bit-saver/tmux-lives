@@ -695,15 +695,15 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
         case deep
             set idx 1 4 2 6 5 3 7
         case bright
-            set idx 7 4 6 2 3 5 1
+            set idx 4 5 3 7 6 2 1
         case centre
-            set idx 4 2 3 6 5 7 1
+            set idx 3 5 2 6 7 4 1
         case split
-            set idx 1 3 6 4 5 2 7
+            set idx 1 3 4 5 6 2 7
         case stack
-            set idx 2 5 3 6 4 7 1
+            set idx 2 5 3 6 4 1 7
         case accent
-            set idx 3 5 4 6 2 7 1
+            set idx 3 5 4 6 2 1 7
         case '*'
             return 1
     end
