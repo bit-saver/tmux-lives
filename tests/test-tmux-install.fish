@@ -2737,48 +2737,46 @@ t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arr
 set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac' | string join ','; end | sort -u | count)
 t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
 
-# C1a: the three large surfaces draw from the dark half of the ramp. Checked
-# against the arrangement TABLE, not rendered output — production runs the
-# real function with the real stage-one swap and stage-two push both active,
-# so "not rendered output" is a promise about what the CHOSEN FIXTURE makes
-# observable, not about which code path executes. A monotonic grey ramp
-# (tried first) does NOT keep that promise: the swap's own "furthest from
-# bar" search is drawn to exactly the shape a violation takes (a light colour
-# sitting on a big role IS the most-distant-from-bar candidate), so it
-# relocates the offending index into `text` before this loop ever inspects
-# it. Proven, not assumed: mutating `stack` to `2 5 3 6 4 7 1` (cap on ramp
-# index 7, the shipped-table violation this assertion exists to catch)
-# produced NO failure against a monotonic fixture — the swap moved index 7
-# out of cap and into text, leaving cap holding index 1 instead, which is
-# not a violation. See the task report for the measured trace.
+# C1a (rendered-output check — a SECONDARY, corroborating signal, NOT a
+# guarantee): does the composed pipeline — the real stage-one swap and
+# stage-two push, both live — put a high ramp index on a big role for the
+# six SHIPPED tables? Checking on rendered output means the swap CAN mask a
+# genuine table violation before this loop ever inspects it, and it
+# demonstrably does for more than one violation shape. The real guarantee
+# is the TABLE-level assertion below, which has no `arrange` call, no
+# rendering and no swap anywhere in its path — nothing left that can mask
+# anything.
 #
-# Fixed with a fixture shaped so the swap can never win FROM a big role.
-# Indices 1-4 sit in a tight cluster (so wherever `bar` lands among them,
-# every OTHER 1-4 index is at most ~0.04 OKLCH-L away from it — this is
-# what lets the six shipped tables put bar/tabs/cap anywhere in 1-4
-# interchangeably without the cluster members ever contesting the swap).
-# Indices 5 and 6 sit far outside the cluster in both directions (~0.35-0.40
-# away) so that whichever ends up at a small-role position always wins the
-# swap ahead of any 1-4 candidate — this is what keeps the CORRECT tables'
-# tabs/cap positions untouched (verified below: matches the raw table
-# exactly for all six shipped patterns). Index 7 is placed only MILDLY
-# outside the cluster (~0.15-0.24 away) — closer to the cluster than either
-# 5 or 6 — so that IF a mutation ever puts index 7 on a big role, indices 5
-# and 6 (which the correct tables always keep at small roles) still
-# outweigh it in the "furthest from bar" contest and the swap leaves the
-# mutated big role's illegal value in place instead of rescuing it. This is
-# the specific property the brief's Step-5 mutation needs: putting ramp
-# index 7 on `cap` is exactly what it does, and with THIS fixture that
-# mutation now fails the assertion below (proven in the task report) where
-# the monotonic fixture let it slip through silently. Every value here is
-# load-bearing to that property, not arbitrary — if a future re-index needs
-# a different fixture shape, rebuild it against this same reasoning rather
-# than reaching for another monotonic ramp.
+# A monotonic grey ramp (tried first) let the swap rescue ANY misplaced
+# extreme index: mutating `stack` to put ramp index 7 on `cap` produced no
+# failure, because the swap's own "furthest from bar" search is drawn to
+# exactly the shape a violation takes (a light colour on a big role IS the
+# most-distant-from-bar candidate) and relocated it into `text` first.
+#
+# The CURRENT fixture (indices 1-4 clustered; 5 and 6 placed strongly
+# outside the cluster; 7 placed only mildly outside it) closes that specific
+# gap — it correctly exposes an index-7-shaped violation, and matches the
+# raw table exactly, no contamination, for all six shipped patterns — but a
+# review brute-force sweep of all 34 single-swap mutations across the six
+# patterns found FOUR that STILL self-heal: on `bright` and `centre`, when
+# the misplaced index is 6 rather than 7 (two were run live against the
+# real suite with no failure, then restored byte-identically — see the task
+# report). The mechanism is structural, not a fixture-design mistake: the
+# swap always picks whichever candidate sits furthest from bar, and since
+# the TABLE decides which colour lands on which position, no choice of
+# seven fixture colours can guarantee an extreme value never sits on a big
+# role — this has now been demonstrated from both directions (an index-7
+# violation defeats a monotonic ramp; an index-6 violation defeats THIS
+# fixture). No further fixture engineering is planned here. This block is
+# kept anyway because it costs nothing and still proves something real —
+# that the six shipped tables, run through the real pipeline, do not
+# currently exhibit the violation as tested here — just not a general
+# guarantee against a future violation of any shape.
 set -g A6BIGOK 1
 for pat in (__tmux_lives_theme_arrangements)
     # Recover the index list by feeding seven distinguishable hexes through
-    # arrange. Derived, never hardcoded: the list lives inside a switch the
-    # test cannot read.
+    # arrange (rendered output, per the caveats above — the table-level
+    # assertion below reads the switch block's source instead).
     set -l fix '#7a7a7a' '#7e7e7e' '#767676' '#828282' '#1a1a1a' '#f2f2f2' '#c0c0c0'
     set -l out (__tmux_lives_theme_arrange $pat $fix)
     for r in 1 3 6
@@ -2789,7 +2787,77 @@ for pat in (__tmux_lives_theme_arrangements)
         end
     end
 end
-t "arrange: no big role draws a ramp index above 4" 1 $A6BIGOK
+t "arrange: no big role draws a ramp index above 4 (rendered output, not a complete guard)" 1 $A6BIGOK
+
+# C1b (table check — the assertion that actually PINS the invariant): parse
+# the switch block directly out of __tmux_lives_theme_arrange rather than
+# calling it. Extracting a source region with awk and parsing it is an
+# established idiom in this file (see the migrate_v4/migrate_v41
+# body-exclusion greps above) — the brief's claim that "the list lives
+# inside a switch the test cannot read" is simply not true here. With no
+# `arrange` call, no rendering and no stage-one swap anywhere in the path,
+# nothing can mask a violation the way the rendered-output check above
+# demonstrably can.
+set -g A6TBLRAW (awk '/^    switch "\$pattern"$/,/^    end$/' $plugindir/conf.d/tmux-lives-install.fish)
+
+set -g A6TBLNAMES
+set -g A6TBLLISTS
+set -l pending ''
+for line in $A6TBLRAW
+    set -l cm (string match -rg '^\s*case (\w+)$' -- $line)
+    if test -n "$cm"
+        set pending $cm
+        continue
+    end
+    set -l im (string match -rg '^\s*set idx (.+)$' -- $line)
+    if test -n "$im"; and test -n "$pending"
+        set -a A6TBLNAMES $pending
+        set -a A6TBLLISTS (string join ' ' -- $im)
+        set pending ''
+    end
+end
+
+# Guard against vacuity FIRST — the specific failure mode this approach
+# brings with it, and one this repo has shipped more than once: a renamed
+# function, a moved block, or a changed indent makes the awk range match
+# NOTHING, and an assertion built on an empty list can pass by matching
+# nothing rather than by checking anything. These two counts are real
+# numbers, not booleans defaulted true, so an empty or partial extraction
+# fails LOUDLY here (0 != 6) rather than passing vacuously — proven by
+# pointing the same extraction at a marker that does not exist and getting
+# zero raw lines and zero parsed names (see the task report).
+t "table: exactly six patterns were parsed" 6 (count $A6TBLNAMES)
+t "table: exactly six index lists were parsed" 6 (count $A6TBLLISTS)
+
+# Cardinality alone does not prove a permutation (the same caution as
+# A6PERMOK above) — verify EVERY parsed list is a genuine reordering of 1-7
+# before trusting position membership within it. Guarded against indexing a
+# malformed (non-7-element) list when computing A6TBLBIGOK below: an empty
+# `test` argument throws rather than failing quietly, so a malformed list
+# is scored as a violation directly instead of risking stderr noise.
+set -g A6TBLPERMOK 1
+set -g A6TBLBIGOK 1
+for i in (seq (count $A6TBLLISTS))
+    set -l vals (string split ' ' -- $A6TBLLISTS[$i])
+    test (count $vals) -eq 7; or set -g A6TBLPERMOK 0
+    test (count (printf '%s\n' $vals | sort -u)) -eq 7; or set -g A6TBLPERMOK 0
+    for v in $vals
+        contains -- $v 1 2 3 4 5 6 7; or set -g A6TBLPERMOK 0
+    end
+    if test (count $vals) -eq 7
+        for r in 1 3 6
+            test "$vals[$r]" -gt 4; and set -g A6TBLBIGOK 0
+        end
+    else
+        set -g A6TBLBIGOK 0
+    end
+end
+t "table: each parsed list is a genuine permutation of 1-7" 1 $A6TBLPERMOK
+
+# THE invariant, checked on the table itself: bar (1), tabs (3) and cap (6)
+# never hold a ramp index above 4. Nothing in this path can mask a
+# violation the way the rendered-output check above can.
+t "table: no big role (bar/tabs/cap) holds a ramp index above 4" 1 $A6TBLBIGOK
 
 # Stage two only GUARANTEES hue; chroma is REQUESTED, not preserved — a grey
 # fixture (used above) has no hue to preserve, so this needs a COLOURFUL one.
