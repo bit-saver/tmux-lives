@@ -3617,4 +3617,27 @@ set -g E6GREEN (string split ' ' -- (__t6_env '#5f772b' mono 0.45 0.26 0.5 deep)
 set -g E6PURPLE (string split ' ' -- (__t6_env '#7a00ff' mono 0.45 0.26 0.5 deep))
 t "range: the same requested chroma is gamut-capped differently by hue" 1 (test (math "$E6PURPLE[1] - $E6GREEN[1]") -gt 0.05; and echo 1; or echo 0)
 
+# --- Task 7: the bounds guard across arrangements and seeds ------------------
+# The regression guard for the palette constraints. Every arrangement, at seeds
+# spanning the space that broke things: the user's own, a dark one, a light one,
+# a saturated one, a desaturated one. Bound 1 is excluded by construction -
+# see __t6_inbounds - because the gamut, not the engine, decides it.
+set -g A6FAILS
+for seed in '#87cb48' '#5f772b' '#2f6fb3' '#7a00ff' '#dfe8c8' '#1a2010'
+    for pat in (__tmux_lives_theme_arrangements)
+        for recipe in 'mono 0.55 0.11 0.5' 'triadic 0.62 0.14 0.5' 'square 0.45 0.13 0.4'
+            set -l rc (string split ' ' -- $recipe)
+            set -l pal (__tmux_lives_theme_render $seed $rc[1] $rc[2] $rc[3] $rc[4] $pat)
+            if test (count $pal) -ne 7
+                set -a A6FAILS "$seed/$rc[1]/$pat:norender"
+                continue
+            end
+            test (__t6_inbounds $pal) -eq 1; or set -a A6FAILS "$seed/$rc[1]/$pat"
+        end
+    end
+end
+t "bounds: every arrangement satisfies the engine bounds at every probe seed" 0 (count $A6FAILS)
+# Surface WHICH combinations failed - a bare count sends the next reader hunting.
+test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
