@@ -920,9 +920,7 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
             # round UP past it on the loop's early-break exit (measured:
             # L 0.88045). The swap above never needs this: every OTHER role
             # already cleared C3 before the floor ran, so only stage two's
-            # own synthesis can reintroduce a violation. Same nudge idiom as
-            # the C3 pass and the two clamps above; a candidate that already
-            # clears both bounds costs one extra encode and nothing else.
+            # own synthesis can reintroduce a violation.
             set -l fo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
             set -l fL $fo[1]
             set -l fC $fo[2]
@@ -937,19 +935,106 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
                 set fchanged 1
             end
             if test $fchanged -eq 1
-                set cand (__tmux_lives_oklch_hex $fL $fC $fH)
+                # Push toward compliance AND the gap TOGETHER, not clamp then
+                # hope. Review-caught (round 3): a clamp-only pass can erode
+                # a gap that was already satisfied — a live counter-example,
+                # bar L 0.479426, clamps text to L 0.874739, gap 0.395313.
+                # The clamp direction and the gap direction do not actually
+                # fight here: this branch is only reached with a LIGHT-side
+                # target (the dir-flip pre-check above already routes
+                # bar > 0.48 to dark from the start, so bar <= 0.48 always
+                # holds here), which means 0.88 - bar >= 0.40 by construction
+                # — pushing L all the way to the SAME 0.88 ceiling the
+                # no-white clamp already respects is always enough gap,
+                # except for a razor-thin quantisation-defeated sliver right
+                # at bar ~ 0.48 (a live example: bar L 0.4798, the achievable
+                # window is ~0.0002 wide and rounding can miss it entirely —
+                # ten +0.01 nudges all reclamp to the SAME candidate with
+                # zero progress). So: nudge L UP toward 0.88 whenever the gap
+                # is short (never down for that reason — only the ceiling
+                # pulls L down), nudge C up whenever it is short, and re-test
+                # all three conditions together each pass.
+                set -l lcand (__tmux_lives_oklch_hex $fL $fC $fH)
                 set -l ftries 0
-                while test $ftries -lt 10
-                    set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                set -l lok3 0
+                while test $ftries -lt 20
+                    set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
                     set -l flok 1
                     test "$fback[1]" -gt 0.88; and set flok 0
                     set -l fcok 1
                     test "$fback[1]" -gt 0.72; and test "$fback[2]" -lt 0.055; and set fcok 0
-                    test $flok -eq 1; and test $fcok -eq 1; and break
-                    test $flok -eq 0; and set fL (math "$fL - 0.005")
+                    set -l fgapok 1
+                    test (math "abs($fback[1] - $lb[1])") -lt 0.40; and set fgapok 0
+                    if test $flok -eq 1; and test $fcok -eq 1; and test $fgapok -eq 1
+                        set lok3 1
+                        break
+                    end
+                    test $flok -eq 0; and set fL 0.88
                     test $fcok -eq 0; and set fC (math "$fC + 0.005")
-                    set cand (__tmux_lives_oklch_hex $fL $fC $fH)
+                    if test $fgapok -eq 0; and test "$fL" -lt 0.88
+                        set fL (math "$fL + 0.01")
+                        test "$fL" -gt 0.88; and set fL 0.88
+                    end
+                    set lcand (__tmux_lives_oklch_hex $fL $fC $fH)
                     set ftries (math "$ftries + 1")
+                end
+                if test $lok3 -eq 1
+                    set cand $lcand
+                else
+                    # The razor-thin sliver above: light cannot reach the
+                    # gap even AT the ceiling, which per the margin argument
+                    # only happens for bar close to 0.48 — comfortably
+                    # inside the range where dark (bar - 0.40) is UNCLAMPED
+                    # and reaches the full 0.40 gap with room to spare, and
+                    # nowhere near the no-white thresholds (L <= 0.72).
+                    set -l dn2 (math "$lb[1] - 0.40")
+                    test "$dn2" -lt 0.05; and set dn2 0.05
+                    set -l dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
+                    set -l dtries 0
+                    while test $dtries -lt 10
+                        set -l dback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+                        test (math "abs($dback[1] - $lb[1])") -ge 0.40; and break
+                        set dn2 (math "$dn2 - 0.01")
+                        test "$dn2" -lt 0.05; and set dn2 0.05
+                        set dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
+                        set dtries (math "$dtries + 1")
+                    end
+                    set -l dback2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+                    set -l dgapok 1
+                    test (math "abs($dback2[1] - $lb[1])") -lt 0.40; and set dgapok 0
+                    set -l dlok 1
+                    test "$dback2[1]" -gt 0.88; and set dlok 0
+                    set -l dcok 1
+                    test "$dback2[1]" -gt 0.72; and test "$dback2[2]" -lt 0.055; and set dcok 0
+                    if test $dgapok -eq 1; and test $dlok -eq 1; and test $dcok -eq 1
+                        set cand $dcand
+                    else
+                        # Neither side holds both bounds for this bar. Not
+                        # expected to be reachable — light was already
+                        # pushed to its own ceiling and dark is normally
+                        # unclamped whenever light's margin is this thin —
+                        # but if it ever fires, that is a genuine conflict
+                        # outside what this design has accounted for, worth
+                        # reporting with the bar/lcand/dcand numbers rather
+                        # than trusting this branch blindly. Defensive only:
+                        # swept 7065 seed x mode x arrangement x Lspan x
+                        # peakC x peakPos combinations (720 at the reviewer's
+                        # exact shape, peakC 0.12 / peakPos 0.3; 4320 across
+                        # 12 Lspans and 10 seeds at the same peakC/peakPos;
+                        # 2025 additionally varying peakC 0.04-0.26 and
+                        # peakPos 0.1-0.9) and never observed it fire. Keep
+                        # whichever side reaches the larger gap so an
+                        # unforeseen case is at least minimised, not
+                        # silently pinned to one bound.
+                        set -l fbacklast (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
+                        set -l lgap (math "abs($fbacklast[1] - $lb[1])")
+                        set -l dgap (math "abs($dback2[1] - $lb[1])")
+                        if test "$dgap" -gt "$lgap"
+                            set cand $dcand
+                        else
+                            set cand $lcand
+                        end
+                    end
                 end
             end
             set out[7] $cand

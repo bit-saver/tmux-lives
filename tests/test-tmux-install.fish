@@ -3380,6 +3380,22 @@ t "nowhite: a stuck stage-two nudge does not fall through to white" 1 (__t6_nowh
 # lands at L 0.88045, a hair over the ceiling, on the loop's successful exit.
 t "nowhite: the loop's early-break exit does not overshoot the ceiling" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#5f772b' mono 0.35 0.10 0.1 centre))
 
+# Review-caught IMPORTANT (round 3): the C3 re-check above fixed no-white but
+# introduced the mirror bug on the OTHER hard rule -- it clamps L down to
+# satisfy the ceiling and never re-checks whether that clamp just eroded the
+# 0.40 contrast floor it is not allowed to trade away. Live counter-example:
+# bar L 0.479426, and the round-tripped candidate before C3 sits at
+# L 0.880866 (0.000866 over the ceiling) -- clamping it down lands text at
+# L 0.874739, gap 0.395313, under the floor. Both bounds must hold together.
+function __t6_floor_ok --description 'v6 test helper: 1 if role 1 (bar) and role 7 (text) clear the 0.40 contrast gap'
+    set -l b (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1]))
+    set -l t (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[7]))
+    test (math "abs($t[1] - $b[1])") -ge 0.40; and echo 1; or echo 0
+end
+set -g A6EROD (__tmux_lives_theme_render '#475996' mono 0.30 0.12 0.3 bright)
+t "nowhite: the C3 clamp does not erode the contrast floor it must not trade away" 1 (__t6_floor_ok $A6EROD)
+t "nowhite: the C3-clamp-erosion recipe also stays clear of white" 1 (__t6_nowhite_ok $A6EROD)
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
@@ -3583,6 +3599,14 @@ t "range: triadic yields more than one" 1 (test "$E6VIVID[3]" -gt 1; and echo 1;
 # its peak chroma bounded below by ~0.06, not by whatever the recipe asked
 # for. 0.07 keeps real margin above the measured band while still meaning
 # "low end" against E6VIVID's 0.26.
+#
+# NB (review-caught): this 0.0605 measured floor sits ABOVE the 0.044 low
+# end of the user's own liked-palette holdout quoted two paragraphs up. That
+# gap is a legitimate, accepted cost of the no-white rule -- the user chose
+# it knowingly (see [[never-white-and-muted-is-a-destination]]) -- not a
+# defect, and not something a future fix should try to close by loosening
+# the no-white chroma floor. Do not read the 0.07 bound here as evidence the
+# engine still reaches 0.044; it no longer can, once a role is pushed light.
 t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.07; and echo 1; or echo 0)
 t "range: the envelope reaches the high end of the users liked palettes" 1 (test "$E6VIVID[1]" -ge 0.22; and echo 1; or echo 0)
 
