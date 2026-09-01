@@ -3065,17 +3065,11 @@ t "render: a different seed HUE changes the palette" 1 (test "$V6A" != "$V6B"; a
 # light one.
 set -g V6DARK (__tmux_lives_theme_render '#1b2602' mono 0.40 0.15 0.5 deep)
 set -g V6LIGHT (__tmux_lives_theme_render '#a5b58c' mono 0.40 0.15 0.5 deep)
-set -g V6DARKMAXL 0
-for h in $V6DARK
-    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
-    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
-end
-set -g V6LIGHTMINL 1
-for h in $V6LIGHT
-    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
-    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
-end
-t "render: the seeds own LIGHTNESS places the whole palette" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
+# The narrowed "own lightness still places the small roles" + "big roles no
+# longer drag pale" assertion pair for this fixture lives further down, after
+# __t6_bounds is defined (it measures the big-three bound directly) — see the
+# "constrain: big-role lightness clamp" section below the palette-bounds
+# helpers. $V6DARK/$V6LIGHT stay defined here, unchanged, for that use.
 
 # the recipe fields must each move the output
 t "render: peak chroma moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.04 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.24 0.5 deep | string join ','); and echo 1; or echo 0)
@@ -3241,6 +3235,37 @@ set -g B6FLAT (string split ' ' -- (__t6_bounds '#4b4f48' '#8b9684' '#5c6c51' '#
 t "bounds holdout: the flat foundation is under the peak-chroma floor" 1 (test "$B6FLAT[1]" -lt 0.105; and echo 1; or echo 0)
 # ...and the palette they love must pass, or the bounds are simply wrong.
 t "bounds: the reference mono passes the engine bounds" 1 (__t6_inbounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb')
+
+# --- constrain: big-role lightness clamp (bound 3) ---------------------------
+# C1b: no arrangement table can fix a window that sits entirely above the
+# bound. Measured: at a light seed with a narrow span, ramp index 1 reaches
+# L 0.77. The clamp is what makes bound 3 unconditional.
+set -g A6LIGHT (__tmux_lives_theme_render '#dfe8c8' mono 0.20 0.14 0.5 deep)
+t "constrain: a light seed still yields seven roles" 7 (count $A6LIGHT)
+set -g A6LB (string split ' ' -- (__t6_bounds $A6LIGHT))
+t "constrain: a light seed's big roles stay under the lightness bound" 1 (test "$A6LB[3]" -le 0.70; and echo 1; or echo 0)
+# ...and the clamp must not fire when it is not needed.
+set -g A6NB (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#5f772b' mono 0.55 0.11 0.5 deep)))
+t "constrain: a normal seed is untouched by the lightness clamp" 1 (test "$A6NB[3]" -le 0.70; and echo 1; or echo 0)
+
+# The seed's lightness still places the palette, but the BIG roles are now
+# clamped so a light seed cannot drag the large surfaces pale. The claim
+# therefore narrows to the small roles (2 sep, 4 active, 5 windows, 7 text).
+# $V6DARK/$V6LIGHT are the hue-matched pair set far above, before this
+# section — unchanged from their original definition.
+set -g V6DARKMAXL 0
+for i in 2 4 5 7
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6DARK[$i]))
+    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
+end
+set -g V6LIGHTMINL 1
+for i in 2 4 5 7
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6LIGHT[$i]))
+    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
+end
+t "render: the seeds own LIGHTNESS still places the small roles" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
+set -g V6LIGHTB (string split ' ' -- (__t6_bounds $V6LIGHT))
+t "render: but a light seed no longer drags the big roles pale" 1 (test "$V6LIGHTB[3]" -le 0.70; and echo 1; or echo 0)
 
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep

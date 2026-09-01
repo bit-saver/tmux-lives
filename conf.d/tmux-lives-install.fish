@@ -718,6 +718,35 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     set -l out $argv
     test (count $out) -eq 7; or return 1
 
+    # Bound 3: no large surface may be pale. The arrangement table keeps big
+    # roles on ramp indices 1-4, but that is not sufficient — the window is
+    # positioned by the seed's own lightness, so a light seed with a narrow span
+    # can put EVERY position above the bound (measured: index 1 reaches L 0.77).
+    #
+    # The consequence is deliberate: big surfaces stay dark whatever the seed's
+    # lightness. The seed still positions the ramp and so still shapes the small
+    # roles and the overall spread — it just no longer drags the large surfaces
+    # pale, which the user rejected at every seed it appeared at.
+    for r in 1 3 6
+        set -l lo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$r]))
+        if test "$lo[1]" -gt 0.70
+            set -l newL 0.70
+            set -l cand (__tmux_lives_oklch_hex $newL $lo[2] $lo[3])
+            set -l tries 0
+            # Hex encoding is lossy, so a target placed exactly ON the bound can
+            # round to just over it. Nudge until the ACTUAL round-tripped value
+            # clears, rather than trusting the request.
+            while test $tries -lt 10
+                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                test "$back[1]" -le 0.70; and break
+                set newL (math "$newL - 0.01")
+                set cand (__tmux_lives_oklch_hex $newL $lo[2] $lo[3])
+                set tries (math $tries + 1)
+            end
+            set out[$r] $cand
+        end
+    end
+
     # The floor. Role 1 is bar, role 7 is text.
     set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
