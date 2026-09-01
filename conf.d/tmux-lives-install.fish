@@ -793,6 +793,47 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         end
     end
 
+    # C3. No white. A near-neutral near-white reads as belonging to no palette;
+    # a genuinely tinted light colour does not. Runs BEFORE the floor, so the
+    # floor has the final say on legibility and cannot be undone by this pass.
+    for r in (seq 7)
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$r]))
+        set -l L $o[1]
+        set -l C $o[2]
+        set -l H $o[3]
+        set -l changed 0
+        if test "$L" -gt 0.88
+            set L 0.88
+            set changed 1
+        end
+        if test "$L" -gt 0.72; and test "$C" -lt 0.055
+            set C 0.055
+            set changed 1
+        end
+        if test $changed -eq 1
+            set -l cand (__tmux_lives_oklch_hex $L $C $H)
+            set -l tries 0
+            # Hex encoding is lossy, so a target placed exactly ON either bound
+            # can round to just past it (measured: a requested C of 0.055
+            # round-trips to 0.054965, failing the very check that set it).
+            # Nudge until the ACTUAL round-tripped values clear, rather than
+            # trusting the request — same idiom as the two clamps above.
+            while test $tries -lt 10
+                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                set -l lok 1
+                test "$back[1]" -gt 0.88; and set lok 0
+                set -l cok 1
+                test "$back[1]" -gt 0.72; and test "$back[2]" -lt 0.055; and set cok 0
+                test $lok -eq 1; and test $cok -eq 1; and break
+                test $lok -eq 0; and set L (math "$L - 0.005")
+                test $cok -eq 0; and set C (math "$C + 0.005")
+                set cand (__tmux_lives_oklch_hex $L $C $H)
+                set tries (math "$tries + 1")
+            end
+            set out[$r] $cand
+        end
+    end
+
     # The floor. Role 1 is bar, role 7 is text.
     set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
@@ -831,7 +872,11 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
             set -l dn (math "$lb[1] - 0.40")
             set -l newL $up
             set -l dir 1
-            test "$up" -gt 0.97; and set newL $dn; and set dir -1
+            # 0.88, not 0.97: the light end must stay tinted, never near-white.
+            # With bar clamped at 0.70 this makes the floor fall to the dark
+            # side whenever the light side would breach, so the contrast floor
+            # and the no-white rule stay simultaneously satisfiable.
+            test "$up" -gt 0.88; and set newL $dn; and set dir -1
             # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
             # so a target placed exactly ON the floor can round to just under
             # it (measured: accent lands 0.001 short of 0.40 without this).
@@ -843,7 +888,7 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
                 set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
                 test (math "abs($back[1] - $lb[1])") -ge 0.40; and break
                 set newL (math "$newL + $dir * 0.01")
-                test "$newL" -gt 0.97; and set newL 0.97
+                test "$newL" -gt 0.88; and set newL 0.88
                 test "$newL" -lt 0.05; and set newL 0.05
                 set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
                 set tries (math "$tries + 1")

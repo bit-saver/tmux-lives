@@ -3253,13 +3253,22 @@ t "constrain: a normal seed is untouched by the lightness clamp" 1 (test "$A6NB[
 # therefore narrows to the small roles (2 sep, 4 active, 5 windows, 7 text).
 # $V6DARK/$V6LIGHT are the hue-matched pair set far above, before this
 # section — unchanged from their original definition.
+#
+# Narrowed AGAIN by task 6 (no-white): text (7) is dropped from this set.
+# Its lightness is governed by the contrast floor against bar, not by the
+# seed — and the floor's light-side ceiling is now 0.88, so the light
+# direction is only reachable when bar <= 0.48 (up = bar + 0.40 <= 0.88).
+# V6LIGHT's own bar sits at L 0.550, so up = 0.95 > 0.88 and the floor
+# correctly falls to the dark side (measured: text lands at L 0.142) even
+# though the seed itself is light — the floor overriding the seed here is
+# the no-white rule doing its job, not a defect in either.
 set -g V6DARKMAXL 0
-for i in 2 4 5 7
+for i in 2 4 5
     set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6DARK[$i]))
     test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
 end
 set -g V6LIGHTMINL 1
-for i in 2 4 5 7
+for i in 2 4 5
     set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6LIGHT[$i]))
     test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
 end
@@ -3322,6 +3331,27 @@ t "constrain: the clamp scales rather than flattening (big roles still differ)" 
 # peaks - on sep, so a vivid recipe keeps its peak.
 set -g A6VIV (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#7a00ff' triadic 0.65 0.26 0.5 deep)))
 t "constrain: a vivid recipe still reaches high chroma when its peak is on a small role" 1 (test "$A6VIV[1]" -ge 0.22; and echo 1; or echo 0)
+
+# --- constrain: no white (C3) --------------------------------------------------
+# C3: no role may be a near-neutral near-white. A tinted light colour is fine.
+function __t6_nowhite_ok --description 'v6 test helper: 1 if no role is a near-neutral near-white'
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        test "$o[1]" -gt 0.88; and echo 0; and return
+        if test "$o[1]" -gt 0.72
+            test "$o[2]" -lt 0.055; and echo 0; and return
+        end
+    end
+    echo 1
+end
+# square/centre at the user's own seed rendered cap #f8f3fb - L 0.97, chroma 0.008.
+t "nowhite: the square recipe has no near-white role" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#87cb48' square 0.62 0.14 0.5 centre))
+t "nowhite: a wide-span mono has no near-white role" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#5f772b' mono 0.70 0.14 0.5 bright))
+# ...and no-white must not cost legibility: the floor still holds.
+set -g A6NWF (__tmux_lives_theme_render '#5f772b' mono 0.70 0.14 0.5 bright)
+set -g A6NWB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[1]))
+set -g A6NWT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[7]))
+t "nowhite: the contrast floor still holds after the cap" 1 (test (math "abs($A6NWT[1] - $A6NWB[1])") -ge 0.40; and echo 1; or echo 0)
 
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
