@@ -727,6 +727,23 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     # lightness. The seed still positions the ramp and so still shapes the small
     # roles and the overall spread — it just no longer drags the large surfaces
     # pale, which the user rejected at every seed it appeared at.
+    #
+    # Hue and chroma are REQUESTED here, not guaranteed — same framing as the
+    # text floor below. __tmux_lives_oklch_hex gamut-clamps chroma internally,
+    # and the sRGB ceiling shrinks as lightness drops and is HUE-DEPENDENT, not
+    # monotonic (measured: at L 0.83 the ceiling ranges from C 0.150 at H 180 to
+    # C 0.267 at H 140). Hue survives clamping intact (drift under 0.5 degrees,
+    # measured even under gamut pressure). Chroma does not always: pulling a
+    # saturated, light big role down to L 0.70 can lose real chroma when the
+    # NEW, lower ceiling at L 0.70 is the binding constraint — measured up to
+    # ~16% relative / ~0.04 absolute at a constructed near-gamut edge, worst
+    # around H≈140, squarely in this project's default green/yellow-green seed
+    # family. When the recipe stays inside the catalog's own peakC envelope
+    # (0.105-0.180) and the gamut has headroom at both lightnesses — the common
+    # case — the loss is negligible (measured under 1% / 0.001 absolute across a
+    # hue sweep; pinned below). This is accepted, not accidental: consistent
+    # with how the rest of this engine already treats chroma as a request the
+    # gamut is free to shrink, not a promise.
     for r in 1 3 6
         set -l lo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$r]))
         if test "$lo[1]" -gt 0.70
@@ -823,7 +840,7 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     printf '%s\n' $out
 end
 
-function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages plus constrain: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles as a pure permutation, then constrain applies the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages plus constrain: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles as a pure permutation, then constrain clamps big roles that are too pale (bound 3) and applies the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
     # Reject a malformed seed BEFORE it ever reaches __tmux_lives_hex_to_rgb01:
     # that function has no shape check of its own, so a non-hex string (e.g.
     # "notacolour") reaches `math "0xno/255"` and fish's math diagnostics print

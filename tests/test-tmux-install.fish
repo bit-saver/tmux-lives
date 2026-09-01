@@ -3267,6 +3267,47 @@ t "render: the seeds own LIGHTNESS still places the small roles" 1 (test "$V6DAR
 set -g V6LIGHTB (string split ' ' -- (__t6_bounds $V6LIGHT))
 t "render: but a light seed no longer drags the big roles pale" 1 (test "$V6LIGHTB[3]" -le 0.70; and echo 1; or echo 0)
 
+# Review-caught IMPORTANT: the clamp only ever passes the ROLE's OWN measured
+# chroma/hue into __tmux_lives_oklch_hex, but that function gamut-clamps
+# internally, and the sRGB ceiling at L 0.70 is lower than at the pre-clamp
+# lightness and is hue-dependent, not monotonic. So "hue and chroma survive"
+# is not fully true — hue does (drift stays under 0.5 degrees even under gamut
+# pressure), chroma does not always (a saturated, light big role pulled down
+# to 0.70 can lose real chroma when the new, lower ceiling is the binding
+# constraint — see the comment above the clamp in production for the measured
+# worst case). What CAN be pinned is the common case: when the recipe stays
+# inside the catalog's own peakC range and the gamut has headroom at both
+# lightnesses, chroma should survive the clamp materially intact rather than
+# being silently discarded. Direct fixtures via __tmux_lives_theme_constrain,
+# not through render/arrange — role 1 (bar) is never touched by the floor
+# stage below (only out[7], and only out[2..6] as swap candidates), so
+# inspecting out[1] after constrain isolates the lightness clamp's effect on
+# chroma from everything else in this function.
+#
+# Swept across three widely separated hues so this is not cherry-picked at one
+# point on the wheel; each iteration also proves the clamp actually FIRED
+# (source L > 0.70, result L <= 0.70), so the gap check cannot pass vacuously
+# on a fixture that never reached the clamp.
+#
+# Tolerance 0.01 absolute: measured drift for a genuinely in-gamut role is
+# ~0.0004-0.0011 (an order-of-magnitude margin below 0.01), while a
+# constructed near-gamut-edge case measured up to ~0.04 absolute — so 0.01 is
+# loose enough to absorb ordinary float/gamut noise but tight enough to catch
+# a regression that discards the requested chroma outright.
+set -g A6CGAP_OK 1
+for H in 60 120 240
+    set -l srchex (__tmux_lives_oklch_hex 0.83 0.11 $H)
+    set -l srclc (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $srchex))
+    set -l fix $srchex '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb'
+    set -l out (__tmux_lives_theme_constrain $fix)
+    set -l postlc (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    test "$srclc[1]" -gt 0.70; or set -g A6CGAP_OK 0
+    test "$postlc[1]" -le 0.70; or set -g A6CGAP_OK 0
+    set -l gap (math "abs($postlc[2] - $srclc[2])")
+    test "$gap" -le 0.01; or set -g A6CGAP_OK 0
+end
+t "constrain: chroma survives materially intact when the gamut allows it" 1 $A6CGAP_OK
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
