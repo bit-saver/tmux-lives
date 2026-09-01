@@ -3098,7 +3098,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # removed auto-apply and that pair with it, so browsing is back to 9
         # pairs / 3 rows and editing's pad is back to 1 blank row.
         if test "$editing" = 1
-            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' keep esc revert "--cachekey=$editing")
+            set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' apply esc revert "--cachekey=$editing")
             set -a leglines ''
         else
             set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z shake '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
@@ -3471,11 +3471,33 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             case enter
                 if test "$editing" = 1
                     # BEGIN enter-edit
-                    # ⏎ while editing keeps the change and leaves edit mode —
-                    # nothing more to do: every ←→ move already committed
-                    # straight into $seed, so there is no staged value to
-                    # apply here (the esc/q arm just below IS different — it
-                    # does have something to undo).
+                    # ⏎ while editing APPLIES the seed to the schemes and
+                    # leaves edit mode. The two seed keys divide as: `a` is
+                    # "show me what this seed does" (rebuild, stay in the
+                    # editor, keep dialling); ⏎ is "this is the seed — apply
+                    # it and let me out".
+                    #
+                    # The rebuild is the point. Every ←→ move commits straight
+                    # into $seed, so there is no staged SEED to apply here —
+                    # this arm used to say "nothing more to do" on exactly
+                    # that reasoning, and it was wrong, because the scheme
+                    # strips are DERIVED from the seed and only a reload
+                    # rebuilds them. Leaving without one dropped you back into
+                    # the list with every strip still built from the previous
+                    # seed, rendered stale/dim, and `a` the only way back.
+                    #
+                    # Reanchor with it: the `current` row's frozen palette is
+                    # derived from the seed too, so it goes stale in the same
+                    # breath. Both calls are the pair `case a` already makes.
+                    # A reload with an unchanged seed hits the knob-state
+                    # cache, so pressing ⏎ without having touched a channel
+                    # costs nothing.
+                    #
+                    # Still LOCAL: no tmux option, no tab OSC. Applying the
+                    # seed to the schemes is not adopting a scheme — that
+                    # stays on `a` from the list, and ⏎ from the list.
+                    __tcz_thp_reload
+                    __tcz_thp_reanchor
                     set editing 0
                     # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is

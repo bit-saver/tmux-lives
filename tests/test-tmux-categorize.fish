@@ -5324,7 +5324,13 @@ t "editing legend extraction is non-empty" 1 (test -n "$LEGE"; and echo 1; or ec
 t "editing legend names the channel keys" 1 (string match -q '*channel*' -- "$LEGE"; and echo 1; or echo 0)
 t "editing legend names adjust" 1 (string match -q '*adjust*' -- "$LEGE"; and echo 1; or echo 0)
 t "editing legend names type hex" 1 (string match -q '*type hex*' -- "$LEGE"; and echo 1; or echo 0)
-t "editing legend says keep, not save" 1 (string match -q '*keep*' -- "$LEGE"; and echo 1; or echo 0)
+# ⏎ means something different in each mode and the legend must not blur them:
+# editing it applies the seed to the schemes and leaves the editor, browsing it
+# saves the selected scheme. The label moved `keep` -> `apply` when the arm
+# started rebuilding the strips; the "not save" half is what this has always
+# been for, and is now actually asserted rather than only named.
+t "editing legend says apply" 1 (string match -q '*apply*' -- "$LEGE"; and echo 1; or echo 0)
+t "editing legend never says save" 0 (string match -q '*save*' -- "$LEGE"; and echo 1; or echo 0)
 t "editing legend does not advertise close" 0 (string match -ra 'close' -- "$LEGE" | count)
 t "idle legend still advertises save and close" 1 (string match -q '*save*' -- "$LEGI"; and string match -q '*close*' -- "$LEGI"; and echo 1; or echo 0)
 t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" | count)
@@ -6334,6 +6340,29 @@ function __t9_enter_win --description 'eval the REAL enter-while-editing arm (BE
     echo $WIN
 end
 t "enter while editing recomputes WIN (not left stale)" (math "26 - $STATIC9I") (__t9_enter_win)
+
+# ⏎ must also REBUILD the strips. The two seed keys divide as: `a` is "show me
+# what this seed does" (recompute, stay in the editor), ⏎ is "this is the seed,
+# apply it and let me out". Before this the arm only cleared the mode, so you
+# left the editor with the strips still built from the PREVIOUS seed — dimmed,
+# with `a` the only way back. Its own comment argued there was "nothing more to
+# do" because ←→ commits straight into $seed, which is true of $seed and false
+# of everything derived from it.
+function __t9_enter_reload --description 'eval the REAL enter-while-editing arm with the two recompute calls stubbed as counters, to prove the arm rebuilds the strips rather than leaving them on the old seed. Prints "<reloads> <reanchors>".'
+    set -g __t9_er_rl 0
+    set -g __t9_er_ra 0
+    function __tcz_thp_reload;   set -g __t9_er_rl (math $__t9_er_rl + 1); end
+    function __tcz_thp_reanchor; set -g __t9_er_ra (math $__t9_er_ra + 1); end
+    set -l editing 1
+    set -l rows 26
+    set -l STATIC_IDLE $STATIC9I
+    set -l WIN 0
+    set -l note ''
+    eval $ENTERBODY9
+    functions -e __tcz_thp_reload __tcz_thp_reanchor
+    echo "$__t9_er_rl $__t9_er_ra"
+end
+t "enter while editing rebuilds the strips for the seed just set" "1 1" (__t9_enter_reload)
 
 # --- Task 5: typed hex is framed ------------------------------------------------
 # The picker opens with display-popup -B, so tmux draws NO border; every screen
