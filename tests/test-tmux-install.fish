@@ -2738,14 +2738,48 @@ set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2
 t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
 
 # C1a: the three large surfaces draw from the dark half of the ramp. Checked
-# against the arrangement TABLE, not rendered output, so a future arrangement
-# cannot violate it silently at a seed nobody tested.
+# against the arrangement TABLE, not rendered output — production runs the
+# real function with the real stage-one swap and stage-two push both active,
+# so "not rendered output" is a promise about what the CHOSEN FIXTURE makes
+# observable, not about which code path executes. A monotonic grey ramp
+# (tried first) does NOT keep that promise: the swap's own "furthest from
+# bar" search is drawn to exactly the shape a violation takes (a light colour
+# sitting on a big role IS the most-distant-from-bar candidate), so it
+# relocates the offending index into `text` before this loop ever inspects
+# it. Proven, not assumed: mutating `stack` to `2 5 3 6 4 7 1` (cap on ramp
+# index 7, the shipped-table violation this assertion exists to catch)
+# produced NO failure against a monotonic fixture — the swap moved index 7
+# out of cap and into text, leaving cap holding index 1 instead, which is
+# not a violation. See the task report for the measured trace.
+#
+# Fixed with a fixture shaped so the swap can never win FROM a big role.
+# Indices 1-4 sit in a tight cluster (so wherever `bar` lands among them,
+# every OTHER 1-4 index is at most ~0.04 OKLCH-L away from it — this is
+# what lets the six shipped tables put bar/tabs/cap anywhere in 1-4
+# interchangeably without the cluster members ever contesting the swap).
+# Indices 5 and 6 sit far outside the cluster in both directions (~0.35-0.40
+# away) so that whichever ends up at a small-role position always wins the
+# swap ahead of any 1-4 candidate — this is what keeps the CORRECT tables'
+# tabs/cap positions untouched (verified below: matches the raw table
+# exactly for all six shipped patterns). Index 7 is placed only MILDLY
+# outside the cluster (~0.15-0.24 away) — closer to the cluster than either
+# 5 or 6 — so that IF a mutation ever puts index 7 on a big role, indices 5
+# and 6 (which the correct tables always keep at small roles) still
+# outweigh it in the "furthest from bar" contest and the swap leaves the
+# mutated big role's illegal value in place instead of rescuing it. This is
+# the specific property the brief's Step-5 mutation needs: putting ramp
+# index 7 on `cap` is exactly what it does, and with THIS fixture that
+# mutation now fails the assertion below (proven in the task report) where
+# the monotonic fixture let it slip through silently. Every value here is
+# load-bearing to that property, not arbitrary — if a future re-index needs
+# a different fixture shape, rebuild it against this same reasoning rather
+# than reaching for another monotonic ramp.
 set -g A6BIGOK 1
 for pat in (__tmux_lives_theme_arrangements)
     # Recover the index list by feeding seven distinguishable hexes through
     # arrange. Derived, never hardcoded: the list lives inside a switch the
     # test cannot read.
-    set -l fix '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
+    set -l fix '#7a7a7a' '#7e7e7e' '#767676' '#828282' '#1a1a1a' '#f2f2f2' '#c0c0c0'
     set -l out (__tmux_lives_theme_arrange $pat $fix)
     for r in 1 3 6
         for p in (seq 7)
@@ -2803,36 +2837,79 @@ t "arrange: stage two's chroma request happens to survive at this bar lightness 
 # drift ~0.25 degrees against whichever candidate actually fed stage two),
 # only the test's assumed source was wrong.
 #
-# Fixed by deriving the real source instead of asserting one. The seven
-# candidate hues (20/80/140/200/260/300/340) are 40-60 degrees apart, far
-# wider than stage two's own ~1-degree hue drift or this assertion's
-# 2-degree tolerance, so whichever candidate the final hue lands CLOSEST to
-# is unambiguously the real source — without reimplementing stage one's own
-# "furthest from bar" comparison here. This is not a weaker check than a
-# fixed-index comparison: any hue corruption large enough to matter (an
-# offset, a wrong constant, a dropped preservation step) still lands nowhere
-# near 2 degrees of any of the seven widely-spaced candidates, so it still
-# fails loudly — proven by mutating stage two's hue and confirming this
-# assertion catches it (see the task report).
-set -g A6CNEAREST 999
-for h in $A6CHUES
-    set -l dh (math "abs($A6CTXT[3] - $h)")
-    test "$dh" -gt 180; and set dh (math "360 - $dh")
-    test "$dh" -lt "$A6CNEAREST"; and set A6CNEAREST $dh
+# A first fix matched the final hue against whichever of the seven KNOWN
+# candidate hues it landed nearest to (they are 40-60 degrees apart, far
+# wider than stage two's own ~1-degree drift or this assertion's 2-degree
+# tolerance) and was REJECTED on review: with only 7 known constants, a
+# regression in the swap's own selection loop
+# (conf.d/tmux-lives-install.fish:723-730) that simply picks the WRONG
+# candidate still lands the output almost exactly on THAT candidate's own
+# hue — push preserves whatever hue it is handed — so a nearest-hue check
+# cannot tell "stage one picked the correct candidate" from "stage one
+# picked a different, but still known, candidate". That needs ZERO hue
+# corruption to slip through, which is worse than the bug this assertion
+# exists to catch.
+#
+# Fixed instead by REIMPLEMENTING production's own selection rule here.
+# A6CLITL holds the same literal L constants used to build A6CHEX above (not
+# the round-tripped OKLCH values, to mirror exactly what production itself
+# compares). Bar's own raw index is derived by finding whichever constant is
+# closest to the ACTUALLY MEASURED $A6CBAR[1] — round-trip quantisation is a
+# small fraction of the real gaps between the seven constants, so this is
+# unambiguous — then the winner is whichever of the OTHER six indices has
+# the MAXIMUM lightness distance from bar: exactly the two-line selection
+# __tmux_lives_theme_arrange's stage-one swap performs (mathematically
+# equivalent to it, not just similar — production's loop starts its "best"
+# at text's own original distance and only replaces it on a strictly larger
+# one found among the other five, which is the same result as a plain
+# argmax over all six non-bar candidates). The assertion then checks the
+# final hue against THAT specific candidate's hue, not merely the nearest
+# known one. This does reimplement a slice of production's own logic in the
+# test, which this file otherwise avoids — done here because it is the only
+# way to tell "the correct candidate won" from "a different, but still
+# known, candidate won", a distinction proximity-to-output can never make.
+set -g A6CLITL 0.173048 0.285016 0.386656 0.481931 0.572684 0.659958 0.744429
+set -g A6CBARIDX 1
+set -l bestbd 999
+for i in (seq 7)
+    set -l d (math "abs($A6CLITL[$i] - $A6CBAR[1])")
+    if test "$d" -lt "$bestbd"
+        set bestbd $d
+        set A6CBARIDX $i
+    end
 end
-t "arrange: stage two preserves hue (within tolerance)" 1 (test "$A6CNEAREST" -lt 2; and echo 1; or echo 0)
+set -g A6CWINIDX $A6CBARIDX
+set -l bestwd -1
+for i in (seq 7)
+    test $i -eq $A6CBARIDX; and continue
+    set -l d (math "abs($A6CLITL[$i] - $A6CBAR[1])")
+    if test "$d" -gt "$bestwd"
+        set bestwd $d
+        set A6CWINIDX $i
+    end
+end
+set -l A6CDH (math "abs($A6CTXT[3] - $A6CHUES[$A6CWINIDX])")
+test "$A6CDH" -gt 180; and set A6CDH (math "360 - $A6CDH")
+t "arrange: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2; and echo 1; or echo 0)
 
 # NOT redundant with the sweep immediately below, despite both exercising
 # `centre` with the same 2-degree tolerance: the sweep deliberately RIGS its
 # own fixture so index 1 wins the stage-one swap by construction at every
 # step (every other candidate is pinned to bar's OWN lightness that step, so
 # its distance to bar is ~0), which isolates stage two's PUSH from stage
-# one's SWAP decision entirely. The block above rigs nothing — it is the one
-# place in the suite where a real bar/candidate relationship decides which
-# raw colour reaches stage two, exercising the swap and the push TOGETHER
-# exactly as production calls them. Kept deliberately, not as redundancy:
-# the sweep proves the push preserves hue in general; the block above proves
-# a real swap's output still feeds a push that preserves hue.
+# one's SWAP decision entirely — it proves push preserves hue in general,
+# independent of what the swap does. The block above rigs nothing: it is
+# the one place in the suite where a real, un-rigged bar/candidate
+# relationship reaches the swap, and — since the fix above independently
+# reimplements the swap's own selection rule to know which candidate SHOULD
+# win — it now also proves the swap actually picked that candidate, not
+# merely that push preserved whatever hue it happened to be handed. That is
+# still not an independent proof the selection rule ITSELF is sound: the
+# test's reimplementation and production's own logic are the same two-line
+# rule, stated twice, and a shared latent bug in the rule would pass both.
+# It proves production's real behaviour matches its own documented
+# algorithm for one real, unrigged case; the sweep proves the push half in
+# isolation, over a range.
 
 # The property that IS universal is hue preservation — prove it across a
 # SWEEP of bar lightnesses, not a single point. Fixture: text's candidate
