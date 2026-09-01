@@ -898,15 +898,59 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
             # the final nudge it computed, which would silently ship a `text`
             # that violates the one hard rule. Best effort, never silent: if
             # ten nudges were not enough, fall back to whichever extreme is
-            # further from bar (0.97 or 0.05), which maximises the achievable
-            # gap.
+            # further from bar (0.88 or 0.05), which maximises the achievable
+            # gap while staying inside the no-white ceiling. Review-caught:
+            # this used to target a literal 0.97, ignoring the ceiling above.
             set -l final (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
             if test (math "abs($final[1] - $lb[1])") -lt 0.40
-                set -l dHi (math "abs(0.97 - $lb[1])")
+                set -l dHi (math "abs(0.88 - $lb[1])")
                 set -l dLo (math "abs($lb[1] - 0.05)")
-                set -l extremeL 0.97
+                set -l extremeL 0.88
                 test "$dLo" -gt "$dHi"; and set extremeL 0.05
                 set cand (__tmux_lives_oklch_hex $extremeL $lt2[2] $lt2[3])
+            end
+            # C3 re-check. Review-caught: stage two SYNTHESISES a brand new
+            # lightness on both exit paths above (the nudge loop and the
+            # extreme fallback), and either can round-trip past the no-white
+            # ceiling — in EITHER direction. A target placed just under 0.88
+            # can round DOWN, which used to freeze the nudge loop's own
+            # progress (every +0.01 nudge re-clamps to the SAME candidate,
+            # ten times, with zero gap gained — measured: bar L 0.4798 stalls
+            # at gap 0.399785 for all ten tries). A target placed AT 0.88 can
+            # round UP past it on the loop's early-break exit (measured:
+            # L 0.88045). The swap above never needs this: every OTHER role
+            # already cleared C3 before the floor ran, so only stage two's
+            # own synthesis can reintroduce a violation. Same nudge idiom as
+            # the C3 pass and the two clamps above; a candidate that already
+            # clears both bounds costs one extra encode and nothing else.
+            set -l fo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+            set -l fL $fo[1]
+            set -l fC $fo[2]
+            set -l fH $fo[3]
+            set -l fchanged 0
+            if test "$fL" -gt 0.88
+                set fL 0.88
+                set fchanged 1
+            end
+            if test "$fL" -gt 0.72; and test "$fC" -lt 0.055
+                set fC 0.055
+                set fchanged 1
+            end
+            if test $fchanged -eq 1
+                set cand (__tmux_lives_oklch_hex $fL $fC $fH)
+                set -l ftries 0
+                while test $ftries -lt 10
+                    set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                    set -l flok 1
+                    test "$fback[1]" -gt 0.88; and set flok 0
+                    set -l fcok 1
+                    test "$fback[1]" -gt 0.72; and test "$fback[2]" -lt 0.055; and set fcok 0
+                    test $flok -eq 1; and test $fcok -eq 1; and break
+                    test $flok -eq 0; and set fL (math "$fL - 0.005")
+                    test $fcok -eq 0; and set fC (math "$fC + 0.005")
+                    set cand (__tmux_lives_oklch_hex $fL $fC $fH)
+                    set ftries (math "$ftries + 1")
+                end
             end
             set out[7] $cand
         end

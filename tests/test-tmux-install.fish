@@ -3276,6 +3276,14 @@ t "render: the seeds own LIGHTNESS still places the small roles" 1 (test "$V6DAR
 set -g V6LIGHTB (string split ' ' -- (__t6_bounds $V6LIGHT))
 t "render: but a light seed no longer drags the big roles pale" 1 (test "$V6LIGHTB[3]" -le 0.70; and echo 1; or echo 0)
 
+# Review-caught MINOR: the paragraph above narrowed a claim by hand-verified
+# prose alone ("V6LIGHT's own bar sits at L 0.550... text lands at L 0.142")
+# with nothing pinning the surprising part real: a LIGHT seed whose bar
+# exceeds ~0.48 gets its own text forced DARK, not light. Make it an
+# assertion rather than a comment.
+set -g V6LIGHTTXT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6LIGHT[7]))
+t "render: a light seed with bar > 0.48 still gets DARK text, not light" 1 (test "$V6LIGHTTXT[1]" -lt 0.30; and echo 1; or echo 0)
+
 # Review-caught IMPORTANT: the clamp only ever passes the ROLE's OWN measured
 # chroma/hue into __tmux_lives_oklch_hex, but that function gamut-clamps
 # internally, and the sRGB ceiling at L 0.70 is lower than at the pre-clamp
@@ -3352,6 +3360,25 @@ set -g A6NWF (__tmux_lives_theme_render '#5f772b' mono 0.70 0.14 0.5 bright)
 set -g A6NWB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[1]))
 set -g A6NWT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[7]))
 t "nowhite: the contrast floor still holds after the cap" 1 (test (math "abs($A6NWT[1] - $A6NWB[1])") -ge 0.40; and echo 1; or echo 0)
+
+# Review-caught IMPORTANT: no-white ran before the floor, but neither of the
+# floor's OWN two exit paths re-checked its result against the no-white
+# bounds. The nudge loop only ever checked the 0.40 gap, and the fallback
+# beneath it still targeted a literal 0.97. A live counter-example: bar sits
+# at L 0.4798, so up = 0.8798 stays under the 0.88 ceiling and the loop tries
+# the light side — but the round trip of that target lands 0.000215 short of
+# the 0.40 gap, and every subsequent +0.01 nudge is immediately reclamped
+# back to the SAME 0.88 candidate (identical hex, ten times), so the loop
+# makes zero progress and falls through to the fallback, which used to emit
+# a literal-0.97 near-white with no re-check at all.
+t "nowhite: a stuck stage-two nudge does not fall through to white" 1 (__t6_nowhite_ok (__tmux_lives_theme_constrain '#475996' '#585b9b' '#554a88' '#695290' '#694681' '#7f5289' '#7c4778'))
+
+# Review-caught IMPORTANT (miniature form): the loop's EARLY-BREAK exit is
+# verified only against the 0.40 gap, never against the 0.88 ceiling itself —
+# a target placed AT 0.88 can round trip UP past it (the mirror image of the
+# stuck-loop case above, which rounds DOWN). Measured: this recipe's text
+# lands at L 0.88045, a hair over the ceiling, on the loop's successful exit.
+t "nowhite: the loop's early-break exit does not overshoot the ceiling" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#5f772b' mono 0.35 0.10 0.1 centre))
 
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
@@ -3544,7 +3571,19 @@ t "range: triadic yields more than one" 1 (test "$E6VIVID[3]" -gt 1; and echo 1;
 # span peak chroma 0.044-0.247 and lightness span 0.20-0.69. Held as a holdout,
 # never as training data: the question they answered was "do I like these
 # colours", not "should this be a scheme".
-t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.06; and echo 1; or echo 0)
+#
+# Widened from 0.06 by the no-white fix (review-caught): E6MUTED's own text
+# role is pushed to L~0.81 by the PRE-EXISTING legibility floor regardless of
+# the recipe's requested chroma, and once C3 correctly re-checks BOTH of the
+# floor's exit paths, that pushed-light role can no longer stay near-neutral
+# — it is floored at C 0.055 and the hex round trip can nudge it up further.
+# Measured across six seeds at this exact recipe: 0.055-0.061, never lower.
+# This is a structural floor, not a fluke of one seed: any sufficiently
+# muted recipe whose ramp gets a role pushed light for legibility now has
+# its peak chroma bounded below by ~0.06, not by whatever the recipe asked
+# for. 0.07 keeps real margin above the measured band while still meaning
+# "low end" against E6VIVID's 0.26.
+t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.07; and echo 1; or echo 0)
 t "range: the envelope reaches the high end of the users liked palettes" 1 (test "$E6VIVID[1]" -ge 0.22; and echo 1; or echo 0)
 
 # The gamut cap is hue-dependent and that is CORRECT — sRGB cannot hold high
