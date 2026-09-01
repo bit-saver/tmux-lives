@@ -2714,20 +2714,20 @@ t "arrange: a flat input still returns seven" 7 (count $A6FLAT)
 
 set -g A6FLOOROK 1
 for p in $A6PATS
-    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac'))
     set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
     test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; or set -g A6FLOOROK 0
 end
-t "arrange: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
+t "constrain: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
 
 # ...and specifically for the two a swap alone CANNOT rescue. These two fail
 # unless stage two exists, so they are what prove it runs.
 for p in centre accent
-    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac'))
     set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
-    t "arrange: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
+    t "constrain: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
 end
 
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
@@ -2872,11 +2872,11 @@ for spec in '0.173048 0.05 20' '0.285016 0.05 80' '0.386656 0.05 140' '0.481931 
     set -a A6CHUES $oi[3]
 end
 set -g A6CSRC (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6CHEX[1]))
-set -g A6COUT (__tmux_lives_theme_arrange centre $A6CHEX)
+set -g A6COUT (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre $A6CHEX))
 set -g A6CBAR (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[1]))
 set -g A6CTXT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[7]))
 
-t "arrange: stage two actually moved lightness (precondition for the next two)" 1 (test (math "abs($A6CTXT[1] - $A6CBAR[1])") -ge 0.40; and echo 1; or echo 0)
+t "constrain: stage two actually moved lightness (precondition for the next two)" 1 (test (math "abs($A6CTXT[1] - $A6CBAR[1])") -ge 0.40; and echo 1; or echo 0)
 # NOT a general guarantee — renamed from "stage two preserves chroma" because
 # it isn't one. This fixture's push lands at a lightness where sRGB still has
 # chroma headroom, so the loss happens to be tiny here; it is NOT tiny in
@@ -2958,7 +2958,7 @@ for i in (seq 7)
 end
 set -l A6CDH (math "abs($A6CTXT[3] - $A6CHUES[$A6CWINIDX])")
 test "$A6CDH" -gt 180; and set A6CDH (math "360 - $A6CDH")
-t "arrange: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2; and echo 1; or echo 0)
+t "constrain: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2; and echo 1; or echo 0)
 
 # NOT redundant with the sweep immediately below, despite both exercising
 # `centre` with the same 2-degree tolerance: the sweep deliberately RIGS its
@@ -3002,6 +3002,23 @@ for barL in 0.20 0.30 0.40 0.50 0.60 0.70 0.80 0.90
     test "$dh" -lt 2; or set -g A6HSWEEP_OK 0
 end
 t "arrange: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
+
+# arrange is a PURE permutation: every output colour is one of the inputs, even
+# for a fixture narrow enough that the contrast floor would otherwise fire.
+# This is what the recovery-based mapping tests depend on.
+set -g A6PURE 1
+set -g A6NARROW '#4a4a4a' '#565656' '#626262' '#6e6e6e' '#7a7a7a' '#868686' '#929292'
+for pat in (__tmux_lives_theme_arrangements)
+    for h in (__tmux_lives_theme_arrange $pat $A6NARROW)
+        contains -- $h $A6NARROW; or set -g A6PURE 0
+    end
+end
+t "arrange: is a pure permutation even on a narrow fixture" 1 $A6PURE
+# ...and the floor still happens, just later: render must still enforce it.
+set -g A6RF (__tmux_lives_theme_render '#5f772b' mono 0.30 0.12 0.5 centre)
+set -g A6RFB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6RF[1]))
+set -g A6RFT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6RF[7]))
+t "render: the text-contrast floor is still enforced after the move" 1 (test (math "abs($A6RFT[1] - $A6RFB[1])") -ge 0.40; and echo 1; or echo 0)
 
 # --- v6 render: the three stages composed -----------------------------------
 set -g V6 (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)

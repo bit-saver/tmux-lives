@@ -687,7 +687,7 @@ function __tmux_lives_theme_arrangements --description 'v6: the six arrangement 
     printf '%s\n' deep bright centre split stack accent
 end
 
-function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. Enforces the ONE hard rule — text must clear a 0.40 OKLCH lightness gap against bar — in TWO stages: first swap text with whichever remaining colour is furthest in lightness from bar, then — because a mid-ramp bar can have nothing far enough away inside its own palette (measured: centre reaches only 0.309, accent 0.358) — push texts LIGHTNESS to bar +/- 0.40 if the swap was still short, KEEPING ITS HUE (measured preserved to ~1 degree across a spread of bar lightnesses) while REQUESTING the chroma it drew from the harmony — chroma is preserved only as far as the sRGB gamut allows at the new lightness, and that headroom shrinks fast near white or black (measured losses 20%-93% pushing a chroma 0.05-0.20 colour toward L 0.97) — and verifying the ACTUAL round-tripped gap (hex encoding is lossy) rather than trusting the requested value -- best effort, never a silent floor violation: an unreachable target falls back to whichever extreme (0.97 or 0.05) is further from bar. Nothing else is constrained: over-constraining is what collapsed v5 to a single destination. Unknown pattern -> nothing, status 1.'
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. A PURE permutation — every output colour is one of the seven inputs, always. Unknown pattern -> nothing, status 1.'
     set -l hexes $argv[2..8]
     test (count $hexes) -eq 7; or return 1
     set -l idx
@@ -711,6 +711,13 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
     for i in $idx
         set -a out $hexes[$i]
     end
+    printf '%s\n' $out
+end
+
+function __tmux_lives_theme_constrain --description 'v6: seven arranged role hexes -> the same seven made ACCEPTABLE. arrange decides which colour goes where and stays a pure permutation; this decides what a colour must become. Order is load-bearing and fixed: big-role lightness clamp, big-role chroma clamp, no-white, then the text-contrast floor LAST because legibility is correctness and every earlier step can move bar or text.'
+    set -l out $argv
+    test (count $out) -eq 7; or return 1
+
     # The floor. Role 1 is bar, role 7 is text.
     set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
@@ -787,7 +794,7 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
     printf '%s\n' $out
 end
 
-function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles under the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages plus constrain: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles as a pure permutation, then constrain applies the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
     # Reject a malformed seed BEFORE it ever reaches __tmux_lives_hex_to_rgb01:
     # that function has no shape check of its own, so a non-hex string (e.g.
     # "notacolour") reaches `math "0xno/255"` and fish's math diagnostics print
@@ -823,7 +830,9 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
         set -l ai (math "(($i - 1) % $na) + 1")
         set -a hexes (__tmux_lives_oklch_hex $lc[1] $lc[2] $anchors[$ai])
     end
-    __tmux_lives_theme_arrange "$arrangement" $hexes
+    set -l pal (__tmux_lives_theme_arrange "$arrangement" $hexes)
+    test (count $pal) -eq 7; or return
+    __tmux_lives_theme_constrain $pal
 end
 
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
