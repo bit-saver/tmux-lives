@@ -2964,6 +2964,30 @@ t "bounds: helper returns three fields" 3 (count $B6M)
 t "bounds: peak chroma is the palette maximum, not the first role" 1 (test "$B6M[1]" -gt 0.10; and echo 1; or echo 0)
 t "bounds: big-three max lightness ignores the small roles" 1 (test "$B6M[3]" -lt 0.70; and echo 1; or echo 0)
 
+# The three sanity assertions above ride on the REFERENCE fixture, whose small
+# roles (sep, active, windows, text) all happen to sit under the 0.70 bound
+# too - proven by mutation: swapping the big-three index set from 1/3/6 to a
+# contiguous 1/2/3 leaves the whole suite green, because sep's L (0.694) is
+# higher than cap's (0.602) but still under 0.70. So nothing above actually
+# PINS that the big three ARE bar/tabs/cap; a future "simplification" of that
+# index set would silently start measuring the wrong three roles with every
+# assertion above still passing.
+#
+# This fixture exists for ONE purpose: pin the index set itself, and it must
+# NOT be folded into the reference fixture above - the reference fixture's
+# job is the peakC/meanC/maxL sanity numbers, and its small roles being
+# under-bound is exactly what makes it unable to do this job too. Big three
+# (bar/tabs/cap, roles 1/3/6) are all comfortably dark (L 0.37-0.44, measured);
+# sep (role 2, a SMALL role) is comfortably light (L 0.88, reusing the same
+# light hex the reference/holdout fixtures already use for their light
+# roles) - light enough that swapping it into the big three breaches 0.70 by
+# a wide margin (0.88 vs 0.70), not a near-miss like the reference fixture's
+# sep. Measured against BOTH index sets directly: big3maxL is 0.4396 at the
+# real 1/3/6 and 0.8798 at the mutated 1/2/3.
+set -g B6IDX (string split ' ' -- (__t6_bounds '#3d4238' '#c9e0bb' '#4a5744' '#7d9470' '#9fb692' '#3f4a3a' '#c9e0bb'))
+t "bounds: big-three index set is bar/tabs/cap, not a contiguous window" 1 (test "$B6IDX[3]" -lt 0.70; and echo 1; or echo 0)
+t "bounds: the index-set fixture also passes via __t6_inbounds" 1 (__t6_inbounds '#3d4238' '#c9e0bb' '#4a5744' '#7d9470' '#9fb692' '#3f4a3a' '#c9e0bb')
+
 # HOLDOUT. Rejected by the user in live judgement, NOT used to derive anything.
 # The pale-pink triadic violates bound 3 (big-three lightness 0.88) and the
 # over-hot triadic violates bound 2 (big-three chroma 0.126); both are engine
