@@ -2919,6 +2919,63 @@ function __t6_families --description 'v6 test helper: seven hexes -> hue-family 
     echo $f
 end
 
+# --- palette bounds ----------------------------------------------------------
+# Bounds separating the palettes the user picked from the ones they rejected,
+# derived from the liked set only and checked against the rejects as a holdout.
+# See docs/superpowers/specs/2026-08-28-palette-constraints-design.md.
+#   1. peak chroma           0.105 <= pk <= 0.180   (NOT enforced here — see below)
+#   2. big-three mean chroma        <= 0.095
+#   3. big-three max lightness      <= 0.70
+# Roles are bar sep tabs active windows cap text; the big three are 1, 3 and 6.
+#
+# Bound 1 is deliberately NOT part of __t6_inbounds. At a dark seed the sRGB
+# gamut caps peak chroma at 0.082 however much the recipe requests, so no engine
+# change can satisfy it — it is the catalog's job to pick a workable peakC.
+# __t6_bounds still REPORTS it so the surface plan can check it later.
+function __t6_bounds --description 'v6 test helper: seven role hexes -> "<peakC> <big3meanC> <big3maxL>". The measuring instrument for the palette bounds.'
+    set -l Ls
+    set -l Cs
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a Ls $o[1]
+        set -a Cs $o[2]
+    end
+    set -l pk 0
+    for c in $Cs
+        test "$c" -gt "$pk"; and set pk $c
+    end
+    set -l bigL 0
+    for i in 1 3 6
+        test "$Ls[$i]" -gt "$bigL"; and set bigL $Ls[$i]
+    end
+    printf '%s %s %s\n' $pk (math "($Cs[1] + $Cs[3] + $Cs[6]) / 3") $bigL
+end
+
+function __t6_inbounds --description 'v6 test helper: 1 if the seven hexes satisfy the two ENGINE-enforced bounds (big-three chroma and lightness). Bound 1 is the catalog s job and is excluded on purpose.'
+    set -l b (string split ' ' -- (__t6_bounds $argv))
+    test "$b[2]" -gt 0.095; and echo 0; and return
+    test "$b[3]" -gt 0.70; and echo 0; and return
+    echo 1
+end
+
+# The helper must measure, not merely run.
+set -g B6M (string split ' ' -- (__t6_bounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb'))
+t "bounds: helper returns three fields" 3 (count $B6M)
+t "bounds: peak chroma is the palette maximum, not the first role" 1 (test "$B6M[1]" -gt 0.10; and echo 1; or echo 0)
+t "bounds: big-three max lightness ignores the small roles" 1 (test "$B6M[3]" -lt 0.70; and echo 1; or echo 0)
+
+# HOLDOUT. Rejected by the user in live judgement, NOT used to derive anything.
+# The pale-pink triadic violates bound 3 (big-three lightness 0.88) and the
+# over-hot triadic violates bound 2 (big-three chroma 0.126); both are engine
+# bounds. The flat foundation violates only bound 1, so it is asserted against
+# __t6_bounds directly rather than through __t6_inbounds.
+t "bounds holdout: the pale-pink triadic fails" 0 (__t6_inbounds '#4b4f48' '#96787b' '#f9c9cc' '#91a484' '#a0bddd' '#5d6875' '#c9e0bb')
+t "bounds holdout: the over-hot triadic fails" 0 (__t6_inbounds '#b71445' '#65aeff' '#5b9a00' '#ffbac0' '#65a3ea' '#2d2424' '#c9e0bb')
+set -g B6FLAT (string split ' ' -- (__t6_bounds '#4b4f48' '#8b9684' '#5c6c51' '#9eb38f' '#9eb38f' '#6d8b55' '#c3d9b4'))
+t "bounds holdout: the flat foundation is under the peak-chroma floor" 1 (test "$B6FLAT[1]" -lt 0.105; and echo 1; or echo 0)
+# ...and the palette they love must pass, or the bounds are simply wrong.
+t "bounds: the reference mono passes the engine bounds" 1 (__t6_inbounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb')
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
