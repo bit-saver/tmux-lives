@@ -3308,6 +3308,21 @@ for H in 60 120 240
 end
 t "constrain: chroma survives materially intact when the gamut allows it" 1 $A6CGAP_OK
 
+# --- constrain: big-role chroma clamp (bound 2) -------------------------------
+# Bound 2: the three large surfaces must not compete. Scale their chroma down
+# together, preserving their relative structure rather than flattening them.
+set -g A6HOT (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#87cb48' triadic 0.62 0.14 0.5 centre)))
+t "constrain: big-three chroma is held under the bound" 1 (test "$A6HOT[2]" -le 0.095; and echo 1; or echo 0)
+# The clamp must SCALE, not flatten: the three keep their relative order.
+set -g A6SCALED (__tmux_lives_theme_render '#87cb48' triadic 0.62 0.14 0.5 centre)
+set -g A6SC1 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6SCALED[1]))
+set -g A6SC3 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6SCALED[3]))
+t "constrain: the clamp scales rather than flattening (big roles still differ)" 1 (test (math "abs($A6SC1[2] - $A6SC3[2])") -gt 0.005; and echo 1; or echo 0)
+# The peak belongs on a SMALL role. deep puts ramp index 4 - where peakPos 0.5
+# peaks - on sep, so a vivid recipe keeps its peak.
+set -g A6VIV (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#7a00ff' triadic 0.65 0.26 0.5 deep)))
+t "constrain: a vivid recipe still reaches high chroma when its peak is on a small role" 1 (test "$A6VIV[1]" -ge 0.22; and echo 1; or echo 0)
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
@@ -3467,7 +3482,10 @@ end
 # high-end assertion unsatisfiable through no fault of the engine — which is
 # exactly what the first draft of this plan did.
 set -g E6MUTED (string split ' ' -- (__t6_env '#5f772b' mono 0.25 0.04 0.5 deep))
-set -g E6VIVID (string split ' ' -- (__t6_env '#7a00ff' triadic 0.65 0.26 0.5 accent))
+# deep, not accent: bound 2 scales big-role chroma down, so a recipe whose peak
+# lands on a big role no longer reaches the high end. The peak belongs on a
+# small role — which is where it sits in the palette the user likes most.
+set -g E6VIVID (string split ' ' -- (__t6_env '#7a00ff' triadic 0.65 0.26 0.5 deep))
 
 t "range: a muted recipe stays muted" 1 (test "$E6MUTED[1]" -lt 0.08; and echo 1; or echo 0)
 t "range: a vivid recipe actually reaches high chroma" 1 (test "$E6VIVID[1]" -gt 0.20; and echo 1; or echo 0)

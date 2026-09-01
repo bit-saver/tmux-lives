@@ -764,6 +764,35 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         end
     end
 
+    # Bound 2: the three large surfaces must not compete for attention. Scale
+    # all three together so their relative structure survives — flattening them
+    # to a common value is what "less cohesive" meant.
+    #
+    # Consequence, stated because it is load-bearing: when a recipe's chroma
+    # peak lands on a big role it is scaled down with the rest, so the palette's
+    # peak belongs on a SMALL role. That is where it sits in the palette the
+    # user likes most — sep carries 0.110 while nothing else exceeds 0.078.
+    set -l bc1 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l bc3 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[3]))
+    set -l bc6 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[6]))
+    set -l meanC (math "($bc1[2] + $bc3[2] + $bc6[2]) / 3")
+    if test "$meanC" -gt 0.095
+        set -l target 0.095
+        set -l tries 0
+        while test $tries -lt 10
+            set -l k (math "$target / $meanC")
+            set out[1] (__tmux_lives_oklch_hex $bc1[1] (math "$bc1[2] * $k") $bc1[3])
+            set out[3] (__tmux_lives_oklch_hex $bc3[1] (math "$bc3[2] * $k") $bc3[3])
+            set out[6] (__tmux_lives_oklch_hex $bc6[1] (math "$bc6[2] * $k") $bc6[3])
+            set -l a1 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+            set -l a3 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[3]))
+            set -l a6 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[6]))
+            test (math "($a1[2] + $a3[2] + $a6[2]) / 3") -le 0.095; and break
+            set target (math "$target - 0.003")
+            set tries (math $tries + 1)
+        end
+    end
+
     # The floor. Role 1 is bar, role 7 is text.
     set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
