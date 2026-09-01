@@ -2679,21 +2679,26 @@ set -g A6PATS (__tmux_lives_theme_arrangements)
 t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 
 # every pattern must be a genuine permutation of 1..7 — a duplicated index would
-# silently drop a colour and repeat another, which looks plausible on screen
-# A WIDE fixture (L 0.115 to 0.961), chosen so the swap alone satisfies the
-# floor in all six patterns and stage two never fires. With a narrow fixture
-# stage two legitimately REPLACES a colour, so the output is no longer a
-# permutation of the input and this assertion would be testing the wrong thing.
-# Stage two's own behaviour is asserted separately below.
+# silently drop a colour and repeat another, which looks plausible on screen.
+# This fixture is WIDE (L 0.115 to 0.961) for historical reasons only: before
+# the contrast floor moved out of arrange into __tmux_lives_theme_constrain, a
+# narrow fixture could make the floor's stage two REPLACE a colour inside
+# arrange itself, breaking the permutation this assertion checks. arrange is
+# now a pure permutation UNCONDITIONALLY regardless of fixture width — see
+# "arrange: is a pure permutation even on a narrow fixture" below, proven on a
+# narrow one. Nothing requires this fixture to stay wide any more; it simply
+# was never revisited.
 #
 # Cardinality (count -eq 7) and uniqueness (sort -u -eq 7) do NOT prove a
-# permutation -- they hold just as well if arrange fabricates colours that
-# merely happen to be distinct from each other. Proven: with the stage-one
-# swap disabled (conf.d/tmux-lives-install.fish:727, `if test $best -ne 7`
-# forced to `if false`), patterns `stack` and `accent` emit #a5a5a5 and
-# #d6d6d6 on this exact fixture -- neither is an input colour -- while count
-# and sort -u both still read 7 and the whole suite stays ALL PASS. Membership
-# is the check that actually distinguishes a reordering from a fabrication.
+# permutation -- they hold just as well if a colour-substituting stage
+# fabricates colours that merely happen to be distinct from each other.
+# Proven, against the swap-selection logic that has since moved into
+# __tmux_lives_theme_constrain (conf.d/tmux-lives-install.fish:738, `if test
+# $best -ne 7` forced to `if false`): patterns `stack` and `accent` emit
+# #a5a5a5 and #d6d6d6 on this exact fixture -- neither is an input colour --
+# while count and sort -u both still read 7 and the whole suite stays ALL
+# PASS. Membership is the check that actually distinguishes a reordering from
+# a fabrication.
 set -g A6PERMFIX '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2'
 set -g A6PERMOK 1
 for p in $A6PATS
@@ -2909,8 +2914,9 @@ t "arrange: stage two's chroma request happens to survive at this bar lightness 
 # candidate hues it landed nearest to (they are 40-60 degrees apart, far
 # wider than stage two's own ~1-degree drift or this assertion's 2-degree
 # tolerance) and was REJECTED on review: with only 7 known constants, a
-# regression in the swap's own selection loop
-# (conf.d/tmux-lives-install.fish:723-730) that simply picks the WRONG
+# regression in the swap's own selection loop (now inside
+# __tmux_lives_theme_constrain, conf.d/tmux-lives-install.fish:728-737) that
+# simply picks the WRONG
 # candidate still lands the output almost exactly on THAT candidate's own
 # hue — push preserves whatever hue it is handed — so a nearest-hue check
 # cannot tell "stage one picked the correct candidate" from "stage one
@@ -2960,12 +2966,13 @@ set -l A6CDH (math "abs($A6CTXT[3] - $A6CHUES[$A6CWINIDX])")
 test "$A6CDH" -gt 180; and set A6CDH (math "360 - $A6CDH")
 t "constrain: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2; and echo 1; or echo 0)
 
-# NOT redundant with the sweep immediately below, despite both exercising
-# `centre` with the same 2-degree tolerance: the sweep deliberately RIGS its
-# own fixture so index 1 wins the stage-one swap by construction at every
-# step (every other candidate is pinned to bar's OWN lightness that step, so
-# its distance to bar is ~0), which isolates stage two's PUSH from stage
-# one's SWAP decision entirely — it proves push preserves hue in general,
+# NOT redundant with the sweep immediately below, despite both now routing
+# through `__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre
+# ...)` with the same 2-degree tolerance: the sweep deliberately RIGS its own
+# fixture so index 1 wins the stage-one swap by construction at every step
+# (every other candidate is pinned to bar's OWN lightness that step, so its
+# distance to bar is ~0), which isolates stage two's PUSH from stage one's
+# SWAP decision entirely — it proves push preserves hue in general,
 # independent of what the swap does. The block above rigs nothing: it is
 # the one place in the suite where a real, un-rigged bar/candidate
 # relationship reaches the swap, and — since the fix above independently
@@ -2977,7 +2984,13 @@ t "constrain: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2
 # rule, stated twice, and a shared latent bug in the rule would pass both.
 # It proves production's real behaviour matches its own documented
 # algorithm for one real, unrigged case; the sweep proves the push half in
-# isolation, over a range.
+# isolation, over a range — but only because its OWN call site also routes
+# through constrain. It shipped calling bare `arrange` instead: post-move
+# that performs no swap and no push, `centre` maps role 7 to raw index 1
+# unconditionally, so `txt` and `src` were the same colour through the same
+# functions on every iteration and `dh` could not fail no matter what the
+# push did. A tautology, not a proof — caught in review, fixed by the same
+# wrap used everywhere else in this file.
 
 # The property that IS universal is hue preservation — prove it across a
 # SWEEP of bar lightnesses, not a single point. Fixture: text's candidate
@@ -2995,13 +3008,13 @@ for barL in 0.20 0.30 0.40 0.50 0.60 0.70 0.80 0.90
         set -a hx (__tmux_lives_oklch_hex $p[1] $p[2] $p[3])
     end
     set -l src (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $hx[1]))
-    set -l out (__tmux_lives_theme_arrange centre $hx)
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre $hx))
     set -l txt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
     set -l dh (math "abs($txt[3] - $src[3])")
     test "$dh" -gt 180; and set dh (math "360 - $dh")
     test "$dh" -lt 2; or set -g A6HSWEEP_OK 0
 end
-t "arrange: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
+t "constrain: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
 
 # arrange is a PURE permutation: every output colour is one of the inputs, even
 # for a fixture narrow enough that the contrast floor would otherwise fire.
@@ -3258,10 +3271,14 @@ t "render: mono stays one hue family" 1 (__t6_families $V6MONO)
 # render returns ROLE order, so recover ramp order first by asking arrange where
 # seven distinguishable inputs land. DERIVED, never hardcoded — the pattern's
 # index list lives inside a switch the test cannot read, and a hardcoded inverse
-# would rot silently if the pattern were ever retuned. The fixture is WIDE on
-# purpose, so arrange's text floor is satisfied by the swap alone and stage two
-# never fires; a replaced colour would break the recovery, which is why the
-# fixture's integrity is asserted rather than assumed.
+# would rot silently if the pattern were ever retuned. The fixture is WIDE for
+# historical reasons: before the contrast floor moved out of arrange into
+# __tmux_lives_theme_constrain, that width kept the swap alone satisfying the
+# floor so stage two never fired and no colour got replaced inside arrange.
+# arrange has no text floor at all any more — it is a pure permutation
+# unconditionally, regardless of fixture width — so a replaced colour can no
+# longer break the recovery here; the fixture's integrity is still asserted
+# rather than assumed, just no longer for that reason.
 set -g V6FIX '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
 set -g V6PERM (__tmux_lives_theme_arrange deep $V6FIX)
 set -g V6FIXOK 1
