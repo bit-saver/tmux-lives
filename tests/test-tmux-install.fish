@@ -3410,6 +3410,42 @@ set -g A6EROD (__tmux_lives_theme_render '#475996' mono 0.30 0.12 0.3 bright)
 t "nowhite: the C3 clamp does not erode the contrast floor it must not trade away" 1 (__t6_floor_ok $A6EROD)
 t "nowhite: the C3-clamp-erosion recipe also stays clear of white" 1 (__t6_nowhite_ok $A6EROD)
 
+# --- constrain: C2, the floor's swap may only draw from the SMALL roles -------
+# Spec constraint C2. The swap trades text for whichever colour sits furthest
+# in lightness from bar — and if the candidate set includes a BIG role, the
+# colour it receives in exchange is text's, which can be light. That promotes a
+# large surface to the light end and breaks bound 3 in the one stage that runs
+# after every clamp, so nothing downstream can catch it.
+#
+# The candidates are therefore 2 4 5 (sep, active, windows), never (seq 2 6).
+# This is asserted at constrain's own contract boundary rather than through a
+# rendered recipe on purpose: no shipped arrangement table reaches it today
+# (swept, `best` is only ever 7, 5, 4 or 2), so a render-level assertion would
+# pass vacuously and prove nothing. The table is exactly what a future task
+# edits, which is why C2 is a property of constrain, not of the six tables.
+#
+# The fixture: bar L 0.659, text L 0.880 (gap 0.220, so the floor fires), and
+# cap the furthest thing from bar at L 0.100. With big roles in the candidate
+# set the swap picks cap, and cap comes back holding text's L 0.880 — measured,
+# a big role emitted at L 0.879756, breaching bound 3 by 0.18 from an input
+# whose big roles all entered at or below L 0.659.
+set -g A6C2 (__tmux_lives_oklch_hex 0.66 0.05 140) (__tmux_lives_oklch_hex 0.55 0.09 140) (__tmux_lives_oklch_hex 0.60 0.05 140) (__tmux_lives_oklch_hex 0.50 0.08 140) (__tmux_lives_oklch_hex 0.45 0.07 140) (__tmux_lives_oklch_hex 0.10 0.04 140) (__tmux_lives_oklch_hex 0.8798 0.08 140)
+# The fixture must actually reach the swap, or the assertion below is vacuous:
+# every big role starts under the bound, and bar and text start inside the floor.
+set -g A6C2IN 1
+for i in 1 3 6
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[$i]))
+    test "$o[1]" -le 0.70; or set -g A6C2IN 0
+end
+set -g A6C2B (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[1]))
+set -g A6C2T (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[7]))
+test (math "abs($A6C2T[1] - $A6C2B[1])") -lt 0.40; or set -g A6C2IN 0
+t "constrain C2: the swap fixture enters in bounds and inside the floor" 1 $A6C2IN
+set -g A6C2OUT (__tmux_lives_theme_constrain $A6C2)
+t "constrain C2: the floor's swap never promotes a big role to the light end" 1 (__t6_inbounds $A6C2OUT)
+# ...and the floor it exists to serve still holds on the same fixture.
+t "constrain C2: restricting the candidates still satisfies the contrast floor" 1 (__t6_floor_ok $A6C2OUT)
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,

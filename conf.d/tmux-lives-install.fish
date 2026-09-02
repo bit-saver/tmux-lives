@@ -882,7 +882,20 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         # so no colour is dropped or duplicated.
         set -l best 7
         set -l bestd (math "abs($lt[1] - $lb[1])")
-        for i in (seq 2 6)
+        # Spec constraint C2: candidates are the SMALL roles only — 2 sep,
+        # 4 active, 5 windows. NOT (seq 2 6), which would include 3 tabs and
+        # 6 cap. This is a restriction, not a shorthand: do not "simplify" it
+        # back to a range. A swap is an EXCHANGE, so a big role chosen here
+        # receives text's colour, and text is often light — measured at this
+        # function's own contract boundary, cap came back at L 0.879756 from
+        # an input whose big roles all entered at or below L 0.659, breaching
+        # bound 3 by 0.18. The floor runs LAST, after both clamps, so nothing
+        # downstream can catch that. No shipped arrangement table reaches the
+        # case today (swept over 3,024 renders, `best` is only ever 7, 5, 4 or
+        # 2, and restricting the range leaves all 3,024 byte-identical) — the
+        # table is what a future task edits, which is why the restriction
+        # belongs here rather than in the tables.
+        for i in 2 4 5
             set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
             set -l d (math "abs($li[1] - $lb[1])")
             if test "$d" -gt "$bestd"
