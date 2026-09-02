@@ -2679,21 +2679,26 @@ set -g A6PATS (__tmux_lives_theme_arrangements)
 t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 
 # every pattern must be a genuine permutation of 1..7 — a duplicated index would
-# silently drop a colour and repeat another, which looks plausible on screen
-# A WIDE fixture (L 0.115 to 0.961), chosen so the swap alone satisfies the
-# floor in all six patterns and stage two never fires. With a narrow fixture
-# stage two legitimately REPLACES a colour, so the output is no longer a
-# permutation of the input and this assertion would be testing the wrong thing.
-# Stage two's own behaviour is asserted separately below.
+# silently drop a colour and repeat another, which looks plausible on screen.
+# This fixture is WIDE (L 0.115 to 0.961) for historical reasons only: before
+# the contrast floor moved out of arrange into __tmux_lives_theme_constrain, a
+# narrow fixture could make the floor's stage two REPLACE a colour inside
+# arrange itself, breaking the permutation this assertion checks. arrange is
+# now a pure permutation UNCONDITIONALLY regardless of fixture width — see
+# "arrange: is a pure permutation even on a narrow fixture" below, proven on a
+# narrow one. Nothing requires this fixture to stay wide any more; it simply
+# was never revisited.
 #
 # Cardinality (count -eq 7) and uniqueness (sort -u -eq 7) do NOT prove a
-# permutation -- they hold just as well if arrange fabricates colours that
-# merely happen to be distinct from each other. Proven: with the stage-one
-# swap disabled (conf.d/tmux-lives-install.fish:727, `if test $best -ne 7`
-# forced to `if false`), patterns `stack` and `accent` emit #a5a5a5 and
-# #d6d6d6 on this exact fixture -- neither is an input colour -- while count
-# and sort -u both still read 7 and the whole suite stays ALL PASS. Membership
-# is the check that actually distinguishes a reordering from a fabrication.
+# permutation -- they hold just as well if a colour-substituting stage
+# fabricates colours that merely happen to be distinct from each other.
+# Proven, against the swap-selection logic that has since moved into
+# __tmux_lives_theme_constrain (conf.d/tmux-lives-install.fish:738, `if test
+# $best -ne 7` forced to `if false`): patterns `stack` and `accent` emit
+# #a5a5a5 and #d6d6d6 on this exact fixture -- neither is an input colour --
+# while count and sort -u both still read 7 and the whole suite stays ALL
+# PASS. Membership is the check that actually distinguishes a reordering from
+# a fabrication.
 set -g A6PERMFIX '#050505' '#333333' '#5a5a5a' '#808080' '#a6a6a6' '#cccccc' '#f2f2f2'
 set -g A6PERMOK 1
 for p in $A6PATS
@@ -2714,20 +2719,20 @@ t "arrange: a flat input still returns seven" 7 (count $A6FLAT)
 
 set -g A6FLOOROK 1
 for p in $A6PATS
-    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac'))
     set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
     test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; or set -g A6FLOOROK 0
 end
-t "arrange: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
+t "constrain: text clears the contrast floor in EVERY pattern" 1 $A6FLOOROK
 
 # ...and specifically for the two a swap alone CANNOT rescue. These two fail
 # unless stage two exists, so they are what prove it runs.
 for p in centre accent
-    set -l out (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac')
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac'))
     set -l lbar (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
     set -l ltxt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
-    t "arrange: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
+    t "constrain: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
 end
 
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
@@ -2737,23 +2742,146 @@ t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arr
 set -g A6DISTINCT (for p in $A6PATS; __tmux_lives_theme_arrange $p '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac' | string join ','; end | sort -u | count)
 t "arrange: the six patterns produce six distinct orderings" 6 $A6DISTINCT
 
+# C1a (rendered-output check — a SECONDARY, corroborating signal, NOT a
+# guarantee): does the composed pipeline — the real stage-one swap and
+# stage-two push, both live — put a high ramp index on a big role for the
+# six SHIPPED tables? Checking on rendered output means the swap CAN mask a
+# genuine table violation before this loop ever inspects it, and it
+# demonstrably does for more than one violation shape. The real guarantee
+# is the TABLE-level assertion below, which has no `arrange` call, no
+# rendering and no swap anywhere in its path — nothing left that can mask
+# anything.
+#
+# A monotonic grey ramp (tried first) let the swap rescue ANY misplaced
+# extreme index: mutating `stack` to put ramp index 7 on `cap` produced no
+# failure, because the swap's own "furthest from bar" search is drawn to
+# exactly the shape a violation takes (a light colour on a big role IS the
+# most-distant-from-bar candidate) and relocated it into `text` first.
+#
+# The CURRENT fixture (indices 1-4 clustered; 5 and 6 placed strongly
+# outside the cluster; 7 placed only mildly outside it) closes that specific
+# gap — it correctly exposes an index-7-shaped violation, and matches the
+# raw table exactly, no contamination, for all six shipped patterns — but a
+# review brute-force sweep of all 34 single-swap mutations across the six
+# patterns found FOUR that STILL self-heal: on `bright` and `centre`, when
+# the misplaced index is 6 rather than 7 (two were run live against the
+# real suite with no failure, then restored byte-identically — see the task
+# report). The mechanism is structural, not a fixture-design mistake: the
+# swap always picks whichever candidate sits furthest from bar, and since
+# the TABLE decides which colour lands on which position, no choice of
+# seven fixture colours can guarantee an extreme value never sits on a big
+# role — this has now been demonstrated from both directions (an index-7
+# violation defeats a monotonic ramp; an index-6 violation defeats THIS
+# fixture). No further fixture engineering is planned here. This block is
+# kept anyway because it costs nothing and still proves something real —
+# that the six shipped tables, run through the real pipeline, do not
+# currently exhibit the violation as tested here — just not a general
+# guarantee against a future violation of any shape.
+set -g A6BIGOK 1
+for pat in (__tmux_lives_theme_arrangements)
+    # Recover the index list by feeding seven distinguishable hexes through
+    # arrange (rendered output, per the caveats above — the table-level
+    # assertion below reads the switch block's source instead).
+    set -l fix '#7a7a7a' '#7e7e7e' '#767676' '#828282' '#1a1a1a' '#f2f2f2' '#c0c0c0'
+    set -l out (__tmux_lives_theme_arrange $pat $fix)
+    for r in 1 3 6
+        for p in (seq 7)
+            if test "$out[$r]" = "$fix[$p]"
+                test $p -gt 4; and set -g A6BIGOK 0
+            end
+        end
+    end
+end
+t "arrange: no big role draws a ramp index above 4 (rendered output, not a complete guard)" 1 $A6BIGOK
+
+# C1b (table check — the assertion that actually PINS the invariant): parse
+# the switch block directly out of __tmux_lives_theme_arrange rather than
+# calling it. Extracting a source region with awk and parsing it is an
+# established idiom in this file (see the migrate_v4/migrate_v41
+# body-exclusion greps above) — the brief's claim that "the list lives
+# inside a switch the test cannot read" is simply not true here. With no
+# `arrange` call, no rendering and no stage-one swap anywhere in the path,
+# nothing can mask a violation the way the rendered-output check above
+# demonstrably can.
+set -g A6TBLRAW (awk '/^    switch "\$pattern"$/,/^    end$/' $plugindir/conf.d/tmux-lives-install.fish)
+
+set -g A6TBLNAMES
+set -g A6TBLLISTS
+set -l pending ''
+for line in $A6TBLRAW
+    set -l cm (string match -rg '^\s*case (\w+)$' -- $line)
+    if test -n "$cm"
+        set pending $cm
+        continue
+    end
+    set -l im (string match -rg '^\s*set idx (.+)$' -- $line)
+    if test -n "$im"; and test -n "$pending"
+        set -a A6TBLNAMES $pending
+        set -a A6TBLLISTS (string join ' ' -- $im)
+        set pending ''
+    end
+end
+
+# Guard against vacuity FIRST — the specific failure mode this approach
+# brings with it, and one this repo has shipped more than once: a renamed
+# function, a moved block, or a changed indent makes the awk range match
+# NOTHING, and an assertion built on an empty list can pass by matching
+# nothing rather than by checking anything. These two counts are real
+# numbers, not booleans defaulted true, so an empty or partial extraction
+# fails LOUDLY here (0 != 6) rather than passing vacuously — proven by
+# pointing the same extraction at a marker that does not exist and getting
+# zero raw lines and zero parsed names (see the task report).
+t "table: exactly six patterns were parsed" 6 (count $A6TBLNAMES)
+t "table: exactly six index lists were parsed" 6 (count $A6TBLLISTS)
+
+# Cardinality alone does not prove a permutation (the same caution as
+# A6PERMOK above) — verify EVERY parsed list is a genuine reordering of 1-7
+# before trusting position membership within it. Guarded against indexing a
+# malformed (non-7-element) list when computing A6TBLBIGOK below: an empty
+# `test` argument throws rather than failing quietly, so a malformed list
+# is scored as a violation directly instead of risking stderr noise.
+set -g A6TBLPERMOK 1
+set -g A6TBLBIGOK 1
+for i in (seq (count $A6TBLLISTS))
+    set -l vals (string split ' ' -- $A6TBLLISTS[$i])
+    test (count $vals) -eq 7; or set -g A6TBLPERMOK 0
+    test (count (printf '%s\n' $vals | sort -u)) -eq 7; or set -g A6TBLPERMOK 0
+    for v in $vals
+        contains -- $v 1 2 3 4 5 6 7; or set -g A6TBLPERMOK 0
+    end
+    if test (count $vals) -eq 7
+        for r in 1 3 6
+            test "$vals[$r]" -gt 4; and set -g A6TBLBIGOK 0
+        end
+    else
+        set -g A6TBLBIGOK 0
+    end
+end
+t "table: each parsed list is a genuine permutation of 1-7" 1 $A6TBLPERMOK
+
+# THE invariant, checked on the table itself: bar (1), tabs (3) and cap (6)
+# never hold a ramp index above 4. Nothing in this path can mask a
+# violation the way the rendered-output check above can.
+t "table: no big role (bar/tabs/cap) holds a ramp index above 4" 1 $A6TBLBIGOK
+
 # Stage two only GUARANTEES hue; chroma is REQUESTED, not preserved — a grey
 # fixture (used above) has no hue to preserve, so this needs a COLOURFUL one.
-# Built with the SAME lightness profile as the floor fixture above (so the
-# swap decision — which looks only at L — is identical: `centre` does not
-# swap, meaning text's pre-push source is fixture index 1 verbatim), but
+# Built with the SAME lightness profile as the floor fixture above, giving
 # real chroma and a distinct hue at every ramp position.
 set -g A6CHEX
+set -g A6CHUES
 for spec in '0.173048 0.05 20' '0.285016 0.05 80' '0.386656 0.05 140' '0.481931 0.05 200' '0.572684 0.05 260' '0.659958 0.05 300' '0.744429 0.05 340'
     set -l p (string split ' ' -- $spec)
     set -a A6CHEX (__tmux_lives_oklch_hex $p[1] $p[2] $p[3])
+    set -l oi (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6CHEX[-1]))
+    set -a A6CHUES $oi[3]
 end
 set -g A6CSRC (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6CHEX[1]))
-set -g A6COUT (__tmux_lives_theme_arrange centre $A6CHEX)
+set -g A6COUT (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre $A6CHEX))
 set -g A6CBAR (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[1]))
 set -g A6CTXT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6COUT[7]))
 
-t "arrange: stage two actually moved lightness (precondition for the next two)" 1 (test (math "abs($A6CTXT[1] - $A6CBAR[1])") -ge 0.40; and echo 1; or echo 0)
+t "constrain: stage two actually moved lightness (precondition for the next two)" 1 (test (math "abs($A6CTXT[1] - $A6CBAR[1])") -ge 0.40; and echo 1; or echo 0)
 # NOT a general guarantee — renamed from "stage two preserves chroma" because
 # it isn't one. This fixture's push lands at a lightness where sRGB still has
 # chroma headroom, so the loss happens to be tiny here; it is NOT tiny in
@@ -2763,9 +2891,106 @@ t "arrange: stage two actually moved lightness (precondition for the next two)" 
 # and the SAME assertion (same 0.01 tolerance) measures a 70% chroma loss and
 # fails. Near white or black, sRGB simply has nowhere for chroma to go; see
 # the corrected docstring on __tmux_lives_theme_arrange and the sweep below,
-# which pins the property that IS always true instead.
+# which pins the property that IS always true instead. Unaffected by WHICH
+# raw index becomes text's pre-push source (see the next block): every
+# A6CHEX entry shares the same chroma (0.05), so the comparison holds no
+# matter which candidate the swap picks.
 t "arrange: stage two's chroma request happens to survive at this bar lightness (NOT a general guarantee)" 1 (test (math "abs($A6CTXT[2] - $A6CSRC[2])") -lt 0.01; and echo 1; or echo 0)
-t "arrange: stage two preserves hue (within tolerance)" 1 (test (math "abs($A6CTXT[3] - $A6CSRC[3])") -lt 2; and echo 1; or echo 0)
+
+# WHICH raw index becomes text's pre-push source is NOT pinned to index 1 —
+# that was only ever true because stage one's swap did not fire for this
+# fixture under the OLD `centre` table. Re-indexing `centre` (this task, to
+# keep big roles off the light half of the ramp) moved bar close enough to
+# text that the swap NOW fires here: text's real pre-push source becomes
+# whichever of the six non-bar candidates sits furthest from bar in
+# lightness, and this fixture's re-index made that index 7, not index 1
+# (measured directly: the final hue lands at ~340 degrees, matching index
+# 7's H=340, not index 1's H=20). A comparison hardcoded to index 1 broke as
+# a direct result — the BEHAVIOUR stayed correct throughout (measured hue
+# drift ~0.25 degrees against whichever candidate actually fed stage two),
+# only the test's assumed source was wrong.
+#
+# A first fix matched the final hue against whichever of the seven KNOWN
+# candidate hues it landed nearest to (they are 40-60 degrees apart, far
+# wider than stage two's own ~1-degree drift or this assertion's 2-degree
+# tolerance) and was REJECTED on review: with only 7 known constants, a
+# regression in the swap's own selection loop (now inside
+# __tmux_lives_theme_constrain, conf.d/tmux-lives-install.fish:728-737) that
+# simply picks the WRONG
+# candidate still lands the output almost exactly on THAT candidate's own
+# hue — push preserves whatever hue it is handed — so a nearest-hue check
+# cannot tell "stage one picked the correct candidate" from "stage one
+# picked a different, but still known, candidate". That needs ZERO hue
+# corruption to slip through, which is worse than the bug this assertion
+# exists to catch.
+#
+# Fixed instead by REIMPLEMENTING production's own selection rule here.
+# A6CLITL holds the same literal L constants used to build A6CHEX above (not
+# the round-tripped OKLCH values, to mirror exactly what production itself
+# compares). Bar's own raw index is derived by finding whichever constant is
+# closest to the ACTUALLY MEASURED $A6CBAR[1] — round-trip quantisation is a
+# small fraction of the real gaps between the seven constants, so this is
+# unambiguous — then the winner is whichever of the OTHER six indices has
+# the MAXIMUM lightness distance from bar: exactly the two-line selection
+# __tmux_lives_theme_arrange's stage-one swap performs (mathematically
+# equivalent to it, not just similar — production's loop starts its "best"
+# at text's own original distance and only replaces it on a strictly larger
+# one found among the other five, which is the same result as a plain
+# argmax over all six non-bar candidates). The assertion then checks the
+# final hue against THAT specific candidate's hue, not merely the nearest
+# known one. This does reimplement a slice of production's own logic in the
+# test, which this file otherwise avoids — done here because it is the only
+# way to tell "the correct candidate won" from "a different, but still
+# known, candidate won", a distinction proximity-to-output can never make.
+set -g A6CLITL 0.173048 0.285016 0.386656 0.481931 0.572684 0.659958 0.744429
+set -g A6CBARIDX 1
+set -l bestbd 999
+for i in (seq 7)
+    set -l d (math "abs($A6CLITL[$i] - $A6CBAR[1])")
+    if test "$d" -lt "$bestbd"
+        set bestbd $d
+        set A6CBARIDX $i
+    end
+end
+set -g A6CWINIDX $A6CBARIDX
+set -l bestwd -1
+for i in (seq 7)
+    test $i -eq $A6CBARIDX; and continue
+    set -l d (math "abs($A6CLITL[$i] - $A6CBAR[1])")
+    if test "$d" -gt "$bestwd"
+        set bestwd $d
+        set A6CWINIDX $i
+    end
+end
+set -l A6CDH (math "abs($A6CTXT[3] - $A6CHUES[$A6CWINIDX])")
+test "$A6CDH" -gt 180; and set A6CDH (math "360 - $A6CDH")
+t "constrain: stage two preserves hue (within tolerance)" 1 (test "$A6CDH" -lt 2; and echo 1; or echo 0)
+
+# NOT redundant with the sweep immediately below, despite both now routing
+# through `__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre
+# ...)` with the same 2-degree tolerance: the sweep deliberately RIGS its own
+# fixture so index 1 wins the stage-one swap by construction at every step
+# (every other candidate is pinned to bar's OWN lightness that step, so its
+# distance to bar is ~0), which isolates stage two's PUSH from stage one's
+# SWAP decision entirely — it proves push preserves hue in general,
+# independent of what the swap does. The block above rigs nothing: it is
+# the one place in the suite where a real, un-rigged bar/candidate
+# relationship reaches the swap, and — since the fix above independently
+# reimplements the swap's own selection rule to know which candidate SHOULD
+# win — it now also proves the swap actually picked that candidate, not
+# merely that push preserved whatever hue it happened to be handed. That is
+# still not an independent proof the selection rule ITSELF is sound: the
+# test's reimplementation and production's own logic are the same two-line
+# rule, stated twice, and a shared latent bug in the rule would pass both.
+# It proves production's real behaviour matches its own documented
+# algorithm for one real, unrigged case; the sweep proves the push half in
+# isolation, over a range — but only because its OWN call site also routes
+# through constrain. It shipped calling bare `arrange` instead: post-move
+# that performs no swap and no push, `centre` maps role 7 to raw index 1
+# unconditionally, so `txt` and `src` were the same colour through the same
+# functions on every iteration and `dh` could not fail no matter what the
+# push did. A tautology, not a proof — caught in review, fixed by the same
+# wrap used everywhere else in this file.
 
 # The property that IS universal is hue preservation — prove it across a
 # SWEEP of bar lightnesses, not a single point. Fixture: text's candidate
@@ -2783,13 +3008,30 @@ for barL in 0.20 0.30 0.40 0.50 0.60 0.70 0.80 0.90
         set -a hx (__tmux_lives_oklch_hex $p[1] $p[2] $p[3])
     end
     set -l src (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $hx[1]))
-    set -l out (__tmux_lives_theme_arrange centre $hx)
+    set -l out (__tmux_lives_theme_constrain (__tmux_lives_theme_arrange centre $hx))
     set -l txt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
     set -l dh (math "abs($txt[3] - $src[3])")
     test "$dh" -gt 180; and set dh (math "360 - $dh")
     test "$dh" -lt 2; or set -g A6HSWEEP_OK 0
 end
-t "arrange: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
+t "constrain: stage two preserves hue across a sweep of bar lightnesses (0.20-0.90)" 1 $A6HSWEEP_OK
+
+# arrange is a PURE permutation: every output colour is one of the inputs, even
+# for a fixture narrow enough that the contrast floor would otherwise fire.
+# This is what the recovery-based mapping tests depend on.
+set -g A6PURE 1
+set -g A6NARROW '#4a4a4a' '#565656' '#626262' '#6e6e6e' '#7a7a7a' '#868686' '#929292'
+for pat in (__tmux_lives_theme_arrangements)
+    for h in (__tmux_lives_theme_arrange $pat $A6NARROW)
+        contains -- $h $A6NARROW; or set -g A6PURE 0
+    end
+end
+t "arrange: is a pure permutation even on a narrow fixture" 1 $A6PURE
+# ...and the floor still happens, just later: render must still enforce it.
+set -g A6RF (__tmux_lives_theme_render '#5f772b' mono 0.30 0.12 0.5 centre)
+set -g A6RFB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6RF[1]))
+set -g A6RFT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6RF[7]))
+t "render: the text-contrast floor is still enforced after the move" 1 (test (math "abs($A6RFT[1] - $A6RFB[1])") -ge 0.40; and echo 1; or echo 0)
 
 # --- v6 render: the three stages composed -----------------------------------
 set -g V6 (__tmux_lives_theme_render '#5f772b' mono 0.40 0.15 0.5 deep)
@@ -2823,17 +3065,11 @@ t "render: a different seed HUE changes the palette" 1 (test "$V6A" != "$V6B"; a
 # light one.
 set -g V6DARK (__tmux_lives_theme_render '#1b2602' mono 0.40 0.15 0.5 deep)
 set -g V6LIGHT (__tmux_lives_theme_render '#a5b58c' mono 0.40 0.15 0.5 deep)
-set -g V6DARKMAXL 0
-for h in $V6DARK
-    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
-    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
-end
-set -g V6LIGHTMINL 1
-for h in $V6LIGHT
-    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
-    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
-end
-t "render: the seeds own LIGHTNESS places the whole palette" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
+# The narrowed "own lightness still places the small roles" + "big roles no
+# longer drag pale" assertion pair for this fixture lives further down, after
+# __t6_bounds is defined (it measures the big-three bound directly) — see the
+# "constrain: big-role lightness clamp" section below the palette-bounds
+# helpers. $V6DARK/$V6LIGHT stay defined here, unchanged, for that use.
 
 # the recipe fields must each move the output
 t "render: peak chroma moves the palette" 1 (test (__tmux_lives_theme_render '#5f772b' mono 0.40 0.04 0.5 deep | string join ',') != (__tmux_lives_theme_render '#5f772b' mono 0.40 0.24 0.5 deep | string join ','); and echo 1; or echo 0)
@@ -2919,6 +3155,365 @@ function __t6_families --description 'v6 test helper: seven hexes -> hue-family 
     echo $f
 end
 
+# --- palette bounds ----------------------------------------------------------
+# Bounds separating the palettes the user picked from the ones they rejected,
+# derived from the liked set only and checked against the rejects as a holdout.
+# See docs/superpowers/specs/2026-08-28-palette-constraints-design.md.
+#   1. peak chroma           0.105 <= pk <= 0.180   (NOT enforced here — see below)
+#   2. big-three mean chroma        <= 0.095
+#   3. big-three max lightness      <= 0.70
+# Roles are bar sep tabs active windows cap text; the big three are 1, 3 and 6.
+#
+# Bound 1 is deliberately NOT part of __t6_inbounds. At a dark seed the sRGB
+# gamut caps peak chroma at 0.082 however much the recipe requests, so no engine
+# change can satisfy it — it is the catalog's job to pick a workable peakC.
+# __t6_bounds still REPORTS it so the surface plan can check it later.
+function __t6_bounds --description 'v6 test helper: seven role hexes -> "<peakC> <big3meanC> <big3maxL>". The measuring instrument for the palette bounds.'
+    # Arity guard, matching its sibling __t6_env: the big-three walk below is
+    # `for i in 1 3 6`, which THROWS on short input rather than reporting
+    # anything a caller can act on. A caller that lost a role wants a zeroed
+    # measurement it can assert against, not a stack trace.
+    test (count $argv) -eq 7; or begin
+        echo "0 0 0"
+        return
+    end
+    set -l Ls
+    set -l Cs
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        set -a Ls $o[1]
+        set -a Cs $o[2]
+    end
+    set -l pk 0
+    for c in $Cs
+        test "$c" -gt "$pk"; and set pk $c
+    end
+    set -l bigL 0
+    for i in 1 3 6
+        test "$Ls[$i]" -gt "$bigL"; and set bigL $Ls[$i]
+    end
+    printf '%s %s %s\n' $pk (math "($Cs[1] + $Cs[3] + $Cs[6]) / 3") $bigL
+end
+
+function __t6_inbounds --description 'v6 test helper: 1 if the seven hexes satisfy the two ENGINE-enforced bounds (big-three chroma and lightness). Bound 1 is the catalog s job and is excluded on purpose.'
+    set -l b (string split ' ' -- (__t6_bounds $argv))
+    test "$b[2]" -gt 0.095; and echo 0; and return
+    test "$b[3]" -gt 0.70; and echo 0; and return
+    echo 1
+end
+
+# The helper must measure, not merely run.
+set -g B6M (string split ' ' -- (__t6_bounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb'))
+t "bounds: helper returns three fields" 3 (count $B6M)
+# ...and it must survive short input rather than throwing out of `for i in 1 3 6`.
+t "bounds: short input is measured as zeroes, not a stack trace" "0 0 0" (__t6_bounds '#4b4f48' '#82ab62' '#5d6c52')
+t "bounds: peak chroma is the palette maximum, not the first role" 1 (test "$B6M[1]" -gt 0.10; and echo 1; or echo 0)
+t "bounds: big-three max lightness ignores the small roles" 1 (test "$B6M[3]" -lt 0.70; and echo 1; or echo 0)
+
+# The three sanity assertions above ride on the REFERENCE fixture, whose small
+# roles (sep, active, windows, text) all happen to sit under the 0.70 bound
+# too - proven by mutation: swapping the big-three index set from 1/3/6 to a
+# contiguous 1/2/3 leaves the whole suite green, because sep's L (0.694) is
+# higher than cap's (0.602) but still under 0.70. So nothing above actually
+# PINS that the big three ARE bar/tabs/cap; a future "simplification" of that
+# index set would silently start measuring the wrong three roles with every
+# assertion above still passing.
+#
+# This fixture exists for ONE purpose: pin the index set itself, and it must
+# NOT be folded into the reference fixture above - the reference fixture's
+# job is the peakC/meanC/maxL sanity numbers, and its small roles being
+# under-bound is exactly what makes it unable to do this job too. Big three
+# (bar/tabs/cap, roles 1/3/6) are all comfortably dark (L 0.37-0.44, measured);
+# sep (role 2, a SMALL role) is comfortably light (L 0.88, reusing the same
+# light hex the reference/holdout fixtures already use for their light
+# roles) - light enough that swapping it into the big three breaches 0.70 by
+# a wide margin (0.88 vs 0.70), not a near-miss like the reference fixture's
+# sep. Measured against BOTH index sets directly: big3maxL is 0.4396 at the
+# real 1/3/6 and 0.8798 at the mutated 1/2/3.
+set -g B6IDX (string split ' ' -- (__t6_bounds '#3d4238' '#c9e0bb' '#4a5744' '#7d9470' '#9fb692' '#3f4a3a' '#c9e0bb'))
+t "bounds: big-three index set is bar/tabs/cap, not a contiguous window" 1 (test "$B6IDX[3]" -lt 0.70; and echo 1; or echo 0)
+t "bounds: the index-set fixture also passes via __t6_inbounds" 1 (__t6_inbounds '#3d4238' '#c9e0bb' '#4a5744' '#7d9470' '#9fb692' '#3f4a3a' '#c9e0bb')
+
+# HOLDOUT. Rejected by the user in live judgement, NOT used to derive anything.
+# The pale-pink triadic violates bound 3 (big-three lightness 0.88) and the
+# over-hot triadic violates bound 2 (big-three chroma 0.126); both are engine
+# bounds. The flat foundation violates only bound 1, so it is asserted against
+# __t6_bounds directly rather than through __t6_inbounds.
+t "bounds holdout: the pale-pink triadic fails" 0 (__t6_inbounds '#4b4f48' '#96787b' '#f9c9cc' '#91a484' '#a0bddd' '#5d6875' '#c9e0bb')
+t "bounds holdout: the over-hot triadic fails" 0 (__t6_inbounds '#b71445' '#65aeff' '#5b9a00' '#ffbac0' '#65a3ea' '#2d2424' '#c9e0bb')
+set -g B6FLAT (string split ' ' -- (__t6_bounds '#4b4f48' '#8b9684' '#5c6c51' '#9eb38f' '#9eb38f' '#6d8b55' '#c3d9b4'))
+t "bounds holdout: the flat foundation is under the peak-chroma floor" 1 (test "$B6FLAT[1]" -lt 0.105; and echo 1; or echo 0)
+# ...and the palette they love must pass, or the bounds are simply wrong.
+t "bounds: the reference mono passes the engine bounds" 1 (__t6_inbounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb')
+
+# --- constrain: big-role lightness clamp (bound 3) ---------------------------
+# C1b: no arrangement table can fix a window that sits entirely above the
+# bound. Measured: at a light seed with a narrow span, ramp index 1 reaches
+# L 0.77. The clamp is what makes bound 3 unconditional.
+set -g A6LIGHT (__tmux_lives_theme_render '#dfe8c8' mono 0.20 0.14 0.5 deep)
+t "constrain: a light seed still yields seven roles" 7 (count $A6LIGHT)
+set -g A6LB (string split ' ' -- (__t6_bounds $A6LIGHT))
+# TWO-SIDED on purpose. The upper half is the bound; the lower half is what
+# makes the assertion able to see an over-shooting clamp. Moving ONLY the
+# nudge loop's exit test to 0.55 is invisible to every "did not fire" check
+# below — that loop is unreachable unless the clamp fires — and it left the
+# suite at ALL PASS while dumping every clamped big role a tenth of a unit
+# darker than the bound requires. Measured here: 0.694068, hard against the
+# 0.695 target; under that mutation it lands near 0.55.
+t "constrain: a light seed's big roles stay under the lightness bound" 1 (test "$A6LB[3]" -le 0.70; and echo 1; or echo 0)
+t "constrain: the clamp lands AT the bound rather than overshooting past it" 1 (test "$A6LB[3]" -gt 0.60; and echo 1; or echo 0)
+# ...and the clamp must not fire when it is not needed. "Did not fire" has to be
+# BYTE IDENTITY, not a bound check: this assertion used to read
+# `$A6NB[3] -le 0.70`, which is precisely what a clamp that DID fire
+# guarantees — a duplicate of the bound assertion two lines up, dressed as its
+# opposite. Two over-firing mutations proved it blind: clamping at 0.55, and
+# moving only the loop exit to 0.55, each left the suite at ALL PASS while
+# changing 1,414 of 3,024 renders.
+#
+# Byte identity through the WHOLE of constrain is the right instrument here and
+# not an over-reach: for this fixture the chroma clamp and no-white leave the
+# big roles alone too (only text moves), so any difference in roles 1/3/6 means
+# a clamp fired on a palette that did not need one.
+function __t6_prearrange --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 test helper: everything __tmux_lives_theme_render does UP TO but not including constrain — anchors, ramp, round-robin, arrange — so a test can compare what constrain was handed against what it emitted. Its own fidelity is asserted below rather than assumed: constrain(prearrange(r)) must equal render(r).'
+    set -l s (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "$seedHex"))
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    set -l pairs (__tmux_lives_theme_ramp $s[1] "$Lspan" "$peakC" "$peakPos" 7)
+    set -l na (count $anchors)
+    set -l hexes
+    for i in (seq 7)
+        set -l lc (string split ' ' -- $pairs[$i])
+        # Capture the index FIRST — a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l ai (math "(($i - 1) % $na) + 1")
+        set -l ah $anchors[$ai]
+        set -a hexes (__tmux_lives_oklch_hex $lc[1] $lc[2] $ah)
+    end
+    __tmux_lives_theme_arrange "$arrangement" $hexes
+end
+#
+# The FIXTURE is load-bearing too, and the obvious one does not work: at
+# #5f772b/mono/0.55/0.11/0.5/deep the big roles (1/3/6) enter at L 0.259 /
+# 0.351 / 0.441, so a clamp mutated to 0.55 still does not fire on them and
+# byte identity holds either way — measured, both mutations stayed ALL PASS
+# against that fixture.
+# The fixture must sit BETWEEN the mutated threshold and the real one, so the
+# guard below pins that window rather than leaving it to be re-broken silently.
+set -g A6NOFIRE_PRE (__t6_prearrange '#87cb48' mono 0.45 0.13 0.4 deep)
+set -g A6NOFIRE_POST (__tmux_lives_theme_constrain $A6NOFIRE_PRE)
+# The helper must reproduce render's own pipeline, or the comparison is against
+# a palette constrain never saw.
+set -g A6NOFIRE_REF (__tmux_lives_theme_render '#87cb48' mono 0.45 0.13 0.4 deep)
+t "constrain: the pre-constrain helper reproduces render's pipeline" 1 (test "$A6NOFIRE_POST" = "$A6NOFIRE_REF"; and echo 1; or echo 0)
+set -g A6NOFIRE_MAXL 0
+for i in 1 3 6
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NOFIRE_PRE[$i]))
+    test "$o[1]" -gt "$A6NOFIRE_MAXL"; and set -g A6NOFIRE_MAXL $o[1]
+end
+t "constrain: the no-fire fixture enters close under the clamp, not far below it" 1 (test "$A6NOFIRE_MAXL" -gt 0.60; and test "$A6NOFIRE_MAXL" -lt 0.695; and echo 1; or echo 0)
+set -g A6NOFIRE 1
+for i in 1 3 6
+    test "$A6NOFIRE_PRE[$i]" = "$A6NOFIRE_POST[$i]"; or set -g A6NOFIRE 0
+end
+t "constrain: a normal seed is untouched by the lightness clamp" 1 $A6NOFIRE
+
+# The seed's lightness still places the palette, but the BIG roles are now
+# clamped so a light seed cannot drag the large surfaces pale. The claim
+# therefore narrows to the small roles (2 sep, 4 active, 5 windows, 7 text).
+# $V6DARK/$V6LIGHT are the hue-matched pair set far above, before this
+# section — unchanged from their original definition.
+#
+# Narrowed AGAIN by task 6 (no-white): text (7) is dropped from this set.
+# Its lightness is governed by the contrast floor against bar, not by the
+# seed — and the floor's light-side ceiling is now 0.88, so the light
+# direction is only reachable when bar <= 0.48 (up = bar + 0.40 <= 0.88).
+# V6LIGHT's own bar sits at L 0.550, so up = 0.95 > 0.88 and the floor
+# correctly falls to the dark side (measured: text lands at L 0.142) even
+# though the seed itself is light — the floor overriding the seed here is
+# the no-white rule doing its job, not a defect in either.
+set -g V6DARKMAXL 0
+for i in 2 4 5
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6DARK[$i]))
+    test "$o[1]" -gt "$V6DARKMAXL"; and set -g V6DARKMAXL $o[1]
+end
+set -g V6LIGHTMINL 1
+for i in 2 4 5
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6LIGHT[$i]))
+    test "$o[1]" -lt "$V6LIGHTMINL"; and set -g V6LIGHTMINL $o[1]
+end
+t "render: the seeds own LIGHTNESS still places the small roles" 1 (test "$V6DARKMAXL" -lt "$V6LIGHTMINL"; and echo 1; or echo 0)
+set -g V6LIGHTB (string split ' ' -- (__t6_bounds $V6LIGHT))
+t "render: but a light seed no longer drags the big roles pale" 1 (test "$V6LIGHTB[3]" -le 0.70; and echo 1; or echo 0)
+
+# Review-caught MINOR: the paragraph above narrowed a claim by hand-verified
+# prose alone ("V6LIGHT's own bar sits at L 0.550... text lands at L 0.142")
+# with nothing pinning the surprising part real: a LIGHT seed whose bar
+# exceeds ~0.48 gets its own text forced DARK, not light. Make it an
+# assertion rather than a comment.
+set -g V6LIGHTTXT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $V6LIGHT[7]))
+t "render: a light seed with bar > 0.48 still gets DARK text, not light" 1 (test "$V6LIGHTTXT[1]" -lt 0.30; and echo 1; or echo 0)
+
+# Review-caught IMPORTANT: the clamp only ever passes the ROLE's OWN measured
+# chroma/hue into __tmux_lives_oklch_hex, but that function gamut-clamps
+# internally, and the sRGB ceiling at L 0.70 is lower than at the pre-clamp
+# lightness and is hue-dependent, not monotonic. So "hue and chroma survive"
+# is not fully true — hue does (drift stays under 0.5 degrees even under gamut
+# pressure), chroma does not always (a saturated, light big role pulled down
+# to 0.70 can lose real chroma when the new, lower ceiling is the binding
+# constraint — see the comment above the clamp in production for the measured
+# worst case). What CAN be pinned is the common case: when the recipe stays
+# inside the catalog's own peakC range and the gamut has headroom at both
+# lightnesses, chroma should survive the clamp materially intact rather than
+# being silently discarded. Direct fixtures via __tmux_lives_theme_constrain,
+# not through render/arrange — role 1 (bar) is never touched by the floor
+# stage below (only out[7], and only out[2..6] as swap candidates), so
+# inspecting out[1] after constrain isolates the lightness clamp's effect on
+# chroma from everything else in this function.
+#
+# Swept across three widely separated hues so this is not cherry-picked at one
+# point on the wheel; each iteration also proves the clamp actually FIRED
+# (source L > 0.70, result L <= 0.70), so the gap check cannot pass vacuously
+# on a fixture that never reached the clamp.
+#
+# Tolerance 0.01 absolute: measured drift for a genuinely in-gamut role is
+# ~0.0004-0.0011 (an order-of-magnitude margin below 0.01), while a
+# constructed near-gamut-edge case measured up to ~0.04 absolute — so 0.01 is
+# loose enough to absorb ordinary float/gamut noise but tight enough to catch
+# a regression that discards the requested chroma outright.
+set -g A6CGAP_OK 1
+for H in 60 120 240
+    set -l srchex (__tmux_lives_oklch_hex 0.83 0.11 $H)
+    set -l srclc (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $srchex))
+    set -l fix $srchex '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb'
+    set -l out (__tmux_lives_theme_constrain $fix)
+    set -l postlc (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    test "$srclc[1]" -gt 0.70; or set -g A6CGAP_OK 0
+    test "$postlc[1]" -le 0.70; or set -g A6CGAP_OK 0
+    set -l gap (math "abs($postlc[2] - $srclc[2])")
+    test "$gap" -le 0.01; or set -g A6CGAP_OK 0
+end
+t "constrain: chroma survives materially intact when the gamut allows it" 1 $A6CGAP_OK
+
+# --- constrain: big-role chroma clamp (bound 2) -------------------------------
+# Bound 2: the three large surfaces must not compete. Scale their chroma down
+# together, preserving their relative structure rather than flattening them.
+set -g A6HOT (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#87cb48' triadic 0.62 0.14 0.5 centre)))
+t "constrain: big-three chroma is held under the bound" 1 (test "$A6HOT[2]" -le 0.095; and echo 1; or echo 0)
+# The clamp must SCALE, not flatten: the three keep their relative order.
+set -g A6SCALED (__tmux_lives_theme_render '#87cb48' triadic 0.62 0.14 0.5 centre)
+set -g A6SC1 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6SCALED[1]))
+set -g A6SC3 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6SCALED[3]))
+t "constrain: the clamp scales rather than flattening (big roles still differ)" 1 (test (math "abs($A6SC1[2] - $A6SC3[2])") -gt 0.005; and echo 1; or echo 0)
+# The peak belongs on a SMALL role. deep puts ramp index 4 - where peakPos 0.5
+# peaks - on sep, so a vivid recipe keeps its peak.
+set -g A6VIV (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#7a00ff' triadic 0.65 0.26 0.5 deep)))
+t "constrain: a vivid recipe still reaches high chroma when its peak is on a small role" 1 (test "$A6VIV[1]" -ge 0.22; and echo 1; or echo 0)
+
+# ...and scaling chroma must not undo the LIGHTNESS bound the previous stage
+# just established. Re-encoding a role at a new chroma re-quantises it to 8-bit
+# sRGB, which moves its lightness: measured, #00ffff/square/0.35/0.14/0.3/centre
+# left role 6 at L 0.699986 after the lightness clamp and L 0.70124 after the
+# chroma clamp. The clamp's target therefore carries 0.005 of headroom - see
+# the comment on the clamp itself. These three combinations breached bound 3
+# before that headroom existed; the shipped probe grid missed them because its
+# third recipe asked for peakC 0.13 rather than 0.14.
+set -g A6ERODE_OK 1
+for pat in bright centre accent
+    test (__t6_inbounds (__tmux_lives_theme_render '#87cb48' square 0.45 0.14 0.4 $pat)) -eq 1; or set -g A6ERODE_OK 0
+end
+t "constrain: the chroma clamp does not erode the lightness bound" 1 $A6ERODE_OK
+
+# --- constrain: no white (C3) --------------------------------------------------
+# C3: no role may be a near-neutral near-white. A tinted light colour is fine.
+function __t6_nowhite_ok --description 'v6 test helper: 1 if no role is a near-neutral near-white'
+    for h in $argv
+        set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $h))
+        test "$o[1]" -gt 0.88; and echo 0; and return
+        if test "$o[1]" -gt 0.72
+            test "$o[2]" -lt 0.055; and echo 0; and return
+        end
+    end
+    echo 1
+end
+# square/centre at the user's own seed rendered cap #f8f3fb - L 0.97, chroma 0.008.
+t "nowhite: the square recipe has no near-white role" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#87cb48' square 0.62 0.14 0.5 centre))
+t "nowhite: a wide-span mono has no near-white role" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#5f772b' mono 0.70 0.14 0.5 bright))
+# ...and no-white must not cost legibility: the floor still holds.
+set -g A6NWF (__tmux_lives_theme_render '#5f772b' mono 0.70 0.14 0.5 bright)
+set -g A6NWB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[1]))
+set -g A6NWT (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NWF[7]))
+t "nowhite: the contrast floor still holds after the cap" 1 (test (math "abs($A6NWT[1] - $A6NWB[1])") -ge 0.40; and echo 1; or echo 0)
+
+# Review-caught IMPORTANT: no-white ran before the floor, but neither of the
+# floor's OWN two exit paths re-checked its result against the no-white
+# bounds. The nudge loop only ever checked the 0.40 gap, and the fallback
+# beneath it still targeted a literal 0.97. A live counter-example: bar sits
+# at L 0.4798, so up = 0.8798 stays under the 0.88 ceiling and the loop tries
+# the light side — but the round trip of that target lands 0.000215 short of
+# the 0.40 gap, and every subsequent +0.01 nudge is immediately reclamped
+# back to the SAME 0.88 candidate (identical hex, ten times), so the loop
+# makes zero progress and falls through to the fallback, which used to emit
+# a literal-0.97 near-white with no re-check at all.
+t "nowhite: a stuck stage-two nudge does not fall through to white" 1 (__t6_nowhite_ok (__tmux_lives_theme_constrain '#475996' '#585b9b' '#554a88' '#695290' '#694681' '#7f5289' '#7c4778'))
+
+# Review-caught IMPORTANT (miniature form): the loop's EARLY-BREAK exit is
+# verified only against the 0.40 gap, never against the 0.88 ceiling itself —
+# a target placed AT 0.88 can round trip UP past it (the mirror image of the
+# stuck-loop case above, which rounds DOWN). Measured: this recipe's text
+# lands at L 0.88045, a hair over the ceiling, on the loop's successful exit.
+t "nowhite: the loop's early-break exit does not overshoot the ceiling" 1 (__t6_nowhite_ok (__tmux_lives_theme_render '#5f772b' mono 0.35 0.10 0.1 centre))
+
+# Review-caught IMPORTANT (round 3): the C3 re-check above fixed no-white but
+# introduced the mirror bug on the OTHER hard rule -- it clamps L down to
+# satisfy the ceiling and never re-checks whether that clamp just eroded the
+# 0.40 contrast floor it is not allowed to trade away. Live counter-example:
+# bar L 0.479426, and the round-tripped candidate before C3 sits at
+# L 0.880866 (0.000866 over the ceiling) -- clamping it down lands text at
+# L 0.874739, gap 0.395313, under the floor. Both bounds must hold together.
+function __t6_floor_ok --description 'v6 test helper: 1 if role 1 (bar) and role 7 (text) clear the 0.40 contrast gap'
+    set -l b (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[1]))
+    set -l t (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $argv[7]))
+    test (math "abs($t[1] - $b[1])") -ge 0.40; and echo 1; or echo 0
+end
+set -g A6EROD (__tmux_lives_theme_render '#475996' mono 0.30 0.12 0.3 bright)
+t "nowhite: the C3 clamp does not erode the contrast floor it must not trade away" 1 (__t6_floor_ok $A6EROD)
+t "nowhite: the C3-clamp-erosion recipe also stays clear of white" 1 (__t6_nowhite_ok $A6EROD)
+
+# --- constrain: C2, the floor's swap may only draw from the SMALL roles -------
+# Spec constraint C2. The swap trades text for whichever colour sits furthest
+# in lightness from bar — and if the candidate set includes a BIG role, the
+# colour it receives in exchange is text's, which can be light. That promotes a
+# large surface to the light end and breaks bound 3 in the one stage that runs
+# after every clamp, so nothing downstream can catch it.
+#
+# The candidates are therefore 2 4 5 (sep, active, windows), never (seq 2 6).
+# This is asserted at constrain's own contract boundary rather than through a
+# rendered recipe on purpose: no shipped arrangement table reaches it today
+# (swept, `best` is only ever 7, 5, 4 or 2), so a render-level assertion would
+# pass vacuously and prove nothing. The table is exactly what a future task
+# edits, which is why C2 is a property of constrain, not of the six tables.
+#
+# The fixture: bar L 0.659, text L 0.880 (gap 0.220, so the floor fires), and
+# cap the furthest thing from bar at L 0.100. With big roles in the candidate
+# set the swap picks cap, and cap comes back holding text's L 0.880 — measured,
+# a big role emitted at L 0.879756, breaching bound 3 by 0.18 from an input
+# whose big roles all entered at or below L 0.659.
+set -g A6C2 (__tmux_lives_oklch_hex 0.66 0.05 140) (__tmux_lives_oklch_hex 0.55 0.09 140) (__tmux_lives_oklch_hex 0.60 0.05 140) (__tmux_lives_oklch_hex 0.50 0.08 140) (__tmux_lives_oklch_hex 0.45 0.07 140) (__tmux_lives_oklch_hex 0.10 0.04 140) (__tmux_lives_oklch_hex 0.8798 0.08 140)
+# The fixture must actually reach the swap, or the assertion below is vacuous:
+# every big role starts under the bound, and bar and text start inside the floor.
+set -g A6C2IN 1
+for i in 1 3 6
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[$i]))
+    test "$o[1]" -le 0.70; or set -g A6C2IN 0
+end
+set -g A6C2B (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[1]))
+set -g A6C2T (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6C2[7]))
+test (math "abs($A6C2T[1] - $A6C2B[1])") -lt 0.40; or set -g A6C2IN 0
+t "constrain C2: the swap fixture enters in bounds and inside the floor" 1 $A6C2IN
+set -g A6C2OUT (__tmux_lives_theme_constrain $A6C2)
+t "constrain C2: the floor's swap never promotes a big role to the light end" 1 (__t6_inbounds $A6C2OUT)
+# ...and the floor it exists to serve still holds on the same fixture.
+t "constrain C2: restricting the candidates still satisfies the contrast floor" 1 (__t6_floor_ok $A6C2OUT)
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
@@ -2948,10 +3543,14 @@ t "render: mono stays one hue family" 1 (__t6_families $V6MONO)
 # render returns ROLE order, so recover ramp order first by asking arrange where
 # seven distinguishable inputs land. DERIVED, never hardcoded — the pattern's
 # index list lives inside a switch the test cannot read, and a hardcoded inverse
-# would rot silently if the pattern were ever retuned. The fixture is WIDE on
-# purpose, so arrange's text floor is satisfied by the swap alone and stage two
-# never fires; a replaced colour would break the recovery, which is why the
-# fixture's integrity is asserted rather than assumed.
+# would rot silently if the pattern were ever retuned. The fixture is WIDE for
+# historical reasons: before the contrast floor moved out of arrange into
+# __tmux_lives_theme_constrain, that width kept the swap alone satisfying the
+# floor so stage two never fired and no colour got replaced inside arrange.
+# arrange has no text floor at all any more — it is a pure permutation
+# unconditionally, regardless of fixture width — so a replaced colour can no
+# longer break the recovery here; the fixture's integrity is still asserted
+# rather than assumed, just no longer for that reason.
 set -g V6FIX '#1d1d1d' '#3a3a3a' '#575757' '#747474' '#919191' '#aeaeae' '#f2f2f2'
 set -g V6PERM (__tmux_lives_theme_arrange deep $V6FIX)
 set -g V6FIXOK 1
@@ -3074,7 +3673,10 @@ end
 # high-end assertion unsatisfiable through no fault of the engine — which is
 # exactly what the first draft of this plan did.
 set -g E6MUTED (string split ' ' -- (__t6_env '#5f772b' mono 0.25 0.04 0.5 deep))
-set -g E6VIVID (string split ' ' -- (__t6_env '#7a00ff' triadic 0.65 0.26 0.5 accent))
+# deep, not accent: bound 2 scales big-role chroma down, so a recipe whose peak
+# lands on a big role no longer reaches the high end. The peak belongs on a
+# small role — which is where it sits in the palette the user likes most.
+set -g E6VIVID (string split ' ' -- (__t6_env '#7a00ff' triadic 0.65 0.26 0.5 deep))
 
 t "range: a muted recipe stays muted" 1 (test "$E6MUTED[1]" -lt 0.08; and echo 1; or echo 0)
 t "range: a vivid recipe actually reaches high chroma" 1 (test "$E6VIVID[1]" -gt 0.20; and echo 1; or echo 0)
@@ -3103,7 +3705,27 @@ t "range: triadic yields more than one" 1 (test "$E6VIVID[3]" -gt 1; and echo 1;
 # span peak chroma 0.044-0.247 and lightness span 0.20-0.69. Held as a holdout,
 # never as training data: the question they answered was "do I like these
 # colours", not "should this be a scheme".
-t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.06; and echo 1; or echo 0)
+#
+# Widened from 0.06 by the no-white fix (review-caught): E6MUTED's own text
+# role is pushed to L~0.81 by the PRE-EXISTING legibility floor regardless of
+# the recipe's requested chroma, and once C3 correctly re-checks BOTH of the
+# floor's exit paths, that pushed-light role can no longer stay near-neutral
+# — it is floored at C 0.055 and the hex round trip can nudge it up further.
+# Measured across six seeds at this exact recipe: 0.055-0.061, never lower.
+# This is a structural floor, not a fluke of one seed: any sufficiently
+# muted recipe whose ramp gets a role pushed light for legibility now has
+# its peak chroma bounded below by ~0.06, not by whatever the recipe asked
+# for. 0.07 keeps real margin above the measured band while still meaning
+# "low end" against E6VIVID's 0.26.
+#
+# NB (review-caught): this 0.0605 measured floor sits ABOVE the 0.044 low
+# end of the user's own liked-palette holdout quoted two paragraphs up. That
+# gap is a legitimate, accepted cost of the no-white rule -- the user chose
+# it knowingly (see [[never-white-and-muted-is-a-destination]]) -- not a
+# defect, and not something a future fix should try to close by loosening
+# the no-white chroma floor. Do not read the 0.07 bound here as evidence the
+# engine still reaches 0.044; it no longer can, once a role is pushed light.
+t "range: the envelope reaches the low end of the users liked palettes" 1 (test "$E6MUTED[1]" -le 0.07; and echo 1; or echo 0)
 t "range: the envelope reaches the high end of the users liked palettes" 1 (test "$E6VIVID[1]" -ge 0.22; and echo 1; or echo 0)
 
 # The gamut cap is hue-dependent and that is CORRECT — sRGB cannot hold high
@@ -3112,5 +3734,39 @@ t "range: the envelope reaches the high end of the users liked palettes" 1 (test
 set -g E6GREEN (string split ' ' -- (__t6_env '#5f772b' mono 0.45 0.26 0.5 deep))
 set -g E6PURPLE (string split ' ' -- (__t6_env '#7a00ff' mono 0.45 0.26 0.5 deep))
 t "range: the same requested chroma is gamut-capped differently by hue" 1 (test (math "$E6PURPLE[1] - $E6GREEN[1]") -gt 0.05; and echo 1; or echo 0)
+
+# --- Task 7: the bounds guard across arrangements and seeds ------------------
+# The regression guard for the palette constraints. Every arrangement, at seeds
+# spanning the space that broke things: the user's own, a dark one, a light one,
+# a saturated one, a desaturated one. Bound 1 is excluded by construction -
+# see __t6_inbounds - because the gamut, not the engine, decides it.
+set -g A6FAILS
+for seed in '#87cb48' '#5f772b' '#2f6fb3' '#7a00ff' '#dfe8c8' '#1a2010'
+    for pat in (__tmux_lives_theme_arrangements)
+        for recipe in 'mono 0.55 0.11 0.5' 'triadic 0.62 0.14 0.5' 'square 0.45 0.13 0.4'
+            set -l rc (string split ' ' -- $recipe)
+            set -l pal (__tmux_lives_theme_render $seed $rc[1] $rc[2] $rc[3] $rc[4] $pat)
+            if test (count $pal) -ne 7
+                set -a A6FAILS "$seed/$rc[1]/$pat:norender"
+                continue
+            end
+            test (__t6_inbounds $pal) -eq 1; or set -a A6FAILS "$seed/$rc[1]/$pat"
+            # no-white belongs in the ratchet too, and specifically because its
+            # LIGHTNESS half had no coverage at all: disabling only the L > 0.88
+            # branch (leaving the chroma floor intact) left the whole suite at
+            # ALL PASS while 703 of 3,024 swept renders breached no-white, some
+            # at L 0.97. Every targeted `nowhite:` assertion picks a recipe
+            # where the CHROMA branch sets the changed flag and the nudge loop
+            # enforces the ceiling as a side effect, so none of them can see the
+            # lightness branch. 678 of those violations already carried
+            # C >= 0.055, so only the lightness cap can rescue them — and the
+            # first is this grid's own first seed and first recipe.
+            test (__t6_nowhite_ok $pal) -eq 1; or set -a A6FAILS "$seed/$rc[1]/$pat:white"
+        end
+    end
+end
+t "bounds: every arrangement satisfies the engine bounds and no-white at every probe seed" 0 (count $A6FAILS)
+# Surface WHICH combinations failed - a bare count sends the next reader hunting.
+test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

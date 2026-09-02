@@ -1,8 +1,12 @@
 # Theme v6 — palette constraints
 
-**Status:** design, approved in principle 2026-08-28. Not built.
+**Status:** SHIPPED on `feat/palette-constraints`, and this document has been amended to describe what actually shipped rather than what was proposed. Where the two differed, the code is authoritative and the difference is called out inline.
 
-**Supersedes nothing.** The v6 core engine (`docs/superpowers/specs/2026-08-23-theme-engine-v6-design.md`) is unchanged and remains the authority on how a palette is *generated*. This spec adds the constraints that decide whether a generated palette is *acceptable*, and makes two structural corrections to the arrangement stage so the engine can satisfy them.
+**Supersedes nothing.** The v6 core engine (`docs/superpowers/specs/2026-08-23-theme-engine-v6-design.md`) is unchanged and remains the authority on how a palette is *generated*. This spec adds the constraints that decide whether a generated palette is *acceptable*.
+
+**Amended: the constraints do NOT live in the arrangement stage.** The original text called them "two structural corrections to the arrangement stage", and pre-flight on the plan showed that placing them there breaks eleven existing assertions: `__tmux_lives_theme_arrange` is contractually a PURE PERMUTATION, and several tests recover the role-to-ramp mapping by feeding it a fixture and observing where each colour lands — including the four that pin v6's round-robin hue mapping. Clamping and no-white SUBSTITUTE colours, which destroys that contract. They therefore ship in a new `__tmux_lives_theme_constrain`, applied by `__tmux_lives_theme_render` after arranging, which takes it from eleven breaks to six. `arrange` remains a pure permutation and no longer carries the text floor at all.
+
+**Stage order inside `constrain` is load-bearing and fixed:** big-role lightness clamp -> big-role chroma clamp -> no-white -> text-contrast floor LAST, because legibility is correctness and every earlier stage can move `bar` or `text`.
 
 ## The problem
 
@@ -99,19 +103,27 @@ So the constraint has two parts:
 
 **C1b — clamp any big role that still exceeds the bound**, pulling its lightness down to it while keeping hue and chroma. This is the same mechanism the text floor already uses in its stage two, so it is a known, tested shape rather than new machinery. It handles the light-seed case that C1a structurally cannot.
 
+**Amended: the clamp targets 0.695, not the 0.70 bound, and the extra 0.005 is quantisation headroom rather than a tightening of bound 3.** The clamp nudges until the ROUND-TRIPPED lightness clears; the chroma clamp then re-encodes those same three roles at a new chroma, and an 8-bit sRGB round trip at a different chroma moves lightness. Measured, `#00ffff square 0.35 0.14 0.3 centre` left `cap` at L 0.699986 after the lightness clamp and shipped it at L 0.70124 — 46 of 3,024 swept renders breached bound 3 this way. Re-checking bound 3 after the chroma clamp is the obvious fix and is the wrong one: it clears all 46 but introduces 6 bound-2 breaches (meanC 0.09503), because re-encoding at a lower lightness can round-trip to higher chroma below the gamut cusp. The two clamps genuinely fight at the quantisation floor, so the second one is given room instead. 0.005 is sized off the measured worst-case overshoot of 0.00124, roughly four times the margin needed.
+
 C1b has a deliberate consequence worth stating plainly: **the big surfaces stay dark regardless of how light the seed is.** The seed's lightness continues to position the ramp and therefore shapes the small roles and the overall spread, but it no longer drags the large surfaces pale. That is the intended reading of bound 3 — a pale large surface was rejected at every seed it appeared at — but it does narrow v6's "the seed's lightness reaches the output" claim to the small roles at light seeds.
 
 Whether the catalog keeps six arrangements or fewer is deliberately left open — see Open questions.
 
 ### C2 — the text-floor swap may not promote a big role
 
-`__tmux_lives_theme_arrange` enforces `text` clearing 0.40 OKLCH lightness from `bar`, in two stages, the first being a swap of `text` with whichever remaining colour is furthest in lightness from `bar`.
+**Status: enforced.** `__tmux_lives_theme_constrain`'s swap loop reads `for i in 2 4 5`. This is recorded explicitly because C2 was DROPPED IN TRANSIT once already: the shipped loop was `for i in (seq 2 6)`, which includes `tabs` and `cap`, and the plan's self-review mis-mapped C2 onto the ordering task, which implements something else. No task report noticed, and the whole-branch review caught it. Restored in the review fix wave.
+
+The text floor makes `text` clear 0.40 OKLCH lightness from `bar` in two stages, the first being a swap of `text` with whichever remaining colour is furthest in lightness from `bar`. (Amended: this lives in `constrain`, not in `arrange` — see the note at the top of this document.)
 
 That swap picks its partner from the actual data, so **the same named arrangement produces different role-to-lightness mappings for different palettes.** Measured at one seed: `centre` puts `cap` at L 0.35 in one palette and L 0.97 in another. The mapping is not stable, which is why this defect was hard to see and why a named arrangement could not be reasoned about.
 
 **The constraint:** the swap may only choose `text`'s partner from the small roles (`sep`, `active`, `windows`). It may never swap a big role to the light end.
 
+The reason is that a swap is an EXCHANGE: a big role chosen as the partner does not merely give up its colour, it RECEIVES `text`'s, and `text` is often light. Demonstrated at `constrain`'s own contract boundary — `cap` emitted at L 0.879756 from an input whose big roles all entered at or below L 0.659, breaching bound 3 by 0.18. The floor runs last, after both clamps, so nothing downstream can catch that.
+
 This narrows the swap's options, so stage two (pushing `text`'s lightness directly) will fire more often. That is acceptable — stage two already exists, is tested, and preserves hue.
+
+**No shipped arrangement table reaches the unrestricted case today.** Swept over 3,024 renders, the swap's `best` is only ever 7, 5, 4 or 2, and restricting the range leaves all 3,024 renders byte-identical. That is a property of the current table, and the table is exactly what a future task edits — which is why C2 belongs to `constrain` rather than to the tables, and why its guard is written at the contract boundary rather than through a rendered recipe.
 
 ### C3 — no white
 
@@ -139,7 +151,9 @@ The bounds are directly assertable on rendered output, which makes this unusuall
 - **Bounds guard.** For every catalog recipe at several seeds, assert all three bounds hold. This is the regression guard for the entire spec.
 - **Structural guard for C1a.** Assert no arrangement places `bar`, `tabs` or `cap` on a ramp index above 4. This must be checked against the arrangement table itself, not inferred from rendered output, so a future arrangement cannot be added that violates it silently.
 - **Behavioural guard for C1b.** Assert that a deliberately light seed with a narrow span — the case C1a cannot reach — still yields big roles under the bound. Without this the clamp could be deleted and every static check would stay green.
-- **Stability guard for C2.** Assert the role-to-ramp-index mapping for a given arrangement is identical across several different palettes. This is the assertion that would have caught the swap defect.
+- **Contract-boundary guard for C2.** Amended: the proposed guard here was a stability check on the role-to-ramp-index mapping across several palettes. That is not what shipped, and it would not have worked — no recipe reaches the unrestricted case through the six shipped tables, so any guard driven by rendered output passes vacuously. What ships instead is an assertion on `__tmux_lives_theme_constrain` directly, with a fixture built to reach the swap (`bar` L 0.659, `text` L 0.880 so the floor fires, `cap` the furthest thing from `bar` at L 0.100), and a companion assertion proving that fixture entered in bounds and inside the floor so the outcome cannot pass for the wrong reason. It fails with `seq 2 6` restored.
+- **No-white must ride the bounds guard, not only its own assertions.** Learned the hard way: disabling only the `L > 0.88` branch, leaving the chroma floor intact, left the entire suite green while 703 of 3,024 swept renders breached no-white, some at L 0.97. Every targeted no-white assertion happens to pick a recipe where the CHROMA branch sets the changed flag and the shared nudge loop enforces the ceiling as a side effect, so none of them can see the lightness branch at all.
+- **"Did not fire" must be byte identity, and its fixture must sit between the mutated threshold and the real one.** A bound check dressed as its opposite (`max big L <= 0.70` under a comment saying the clamp must not fire) is exactly what a clamp that DID fire guarantees. And byte identity alone is not enough either: a fixture whose big roles enter far below the clamp is insensitive to any plausible over-firing mutation.
 - **Holdout.** The three rejected palettes recorded above must fail the bounds guard. If a change ever makes them pass, the bounds have been loosened too far.
 
 Every guard must be proven to fail before the corresponding change, per this project's standing practice.
