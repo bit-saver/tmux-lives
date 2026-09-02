@@ -815,6 +815,14 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     set -l bc3 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[3]))
     set -l bc6 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[6]))
     set -l meanC (math "($bc1[2] + $bc3[2] + $bc6[2]) / 3")
+    #
+    # Budget exhaustion falls through to the last computed scale whether or not
+    # it cleared, exactly as the lightness clamp above does — deliberate, and
+    # never observed across 3,024 swept renders. Ten 0.003 steps walk the target
+    # from 0.095 to 0.065, over thirty times the ~0.0005 of round-trip error the
+    # loop exists to absorb; failing that would mean the sRGB round trip had
+    # stopped being monotonic in chroma. Shipping a big three a hair over the
+    # bound beats refusing to render a palette.
     if test "$meanC" -gt 0.095
         set -l target 0.095
         set -l tries 0
@@ -845,6 +853,13 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
             set L 0.88
             set changed 1
         end
+        # 0.055 against a 0.88 ceiling is satisfiable at EVERY hue, but not by
+        # much: swept over all 360 degrees, the sRGB chroma ceiling at L 0.88
+        # bottoms out at 0.057749 (H 269), so the floor clears the gamut by
+        # 0.00275. Moving either constant — the floor up or the ceiling down —
+        # can put the pair out of reach at the blue-violet end, and the nudge
+        # loop below would then spend its whole budget without ever satisfying
+        # both. Re-measure before touching either number.
         if test "$L" -gt 0.72; and test "$C" -lt 0.055
             set C 0.055
             set changed 1
@@ -1095,7 +1110,7 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     printf '%s\n' $out
 end
 
-function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages plus constrain: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles as a pure permutation, then constrain clamps big roles that are too pale (bound 3) and applies the text-contrast floor. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
+function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 entry point: a seed plus a RECIPE (mode, lightness span, peak chroma, peak position, arrangement) -> seven role hexes in order bar sep tabs active windows cap text. Composes the three pure stages plus constrain: anchors gives 1-4 hues, ramp gives seven (L, C) pairs, arrange maps them onto roles as a pure permutation, then constrain makes them ACCEPTABLE in four fixed stages: clamp big-role lightness (bound 3), clamp big-role chroma (bound 2), reject near-neutral near-whites, and apply the text-contrast floor LAST. All four, because a washed-out or over-hot palette is the chroma clamp and no-white doing their jobs, and a docstring naming only two sends that debugger to the wrong stage. Ramp positions take anchors ROUND-ROBIN (four anchors -> 1,2,3,4,1,2,3) so adjacent lightnesses carry different hues — contiguous blocks would read as several separate ramps rather than one palette. mono has a single anchor and needs no special case. Deterministic: the same recipe always renders the same palette, which is what lets a scheme be stored as a recipe rather than as seven hexes. Non-hex seed / unknown mode / unknown arrangement -> nothing.'
     # Reject a malformed seed BEFORE it ever reaches __tmux_lives_hex_to_rgb01:
     # that function has no shape check of its own, so a non-hex string (e.g.
     # "notacolour") reaches `math "0xno/255"` and fish's math diagnostics print

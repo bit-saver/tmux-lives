@@ -3169,6 +3169,14 @@ end
 # change can satisfy it — it is the catalog's job to pick a workable peakC.
 # __t6_bounds still REPORTS it so the surface plan can check it later.
 function __t6_bounds --description 'v6 test helper: seven role hexes -> "<peakC> <big3meanC> <big3maxL>". The measuring instrument for the palette bounds.'
+    # Arity guard, matching its sibling __t6_env: the big-three walk below is
+    # `for i in 1 3 6`, which THROWS on short input rather than reporting
+    # anything a caller can act on. A caller that lost a role wants a zeroed
+    # measurement it can assert against, not a stack trace.
+    test (count $argv) -eq 7; or begin
+        echo "0 0 0"
+        return
+    end
     set -l Ls
     set -l Cs
     for h in $argv
@@ -3197,6 +3205,8 @@ end
 # The helper must measure, not merely run.
 set -g B6M (string split ' ' -- (__t6_bounds '#4b4f48' '#82ab62' '#5d6c52' '#c9e0bb' '#a7c591' '#6f8b5b' '#c9e0bb'))
 t "bounds: helper returns three fields" 3 (count $B6M)
+# ...and it must survive short input rather than throwing out of `for i in 1 3 6`.
+t "bounds: short input is measured as zeroes, not a stack trace" "0 0 0" (__t6_bounds '#4b4f48' '#82ab62' '#5d6c52')
 t "bounds: peak chroma is the palette maximum, not the first role" 1 (test "$B6M[1]" -gt 0.10; and echo 1; or echo 0)
 t "bounds: big-three max lightness ignores the small roles" 1 (test "$B6M[3]" -lt 0.70; and echo 1; or echo 0)
 
