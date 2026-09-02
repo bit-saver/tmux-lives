@@ -910,6 +910,11 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         # 2, and restricting the range leaves all 3,024 byte-identical) — the
         # table is what a future task edits, which is why the restriction
         # belongs here rather than in the tables.
+        #
+        # This set (2 4 5) is the other half of the big-role set at :777
+        # (1 3 6) — an unlinked partition, not a shared constant. Nothing
+        # checks the two stay in sync; if either changes, check the other
+        # by hand.
         for i in 2 4 5
             set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
             set -l d (math "abs($li[1] - $lb[1])")

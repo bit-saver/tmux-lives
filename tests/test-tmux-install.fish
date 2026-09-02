@@ -3292,9 +3292,10 @@ function __t6_prearrange --argument-names seedHex mode Lspan peakC peakPos arran
 end
 #
 # The FIXTURE is load-bearing too, and the obvious one does not work: at
-# #5f772b/mono/0.55/0.11/0.5/deep the big roles enter at L 0.16-0.36, so a
-# clamp mutated to 0.55 still does not fire on them and byte identity holds
-# either way — measured, both mutations stayed ALL PASS against that fixture.
+# #5f772b/mono/0.55/0.11/0.5/deep the big roles (1/3/6) enter at L 0.259 /
+# 0.351 / 0.441, so a clamp mutated to 0.55 still does not fire on them and
+# byte identity holds either way — measured, both mutations stayed ALL PASS
+# against that fixture.
 # The fixture must sit BETWEEN the mutated threshold and the real one, so the
 # guard below pins that window rather than leaving it to be re-broken silently.
 set -g A6NOFIRE_PRE (__t6_prearrange '#87cb48' mono 0.45 0.13 0.4 deep)
