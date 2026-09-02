@@ -3683,10 +3683,21 @@ for seed in '#87cb48' '#5f772b' '#2f6fb3' '#7a00ff' '#dfe8c8' '#1a2010'
                 continue
             end
             test (__t6_inbounds $pal) -eq 1; or set -a A6FAILS "$seed/$rc[1]/$pat"
+            # no-white belongs in the ratchet too, and specifically because its
+            # LIGHTNESS half had no coverage at all: disabling only the L > 0.88
+            # branch (leaving the chroma floor intact) left the whole suite at
+            # ALL PASS while 703 of 3,024 swept renders breached no-white, some
+            # at L 0.97. Every targeted `nowhite:` assertion picks a recipe
+            # where the CHROMA branch sets the changed flag and the nudge loop
+            # enforces the ceiling as a side effect, so none of them can see the
+            # lightness branch. 678 of those violations already carried
+            # C >= 0.055, so only the lightness cap can rescue them — and the
+            # first is this grid's own first seed and first recipe.
+            test (__t6_nowhite_ok $pal) -eq 1; or set -a A6FAILS "$seed/$rc[1]/$pat:white"
         end
     end
 end
-t "bounds: every arrangement satisfies the engine bounds at every probe seed" 0 (count $A6FAILS)
+t "bounds: every arrangement satisfies the engine bounds and no-white at every probe seed" 0 (count $A6FAILS)
 # Surface WHICH combinations failed - a bare count sends the next reader hunting.
 test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
 
