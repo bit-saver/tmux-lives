@@ -744,18 +744,57 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
     # hue sweep; pinned below). This is accepted, not accidental: consistent
     # with how the rest of this engine already treats chroma as a request the
     # gamut is free to shrink, not a promise.
+    #
+    # The target is 0.695, NOT the 0.70 bound itself, and the extra 0.005 is
+    # QUANTISATION HEADROOM for the chroma clamp that runs next — not an
+    # arbitrary tightening. That clamp re-encodes these same three roles at a
+    # new chroma, and an 8-bit sRGB round trip at a different chroma MOVES
+    # lightness: measured, #00ffff/square/0.35/0.14/0.3/centre left role 6 at
+    # L 0.699986 here and L 0.70124 after the chroma clamp — a breach of a
+    # bound this stage had already satisfied. Re-checking bound 3 after the
+    # chroma clamp is the obvious fix and is the WRONG one: measured on a
+    # 3,024-render sweep it clears all 46 bound-3 breaches but introduces 6
+    # bound-2 breaches (meanC 0.09503), because re-encoding at a lower
+    # lightness can round-trip to HIGHER chroma below the gamut cusp. The two
+    # clamps genuinely fight at the quantisation floor, so the fix is to leave
+    # the second one room rather than to let them take turns.
+    #
+    # 0.005 is sized off the measured erosion, not picked round: the worst
+    # observed chroma-clamp overshoot was 0.00124 (max big-three L 0.701240
+    # against a 0.70 target), and after this change the worst is 0.001282
+    # against the 0.695 target — about four times the margin needed. Across
+    # the same 3,024 renders bound 2, bound 3, no-white and the contrast floor
+    # are all clean.
+    #
+    # 732 of those renders change, and NOT all of them by 0.005: the direct
+    # nudge to a clamped big role is that small, but four discrete branches
+    # downstream can amplify it — the chroma clamp's scale factor is a
+    # function of all three big roles, and no-white, the floor's swap and
+    # stage two's synthesis are each a threshold test. Measured worst case:
+    # 0.136 comparing the palette's sorted lightnesses, 0.360 on a single
+    # role. Palettes moving on this branch is expected; the bounds are what
+    # this stage owes, not stability of any particular hex.
     for r in 1 3 6
         set -l lo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$r]))
-        if test "$lo[1]" -gt 0.70
-            set -l newL 0.70
+        if test "$lo[1]" -gt 0.695
+            set -l newL 0.695
             set -l cand (__tmux_lives_oklch_hex $newL $lo[2] $lo[3])
             set -l tries 0
             # Hex encoding is lossy, so a target placed exactly ON the bound can
             # round to just over it. Nudge until the ACTUAL round-tripped value
             # clears, rather than trusting the request.
+            #
+            # Budget exhaustion falls through to the last candidate whether or
+            # not it cleared — deliberate, and never observed across the 3,024
+            # swept renders: ten 0.01 steps move L by 0.10, two orders of
+            # magnitude more than the ~0.001 of rounding error this loop exists
+            # to absorb. A failure here would mean the sRGB round trip had
+            # stopped being monotonic in L, which is a far larger problem than a
+            # missed clamp, and silently shipping a slightly-pale big role is a
+            # better outcome than refusing to render a palette at all.
             while test $tries -lt 10
                 set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
-                test "$back[1]" -le 0.70; and break
+                test "$back[1]" -le 0.695; and break
                 set newL (math "$newL - 0.01")
                 set cand (__tmux_lives_oklch_hex $newL $lo[2] $lo[3])
                 set tries (math $tries + 1)

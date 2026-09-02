@@ -3340,6 +3340,20 @@ t "constrain: the clamp scales rather than flattening (big roles still differ)" 
 set -g A6VIV (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#7a00ff' triadic 0.65 0.26 0.5 deep)))
 t "constrain: a vivid recipe still reaches high chroma when its peak is on a small role" 1 (test "$A6VIV[1]" -ge 0.22; and echo 1; or echo 0)
 
+# ...and scaling chroma must not undo the LIGHTNESS bound the previous stage
+# just established. Re-encoding a role at a new chroma re-quantises it to 8-bit
+# sRGB, which moves its lightness: measured, #00ffff/square/0.35/0.14/0.3/centre
+# left role 6 at L 0.699986 after the lightness clamp and L 0.70124 after the
+# chroma clamp. The clamp's target therefore carries 0.005 of headroom - see
+# the comment on the clamp itself. These three combinations breached bound 3
+# before that headroom existed; the shipped probe grid missed them because its
+# third recipe asked for peakC 0.13 rather than 0.14.
+set -g A6ERODE_OK 1
+for pat in bright centre accent
+    test (__t6_inbounds (__tmux_lives_theme_render '#87cb48' square 0.45 0.14 0.4 $pat)) -eq 1; or set -g A6ERODE_OK 0
+end
+t "constrain: the chroma clamp does not erode the lightness bound" 1 $A6ERODE_OK
+
 # --- constrain: no white (C3) --------------------------------------------------
 # C3: no role may be a near-neutral near-white. A tinted light colour is fine.
 function __t6_nowhite_ok --description 'v6 test helper: 1 if no role is a near-neutral near-white'
