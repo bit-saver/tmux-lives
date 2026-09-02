@@ -3243,10 +3243,67 @@ t "bounds: the reference mono passes the engine bounds" 1 (__t6_inbounds '#4b4f4
 set -g A6LIGHT (__tmux_lives_theme_render '#dfe8c8' mono 0.20 0.14 0.5 deep)
 t "constrain: a light seed still yields seven roles" 7 (count $A6LIGHT)
 set -g A6LB (string split ' ' -- (__t6_bounds $A6LIGHT))
+# TWO-SIDED on purpose. The upper half is the bound; the lower half is what
+# makes the assertion able to see an over-shooting clamp. Moving ONLY the
+# nudge loop's exit test to 0.55 is invisible to every "did not fire" check
+# below — that loop is unreachable unless the clamp fires — and it left the
+# suite at ALL PASS while dumping every clamped big role a tenth of a unit
+# darker than the bound requires. Measured here: 0.694068, hard against the
+# 0.695 target; under that mutation it lands near 0.55.
 t "constrain: a light seed's big roles stay under the lightness bound" 1 (test "$A6LB[3]" -le 0.70; and echo 1; or echo 0)
-# ...and the clamp must not fire when it is not needed.
-set -g A6NB (string split ' ' -- (__t6_bounds (__tmux_lives_theme_render '#5f772b' mono 0.55 0.11 0.5 deep)))
-t "constrain: a normal seed is untouched by the lightness clamp" 1 (test "$A6NB[3]" -le 0.70; and echo 1; or echo 0)
+t "constrain: the clamp lands AT the bound rather than overshooting past it" 1 (test "$A6LB[3]" -gt 0.60; and echo 1; or echo 0)
+# ...and the clamp must not fire when it is not needed. "Did not fire" has to be
+# BYTE IDENTITY, not a bound check: this assertion used to read
+# `$A6NB[3] -le 0.70`, which is precisely what a clamp that DID fire
+# guarantees — a duplicate of the bound assertion two lines up, dressed as its
+# opposite. Two over-firing mutations proved it blind: clamping at 0.55, and
+# moving only the loop exit to 0.55, each left the suite at ALL PASS while
+# changing 1,414 of 3,024 renders.
+#
+# Byte identity through the WHOLE of constrain is the right instrument here and
+# not an over-reach: for this fixture the chroma clamp and no-white leave the
+# big roles alone too (only text moves), so any difference in roles 1/3/6 means
+# a clamp fired on a palette that did not need one.
+function __t6_prearrange --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'v6 test helper: everything __tmux_lives_theme_render does UP TO but not including constrain — anchors, ramp, round-robin, arrange — so a test can compare what constrain was handed against what it emitted. Its own fidelity is asserted below rather than assumed: constrain(prearrange(r)) must equal render(r).'
+    set -l s (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 "$seedHex"))
+    set -l anchors (__tmux_lives_theme_anchors $s[3] "$mode")
+    set -l pairs (__tmux_lives_theme_ramp $s[1] "$Lspan" "$peakC" "$peakPos" 7)
+    set -l na (count $anchors)
+    set -l hexes
+    for i in (seq 7)
+        set -l lc (string split ' ' -- $pairs[$i])
+        # Capture the index FIRST — a command substitution inside a quoted list
+        # subscript is a fish "Invalid index value" ERROR, banned in this repo.
+        set -l ai (math "(($i - 1) % $na) + 1")
+        set -l ah $anchors[$ai]
+        set -a hexes (__tmux_lives_oklch_hex $lc[1] $lc[2] $ah)
+    end
+    __tmux_lives_theme_arrange "$arrangement" $hexes
+end
+#
+# The FIXTURE is load-bearing too, and the obvious one does not work: at
+# #5f772b/mono/0.55/0.11/0.5/deep the big roles enter at L 0.16-0.36, so a
+# clamp mutated to 0.55 still does not fire on them and byte identity holds
+# either way — measured, both mutations stayed ALL PASS against that fixture.
+# The fixture must sit BETWEEN the mutated threshold and the real one, so the
+# guard below pins that window rather than leaving it to be re-broken silently.
+set -g A6NOFIRE_PRE (__t6_prearrange '#87cb48' mono 0.45 0.13 0.4 deep)
+set -g A6NOFIRE_POST (__tmux_lives_theme_constrain $A6NOFIRE_PRE)
+# The helper must reproduce render's own pipeline, or the comparison is against
+# a palette constrain never saw.
+set -g A6NOFIRE_REF (__tmux_lives_theme_render '#87cb48' mono 0.45 0.13 0.4 deep)
+t "constrain: the pre-constrain helper reproduces render's pipeline" 1 (test "$A6NOFIRE_POST" = "$A6NOFIRE_REF"; and echo 1; or echo 0)
+set -g A6NOFIRE_MAXL 0
+for i in 1 3 6
+    set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $A6NOFIRE_PRE[$i]))
+    test "$o[1]" -gt "$A6NOFIRE_MAXL"; and set -g A6NOFIRE_MAXL $o[1]
+end
+t "constrain: the no-fire fixture enters close under the clamp, not far below it" 1 (test "$A6NOFIRE_MAXL" -gt 0.60; and test "$A6NOFIRE_MAXL" -lt 0.695; and echo 1; or echo 0)
+set -g A6NOFIRE 1
+for i in 1 3 6
+    test "$A6NOFIRE_PRE[$i]" = "$A6NOFIRE_POST[$i]"; or set -g A6NOFIRE 0
+end
+t "constrain: a normal seed is untouched by the lightness clamp" 1 $A6NOFIRE
 
 # The seed's lightness still places the palette, but the BIG roles are now
 # clamped so a light seed cannot drag the large surfaces pale. The claim
