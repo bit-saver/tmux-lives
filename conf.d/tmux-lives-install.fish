@@ -1646,7 +1646,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 set -U tmux_lives_theme off
                 __tmux_lives_write_fragment
                 __tmux_lives_theme_apply_live
-                echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono')"
+                echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono deep')"
                 return 0
             case --place --mode --phase
                 echo "tmux-lives setup theme: $argv[$i] was removed in v6 — a scheme is now a recipe (mode, lightness span, peak chroma, peak position, arrangement) chosen by name; see 'tmux-lives setup theme list'" >&2
@@ -1655,7 +1655,7 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 echo "tmux-lives setup theme: $argv[$i] was removed in v5.1 — it never affected the output" >&2
                 return 1
             case --rotate
-                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap to move the seed instead" >&2
+                echo "tmux-lives setup theme: --rotate was removed in v4 — a scheme now bundles its own hue arrangement; pick a different scheme by name (see 'tmux-lives setup theme list')" >&2
                 return 1
             case '*'
                 set scheme $argv[$i]; set have_scheme 1

@@ -1399,7 +1399,17 @@ t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 
 t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
 t "theme: --rotate is gone" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>/dev/null; echo $status)
-t "theme: --rotate error mentions --place" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
+# Review fix round (2026-09-03): this used to assert the --rotate error
+# mentioned --place, which was correct at v4/v5 but became stale the moment
+# this same task retired --place two case-arms above — a user following that
+# advice would have landed on the --place retirement message next, a second
+# dead end. This is the assertion that SHOULD have broken when --place was
+# retired and did not (a status/substring check that stayed accidentally
+# true), caught only by an external review pass, not by the audit that caught
+# the other assertions this task broke. Inverted + replaced: the message must
+# no longer name the dead flag, and must point at the real v6 mechanism.
+t "theme: --rotate error no longer mentions the retired --place" 0 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
+t "theme: --rotate error points at the scheme list instead" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*setup theme list*'; and echo 1; or echo 0)
 
 # --- Task 2: the four inert knobs are rejected, not silently accepted ------------
 # Verified inert before removal: swinging all four to their extremes produced
@@ -1490,6 +1500,13 @@ t "cli: --mode says what replaced it" 1 (__tmux_lives_theme_cmd --mode literal 2
 t "cli: --phase says what replaced it" 1 (__tmux_lives_theme_cmd --phase 30 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
 t "cli: setting a scheme stores all five recipe fields" "mono 0.55 0.11 0.50 deep" (__tmux_lives_theme_cmd 'mono deep' >/dev/null 2>&1; string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
 t "cli: off is still off" off (__tmux_lives_theme_cmd off >/dev/null 2>&1; echo $tmux_lives_theme)
+# Review fix round (2026-09-03): the off-case re-enable hint used to say
+# "tmux-lives setup theme mono" — bare "mono" is a v5 relationship name, not a
+# runnable v6 scheme (catalog names are two words, e.g. "mono deep"); running
+# the suggested command errored. Fixed to name the actual curated-default
+# catalog entry. Verified programmatically, not just by string match, so a
+# future catalog change that silently invalidates the hint is caught too.
+t "cli: off's re-enable hint names a scheme that actually resolves" 1 (set -l hint (__tmux_lives_theme_cmd off 2>&1 | string match -rg "setup theme ([^']+)'\)"); test -n "$hint"; and test (count (__tmux_lives_theme_recipe "$hint")) -eq 5; and echo 1; or echo 0)
 functions -e __tmux_lives_theme_apply_live; functions -c __tal_bak __tmux_lives_theme_apply_live; functions -e __tal_bak
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
