@@ -2675,6 +2675,20 @@ t "ramp: ...and a light seed keeps its full span too" 1 (test (math "abs(($R6GL[
 
 # --- v6 arrangement: ramp positions -> roles ---------------------------------
 # Roles, in order: bar sep tabs active windows cap text.
+
+# The shared ramp-index table: the ONE home of the six patterns' index lists,
+# so __tmux_lives_theme_arrange (which permutes with it) and
+# __tmux_lives_theme_constrain (which will select the text-floor swap partner
+# with it) cannot drift apart.
+t "rampidx: deep" "1 4 2 6 5 3 7" (string join ' ' (__tmux_lives_theme_rampidx deep))
+t "rampidx: bright" "4 5 3 7 6 2 1" (string join ' ' (__tmux_lives_theme_rampidx bright))
+t "rampidx: centre" "3 5 2 6 7 4 1" (string join ' ' (__tmux_lives_theme_rampidx centre))
+t "rampidx: split" "1 3 4 5 6 2 7" (string join ' ' (__tmux_lives_theme_rampidx split))
+t "rampidx: stack" "2 5 3 6 4 1 7" (string join ' ' (__tmux_lives_theme_rampidx stack))
+t "rampidx: accent" "3 5 4 6 2 1 7" (string join ' ' (__tmux_lives_theme_rampidx accent))
+t "rampidx: unknown pattern yields nothing" "" (string join ' ' (__tmux_lives_theme_rampidx nosuch))
+t "rampidx: defined" 1 (functions -q __tmux_lives_theme_rampidx; and echo 1; or echo 0)
+
 set -g A6PATS (__tmux_lives_theme_arrangements)
 t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 
@@ -2795,14 +2809,16 @@ end
 t "arrange: no big role draws a ramp index above 4 (rendered output, not a complete guard)" 1 $A6BIGOK
 
 # C1b (table check — the assertion that actually PINS the invariant): parse
-# the switch block directly out of __tmux_lives_theme_arrange rather than
-# calling it. Extracting a source region with awk and parsing it is an
-# established idiom in this file (see the migrate_v4/migrate_v41
-# body-exclusion greps above) — the brief's claim that "the list lives
-# inside a switch the test cannot read" is simply not true here. With no
-# `arrange` call, no rendering and no stage-one swap anywhere in the path,
-# nothing can mask a violation the way the rendered-output check above
-# demonstrably can.
+# the switch block directly out of __tmux_lives_theme_rampidx — the shared
+# table __tmux_lives_theme_arrange now consumes rather than owns, extracted
+# out to its own function so constrain's text-floor swap can read the same
+# indices without a second copy — rather than calling it. Extracting a
+# source region with awk and parsing it is an established idiom in this file
+# (see the migrate_v4/migrate_v41 body-exclusion greps above) — the brief's
+# claim that "the list lives inside a switch the test cannot read" is simply
+# not true here. With no `arrange` call, no rendering and no stage-one swap
+# anywhere in the path, nothing can mask a violation the way the
+# rendered-output check above demonstrably can.
 set -g A6TBLRAW (awk '/^    switch "\$pattern"$/,/^    end$/' $plugindir/conf.d/tmux-lives-install.fish)
 
 set -g A6TBLNAMES
@@ -2814,7 +2830,11 @@ for line in $A6TBLRAW
         set pending $cm
         continue
     end
-    set -l im (string match -rg '^\s*set idx (.+)$' -- $line)
+    # __tmux_lives_theme_rampidx emits its index list via `printf '%s\n' ...`
+    # rather than `set idx ...` (the extraction target moved when the table
+    # was pulled out of __tmux_lives_theme_arrange), so the capture matches
+    # that literal prefix instead.
+    set -l im (string match -rg "^\s*printf '%s\\\\n' (.+)\$" -- $line)
     if test -n "$im"; and test -n "$pending"
         set -a A6TBLNAMES $pending
         set -a A6TBLLISTS (string join ' ' -- $im)

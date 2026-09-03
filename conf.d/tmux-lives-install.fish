@@ -687,26 +687,30 @@ function __tmux_lives_theme_arrangements --description 'v6: the six arrangement 
     printf '%s\n' deep bright centre split stack accent
 end
 
-function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. A PURE permutation — every output colour is one of the seven inputs, always. Unknown pattern -> nothing, status 1.'
-    set -l hexes $argv[2..8]
-    test (count $hexes) -eq 7; or return 1
-    set -l idx
+function __tmux_lives_theme_rampidx --argument-names pattern --description 'v6: an arrangement pattern -> its seven ramp indices, position i naming the ramp index that becomes role i (bar sep tabs active windows cap text). THE one home of the table: __tmux_lives_theme_arrange permutes with it and __tmux_lives_theme_constrain selects the text-floor swap partner with it, so the two cannot drift. Unknown pattern -> nothing, status 1.'
     switch "$pattern"
         case deep
-            set idx 1 4 2 6 5 3 7
+            printf '%s\n' 1 4 2 6 5 3 7
         case bright
-            set idx 4 5 3 7 6 2 1
+            printf '%s\n' 4 5 3 7 6 2 1
         case centre
-            set idx 3 5 2 6 7 4 1
+            printf '%s\n' 3 5 2 6 7 4 1
         case split
-            set idx 1 3 4 5 6 2 7
+            printf '%s\n' 1 3 4 5 6 2 7
         case stack
-            set idx 2 5 3 6 4 1 7
+            printf '%s\n' 2 5 3 6 4 1 7
         case accent
-            set idx 3 5 4 6 2 1 7
+            printf '%s\n' 3 5 4 6 2 1 7
         case '*'
             return 1
     end
+end
+
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. A PURE permutation — every output colour is one of the seven inputs, always. Unknown pattern -> nothing, status 1.'
+    set -l hexes $argv[2..8]
+    test (count $hexes) -eq 7; or return 1
+    set -l idx (__tmux_lives_theme_rampidx "$pattern")
+    test (count $idx) -eq 7; or return 1
     set -l out
     for i in $idx
         set -a out $hexes[$i]
