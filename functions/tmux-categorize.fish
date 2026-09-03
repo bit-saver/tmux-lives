@@ -2690,6 +2690,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # feature, and configuration stays cheap until an explicit save adopts it.
     set -l rollhist
     set -l rollat 0
+    # Review fix: parallel palette/fg arrays, one render PER ROLL (a discrete
+    # action, not a per-keypress one), so stepping rollat with ↑↓ is a bare
+    # array index -- same cost class as $pals/$fgs/$tabsfgs, no new render
+    # call in the hot path. Pushed and trimmed in LOCKSTEP with $rollhist in
+    # case z below -- desyncing any one of the four arrays from $rollat would
+    # replay a wrong palette against a correct-looking history entry.
+    set -l rollpals
+    set -l rollfgs
+    set -l rolltabsfgs
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -2916,6 +2925,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
                 set curfg '#f5f5f5'
             end
+        else if test $focus = roll
+            # Task 8 review fix: roll history has its own PRE-COMPUTED
+            # palette/fg arrays (rollpals/rollfgs/rolltabsfgs, pushed in
+            # lockstep with $rollhist by case z below) -- the same
+            # batch-once-index-many convention $pals/$fgs/$tabsfgs already
+            # use, so stepping rollat costs one array index, not a render
+            # call. Without this branch the preview bar and tab chip kept
+            # showing whatever the SCHEME list's cursor last rendered while
+            # the note line claimed "roll N/M" -- wrong data next to a label
+            # asserting otherwise, in the one interaction the feature exists
+            # for.
+            set curpal $rollpals[$rollat]
+            set -l cf $rollfgs[$rollat]
+            test -n "$cf"; and set curfg $cf
+            set curtabsfg "$rolltabsfgs[$rollat]"
         else
             set -l pi (math $sel + 1)
             set curpal $pals[$pi]
@@ -2932,8 +2956,12 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # cursor sel2, independent of the scheme lists sel (see the if/else
         # above) -- a key of $sel alone would let a current<->off move (which
         # changes curpal) hit a stale cache slot keyed only by whatever $sel
-        # happened to be left at.
-        set -l curidx "$focus"_"$sel"_"$sel2"
+        # happened to be left at. Task 8 review fix: $rollat is now ALSO part
+        # of the identity -- curpal now varies with it while focus=roll (the
+        # branch above), so a key that omitted it would replay a stale
+        # rollpals entry across every history step, the exact bug this fix
+        # exists to close, one field over.
+        set -l curidx "$focus"_"$sel"_"$sel2"_"$rollat"
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -3457,13 +3485,44 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # ⇥ reaches it once it exists (see case tab below).
                 set -l r (__tmux_lives_theme_roll "$seed")
                 if test (count $r) -eq 5
+                    # Review fix: render ONCE here -- a discrete action, not
+                    # the per-keypress hot path -- and cache the result
+                    # alongside the recipe, the same batch-once-index-many
+                    # convention the catalog reload already uses for
+                    # $pals/$fgs/$tabsfgs (capfg from role 6/cap, tabsfg from
+                    # role 3/tabs; a guard test greps this arm for the reload
+                    # call's ABSENCE, so its name is deliberately not spelled
+                    # out here even in prose). Without this the cursor-row
+                    # preview block had nowhere accurate to read from while
+                    # browsing history with ↑↓, and fell back to whatever the
+                    # SCHEME list's cursor last rendered -- wrong colours next
+                    # to a note line claiming "roll N/M". Degrades to
+                    # blank-but-still-pushed on a render failure (mirrors that
+                    # same reload's own fallback) so the four arrays below
+                    # never desynchronise from each other.
+                    set -l rp (__tmux_lives_theme_render $seed $r[1] $r[2] $r[3] $r[4] $r[5])
+                    test (count $rp) -eq 7; or set rp "" "" "" "" "" "" ""
+                    set -l capfg (__tmux_lives_contrast_fg "$rp[6]")
+                    set -l tabsfg (__tmux_lives_contrast_fg "$rp[3]")
                     # Bounded history so "the second one was better" is
                     # recoverable. Session-local and deliberately not
                     # persisted: naming and saving a roll permanently is a
                     # separate, deferred feature — the user's own reason being
                     # that naming carries a commitment cost.
                     set -a rollhist (string join '|' $r)
-                    test (count $rollhist) -gt 12; and set rollhist $rollhist[2..]
+                    set -a rollpals (string join ' ' $rp)
+                    set -a rollfgs $capfg
+                    set -a rolltabsfgs $tabsfg
+                    # Trim all FOUR arrays in lockstep -- $rollpals/_fgs/
+                    # _tabsfgs must stay index-aligned with $rollhist, or a
+                    # step through history reads a palette one entry off from
+                    # the recipe it is supposedly previewing.
+                    if test (count $rollhist) -gt 12
+                        set rollhist $rollhist[2..]
+                        set rollpals $rollpals[2..]
+                        set rollfgs $rollfgs[2..]
+                        set rolltabsfgs $rolltabsfgs[2..]
+                    end
                     set rollat (count $rollhist)
                     set focus roll
                     __tcz_thp_apply_and_recolor "$seed" $r[1] $r[2] $r[3] $r[4] $r[5]

@@ -3914,8 +3914,14 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # place+mode+phase, 5-arg) is replaced by __tmux_lives_theme_render (v6,
 # seed+mode+lspan+peakc+peakpos+arrangement, 6-arg) — same TWO call sites
 # (reload + reanchor), one more argument each since the recipe grew a field.
+# Task 8 review fix: a THIRD site joined them — case z now renders the
+# rolled recipe ONCE (a discrete action, not a per-keypress one) so the
+# cursor-row preview block has an accurate rollpals/rollfgs/rolltabsfgs entry
+# to index while browsing history, instead of falling back to whatever the
+# scheme list's cursor last rendered. 2 -> 3, same justified-bump shape as
+# the apply_now guard's 3 -> 4 further down this file.
 set -l palcalls (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pbody"))
-t "picker has exactly 2 render calls" 2 (count $palcalls)
+t "picker has exactly 3 render calls" 3 (count $palcalls)
 for pc in $palcalls
     set -l argtail (string replace -r '.*__tmux_lives_theme_render ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
@@ -4392,8 +4398,9 @@ t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | co
 # Task 6's third (case left/right's direct per-keystroke recompute) is gone
 # again — drop-autoapply-debounce-seed Task 2 removed it, back to 2. Task 7
 # (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render,
-# same two call sites (reload + reanchor).
-t "picker: still has exactly 2 render calls" 2 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
+# same two call sites (reload + reanchor). Task 8 review fix: a third site
+# (case z, rendering the rolled recipe once per roll) — 2 -> 3.
+t "picker: still has exactly 3 render calls" 3 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -4879,7 +4886,8 @@ t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_t
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
 # Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
-t "consolidated guard: exactly 2 render call sites" 2 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
+# Task 8 review fix: case z's new once-per-roll render joins reload+reanchor. 2 -> 3.
+t "consolidated guard: exactly 3 render call sites" 3 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -6993,6 +7001,122 @@ t "apply_now (roll): the note mentions roll" 1 $R8AN[3]
 eval $__t8an_real_apply_and_recolor
 functions -e __tcz_thp_apply_now
 
+# --- Task 8 review fix: the cursor-row preview actually tracks $rollat -----
+# The finding: __tcz_thp_apply_now/case-enter tests above prove the SAVE and
+# APPLY-PREVIEW paths read the selected history entry correctly, but neither
+# exercises the block that feeds the in-popup preview bar / ShellFish tab
+# chip while just BROWSING with ↑↓ (no keypress beyond arrows) -- the one
+# surface the reviewer's repro actually complained about (note says "roll
+# 2/3", preview bar shows something else). Extracted narrowly (just the
+# cursor-row-palette block, not the whole draw loop) so the scope this proves
+# something about is exactly the block that changed.
+set -g CURSORBLOCK8 (awk '/^        set -l curpal '"'"''"'"'$/,/^        set -l curidx/' $catfile | string collect)
+t "cursor-row-palette block extraction is non-empty (task 8)" 1 (test -n "$CURSORBLOCK8"; and echo 1; or echo 0)
+t "cursor-row-palette block has a roll branch" 1 (string match -q '*focus = roll*' -- "$CURSORBLOCK8"; and echo 1; or echo 0)
+function __t9_cursorroll --argument-names rollat pal1 pal2 --description 'eval the REAL cursor-row-palette block (CURSORBLOCK8) against a throwaway scope with focus=roll, a two-entry rollpals/rollfgs/rolltabsfgs and the given rollat. Prints "<curpal>\t<curidx>".'
+    set -l focus roll
+    set -l sel 0
+    set -l sel2 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l legacy ''
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l rollpals $pal1 $pal2
+    set -l rollfgs '#111111' '#222222'
+    set -l rolltabsfgs '#333333' '#444444'
+    set -l rollat $rollat
+    eval $CURSORBLOCK8
+    printf '%s\t%s\n' "$curpal" "$curidx"
+end
+set -l PALA 'palette-A-marker #101010 #202020 #303030 #404040 #505050 #606060'
+set -l PALB 'palette-B-marker #a1a1a1 #b2b2b2 #c3c3c3 #d4d4d4 #e5e5e5 #f6f6f6'
+set -g R8CUR1 (string split \t -- (__t9_cursorroll 1 "$PALA" "$PALB"))
+set -g R8CUR2 (string split \t -- (__t9_cursorroll 2 "$PALA" "$PALB"))
+# THE decisive proof: moving rollat actually changes what curpal shows --
+# not just that the branch exists, but that it is WIRED to the selection.
+t "cursor-row (roll): rollat=1 shows the first history entry's palette" "$PALA" $R8CUR1[1]
+t "cursor-row (roll): rollat=2 shows the SECOND history entry's palette, not the first" "$PALB" $R8CUR2[1]
+t "cursor-row (roll): the two renders genuinely differ" 1 (test "$R8CUR1[1]" != "$R8CUR2[1]"; and echo 1; or echo 0)
+# curidx must also move with rollat -- this is what stops the preview-bar/
+# tab-chip MEMOIZATION (a separate cache, keyed on curidx) from replaying a
+# stale render across a rollat step even once curpal itself is correct.
+t "cursor-row (roll): curidx moves with rollat too (cache key, not just content)" 1 (test "$R8CUR1[2]" != "$R8CUR2[2]"; and echo 1; or echo 0)
+
+# --- Task 8 review fix: the lockstep trim survives exceeding the 12-entry
+# cap -- 13 rolls, then the SELECTED entry's palette must correspond to the
+# SAME roll as its recipe, not one entry off. __tmux_lives_theme_roll and
+# __tmux_lives_theme_render are BOTH stubbed here (not just the roll
+# sampler) so each of the 13 rolls produces a recipe AND a palette that are
+# both traceable to the same attempt number, independent of the real
+# engine's own hue math -- the property under test is the PICKER's
+# bookkeeping, not the engine's rendering, which test-tmux-install.fish
+# already covers exhaustively.
+set -g __t8lock_real_roll (functions __tmux_lives_theme_roll | string collect)
+set -g __t8lock_real_render (functions __tmux_lives_theme_render | string collect)
+set -g __t8lock_real_apply_and_recolor (functions __tcz_thp_apply_and_recolor | string collect)
+set -g __t8lock_i 0
+function __tmux_lives_theme_roll
+    set -g __t8lock_i (math $__t8lock_i + 1)
+    printf '%s\n' roll$__t8lock_i 0.50 0.12 0.40 deep
+end
+function __tmux_lives_theme_render
+    # argv[2] is the "mode" field case z passes -- here always "rollN". Turn
+    # N into a hex nobody could confuse with a real render, so the surviving
+    # palette can be traced straight back to which roll produced it.
+    set -l tag (string replace -r '^roll' '' -- $argv[2])
+    set -l hx (printf '#%06x' (math "$tag * 4096"))
+    printf '%s\n' $hx $hx $hx $hx $hx $hx $hx
+end
+function __tcz_thp_apply_and_recolor
+end
+function __t9_casez_stack --argument-names count --description 'dispatch the REAL case-z arm <count> times in a row against one persistent throwaway scope (the stubs above make each roll distinguishable). Prints rollhist/rollpals/rollfgs/rolltabsfgs (each \x1e-joined) and rollat, tab-separated.'
+    set -l tok z
+    set -l seed '#5f772b'
+    set -l focus list
+    set -l rollat 0
+    set -l previewed 0
+    set -l note ''
+    set -l flashfield START
+    set -l rollhist
+    set -l rollpals
+    set -l rollfgs
+    set -l rolltabsfgs
+    for i in (seq $count)
+        eval $CZ8WRAP
+    end
+    printf '%s\t%s\t%s\t%s\t%s\n' (string join \x1e -- $rollhist) (string join \x1e -- $rollpals) (string join \x1e -- $rollfgs) (string join \x1e -- $rolltabsfgs) $rollat
+end
+set -g R8LOCK (string split \t -- (__t9_casez_stack 13))
+set -g R8LOCKHIST (string split \x1e -- $R8LOCK[1])
+set -g R8LOCKPALS (string split \x1e -- $R8LOCK[2])
+set -g R8LOCKFGS (string split \x1e -- $R8LOCK[3])
+set -g R8LOCKTABSFGS (string split \x1e -- $R8LOCK[4])
+set -g R8LOCKAT $R8LOCK[5]
+t "lockstep: 13 rolls still cap the history at 12" 12 (count $R8LOCKHIST)
+t "lockstep: 13 rolls still cap the palette array at 12" 12 (count $R8LOCKPALS)
+t "lockstep: 13 rolls still cap the fg array at 12" 12 (count $R8LOCKFGS)
+t "lockstep: 13 rolls still cap the tabsfg array at 12" 12 (count $R8LOCKTABSFGS)
+t "lockstep: the oldest surviving recipe is roll2 (roll1 was evicted)" roll2 (string split '|' -- $R8LOCKHIST[1])[1]
+t "lockstep: the newest recipe is roll13" roll13 (string split '|' -- $R8LOCKHIST[-1])[1]
+t "lockstep: rollat lands on 12 (the newest)" 12 $R8LOCKAT
+# THE decisive check: index-correspondence, not just array length. An
+# out-of-lockstep trim (e.g. one array dropped element 1 while another
+# dropped a DIFFERENT element, or one array was never trimmed at all) passes
+# every count-only assertion above while silently pairing the wrong palette
+# with the wrong recipe -- exactly the bug class this fix exists to close.
+set -l expectedhex13 (printf '#%06x' (math "13 * 4096"))
+set -l wanthex13 "$expectedhex13 $expectedhex13 $expectedhex13 $expectedhex13 $expectedhex13 $expectedhex13 $expectedhex13"
+t "lockstep: the palette at rollat corresponds to roll13's recipe, at the SAME index" "$wanthex13" $R8LOCKPALS[$R8LOCKAT]
+set -l expectedhex2 (printf '#%06x' (math "2 * 4096"))
+set -l wanthex2 "$expectedhex2 $expectedhex2 $expectedhex2 $expectedhex2 $expectedhex2 $expectedhex2 $expectedhex2"
+t "lockstep: the oldest surviving palette corresponds to roll2's recipe, at the SAME index" "$wanthex2" $R8LOCKPALS[1]
+eval $__t8lock_real_roll
+eval $__t8lock_real_render
+eval $__t8lock_real_apply_and_recolor
+
 # =====================================================================
 # drop-autoapply-debounce-seed Task 2: a channel keypress costs a redraw and
 # NOTHING else. picker-seed-section Task 6 (superseded here) had a channel
@@ -7014,7 +7138,10 @@ t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0
 # Count call sites rather than pattern-matching across lines. A multiline regex over
 # a 700-line body is fragile and hard to prove non-vacuous; a count is neither.
 # Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
-t "picker back to exactly 2 render call sites" 2 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
+# Task 8 review fix: a genuinely NEW third site (case z, once per roll) — not
+# a regression of the per-keystroke recompute this section verifies is gone;
+# case left/right still contributes zero. 2 -> 3.
+t "picker back to exactly 3 render call sites" 3 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
 # Perf fence retained: one palette call must stay well under a redraw budget —
 # still relevant to the batch's own cost, just no longer paid per keystroke.
 # Task 7 (v6 recipes): times the picker's actual engine call now,
