@@ -3801,8 +3801,13 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # one long-lived while-true pass) lives in exactly one place instead of four.
 # 8 -> 4 remaining directly in $pbody (init + seed-commit-on-save + 2 saves);
 # the other 4 are now pinned separately, against the helper's OWN body, below.
-t "guard: exactly 4 action-site subprocesses remain directly in the picker body" 4 (count (string match -ar 'fish -c' -- "$pbody"))
-# 4 = init + seed-commit-on-save + 2 saves
+# Task 7 (v6 recipes): the state-row save branch gained a THIRD direct site —
+# when the persisted recipe matches no catalog row (anch_name empty, exactly
+# what a rolled theme, Task 8, produces), there is no name for the CLI, so
+# that branch writes the five universals directly through its own config-
+# loaded child rather than through `tmux-lives setup theme <name>`. 4 -> 5.
+t "guard: exactly 5 action-site subprocesses remain directly in the picker body" 5 (count (string match -ar 'fish -c' -- "$pbody"))
+# 5 = init + seed-commit-on-save + 2 named saves (off/scheme) + 1 unnamed-save
 set -l aarbody (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
 t "guard: apply_and_recolor body extraction is non-empty" 1 (test -n "$aarbody"; and echo 1; or echo 0)
 t "guard: apply_and_recolor is exactly one action-site subprocess (the 4 old sites share it)" 1 (count (string match -ar 'fish -c' -- "$aarbody"))
@@ -3812,8 +3817,8 @@ t "guard: picker sources the engine" 1 (string match -q '*conf.d/tmux-lives-inst
 # --- Task 7: the reload composes, it does not swap the row source ----------------
 set -g RB7 (awk '/function __tcz_thp_reload/,/^    end$/' $catfile | string collect)
 t "reload body extraction is non-empty" 1 (test -n "$RB7"; and echo 1; or echo 0)
-t "reload composes with catalog_rest" yes (string match -q '*__tmux_lives_theme_catalog_rest*' -- "$RB7"; and echo yes; or echo no)
-t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 'set rows \(__tmux_lives_theme_catalog\)' -- "$RB7" | count)
+t "reload composes with catalog_v6_rest" yes (string match -q '*__tmux_lives_theme_catalog_v6_rest*' -- "$RB7"; and echo yes; or echo no)
+t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 'set rows \(__tmux_lives_theme_catalog_v6\)' -- "$RB7" | count)
 
 # The two source-greps above are defeatable: e.g. appending catalog_rest BUT
 # also prepending it ahead of the curated rows still contains the string
@@ -3823,7 +3828,8 @@ t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 's
 # the real function body (function definitions are global in fish regardless
 # of where `function` runs) so __tcz_thp_reload becomes callable, then call it
 # normally (not eval'd) from a throwaway wrapper that declares the locals it
-# reads ($seed/$phase/$expanded) and writes ($toks/$pals/$fgs/$tabsfgs/
+# reads ($seed/$expanded — Task 7 dropped $phase from the cache key entirely,
+# it is no longer read here) and writes ($toks/$pals/$fgs/$tabsfgs/
 # $recipes/$cachekeys/$cacheblobs) — --no-scope-shadowing means the call
 # operates directly on the wrapper's own locals, exactly as it does when
 # called from inside __tcz_theme_picker's loop.
@@ -3837,18 +3843,17 @@ function __t7_reload_compose --description 'call the REAL __tcz_thp_reload with 
     set -l cachekeys
     set -l cacheblobs
     set -l seed '#5f772b'
-    set -l phase 0
     set -l expanded 1
     __tcz_thp_reload
     printf '%s\n' $toks
 end
 set -g TOKS7 (__t7_reload_compose)
-t "reload composed, expanded: all 35 catalog rows present" 35 (count $TOKS7)
+t "reload composed, expanded: all 42 catalog rows present" 42 (count $TOKS7)
 set -g DEFNAMES7
-for e in (__tmux_lives_theme_catalog_default)
+for e in (__tmux_lives_theme_catalog_v6_default)
     set -a DEFNAMES7 (string split '|' -- $e)[1]
 end
-t "reload composed: exactly 14 curated names in catalog_default" 14 (count $DEFNAMES7)
+t "reload composed: exactly 14 curated names in catalog_v6_default" 14 (count $DEFNAMES7)
 t "reload composed: curated 14 come first, in catalog-default order" (string join \x1e -- $DEFNAMES7) (string join \x1e -- $TOKS7[1..14])
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
@@ -3900,13 +3905,17 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # direct per-keystroke recompute in case left/right); drop-autoapply-
 # debounce-seed Task 2 removed it outright — a channel keypress now costs
 # zero palette calls — so the count below is back to 2.
-set -l palcalls (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pbody"))
-t "picker has exactly 2 palette calls" 2 (count $palcalls)
+# Task 7 (v6 recipes): __tmux_lives_theme_palette (v5, seed+relationship+
+# place+mode+phase, 5-arg) is replaced by __tmux_lives_theme_render (v6,
+# seed+mode+lspan+peakc+peakpos+arrangement, 6-arg) — same TWO call sites
+# (reload + reanchor), one more argument each since the recipe grew a field.
+set -l palcalls (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pbody"))
+t "picker has exactly 2 render calls" 2 (count $palcalls)
 for pc in $palcalls
-    set -l argtail (string replace -r '.*__tmux_lives_theme_palette ' '' -- $pc)
+    set -l argtail (string replace -r '.*__tmux_lives_theme_render ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
     set -l nargs (count (string split ' ' -- $argstr))
-    t "palette call is 5-arg: $argstr" 5 $nargs
+    t "render call is 6-arg: $argstr" 6 $nargs
 end
 
 # --- Gallery picker rewrite, Task 2: _reload/_init consume the catalog ------
@@ -3917,12 +3926,15 @@ end
 # itself is unchanged in shape (still relationship/place/mode positionally,
 # just sourced from a catalog row instead of picker vars) — theme-surface-
 # cleanup Task 3 shortened it 9->5 args, dropping the inert trailers.
+# Task 7 (v6 recipes): catalog_default -> catalog_v6_default (14 rows, same
+# count, new name); the palette signature grew 5->6 args (mode/lspan/peakc/
+# peakpos/arrangement replacing relationship/place/mode/phase).
 t "picker uses catalog"             1 (string match -q '*__tmux_lives_theme_catalog*' -- "$pbody"; and echo 1; or echo 0)
-t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_catalog_default*' -- "$pbody"; and echo 1; or echo 0)
+t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_catalog_v6_default*' -- "$pbody"; and echo 1; or echo 0)
 t "picker drops relationships iter" 0 (string match -q '*for tok in (__tmux_lives_theme_relationships)*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has expanded state"       1 (string match -q '*expanded*' -- "$pbody"; and echo 1; or echo 0)
-t "picker still 5-arg palette"      1 (string match -q '*__tmux_lives_theme_palette $seed *$phase)*' -- "$pbody"; and echo 1; or echo 0)
+t "picker still 6-arg render"       1 (string match -q '*__tmux_lives_theme_render $seed *$f[6])*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 3: windowed scrolling list + linear nav ---
 # __tcz_thp_window <sel> <total> <winsize> -> "<start> <count>", the 0-based
@@ -4039,15 +4051,25 @@ t "expand clamps sel to the last scheme row" 1 (string match -q '*set -l lastrow
 t "save reads recipes"         1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
 t "apply-preview derives from recipe" 1 (string match -qr '(?s)case a\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
 t "save derives from recipe"          1 (string match -qr '(?s)case enter\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
-t "save passes --place" 1 (string match -q '*--place*' -- "$pbody"; and echo 1; or echo 0)
-t "save passes --mode"  1 (string match -q '*--mode*'  -- "$pbody"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): the v6 CLI dropped --place/--mode entirely (they now
+# error — "removed in v6 — a scheme is now a recipe ... chosen by name"), and
+# the save path follows suit: it saves by catalog NAME (`tmux-lives setup
+# theme <name>`), never by flag. Both checks flip from "save passes" to
+# "save no longer passes".
+t "save no longer passes --place" 0 (string match -q '*--place*' -- "$pbody"; and echo 1; or echo 0)
+t "save no longer passes --mode"  0 (string match -q '*--mode*'  -- "$pbody"; and echo 1; or echo 0)
 # fish landmine guard: no command substitution inside quoted math (z-shake)
 t "shake captures random first" 0 (count (string match -ar 'math "[^"]*\(random' -- "$pbody"))
 # anchor snapshot: place/mode Task 2 dropped as picker-level READS turn out to
 # still be needed — the anchor's own (relationship, place, mode) tuple must
 # reflect the PERSISTED theme, not the (now-deleted) live place/mode knobs.
-t "anchor reads persisted place" 1 (string match -q '*tmux_lives_theme_place*' -- "$pbody"; and echo 1; or echo 0)
-t "anchor reads persisted mode"  1 (string match -q '*tmux_lives_theme_mode*'  -- "$pbody"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): place/mode are gone; the anchor's tuple is the full
+# five-field recipe, so __tcz_thp_init reads all four of the fields the v5
+# anchor didn't already cover via $theme (lspan/peakc/peakpos/arrangement).
+t "anchor reads persisted lspan"       1 (string match -q '*tmux_lives_theme_lspan*'       -- "$pbody"; and echo 1; or echo 0)
+t "anchor reads persisted peakc"       1 (string match -q '*tmux_lives_theme_peakc*'       -- "$pbody"; and echo 1; or echo 0)
+t "anchor reads persisted peakpos"     1 (string match -q '*tmux_lives_theme_peakpos*'     -- "$pbody"; and echo 1; or echo 0)
+t "anchor reads persisted arrangement" 1 (string match -q '*tmux_lives_theme_arrangement*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Theme v4 picker rewrite (Phase 2), Task 4: anchor place/mode snapshot +
 # v4 legend. Task 3 left a forward reference — its case-a/case-enter sel-0
@@ -4061,16 +4083,27 @@ t "anchor reads persisted mode"  1 (string match -q '*tmux_lives_theme_mode*'  -
 # SNAPSHOT declaration block itself (bounded by its own comment through the
 # first post-snapshot var), and (b) the actual __tcz_thp_ln-wrapped
 # legend-row draw calls (not the whole file/function body).
-set -l anchsnap (awk '/anchor snapshot: the persisted theme/,/set -l anchpal/' $catfile | string collect)
-t "anchor snapshots place" 1 (string match -q '*set -l anch_place*' -- "$anchsnap"; and echo 1; or echo 0)
-t "anchor snapshots mode"  1 (string match -q '*set -l anch_mode*'  -- "$anchsnap"; and echo 1; or echo 0)
-t "anchor drops rotate"    0 (string match -q '*anch_rotate*' -- "$anchsnap"; and echo 1; or echo 0)
-# the anchor's OWN palette-build call must also carry the v4 signature (seed
-# relationship place mode phase) — the same v3-breakage Task 1 fixed for the
-# main list. theme-surface-cleanup Task 3 shortened this 9->5 args, dropping
-# the inert vividness/shape/ease/contrast trailers. Checked against the full
-# $pbody since this exact call text is unique to this site.
-t "anchor palette call is 5-arg (place+mode, drops rotate)" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase)*' -- "$pbody"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): the anchor snapshot MOVED — it is now taken inside
+# __tcz_thp_init (immediately after the universal reads it snapshots), not in
+# the block right after __tcz_thp_reload the old $anchsnap awk range covered;
+# the recipe grew from place/mode (2 fields) to lspan/peakc/peakpos/
+# arrangement (4 fields, alongside $theme, already covered elsewhere) and
+# gained anch_name (the reverse-looked-up catalog name). Scope to the
+# __tcz_thp_init body instead, the same narrowing principle as before.
+set -l initbody (awk '/function __tcz_thp_init/,/^    end$/' $catfile | string collect)
+t "anchor snapshots theme"        1 (string match -q '*set anch_theme $theme*'         -- "$initbody"; and echo 1; or echo 0)
+t "anchor snapshots lspan"        1 (string match -q '*set anch_lspan $tlspan*'        -- "$initbody"; and echo 1; or echo 0)
+t "anchor snapshots peakc"        1 (string match -q '*set anch_peakc $tpeakc*'        -- "$initbody"; and echo 1; or echo 0)
+t "anchor snapshots peakpos"      1 (string match -q '*set anch_peakpos $tpeakpos*'    -- "$initbody"; and echo 1; or echo 0)
+t "anchor snapshots arrangement"  1 (string match -q '*set anch_arr $tarr*'            -- "$initbody"; and echo 1; or echo 0)
+t "anchor resolves a catalog name (or empty)" 1 (string match -q "*set anch_name ''*" -- "$initbody"; and echo 1; or echo 0)
+t "anchor drops rotate"           0 (string match -q '*anch_rotate*' -- "$initbody"; and echo 1; or echo 0)
+# the anchor's OWN palette-build call must also carry the v6 signature (seed
+# mode lspan peakc peakpos arrangement) — the same v3-breakage Task 1 fixed
+# for the main list, now grown from 5 to 6 args (place+mode+phase replaced by
+# lspan+peakc+peakpos+arrangement). Checked against the full $pbody since
+# this exact call text is unique to __tcz_thp_reanchor.
+t "anchor render call is 6-arg (lspan+peakc+peakpos+arrangement, drops phase)" 1 (string match -q '*__tmux_lives_theme_render $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)*' -- "$pbody"; and echo 1; or echo 0)
 
 # picker current-zone + legend-grid refinement, Task 1: the two fixed-pitch
 # __tcz_legend_row calls (was 2, itself "was 3" before the gallery rewrite)
@@ -4249,8 +4282,10 @@ t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | co
 # Positive counterpart: the palette calls must still EXIST, so the guards above
 # cannot be satisfied by deleting the calls outright. picker-seed-section
 # Task 6's third (case left/right's direct per-keystroke recompute) is gone
-# again — drop-autoapply-debounce-seed Task 2 removed it, back to 2.
-t "picker: still has exactly 2 palette calls" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$PBODY3" | count)
+# again — drop-autoapply-debounce-seed Task 2 removed it, back to 2. Task 7
+# (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render,
+# same two call sites (reload + reanchor).
+t "picker: still has exactly 2 render calls" 2 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -4266,15 +4301,18 @@ t "guard: hue-only copy retired" 0 (string match -q '*only its HUE drives the th
 
 # --- anchor row: static pins ---
 set -l pk (functions __tcz_theme_picker | string collect)
-t "picker snapshots the anchor after init" 1 (string match -q '*set -l anch_scheme $theme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_palette $seed $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): the snapshot is now taken inside __tcz_thp_init (a
+# --no-scope-shadowing function, so it reads "set anch_theme", not "set -l
+# anch_theme"), and it saves by catalog NAME ($anch_name), not by the bare
+# scheme ($anch_scheme, retired).
+t "picker snapshots the anchor after init" 1 (string match -q '*set anch_theme $theme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_render $seed $anch_theme*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the top scheme (sel 0)" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_scheme*' -- "$pk"; and echo 1; or echo 0)
-# the apply_live preview form is relationship place mode phase —
-# anch_place/anch_mode read the anchor's own persisted place/mode.
-# theme-surface-cleanup Task 3 (2026-08-06) dropped the inert trailing
-# viv/shape/ease/contrast args this call used to carry.
-t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_scheme $anch_place $anch_mode $anch_phase*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_name*' -- "$pk"; and echo 1; or echo 0)
+# the apply_live preview form is now mode lspan peakc peakpos arrangement —
+# anch_lspan/anch_peakc/anch_peakpos/anch_arr read the anchor's own persisted
+# recipe fields (phase is retired outright, not merely dropped as a trailer).
+t "picker anchor a-preview uses snapshot args" 1 (string match -q '*$anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr*' -- "$pk"; and echo 1; or echo 0)
 t "thp_restore is gone" 0 (functions -q __tcz_thp_restore; and echo 1; or echo 0)
 # picker-second-list Task 5: off and the current/anchor row moved into a
 # SECOND list at the bottom (its own cursor, sel2, reached with ⇥ — see the
@@ -4314,8 +4352,10 @@ t "vismap: plain moves work" 3 (__tcz_thp_vismap 2 10 down)
 # schemes 1-indexed, >n = off) and the marker compared row NAME to the
 # anchor RELATIONSHIP — always false, since $toks holds catalog entry names
 # ("ember glow") while $anch_scheme holds a relationship ("ember").
-t "marker compares the full recipe, not the name" 1 (string match -q '*test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"*' -- "$pk"; and echo 1; or echo 0)
-t "marker no longer compares toks to anch_scheme" 0 (string match -q '*test "$toks[$idx]" = "$anch_scheme"*' -- "$pk"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): the marker now compares the full FIVE-field recipe
+# ($anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr, phase gone).
+t "marker compares the full recipe, not the name" 1 (string match -q '*test "$recipes[$idx]" = "$anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr"*' -- "$pk"; and echo 1; or echo 0)
+t "marker no longer compares toks to anch_theme" 0 (string match -q '*test "$toks[$idx]" = "$anch_theme"*' -- "$pk"; and echo 1; or echo 0)
 t "preview indexes pals at the captured sel+1" 1 (string match -q '*set -l pi (math $sel + 1)*set curpal $pals[$pi]*' -- "$pk"; and echo 1; or echo 0)
 # picker-second-list Task 5 fix round: the preview lookup's off/current branch
 # is no longer `test $sel -eq $n; or test -z "$anchpal"` (retired along with
@@ -4335,10 +4375,16 @@ set -l pk3 (functions __tcz_theme_picker | string collect)
 # The lit-first kv repaint is retired: its only callers were the ←→ phase arms.
 t "no orphaned litkv definition" 0 (string match -q '*function __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
 t "no orphaned litkv cleanup" 0 (string match -q '*functions -e __tcz_thp_litkv*' -- "$pk3"; and echo 1; or echo 0)
-# the anchor keeps the PERSISTED phase even though the picker pins its working
-# phase at 0 — otherwise confirming your own theme would silently zero it.
-t "anchor snapshots the persisted phase" 1 (string match -q '*set -l anch_phase $persisted_phase*' -- "$pk3"; and echo 1; or echo 0)
-t "persisted phase is loaded from init" 1 (string match -q '*set persisted_phase $init*' -- "$pk3"; and echo 1; or echo 0)
+# the anchor used to keep the PERSISTED phase even though the picker pinned
+# its working phase at 0 — otherwise confirming your own theme would
+# silently zero it. RETIRED, not migrated: Task 7 (v6 recipes) drops phase
+# outright — --phase errors on the CLI, __tmux_lives_theme_phase no longer
+# exists, and the anchor's own five fields (lspan/peakc/peakpos/arrangement,
+# already pinned above) carry no phase concept to lose. Confirm both the
+# hidden-knob local and its persisted counterpart are gone, not merely
+# unused.
+t "picker: no phase local remains" 0 (string match -q '*set -l phase 0*' -- "$pk3"; and echo 1; or echo 0)
+t "picker: no persisted_phase local remains" 0 (string match -q '*persisted_phase*' -- "$pk3"; and echo 1; or echo 0)
 
 # --- v3.3 Task 2: preview decolor — claude renders in the windows-role fg,
 # not the old static coral. ---
@@ -4474,7 +4520,11 @@ t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; 
 set -l pk2 (functions __tcz_theme_picker | string collect)
 t "picker has case c (retired, superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
 t "tab toggles focus between list and state" 1 (string match -q '*test $focus = list; and set focus state; or set focus list*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
-t "marker gates on phase" 1 (string match -q '*test "$phase" = "$anch_phase"*' -- "$pk2"; and echo 1; or echo 0)
+# Task 7 (v6 recipes): phase is retired outright, so the marker no longer
+# gates on it separately — the full five-field recipe comparison (pinned
+# above, "marker compares the full recipe, not the name") is now the WHOLE
+# gate, not a recipe-plus-phase pair.
+t "marker no longer gates on phase separately" 0 (string match -q '*test "$phase" = "$anch_phase"*' -- "$pk2"; and echo 1; or echo 0)
 # the titled `├─ current ─┤` zsep is retired (the second list is untitled);
 # in its place, the second list gets its OWN untitled zsep — count 2 total,
 # the pre-existing blank separator before the legend plus this new one.
@@ -4708,7 +4758,8 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-t "consolidated guard: exactly 2 palette call sites" 2 (count (string match -ar '.*__tmux_lives_theme_palette \$.*' -- (string split \n -- "$pk2")))
+# Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
+t "consolidated guard: exactly 2 render call sites" 2 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -4934,7 +4985,7 @@ t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
 t "floor: rows 24 is rejected (below STATIC_EDIT + 3, Task 6 raised the floor 24 -> 25)" '' (__t9_floor 24)
 t "floor: rows 25 is admitted (Task 6 raised the floor 24 -> 25)" admit (__t9_floor 25)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_theme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
     # Task 1's row cache is keyed by index alone, and this harness reuses the
     # same indices across states with different synthetic palettes/selection —
     # clear it first so no state sees a row memoized by an earlier one.
@@ -4958,11 +5009,11 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
     test -n "$notearg"; and set note $notearg
     set -l seed '#5f772b'
     set -l seedfg '#f5f5f5'
-    set -l phase 0
     set -l legacy '#444444'
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     set -l toks
@@ -4975,7 +5026,7 @@ function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_scheme
         set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
         set -a fgs '#f5f5f5'
         set -a tabsfgs '#f5f5f5'
-        set -a recipes 'mono|bar|derived'
+        set -a recipes 'mono|0.55|0.11|0.50|deep'
     end
     eval $DRAWTEXT9
     set -g __t9_last_lines $lines
@@ -5010,7 +5061,7 @@ end
 # so the seedkey guard can vary the colour a genuine channel drag would
 # produce; every other positional keeps __t9_frame_rows own defaulting
 # exactly.
-function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_scheme anchpal flashfield expanded ndefault rows editing chan notearg seedarg
+function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_theme anchpal flashfield expanded ndefault rows editing chan notearg seedarg
     # review M-3: this local-scope setup is a SECOND, independent copy of
     # __t9_frame_rows's own (this one adds only <seedarg> and drops the
     # __tcz_thp_cacheclear call). Nothing ties them together — a future task
@@ -5037,11 +5088,11 @@ function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_scheme 
     set -l seed '#5f772b'
     test -n "$seedarg"; and set seed $seedarg
     set -l seedfg '#f5f5f5'
-    set -l phase 0
     set -l legacy '#444444'
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     set -l toks
@@ -5054,7 +5105,7 @@ function __t9_draw_nocc --argument-names focus sel2 n sel previewed anch_scheme 
         set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
         set -a fgs '#f5f5f5'
         set -a tabsfgs '#f5f5f5'
-        set -a recipes 'mono|bar|derived'
+        set -a recipes 'mono|0.55|0.11|0.50|deep'
     end
     eval $DRAWTEXT9
     set -g __t9_last_lines $lines
@@ -5133,39 +5184,86 @@ t "a short note's row is still exactly IW+2 (52) visible columns (padded, not sh
 # construction, not by luck -- enumerated from the SOURCE, not retyped ---------
 # Extracts every literal `set note "..."` the real picker body contains (a
 # future wording tweak changes what this list holds too, so the assertion
-# tracks the actual strings rather than a snapshot of today's). Two of the
-# four contain a $anch_scheme or $rel interpolation -- substituted with the
-# REAL relationship domain (__tmux_lives_theme_relationships, the ONE home of
-# that list) plus "off" (the only non-relationship value $anch_scheme can
-# hold), so a future relationship with a longer name is covered automatically,
-# not just today's set. $seed is substituted with a worst-case 7-char hex
-# literal (every real seed is exactly 7 chars, '#' + 6 hex digits). The draw
-# site always prepends exactly one space (" $MUTED$note$RST"), so that is
-# added before comparing against IW (50). picker-legibility-autoapply Task 5
-# briefly added two more notes (A-on/A-off) that made this boundary tight (49
-# raw chars, 50 with the leading space); drop-autoapply-debounce-seed Task 1
-# removed both along with the rest of auto-apply, so the four surviving
-# templates are seed-preview/current/off/scheme — the >= 4 floor and the
-# per-template width check both stay meaningful regardless.
+# tracks the actual strings rather than a snapshot of today's). Task 7 (v6
+# recipes): the old v5 relationship domain (mono/amber/wheat/.../teal, longest
+# 5 chars) is gone, along with $anch_scheme/$rel — the current-row note now
+# carries TWO placeholders, $anch_theme (a v6 harmony mode, longest
+# "complementary" at 13 chars) and $anch_arr (an arrangement, longest 6
+# chars), and the listed-scheme note carries $toks[$pi] (a catalog NAME —
+# "<mode> <arrangement>" — longest "complementary bright" at 20 chars). Both
+# domains are pulled from the engine itself (unique mode field of
+# __tmux_lives_theme_catalog_v6, and __tmux_lives_theme_arrangements) rather
+# than retyped, so a future mode/arrangement addition is covered
+# automatically. $seed is still substituted with a worst-case 7-char hex
+# literal. The draw site always prepends exactly one space
+# (" $MUTED$note$RST"), so that is added before comparing against IW (50).
+#
+# The wider v6 recipe means the true worst case for TWO of the four templates
+# now EXCEEDS 50 (measured: current-row 63, listed-scheme 56) — this is not a
+# regression this task introduced casually: the draw site's own I1 fix
+# already truncates $note through __tcz_popup_truncate specifically so an
+# overlong note is "structurally incapable of overflowing the frame
+# regardless of what text ever lands in $note" (its own comment, quoted
+# verbatim, a few lines above this block). So the invariant that actually
+# matters — and is now asserted directly, not inferred — is that the
+# TRUNCATED row never exceeds IW, whether or not the raw worst case does;
+# a template whose worst case still fits keeps the stronger "fits without
+# truncation" bar it always had.
 set -g NOTELITERALS9 (string match -ar 'set note "[^"]*"' -- (string split \n -- "$pk2") | string replace -r '^set note "(.*)"$' '$1')
 t "note-literal extraction found at least the 4 known notes (seed-preview/current/off/scheme)" yes (test (count $NOTELITERALS9) -ge 4; and echo yes; or echo no)
-set -g NOTEDOMAIN9 off (__tmux_lives_theme_relationships)
+set -g MODEDOMAIN9
+for e in (__tmux_lives_theme_catalog_v6)
+    set -l f (string split '|' -- $e)
+    contains -- $f[2] $MODEDOMAIN9; or set -a MODEDOMAIN9 $f[2]
+end
+set -g ARRDOMAIN9 (__tmux_lives_theme_arrangements)
+set -g NAMEDOMAIN9
+for e in (__tmux_lives_theme_catalog_v6)
+    set -a NAMEDOMAIN9 (string split '|' -- $e)[1]
+end
 for tmpl in $NOTELITERALS9
     set -l worst 0
-    if string match -q '*$anch_scheme*' -- "$tmpl"; or string match -q '*$rel*' -- "$tmpl"
-        for v in $NOTEDOMAIN9
-            set -l s (string replace -a '$anch_scheme' "$v" -- "$tmpl")
-            set s (string replace -a '$rel' "$v" -- "$s")
+    set -l worststr "$tmpl"
+    if string match -q '*$anch_theme*' -- "$tmpl"; and string match -q '*$anch_arr*' -- "$tmpl"
+        for m in $MODEDOMAIN9
+            for a in $ARRDOMAIN9
+                set -l s (string replace -a '$anch_theme' "$m" -- "$tmpl")
+                set s (string replace -a '$anch_arr' "$a" -- "$s")
+                set -l w (math (string length --visible -- "$s")" + 1")
+                if test $w -gt $worst
+                    set worst $w
+                    set worststr "$s"
+                end
+            end
+        end
+    else if string match -q '*$toks[$pi]*' -- "$tmpl"
+        for v in $NAMEDOMAIN9
+            set -l s (string replace -a '$toks[$pi]' "$v" -- "$tmpl")
             set -l w (math (string length --visible -- "$s")" + 1")
-            test $w -gt $worst; and set worst $w
+            if test $w -gt $worst
+                set worst $w
+                set worststr "$s"
+            end
         end
     else if string match -q '*$seed*' -- "$tmpl"
         set -l s (string replace -a '$seed' '#ffffff' -- "$tmpl")
         set worst (math (string length --visible -- "$s")" + 1")
+        set worststr "$s"
     else
         set worst (math (string length --visible -- "$tmpl")" + 1")
     end
-    t "note fits within IW (50) at its worst case, leading space included: \"$tmpl\"" yes (test $worst -le 50; and echo yes; or echo no)
+    if test $worst -le 50
+        t "note fits within IW (50) at its worst case, leading space included: \"$tmpl\"" yes (test $worst -le 50; and echo yes; or echo no)
+    else
+        # Exceeds IW raw — prove the real draw-site truncation caps it instead
+        # of merely hoping it does. __tcz_popup_truncate is SGR-aware and
+        # counts DISPLAY columns; feeding it the same leading-space-prefixed
+        # worst-case text the draw site builds (minus the $MUTED/$RST colour
+        # codes, which are zero visible width and would not change the count)
+        # measures the same cap the styled real call gets.
+        set -l capped (__tcz_popup_truncate " $worststr" 50)
+        t "note exceeds IW at its worst case (\"$tmpl\") — draw-site truncation caps it at 50, not left to overflow" yes (test (string length --visible -- "$capped") -le 50; and echo yes; or echo no)
+    end
 end
 # end of the name. Extracted from the REAL draw block (__t9_frame_text), asserted
 # on rendered output rather than on the styling source.
@@ -5931,7 +6029,7 @@ t "staticcache: leg --cachekey= sentinel is convention not construction (known l
 # assertions above), not an execution — grep cannot see whether $sel actually
 # ends up in bounds after the toggle. Extract the case-m body itself with awk
 # (same technique as $RB7 above) and eval it for real, starting EXPANDED with
-# the cursor on a hidden row (sel=30 is index 31 of 35 — inside the 21
+# the cursor on a hidden row (sel=30 is index 31 of 42 — inside the 28
 # appended "rest" rows, since ndefault=14), then pressing m once.
 set -g CASEM9 (awk '/case m$/,/set flashfield/' $catfile | string collect)
 t "case-m body extraction is non-empty" 1 (test -n "$CASEM9"; and echo 1; or echo 0)
@@ -5945,9 +6043,8 @@ t "case-m body extraction is non-empty" 1 (test -n "$CASEM9"; and echo 1; or ech
 set -g CASEM9WRAP "switch m
 $CASEM9
 end"
-function __t9_case_m --description 'run the REAL case-m handler (via $CASEM9WRAP) against a throwaway scope that declares every local the body reads or writes, with the REAL __tcz_thp_reload already global (eval\'d from $RB7 above). Starts EXPANDED (14 curated + 21 more) with sel=30, presses m once (collapse), prints "<sel>\n<n>".'
+function __t9_case_m --description 'run the REAL case-m handler (via $CASEM9WRAP) against a throwaway scope that declares every local the body reads or writes, with the REAL __tcz_thp_reload already global (eval\'d from $RB7 above). Starts EXPANDED (14 curated + 28 more) with sel=30, presses m once (collapse), prints "<sel>\n<n>".'
     set -l seed '#5f772b'
-    set -l phase 0
     set -l expanded 1
     set -l toks
     set -l pals
@@ -5975,7 +6072,7 @@ t "case m collapse from a hidden row: n reflects the collapsed catalog" 14 $CASE
 # that same loop and `eval` — not `source` — lets it survive for inspection)
 # rather than re-implementing the liveness logic to test against.
 # ---------------------------------------------------------------------
-function __t9_islive --argument-names focus sel2 n sel previewed anch_scheme seed anch_seed --description 'eval the REAL draw block against a given picker state; returns the $islive it produced.'
+function __t9_islive --argument-names focus sel2 n sel previewed anch_theme seed anch_seed --description 'eval the REAL draw block against a given picker state; returns the $islive it produced.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -5988,15 +6085,15 @@ function __t9_islive --argument-names focus sel2 n sel previewed anch_scheme see
     set -l chiptitle ''
     set -l note 'a note'
     set -l seedfg '#f5f5f5'
-    set -l phase 0
     set -l legacy '#444444'
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     set -l anchpal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
-    test "$anch_scheme" = off; and set anchpal ''
+    test "$anch_theme" = off; and set anchpal ''
     set -l toks
     set -l pals
     set -l fgs
@@ -6007,7 +6104,7 @@ function __t9_islive --argument-names focus sel2 n sel previewed anch_scheme see
         set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
         set -a fgs '#f5f5f5'
         set -a tabsfgs '#f5f5f5'
-        set -a recipes 'mono|bar|derived'
+        set -a recipes 'mono|0.55|0.11|0.50|deep'
     end
     set -l flashfield ''
     eval $DRAWTEXT9
@@ -6027,8 +6124,12 @@ t "islive: previewing off while persisted is a scheme -> not live" 0 (__t9_isliv
 # job is "what do I have" would otherwise be ambiguous about place/mode.
 # Falls back to the bare relationship when no catalog row matches (e.g. a
 # CLI-only --place low|high config, which has no catalog row at all).
+# Task 7 (v6 recipes): the anchor tuple grew from (relationship, place, mode)
+# to the full five-field recipe (mode, lspan, peakc, peakpos, arrangement),
+# so the harness now takes 5 args and the synthetic catalog carries 5-field
+# recipes to match.
 # ---------------------------------------------------------------------
-function __t9_anchname --argument-names anch_scheme anch_place anch_mode --description 'eval the REAL draw block with a caller-controlled catalog (toks/recipes) and return the $anchname it resolved for the state row.'
+function __t9_anchname --argument-names anch_theme anch_lspan anch_peakc anch_peakpos anch_arr --description 'eval the REAL draw block with a caller-controlled catalog (toks/recipes) and return the $anchname it resolved for the state row.'
     set -l BORDER (__tcz_theme border)
     set -l BRAND (__tcz_theme brand)
     set -l KEY (__tcz_theme key)
@@ -6042,13 +6143,11 @@ function __t9_anchname --argument-names anch_scheme anch_place anch_mode --descr
     set -l note 'a note'
     set -l seed '#5f772b'
     set -l seedfg '#f5f5f5'
-    set -l phase 0
     set -l legacy '#444444'
-    set -l anch_phase 0
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     set -l anchpal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
-    test "$anch_scheme" = off; and set anchpal ''
+    test "$anch_theme" = off; and set anchpal ''
     set -l focus state
     set -l sel2 0
     set -l sel 0
@@ -6057,15 +6156,15 @@ function __t9_anchname --argument-names anch_scheme anch_place anch_mode --descr
     set -l pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6' '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
     set -l fgs '#f5f5f5' '#f5f5f5'
     set -l tabsfgs '#f5f5f5' '#f5f5f5'
-    set -l recipes 'mono|bar|derived' 'sage|high|derived'
+    set -l recipes 'mono|0.55|0.11|0.50|deep' 'triadic|0.40|0.15|0.60|bright'
     set -l n 2
     set -l flashfield ''
     eval $DRAWTEXT9
     echo $anchname
 end
-t "current row names the catalog entry, not the bare relationship" catalogA (__t9_anchname mono bar derived)
-t "current row names a different catalog entry sharing no relationship" catalogB (__t9_anchname sage high derived)
-t "current row falls back to the relationship when no catalog row matches" sage (__t9_anchname sage low derived)
+t "current row names the catalog entry, not the bare relationship" catalogA (__t9_anchname mono 0.55 0.11 0.50 deep)
+t "current row names a different catalog entry sharing no relationship" catalogB (__t9_anchname triadic 0.40 0.15 0.60 bright)
+t "current row falls back to the relationship when no catalog row matches" triadic (__t9_anchname triadic 0.99 0.15 0.60 bright)
 
 # --- Task 6: the More Schemes group header --------------------------------------
 # A row INSIDE the list, not a frame element: the user rejected the section-border
@@ -6617,13 +6716,16 @@ set -g EB6 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string colle
 t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0)
 # Count call sites rather than pattern-matching across lines. A multiline regex over
 # a 700-line body is fragile and hard to prove non-vacuous; a count is neither.
-t "picker back to exactly 2 palette call sites" 2 (string match -ra '__tmux_lives_theme_palette ' -- "$EB6" | count)
+# Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
+t "picker back to exactly 2 render call sites" 2 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
 # Perf fence retained: one palette call must stay well under a redraw budget —
 # still relevant to the batch's own cost, just no longer paid per keystroke.
+# Task 7 (v6 recipes): times the picker's actual engine call now,
+# __tmux_lives_theme_render, not the retired __tmux_lives_theme_palette.
 set -g T6A (date +%s%N)
-__tmux_lives_theme_palette '#5f772b' amber bar derived 0 >/dev/null
+__tmux_lives_theme_render '#5f772b' mono 0.55 0.11 0.50 deep >/dev/null
 set -g T6B (date +%s%N)
-t "one palette is under 150ms" yes (test (math "($T6B - $T6A) / 1000000") -lt 150; and echo yes; or echo no)
+t "one render is under 150ms" yes (test (math "($T6B - $T6A) / 1000000") -lt 150; and echo yes; or echo no)
 
 # --- Step 4b: strengthen the drain invariant --------------------------------------
 # The suite pins the drain-loop count by exact literal pattern (1 with a literal
@@ -6722,22 +6824,23 @@ function __tcz_thp_reload --description 'test stub (picker-seed-section Task 6):
     set -g __t6_reload_calls (math $__t6_reload_calls + 1)
 end
 
-# __tmux_lives_theme_palette ALSO stubbed as a call counter here — this IS
-# the Task 2 discriminator: a channel keypress must cost ZERO palette calls,
-# not merely skip the batch reload. A mistaken implementation that still
-# recomputed the cursor row inline would leave pals[1] looking plausible
-# while still failing this count, which is why it is a dedicated counter and
-# not inferred from pals[1] alone. The real engine implementation is
-# captured first and restored immediately after the two assertion blocks
-# below (RES6A/RES6B), before anything downstream needs a real result.
-set -g __t6_real_palette (functions __tmux_lives_theme_palette | string collect)
-t "captured the real engine palette function before stubbing it" 1 (test -n "$__t6_real_palette"; and echo 1; or echo 0)
+# __tmux_lives_theme_render (Task 7 renamed from __tmux_lives_theme_palette)
+# ALSO stubbed as a call counter here — this IS the Task 2 discriminator: a
+# channel keypress must cost ZERO engine calls, not merely skip the batch
+# reload. A mistaken implementation that still recomputed the cursor row
+# inline would leave pals[1] looking plausible while still failing this
+# count, which is why it is a dedicated counter and not inferred from
+# pals[1] alone. The real engine implementation is captured first and
+# restored immediately after the two assertion blocks below (RES6A/RES6B),
+# before anything downstream needs a real result.
+set -g __t6_real_render (functions __tmux_lives_theme_render | string collect)
+t "captured the real engine render function before stubbing it" 1 (test -n "$__t6_real_render"; and echo 1; or echo 0)
 set -g __t6_pal_calls 0
-function __tmux_lives_theme_palette --description 'test stub (drop-autoapply-debounce-seed Task 2): counts calls instead of computing a palette.'
+function __tmux_lives_theme_render --description 'test stub (drop-autoapply-debounce-seed Task 2, renamed for the Task 7 v6 engine): counts calls instead of computing a palette.'
     set -g __t6_pal_calls (math $__t6_pal_calls + 1)
 end
 
-function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-2-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|bar|derived) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>\x1e<seeddirty>\x1e<pal_calls>".'
+function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (Task-2-updated) case left/right arm against a throwaway scope seeded with one real catalog recipe (mono|0.55|0.11|0.50|deep) at sel=0/pi=1, editing=1, chan=1 fixed (the arm is a no-op at editing=0, already covered by Task 4/5 tests, not this task''s concern). Trailing argv seeds the readkey queue a held key would drain — a burst of "right right" simulates two more autorepeat presses beyond the initial one. Prints "<pals[1]>\x1e<flashfield>\x1e<seed>\x1e<reload_calls>\x1e<seeddirty>\x1e<pal_calls>".'
     set -l editing 1
     set -l chan 1
     set -l sel 0
@@ -6755,10 +6858,9 @@ function __t6_arrow --argument-names tok seedhex --description 'eval the REAL (T
     # moves them apart. Without this, $stripseed is empty, every comparison
     # reports stale, and the staleness assertions pass for the wrong reason.
     set -l stripseed $seedhex
-    set -l phase 0
     set -l flashfield ''
     set -l seeddirty 0
-    set -l recipes 'mono|bar|derived'
+    set -l recipes 'mono|0.55|0.11|0.50|deep'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
     set -l tabsfgs '#000000'
@@ -6788,10 +6890,10 @@ t "channel edit does not call the batch reload" 0 "$f6a[4]"
 # silently cancel the deferred reload+reanchor. Assert the dedicated flag
 # directly.
 t "channel edit moves the seed off the one the strips were built from (stale)" 1 "$f6a[5]"
-# THE discriminator: zero palette calls, not just "no batch reload call" —
-# a mistaken implementation could skip the batch while still recomputing the
+# THE discriminator: zero engine calls, not just "no batch reload call" — a
+# mistaken implementation could skip the batch while still recomputing the
 # cursor row inline, which only this count catches.
-t "channel edit calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6a[6]"
+t "channel edit calls __tmux_lives_theme_render exactly 0 times" 0 "$f6a[6]"
 
 # A held key: the drain now DISCARDS queued presses rather than summing them
 # (picker-responsiveness Task 5 — see the R_LR_COALESCE test above for the
@@ -6804,13 +6906,13 @@ t "a 3-press coalesced burst still moves only +8, not +24" '#080000' "$f6b[3]"
 t "a coalesced burst still leaves the scheme strip untouched" yes (test "$f6b[1]" = 'stale stale stale stale stale stale stale'; and echo yes; or echo no)
 t "a coalesced burst still does not call the batch reload" 0 "$f6b[4]"
 t "a coalesced burst also leaves the strips stale" 1 "$f6b[5]"
-t "a coalesced burst still calls __tmux_lives_theme_palette exactly 0 times" 0 "$f6b[6]"
+t "a coalesced burst still calls __tmux_lives_theme_render exactly 0 times" 0 "$f6b[6]"
 
-# Restore the real engine palette function before anything downstream needs
+# Restore the real engine render function before anything downstream needs
 # a real result — the settle-block/BAND/e2e tests further down all depend on
 # it, via the real reload/reanchor once those are restored in their own turn.
-functions -e __tmux_lives_theme_palette
-eval $__t6_real_palette
+functions -e __tmux_lives_theme_render
+eval $__t6_real_render
 
 # --- Step 4: input settling triggers exactly one batch reload + reanchor --------
 set -g __t6_reanchor_calls 0
@@ -6893,19 +6995,20 @@ eval $RA6
 # SAME 15-col strip __tcz_theme_picker itself builds at its current-row draw
 # site (__tcz_thp_cells "$anchpal") and diff the actual ANSI text against what
 # the un-edited seed produces.
-function __t6_band --argument-names seedhex --description 'eval the REAL __tcz_thp_reanchor against a fixed anchor recipe (mono|bar|derived, phase 0) for the given seed directly (no dispatch), then render the current-row''s band exactly as __tcz_theme_picker does at its own current-row draw site (~line 2190). Prints the rendered (ANSI) 15-col strip. Used both as the end-to-end test''s "before" baseline and standalone below to confirm reanchor itself is seed-sensitive.'
+function __t6_band --argument-names seedhex --description 'eval the REAL __tcz_thp_reanchor against a fixed anchor recipe (mono|0.55|0.11|0.50|deep) for the given seed directly (no dispatch), then render the current-row''s band exactly as __tcz_theme_picker does at its own current-row draw site (~line 2190). Prints the rendered (ANSI) 15-col strip. Used both as the end-to-end test''s "before" baseline and standalone below to confirm reanchor itself is seed-sensitive.'
     set -l seed $seedhex
-    set -l anch_scheme mono
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     __tcz_thp_reanchor
     __tcz_thp_cells "$anchpal"
 end
-function __t6_e2e --argument-names old_seed --description 'end to end: the REAL case left/right arm moves the seed one channel-press (chan=1, +8), then the REAL flashfield-timeout block runs a genuine settle (queued token "timeout") — no reload/reanchor stubs, both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER settling.'
+function __t6_e2e --argument-names old_seed --description 'end to end: the REAL case left/right arm moves the seed one channel-press (chan=1, +8), then the REAL flashfield-timeout block runs a genuine settle (queued token "timeout") — no reload/reanchor stubs, both real. Anchor recipe fixed at mono|0.55|0.11|0.50|deep, matching the anchor snapshot the picker takes at open. Prints the rendered current-row band AFTER settling.'
     set -l editing 1
     set -l chan 1
     set -l sel 0
@@ -6920,17 +7023,17 @@ function __t6_e2e --argument-names old_seed --description 'end to end: the REAL 
     end
     set -l seed $old_seed
     set -l stripseed $old_seed
-    set -l phase 0
     set -l flashfield ''
     set -l seeddirty 0
-    set -l recipes 'mono|bar|derived'
+    set -l recipes 'mono|0.55|0.11|0.50|deep'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
     set -l tabsfgs '#000000'
-    set -l anch_scheme mono
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -7006,7 +7109,7 @@ $CASEA6
 $CASECANCEL6
 end"
 
-function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|bar|derived/phase 0, matching the anchor snapshot the picker takes at open. rows/STATIC_IDLE/STATIC_EDIT are seeded so a dispatched b (which recomputes WIN — picker-legibility-autoapply Task 3) does not spray a math error against undefined locals. Prints the rendered current-row band AFTER the whole sequence settles.'
+function __t6_seq --argument-names old_seed --description 'end to end (fix round 1): the REAL case left/right arm (one chan-1 press, +8) followed by the REAL follow-up arm(s) named in argv[2..] ("m"/"z"/"b"/"tab", each dispatched via $SEQ6WRAP), then the REAL flashfield-timeout settle block run to a genuine timeout — reload/reanchor both real. Anchor recipe fixed at mono|0.55|0.11|0.50|deep, matching the anchor snapshot the picker takes at open. rows/STATIC_IDLE/STATIC_EDIT are seeded so a dispatched b (which recomputes WIN — picker-legibility-autoapply Task 3) does not spray a math error against undefined locals. Prints the rendered current-row band AFTER the whole sequence settles.'
     set -l editing 1
     set -l chan 1
     set -l sel 0
@@ -7029,21 +7132,21 @@ function __t6_seq --argument-names old_seed --description 'end to end (fix round
     # moves them apart. Without this, $stripseed is empty, every comparison
     # reports stale, and the staleness assertions pass for the wrong reason.
     set -l stripseed $old_seed
-    set -l phase 0
     set -l expanded 0
     set -l flashfield ''
     set -l seeddirty 0
-    set -l recipes 'mono|bar|derived'
+    set -l recipes 'mono|0.55|0.11|0.50|deep'
     set -l toks 'mono soft'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
     set -l tabsfgs '#000000'
     set -l n 1
     set -l ndefault 1
-    set -l anch_scheme mono
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -7115,21 +7218,21 @@ function __t6_esc_seq --argument-names old_seed --description 'end to end (Findi
     end
     set -l seed $old_seed
     set -l stripseed $old_seed
-    set -l phase 0
     set -l expanded 0
     set -l flashfield ''
     set -l seeddirty 0
-    set -l recipes 'mono|bar|derived'
+    set -l recipes 'mono|0.55|0.11|0.50|deep'
     set -l toks 'mono soft'
     set -l pals 'stale stale stale stale stale stale stale'
     set -l fgs '#000000'
     set -l tabsfgs '#000000'
     set -l n 1
     set -l ndefault 1
-    set -l anch_scheme mono
-    set -l anch_place bar
-    set -l anch_mode derived
-    set -l anch_phase 0
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -7153,9 +7256,8 @@ function __t6_esc_seq --argument-names old_seed --description 'end to end (Findi
     printf '%s\x1e%s\n' "$seed" "$stripseed"
 end
 
-function __t6_pal1 --argument-names seedhex --description 'direct control (Finding 1 fix): the REAL __tcz_thp_reload for the given seed (phase 0, unexpanded), no dispatch — returns the first catalog rows rendered palette (pals[1]), the scheme-strip counterpart to __t6_band, above, own current-row check.'
+function __t6_pal1 --argument-names seedhex --description 'direct control (Finding 1 fix): the REAL __tcz_thp_reload for the given seed (unexpanded), no dispatch — returns the first catalog rows rendered palette (pals[1]), the scheme-strip counterpart to __t6_band, above, own current-row check.'
     set -l seed $seedhex
-    set -l phase 0
     set -l expanded 0
     set -l toks
     set -l pals
@@ -7256,8 +7358,8 @@ eval $aabody
 set -l focus list
 set -l sel 0
 set -l seed '#5f772b'
-set -l phase 0
-set -l recipes 'mono|bar|derived'
+set -l toks scheme1
+set -l recipes 'mono|0.55|0.11|0.50|deep'
 set -l previewed 0
 set -l note ''
 __tcz_thp_apply_now
@@ -7628,6 +7730,23 @@ set -l RWANCHORLINES (string split -- \n -- "$RWANCHORBODY")
 set -l RWPANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWPLINES))
 set -l RWRANCHCOUNT (count (string match -ar '^\s*set (?:-a )?anchpal\b' -- $RWANCHORLINES))
 t "I-1: anchpal writes are confined to __tcz_thp_reanchor" yes (test "$RWPANCHCOUNT" -eq "$RWRANCHCOUNT"; and echo yes; or echo no)
+
+# --- Task 7: the picker carries five-field v6 recipes -----------------------
+# The picker is an interactive raw-tty loop and cannot be driven end to end
+# here, so assert on the source shape — bounded to the function body, with a
+# positive count so it cannot pass vacuously. "body was actually captured" are
+# the vacuity guards: `functions` on a missing name yields the empty string,
+# against which every `string match` returns false and every "no X remains"
+# assertion passes.
+set -g A6PICK (functions __tcz_theme_picker | string collect)
+t "picker: sources the v6 catalog" 1 (string match -q '*__tmux_lives_theme_catalog_v6_default*' -- "$A6PICK"; and echo 1; or echo 0)
+t "picker: no v5 catalog call remains" 0 (string match -q '*__tmux_lives_theme_catalog_default*' -- (string replace -a '__tmux_lives_theme_catalog_v6_default' 'X' -- "$A6PICK"); and echo 1; or echo 0)
+t "picker: no v5 palette call remains" 0 (string match -q '*__tmux_lives_theme_palette*' -- "$A6PICK"; and echo 1; or echo 0)
+t "picker: renders through the v6 entry point" 1 (string match -q '*__tmux_lives_theme_render*' -- "$A6PICK"; and echo 1; or echo 0)
+t "picker: body was actually captured" 1 (test (string length "$A6PICK") -gt 2000; and echo 1; or echo 0)
+set -g A6APPLY (functions __tcz_thp_apply_and_recolor | string collect)
+t "apply_and_recolor: body was actually captured" 1 (test (string length "$A6APPLY") -gt 200; and echo 1; or echo 0)
+t "apply_and_recolor: no phase argument remains" 0 (string match -q '*anch_phase*' -- "$A6APPLY"; and echo 1; or echo 0)
 
 
 # --- hygiene: this suite's own shim dir ------------------------------------
