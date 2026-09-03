@@ -3586,26 +3586,31 @@ t "picker gap-less drains re-assert non-blocking each iteration" 2 (string match
 t "picker drain re-asserts non-blocking inside the loop" 1 (string match -a -r 'while true(?=\n\s+stty min 0 time \$gap)' -- (functions __tcz_theme_picker | string collect) | count)
 t "picker drain: arrows do not escalate, pages do" yes (begin; not string match -q '*case up down; set gap 1*' -- (functions __tcz_theme_picker | string collect); and test (count (string match -ar 'set gap 1' -- (functions __tcz_theme_picker | string collect))) -eq 2; end; and echo yes; or echo no)
 
-# --- Gallery picker rewrite, Task 4: shake key (z) rewritten -------------
-# Supersedes the earlier relationship-axis picker's shake (dae0155/3395e6d),
-# which rerolled scheme+place+mode+phase independently. The gallery shake is
-# simpler: place/mode are now baked into each catalog entry's recipe, so
-# shaking only needs to (a) expand to the full 28-entry catalog (so any
-# entry is reachable) and (b) land the cursor on a random entry — place/
-# mode/phase follow automatically at apply/save time via the recipe + the
-# live phase knob (case a/enter, Task 4 below).
+# --- Task 8: z key redesigned — roll, not shake ---------------------------
+# z no longer moves the cursor to a random row of the catalog (the Gallery
+# picker rewrite Task 4 "shake" this block used to pin). It ROLLS a genuine
+# recipe out of the full v6 space via __tmux_lives_theme_roll — which is not
+# a catalog row at all — and pushes it onto a bounded, session-local history:
+# a NEW selectable STATE (focus=roll), reachable via ⇥ once at least one roll
+# has happened (see the case-tab tests further down). The two designs share
+# only the key.
 set -l pk2 (functions __tcz_theme_picker | string collect)
-t "picker has a shake arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; or echo 0)
-t "shake expands the catalog" 1 (string match -q '*case z*set expanded 1*' -- "$pk2"; and echo 1; or echo 0)
-# fish landmine guard (2026-07-20 live bug, still relevant): capture random
-# into a var BEFORE using it as an index — never inline it into quoted math.
-t "shake captures random into a var first" 1 (string match -q '*set -l zi (random 0 (math $n - 1))*' -- "$pk2"; and echo 1; or echo 0)
-# The bound must be DERIVED, never a literal: it was `random 0 27`, taken BEFORE the
-# reload, so when the catalog grew past 28 the tail silently became unreachable.
-t "shake bound is derived, not a literal" 0 (string match -qr 'random 0 [0-9]' -- "$pk2"; and echo 1; or echo 0)
-t "shake selects the captured index" 1 (string match -q '*set sel $zi*' -- "$pk2"; and echo 1; or echo 0)
-t "shake reloads BEFORE rolling (bound sees the expanded list)" 1 (string match -q '*set expanded 1*__tcz_thp_reload*set n (count $toks)*set -l zi (random 0 (math $n - 1))*set sel $zi*' -- "$pk2"; and echo 1; or echo 0)
-t "shake no longer rerolls place/mode independently" yes (begin; not string match -q '*set place $places[$pi]*' -- "$pk2"; and not string match -q '*set mode $modes[$mi]*' -- "$pk2"; end; and echo yes; or echo no)
+set -l cz8 (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
+t "case-z body extraction is non-empty (task 8)" 1 (test -n "$cz8"; and echo 1; or echo 0)
+t "picker still has a z arm" 1 (string match -q '*case z*' -- "$pk2"; and echo 1; or echo 0)
+t "z calls the roll sampler" 1 (string match -q '*__tmux_lives_theme_roll "$seed"*' -- "$cz8"; and echo 1; or echo 0)
+t "z no longer expands the catalog" 0 (string match -q '*set expanded 1*' -- "$cz8"; and echo 1; or echo 0)
+t "z no longer reloads the catalog" 0 (string match -q '*__tcz_thp_reload*' -- "$cz8"; and echo 1; or echo 0)
+# The picker side needs no `random` call of its own any more — rolling moved
+# entirely into the engine (__tmux_lives_theme_roll, tested separately in
+# test-tmux-install.fish, including its own equivalent landmine guard).
+t "z contains no random call of its own (rolling moved into the engine)" 0 (string match -qr 'random ' -- "$cz8"; and echo 1; or echo 0)
+t "z appends to the roll history via the same join idiom recipes use" 1 (string match -q '*set -a rollhist (string join '"'"'|'"'"' $r)*' -- "$cz8"; and echo 1; or echo 0)
+t "z bounds the history to 12 entries" 1 (string match -q '*count $rollhist) -gt 12*' -- "$cz8"; and echo 1; or echo 0)
+t "z lands rollat on the newest entry" 1 (string match -q '*set rollat (count $rollhist)*' -- "$cz8"; and echo 1; or echo 0)
+t "z switches focus to roll" 1 (string match -q '*set focus roll*' -- "$cz8"; and echo 1; or echo 0)
+t "z live-applies the rolled recipe via the shared helper" 1 (string match -q '*__tcz_thp_apply_and_recolor "$seed" $r[1] $r[2] $r[3] $r[4] $r[5]*' -- "$cz8"; and echo 1; or echo 0)
+t "z's note mentions roll" 1 (string match -q '*roll*' -- "$cz8"; and echo 1; or echo 0)
 
 t "legend advertises z shake" 1 (string match -q '*z shake*' -- (__tcz_strip_sgr (__tcz_legend_row 12 '←→' phase m more z shake)); and echo 1; or echo 0)
 # picker current-zone + legend-grid refinement, Task 1: the picker's legend
@@ -4220,12 +4225,13 @@ t "anchor render call is 6-arg (lspan+peakc+peakpos+arrangement, drops phase)" 1
 # (LEGI/LEGE).
 set -l leglinesall (string match -ra -- "__tcz_thp_leg .*" $pbody)
 t "legend is built via two __tcz_thp_leg calls (idle/editing)" 2 (count $leglinesall)
-# Isolate via `shake` rather than the old `more` marker: picker-responsiveness-
-# and-layout Task 7 renamed the idle branch's `m` pair to `curated` (m now
-# collapses to the curated 14 by default; the picker opens on the full 35),
-# so `more` no longer appears anywhere in the idle line. `shake` is untouched
-# by that rename and still unique to the idle branch (absent from editing's).
-set -l leglines (string match -r -- '.*shake.*' $leglinesall)
+# Isolate via `roll` rather than the old `shake` marker (itself a replacement
+# for an even older `more` marker — see the retired comment this one
+# replaces): Task 8 renamed the idle branch's `z` pair from shake to roll,
+# so `shake` no longer appears anywhere in the idle line. `roll` is unique to
+# the idle branch (absent from editing's — the editing legend never mentions
+# rolling at all).
+set -l leglines (string match -r -- '.*roll.*' $leglinesall)
 t "idle legend line isolated for the checks below" 1 (count $leglines)
 # Gallery rewrite Task 4: place/mode are no longer knobs, so the legend no
 # longer names them (m was repurposed to expand, then Task 7 flipped the
@@ -4234,7 +4240,7 @@ t "idle legend line isolated for the checks below" 1 (count $leglines)
 t "legend drops place" 0 (string match -q '*place*' -- $leglines; and echo 1; or echo 0)
 t "legend drops mode"  0 (string match -q '*mode*'  -- $leglines; and echo 1; or echo 0)
 t "legend names curated" 1 (string match -q '*curated*' -- $leglines; and echo 1; or echo 0)
-t "legend names shake" 1 (string match -q '*shake*' -- $leglines; and echo 1; or echo 0)
+t "legend names roll (task 8, was shake)" 1 (string match -q '*roll*' -- $leglines; and echo 1; or echo 0)
 t "legend drops contrast"  0 (string match -qr 'contrast' -- $leglines; and echo 1; or echo 0)
 t "legend drops vividness" 0 (string match -qr 'vivid'    -- $leglines; and echo 1; or echo 0)
 # brief's literal guard: no __tcz_legend_row call anywhere in the categorizer
@@ -4592,7 +4598,9 @@ t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
 set -l pbody2 (functions __tcz_theme_picker | string collect)
 set -l leggridall (string match -ra -- "__tcz_thp_leg 3 .*" $pbody2)
 t "picker legend is built via two __tcz_thp_leg 3-col calls (idle/editing)" 2 (count $leggridall)
-set -l leggrid (string match -r -- '.*shake.*' $leggridall)
+# Isolate via `roll`, Task 8's replacement for the old `shake` marker (see
+# the equivalent block above for the full history: more -> shake -> roll).
+set -l leggrid (string match -r -- '.*roll.*' $leggridall)
 t "picker legend (idle branch) is a __tcz_thp_leg 3-col call" 1 (count $leggrid)
 # scoped to the two RETIRED bottom-legend calls specifically (pitch 12/9) —
 # NOT a whole-body absence check, since __tcz_theme_picker's inline seed
@@ -4608,7 +4616,7 @@ t "picker legend names current/off (tab)" 1 (string match -q '*current/off*' -- 
 # picker-responsiveness-and-layout Task 7: m's label moved more -> curated
 # (the picker now opens expanded; m collapses to the curated 14).
 t "picker legend names curated"     1 (string match -q '*curated*' -- "$leggrid"; and echo 1; or echo 0)
-t "picker legend still names shake" 1 (string match -q '*shake*' -- "$leggrid"; and echo 1; or echo 0)
+t "picker legend names roll (task 8, was shake)" 1 (string match -q '*roll*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops place" 0 (string match -q '*place*' -- "$leggrid"; and echo 1; or echo 0)
 t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; and echo 1; or echo 0)
 
@@ -4621,7 +4629,14 @@ t "picker legend still drops mode"  0 (string match -q '*mode*'  -- "$leggrid"; 
 # the legend). ---
 set -l pk2 (functions __tcz_theme_picker | string collect)
 t "picker has case c (retired, superseded by tab)" 0 (string match -qr 'case c\b' -- "$pk2"; and echo 1; or echo 0)
-t "tab toggles focus between list and state" 1 (string match -q '*test $focus = list; and set focus state; or set focus list*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
+# Task 8: the 2-way ternary became a 3-way cycle (list -> state -> roll ->
+# list once a roll has happened this session, list -> state -> list before
+# one has). The functional proof is behavioral — see the extended
+# __t9_casetab tests in the "case tab is gated while editing" section
+# further down — this stays a light structural check that the old ternary
+# is genuinely gone and dispatch now runs through a switch.
+t "tab no longer uses the old two-way ternary" 0 (string match -q '*test $focus = list; and set focus state; or set focus list*' -- (string replace -ra '\s+' ' ' -- "$pk2"); and echo 1; or echo 0)
+t "tab dispatches via a switch on focus (list/state/roll)" 1 (string match -q '*switch $focus*' -- "$pk2"; and echo 1; or echo 0)
 # Task 7 (v6 recipes): phase is retired outright, so the marker no longer
 # gates on it separately — the full five-field recipe comparison (pinned
 # above, "marker compares the full recipe, not the name") is now the WHOLE
@@ -4814,17 +4829,20 @@ t "apply_now body extraction is non-empty" 1 (test -n "$aabody"; and echo 1; or 
 # `bare call, not the --description text` the same way the old guard was:
 # a plain substring count would also match the function's own docstring,
 # which names __tcz_thp_apply_and_recolor too.
-t "apply_now calls __tcz_thp_apply_and_recolor once per branch (current/off/scheme) — scoped to this function, not the whole picker body" 3 (count (string match -ar '^ +__tcz_thp_apply_and_recolor ' -- (string split \n -- "$aabody")))
+# Task 8: a fourth branch (roll) joined current/off/scheme, each still one
+# call to the shared helper. 3 -> 4.
+t "apply_now calls __tcz_thp_apply_and_recolor once per branch (current/off/scheme/roll) — scoped to this function, not the whole picker body" 4 (count (string match -ar '^ +__tcz_thp_apply_and_recolor ' -- (string split \n -- "$aabody")))
 # Bounded to the current-row branch alone (the sel2 -eq 0 arm) so a fix that
 # flips the WRONG branch to previewed 2 can't pass by coincidence.
 set -l currowblock (string match -r '(?ms)sel2 -eq 0\b.*?else\b' -- "$aabody" | string collect)
 t "current-row preview sets previewed 2"           1 (string match -q '*set previewed 2*' -- "$currowblock"; and echo 1; or echo 0)
 t "current-row preview no longer sets previewed 1" 0 (string match -q '*set previewed 1*' -- "$currowblock"; and echo 1; or echo 0)
-# the off row and the listed-scheme branch both still set previewed 1 —
-# exactly twice across the whole function now that the current row moved
-# to 2 (regression guard: the two OTHER sites must stay put).
+# the off row, the listed-scheme branch and the roll branch (Task 8) all set
+# previewed 1 — exactly three times across the whole function now that the
+# current row moved to 2 (regression guard: the three OTHER sites must stay
+# put).
 set -l applyarm $aabody
-t "off and listed-scheme previews both stay at previewed 1" 2 (count (string match -ar 'set previewed 1' -- (string split \n -- "$applyarm")))
+t "off, listed-scheme and roll previews all stay at previewed 1" 3 (count (string match -ar 'set previewed 1' -- (string split \n -- "$applyarm")))
 t "exactly one site sets previewed 2"                        1 (count (string match -ar 'set previewed 2' -- (string split \n -- "$applyarm")))
 # islive is computed from previewed, not the Task 5 placeholder alone. A
 # bare '*set -l islive*' (or even '*set -l islive 1*') substring already
@@ -5257,6 +5275,12 @@ t "frame: 26 rows — previewing a listed scheme (1)"     26 (__t9_frame_rows li
 t "frame: 26 rows — previewing the current row (2)"     26 (__t9_frame_rows state 0 14 0  2 mono "$PAL9" '')
 t "frame: 26 rows — persisted theme off, anchpal empty" 26 (__t9_frame_rows state 0 14 0  0 off  ''      '')
 t "frame: 26 rows — seed change-flash active"           26 (__t9_frame_rows list  0 14 0  0 mono "$PAL9" seed)
+# Task 8: focus=roll is a new selectable state, but it adds NO new frame
+# row — it reuses the existing note line (see case z) rather than drawing
+# anything of its own. Direct proof, not just non-regression of the rows
+# above: the frame count must still land on 26 with focus itself set to the
+# new value.
+t "frame: 26 rows — task 8 roll state selected (no new frame row)" 26 (__t9_frame_rows roll 0 14 0  1 mono "$PAL9" '')
 
 # --- final review (I1): the note row is structurally incapable of overflowing --
 # Reproduced pre-fix: with the OLD "(current)" wording, __tcz_thp_ln pads short
@@ -5526,7 +5550,7 @@ t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" 
 # drop-autoapply-debounce-seed Task 1 removed auto-apply and that pair with
 # it, so browsing is back to 9 pairs / 3 rows and editing's pad is back to
 # one blank row.
-t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z shake '⇥' current/off  a apply '⏎' save esc close))
+t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close))
 t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
 
 # --- review I-1: the six draw-block cache keys, unguarded --------------------
@@ -6407,6 +6431,43 @@ set -g R_LR_CLAMPLO (__t9_arrow left 1 1 '#050000' list 0 0)
 t "editing=1: R channel clamps at the 0 floor (5-8)" "1 0 0 0 #000000 0 0" "$R_LR_CLAMPLO"
 t "editing=1: seed stays a well-formed 6-hex-digit colour after the 0 clamp" yes (string match -qr '^#[0-9a-fA-F]{6}$' -- $R_LR_CLAMPLO[5]; and echo yes; or echo no)
 
+# --- Task 8: ↑↓/pgup/pgdn dispatch for focus=roll (rollat clamps within
+# the history) --------------------------------------------------------------
+# Reuses the SAME up/down/pgup/pgdn extraction ($ARROWUD9) the list/state
+# tests above already drive — case z/tab live in a different arm and are
+# untouched by this one, so no separate extraction is needed. A throwaway
+# wrapper seeds focus=roll and a synthetic rollhist of <rollhistn> entries;
+# rollat starts at <rollat0>.
+function __t9_arrow_roll --argument-names tok rollhistn rollat0 --description 'eval the REAL up/down/pgup/pgdn dispatch arm (via a switch around $ARROWUD9) against a throwaway scope with focus=roll and a synthetic rollhist of <rollhistn> entries, rollat starting at <rollat0>. Prints the resulting rollat.'
+    set -l editing 0
+    set -l focus roll
+    set -l chan 1
+    set -l seedr 0
+    set -l seedg 0
+    set -l seedb 0
+    set -l seed '#5f772b'
+    set -l WIN 5
+    set -l n 5
+    set -l sel 0
+    set -l sel2 0
+    set -l rollhist
+    for i in (seq $rollhistn)
+        set -a rollhist "mono|0.55|0.13|0.50|deep"
+    end
+    set -l rollat $rollat0
+    set -g __t9_rkq
+    eval "switch \$tok
+$ARROWUD9
+end"
+    echo $rollat
+end
+t "roll arrow: down steps rollat forward by one" 3 (__t9_arrow_roll down 5 2)
+t "roll arrow: up steps rollat back by one" 1 (__t9_arrow_roll up 5 2)
+t "roll arrow: down clamps at the newest (last) entry" 5 (__t9_arrow_roll down 5 5)
+t "roll arrow: up clamps at the oldest (first) entry" 1 (__t9_arrow_roll up 5 1)
+t "roll arrow: pgdn jumps by WIN, clamped to the last entry" 5 (__t9_arrow_roll pgdn 5 1)
+t "roll arrow: pgup jumps by WIN, clamped to the first entry" 1 (__t9_arrow_roll pgup 5 5)
+
 eval $__t9_real_readkey
 functions -e stty
 
@@ -6766,16 +6827,171 @@ t "case-tab body extraction is non-empty" 1 (test -n "$CASETAB5"; and echo 1; or
 set -g CASETAB5WRAP "switch \$tok
 $CASETAB5
 end"
-function __t9_casetab --argument-names editing focus --description 'eval the REAL case-tab arm against a seeded editing/focus pair. Prints the resulting focus.'
+function __t9_casetab --argument-names editing focus rollhistn --description 'eval the REAL case-tab arm against a seeded editing/focus pair, and an optional synthetic rollhist of <rollhistn> entries (Task 8 — defaults to 0, so every pre-Task-8 caller reproduces the pre-Task-8 behaviour exactly, since an empty rollhist is what makes case tab treat state->roll as state->list). Prints the resulting focus.'
     set -l tok tab
     set -l flashfield START
+    set -l rollhist
+    test -n "$rollhistn"; or set rollhistn 0
+    for i in (seq $rollhistn)
+        set -a rollhist "mono|0.55|0.13|0.50|deep"
+    end
     eval $CASETAB5WRAP
     echo $focus
 end
 t "case tab: editing=1 cannot change focus away from list" list (__t9_casetab 1 list)
 t "case tab: editing=1 cannot change focus away from state" state (__t9_casetab 1 state)
 t "case tab: editing=0 still toggles list->state (non-regression)" state (__t9_casetab 0 list)
-t "case tab: editing=0 still toggles state->list (non-regression)" list (__t9_casetab 0 state)
+t "case tab: editing=0 still toggles state->list when no roll has happened (non-regression)" list (__t9_casetab 0 state 0)
+# Task 8: once a roll exists, ⇥ from state goes to roll instead of back to
+# list, and ⇥ from roll returns to list — closing the 3-way cycle.
+t "case tab: editing=0, state->roll once a roll history exists" roll (__t9_casetab 0 state 1)
+t "case tab: editing=0, roll->list (closes the cycle)" list (__t9_casetab 0 roll 1)
+# editing still blocks the third state exactly as it blocks the first two.
+t "case tab: editing=1 cannot change focus away from roll either" roll (__t9_casetab 1 roll 1)
+
+# --- Task 8: case z end to end (roll pushes onto a bounded, session-local
+# history and switches focus) -----------------------------------------------
+# __tmux_lives_theme_roll is STUBBED to a fixed, known recipe so this is
+# about the WIRING (append/cap/focus/apply/note), not the sampler's own
+# correctness — that is covered exhaustively (40-roll sweep, bound 1, the
+# landmine guard) in test-tmux-install.fish. __tcz_thp_apply_and_recolor is
+# stubbed as a call recorder so a real `fish -c` subprocess never fires from
+# this suite. Both are REAL production functions the rest of this file (in
+# particular the __t6_seq "-> z then a" sequences and the later
+# tick-call-batching end-to-end block) still needs for real, so both are
+# saved and restored around this section, the same discipline the readkey/
+# stty stubs elsewhere in this file already follow.
+set -g __t8z_real_roll (functions __tmux_lives_theme_roll | string collect)
+set -g __t8z_real_apply_and_recolor (functions __tcz_thp_apply_and_recolor | string collect)
+function __tmux_lives_theme_roll
+    printf '%s\n' triadic 0.60 0.15 0.45 accent
+end
+set -g __t8z_calls 0
+function __tcz_thp_apply_and_recolor
+    set -g __t8z_calls (math $__t8z_calls + 1)
+end
+set -g CZ8WRAP "switch \$tok
+$cz8
+end"
+function __t9_casez --argument-names rollhistn --description 'eval the REAL case-z arm (roll) against a throwaway scope with a synthetic rollhist of <rollhistn> placeholder entries, each distinct (placeholder1..placeholderN) so the OLDEST-dropped assertions below can tell which one survived the cap. Prints "<rollhist, ;-joined>\trollat\tfocus\tprevieweD\t<apply_and_recolor call count>\t<1 if note mentions roll, else 0>".'
+    set -l tok z
+    set -l seed '#5f772b'
+    set -l focus list
+    set -l rollat 0
+    set -l previewed 0
+    set -l note ''
+    set -l flashfield START
+    set -l rollhist
+    for i in (seq $rollhistn)
+        set -a rollhist "placeholder$i|0.50|0.12|0.40|deep"
+    end
+    set -g __t8z_calls 0
+    eval $CZ8WRAP
+    set -l notehas 0
+    string match -q '*roll*' -- "$note"; and set notehas 1
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' (string join ';' -- $rollhist) $rollat $focus $previewed $__t8z_calls $notehas
+end
+set -g R8Z0 (string split \t -- (__t9_casez 0))
+t "case z (empty history): appends exactly one entry" 1 (count (string split ';' -- $R8Z0[1]))
+t "case z (empty history): the new entry is the rolled recipe" "triadic|0.60|0.15|0.45|accent" $R8Z0[1]
+t "case z: rollat lands on the newest (only) entry" 1 $R8Z0[2]
+t "case z: focus becomes roll" roll $R8Z0[3]
+t "case z: previewed becomes 1" 1 $R8Z0[4]
+t "case z: live-applies exactly once via the shared helper" 1 $R8Z0[5]
+t "case z: the note mentions roll" 1 $R8Z0[6]
+set -g R8Z12 (string split \t -- (__t9_casez 12))
+set -g R8Z12HIST (string split ';' -- $R8Z12[1])
+t "case z: history caps at 12, not 13" 12 (count $R8Z12HIST)
+t "case z: the oldest entry was dropped, not the newest" no (string match -q 'placeholder1|*' -- $R8Z12HIST[1]; and echo yes; or echo no)
+t "case z: the newest entry is the just-rolled recipe" "triadic|0.60|0.15|0.45|accent" $R8Z12HIST[-1]
+t "case z: rollat lands on 12 (the newest), not past the cap" 12 $R8Z12[2]
+eval $__t8z_real_roll
+eval $__t8z_real_apply_and_recolor
+
+# --- Task 8: case enter (save) for focus=roll -------------------------------
+# The not-editing/save branch of case enter, run for real. "case a" is
+# unique in the file (see the pre-existing CASECANCEL6 comment above, same
+# reasoning) so capture starts only once it has been seen — otherwise a
+# naive start/exit pair would land on the SWITCHER's own earlier "case
+# enter" (__tcz_popup, a different function entirely) instead of the theme
+# picker's.
+set -g CE8 (awk '/^            case a$/{seen=1} seen && /^            case enter$/{f=1} f && /^            case cancel$/{exit} f{print}' $catfile | string collect)
+t "case-enter body extraction is non-empty (task 8)" 1 (test -n "$CE8"; and echo 1; or echo 0)
+t "case-enter extraction is the save arm, not the switcher's own enter" 1 (string match -q '*BEGIN enter-edit*' -- "$CE8"; and echo 1; or echo 0)
+# break exits the picker's own `while true` read loop — with no enclosing
+# loop of its own here, a bare `break` is a hard fish error ("break while
+# not inside of loop"), so the wrapper supplies one, exactly mirroring the
+# real nesting (while true { switch $tok { case enter ... break } }).
+set -g CE8WRAP "while true
+switch \$tok
+$CE8
+end
+end"
+function __t9_caseenter_roll --argument-names rollhistn rollat0 --description 'eval the REAL case-enter arm (not-editing / save branch) against a throwaway scope with focus=roll, a synthetic rollhist of <rollhistn> placeholder entries and rollat=<rollat0>. Prints "<apply>\t<apply_unnamed>\t<anch_theme>|<anch_lspan>|<anch_peakc>|<anch_peakpos>|<anch_arr>" — the exact three values the post-loop unnamed-save fish -c call (pinned elsewhere, "the unnamed-save branch sets exactly the five persisted universals") reads.'
+    set -l tok enter
+    set -l editing 0
+    set -l focus roll
+    set -l sel2 0
+    set -l sel 0
+    set -l apply ''
+    set -l apply_unnamed 0
+    set -l anch_name ''
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
+    set -l toks
+    set -l rollhist
+    for i in (seq $rollhistn)
+        set -a rollhist "placeholder$i|0.50|0.12|0.40|deep"
+    end
+    set -l rollat $rollat0
+    eval $CE8WRAP
+    printf '%s\t%s\t%s\n' "$apply" $apply_unnamed "$anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr"
+end
+set -g R8E (string split \t -- (__t9_caseenter_roll 3 2))
+t "case enter (roll, not editing): apply stays empty — a roll has no catalog name" '' $R8E[1]
+t "case enter (roll): apply_unnamed is set (routes through the five-universal save path)" 1 $R8E[2]
+# rollat=2 of 3 (the MIDDLE entry, not the newest) — proves the SELECTED
+# history entry saves, not always the latest roll, which is the whole point
+# of "↑↓ step back" being recoverable.
+t "case enter (roll): the anchor carries the SELECTED history entry, not the newest" "placeholder2|0.50|0.12|0.40|deep" $R8E[3]
+
+# --- Task 8: case a (apply-preview) for focus=roll, via __tcz_thp_apply_now -
+# __tcz_thp_apply_now is a NESTED function (defined inside __tcz_theme_picker
+# itself), so — same technique __tcz_thp_reload already uses above ("function
+# definitions are global in fish regardless of where `function` runs") —
+# eval'ing its extracted definition makes it directly callable. Reuses
+# $aabody, already extracted above for the apply_now source-text guards.
+eval $aabody
+set -g __t8an_recorded ''
+set -g __t8an_real_apply_and_recolor (functions __tcz_thp_apply_and_recolor | string collect)
+function __tcz_thp_apply_and_recolor
+    set -g __t8an_recorded "$argv"
+end
+function __t9_applynow_roll --no-scope-shadowing --argument-names rollhistn rollat0 --description 'call the REAL __tcz_thp_apply_now (roll branch) against a throwaway scope. __tcz_thp_apply_and_recolor is stubbed to record its arguments. Prints "<recorded args>\t<previewed>\t<1 if note mentions roll>".'
+    set -l focus roll
+    set -l seed '#5f772b'
+    set -l previewed 0
+    set -l note ''
+    set -l rollhist
+    for i in (seq $rollhistn)
+        set -a rollhist "placeholder$i|0.50|0.12|0.40|deep"
+    end
+    set -l rollat $rollat0
+    set -g __t8an_recorded ''
+    __tcz_thp_apply_now
+    set -l notehas 0
+    string match -q '*roll*' -- "$note"; and set notehas 1
+    printf '%s\t%s\t%s\n' "$__t8an_recorded" $previewed $notehas
+end
+set -g R8AN (string split \t -- (__t9_applynow_roll 3 2))
+t "apply_now (roll): forwards the seed and the SELECTED recipe to the shared helper" "#5f772b placeholder2 0.50 0.12 0.40 deep" $R8AN[1]
+t "apply_now (roll): previewed becomes 1 (a live preview, not yet saved)" 1 $R8AN[2]
+t "apply_now (roll): the note mentions roll" 1 $R8AN[3]
+eval $__t8an_real_apply_and_recolor
+functions -e __tcz_thp_apply_now
 
 # =====================================================================
 # drop-autoapply-debounce-seed Task 2: a channel keypress costs a redraw and

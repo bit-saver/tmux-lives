@@ -4081,4 +4081,41 @@ end
 t "catalog v6: every recipe renders at all three seeds" 126 $A6CATN
 t "catalog v6: every recipe satisfies all three bounds at all three seeds" 0 $A6CATFAIL
 
+# --- Task 8: the roll — sample the MEASURED acceptable ridge, not the v6 core
+# spec's documented envelope. Uniform peakC 0.01-0.26 satisfies bound 1 only
+# 34.6% of the time (measured across 5,865 renders at four seeds); peakC
+# 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so a roll costs about one
+# render. __t6_bounds/__t6_inbounds live in THIS file (not the categorize
+# suite), so the engine-side roll assertions belong here too — only the
+# picker-wiring assertions (case z/tab/a/enter, the frame-row invariant)
+# live in test-tmux-categorize.fish.
+t "roll: defined" 1 (functions -q __tmux_lives_theme_roll; and echo 1; or echo 0)
+t "roll: returns five fields" 5 (count (__tmux_lives_theme_roll '#5fab40'))
+t "roll: the mode is a real harmony mode" 1 (contains -- (__tmux_lives_theme_roll '#5fab40')[1] mono analogous complementary split triadic tetradic square; and echo 1; or echo 0)
+t "roll: the arrangement is a real arrangement" 1 (contains -- (__tmux_lives_theme_roll '#5fab40')[5] (__tmux_lives_theme_arrangements); and echo 1; or echo 0)
+# 40 rolls must all render and all satisfy bound 1. This is the assertion that
+# matters: a roll that can produce a rejected palette defeats the whole point.
+set -g A6ROLLBAD 0
+set -g A6ROLLN 0
+for i in (seq 40)
+    set -l r (__tmux_lives_theme_roll '#5fab40')
+    set -g A6ROLLN (math $A6ROLLN + 1)
+    set -l p (__tmux_lives_theme_render '#5fab40' $r[1] $r[2] $r[3] $r[4] $r[5])
+    if test (count $p) -ne 7
+        set -g A6ROLLBAD (math $A6ROLLBAD + 1)
+        continue
+    end
+    set -l b (string split ' ' -- (__t6_bounds $p))
+    if test "$b[1]" -lt 0.105; or test "$b[1]" -gt 0.180; set -g A6ROLLBAD (math $A6ROLLBAD + 1); end
+end
+t "roll: forty rolls all happened" 40 $A6ROLLN
+t "roll: forty rolls all satisfy bound 1" 0 $A6ROLLBAD
+t "roll: terminates when nothing passes" 5 (count (__tmux_lives_theme_roll '#4a4a4a'))
+# fish landmine guard (2026-07 live bug, still relevant here): capture random
+# into a var BEFORE using it inside quoted math — an inline roll hands math
+# the LITERAL unexpanded text. Scoped to the roll function's own body, not the
+# whole file, matching the equivalent guard the categorize suite already
+# carries for the (now-retired) z-shake code that first hit this landmine.
+t "roll: captures random into a var before quoted math" 0 (count (string match -ar 'math "[^"]*\(random' -- (functions __tmux_lives_theme_roll | string collect)))
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

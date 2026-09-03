@@ -1186,6 +1186,39 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     __tmux_lives_theme_constrain $pal $arrangement
 end
 
+function __tmux_lives_theme_roll --argument-names seedHex --description 'v6: sample a recipe from the MEASURED acceptable ridge and return its five fields. Sampling the v6 core spec s documented envelope (peakC 0.01-0.26 uniform) satisfies bound 1 only 34.6% of the time; the region is a diagonal ridge that INVERTS — below peakC ~0.10 nothing passes at any position, and above ~0.20 the middle fails while the ends pass, because a mid-ramp peak sits where the gamut has headroom and overshoots the ceiling while an end peak is clipped back into range. peakC 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so this costs about one render. Rejects and resamples on a bound-1 miss, capped; on exhaustion returns the last candidate rather than nothing, because refusing to render is a worse outcome than one slightly-off palette.'
+    set -l modes mono analogous complementary split triadic tetradic square
+    set -l arrs (__tmux_lives_theme_arrangements)
+    set -l r
+    for attempt in (seq 8)
+        set -l m $modes[(random 1 (count $modes))]
+        set -l a $arrs[(random 1 (count $arrs))]
+        # Capture random into a var FIRST: fish performs NO command substitution
+        # inside double-quoted math, so an inline roll would hand math the
+        # LITERAL unexpanded text.
+        set -l rs (random 30 70)
+        set -l rc (random 130 180)
+        set -l rp (random 30 85)
+        set -l sp (math "$rs / 100")
+        set -l pc (math "$rc / 1000")
+        set -l po (math "$rp / 100")
+        set r $m $sp $pc $po $a
+        set -l p (__tmux_lives_theme_render $seedHex $m $sp $pc $po $a)
+        test (count $p) -eq 7; or continue
+        set -l peak 0
+        for hx in $p
+            set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $hx))
+            test "$o[2]" -gt "$peak"; and set peak $o[2]
+        end
+        if test "$peak" -ge 0.105; and test "$peak" -le 0.180
+            printf '%s\n' $r
+            return 0
+        end
+    end
+    printf '%s\n' $r
+    return 0
+end
+
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
     set -l m (string match -rg '^#([0-9a-f]{6})$' -- (string lower -- $hex))
     test (count $m) -eq 1; or begin; echo '#f5f5f5'; return; end
