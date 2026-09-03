@@ -1616,7 +1616,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--place bar|tabs|cap] [--mode literal|derived]: the v5 bar theme (relationship x placement x mode)'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off]: the v6 bar theme, chosen by catalog scheme name (see: tmux-lives setup theme list)'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -1629,17 +1629,13 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
             end
         end
         set -l cur (__tmux_lives_key tmux_lives_theme mono)
-        test "$cur" = off; and echo "theme: off (legacy bar colors)"; or echo "theme: $cur"
-        set -l tphase (__tmux_lives_key tmux_lives_theme_phase 0)
-        set -l tplace (__tmux_lives_key tmux_lives_theme_place bar)
-        set -l tmode (__tmux_lives_key tmux_lives_theme_mode derived)
-        echo "  phase: $tphase   place: $tplace   mode: $tmode"
+        test "$cur" = off; and echo "theme: off (legacy bar colors)"; or begin
+            echo "theme: $cur "(__tmux_lives_key tmux_lives_theme_arrangement deep)
+            echo "  span: "(__tmux_lives_key tmux_lives_theme_lspan 0.55)"   peak chroma: "(__tmux_lives_key tmux_lives_theme_peakc 0.11)"   peak at: "(__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+        end
         return 0
     end
     set -l scheme; set -l have_scheme 0
-    set -l phase; set -l have_phase 0
-    set -l place; set -l have_place 0
-    set -l mode; set -l have_mode 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -1652,15 +1648,12 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
                 __tmux_lives_theme_apply_live
                 echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono')"
                 return 0
-            case --phase
-                set i (math $i + 1); set phase $argv[$i]; set have_phase 1
+            case --place --mode --phase
+                echo "tmux-lives setup theme: $argv[$i] was removed in v6 — a scheme is now a recipe (mode, lightness span, peak chroma, peak position, arrangement) chosen by name; see 'tmux-lives setup theme list'" >&2
+                return 1
             case --vividness --shape --ease --contrast
                 echo "tmux-lives setup theme: $argv[$i] was removed in v5.1 — it never affected the output" >&2
                 return 1
-            case --place
-                set i (math $i + 1); set place $argv[$i]; set have_place 1
-            case --mode
-                set i (math $i + 1); set mode $argv[$i]; set have_mode 1
             case --rotate
                 echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap to move the seed instead" >&2
                 return 1
@@ -1670,50 +1663,31 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
         set i (math $i + 1)
     end
     # Validate everything before mutating any state (same contract as setup cap).
-    if test $have_scheme -eq 1; and not __tmux_lives_theme_valid "$scheme"
-        echo "tmux-lives setup theme: invalid relationship '$scheme' — valid: "(__tmux_lives_theme_relationships | string join ', ')" (or: list, off)" >&2
-        return 1
-    end
-    if test $have_phase -eq 1; and not string match -qr -- '^-?[0-9]+$' "$phase"
-        echo "tmux-lives setup theme: invalid phase '$phase' — whole degrees, e.g. --phase -30" >&2
-        return 1
-    end
-    test $have_phase -eq 1; and set phase (math "$phase % 360")
-    if test $have_place -eq 1
-        switch "$place"
-            case bar tabs cap
-            case '*'
-                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap" >&2
-                return 1
-        end
-    end
-    if test $have_mode -eq 1
-        switch "$mode"
-            case literal derived
-            case '*'
-                echo "tmux-lives setup theme: invalid mode '$mode' — valid: literal, derived" >&2
-                return 1
-        end
-    end
+    set -l rec
     if test $have_scheme -eq 1
+        set rec (__tmux_lives_theme_recipe "$scheme")
+        if test (count $rec) -ne 5
+            echo "tmux-lives setup theme: unknown scheme '$scheme' — see 'tmux-lives setup theme list' (or: off)" >&2
+            return 1
+        end
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
         if test -z "$seed"
             echo "tmux-lives setup theme: no seed color — set one first: tmux-lives setup color '#rrggbb' (hex or rgb(); named colors have no derivable hue)" >&2
             return 1
         end
     end
-    test $have_phase -eq 1; and set -U tmux_lives_theme_phase $phase
-    test $have_place -eq 1; and set -U tmux_lives_theme_place $place
-    test $have_mode -eq 1; and set -U tmux_lives_theme_mode $mode
-    test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
+    if test $have_scheme -eq 1
+        set -U tmux_lives_theme $rec[1]
+        set -U tmux_lives_theme_lspan $rec[2]
+        set -U tmux_lives_theme_peakc $rec[3]
+        set -U tmux_lives_theme_peakpos $rec[4]
+        set -U tmux_lives_theme_arrangement $rec[5]
+    end
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
     __tmux_lives_write_fragment
     __tmux_lives_theme_apply_live
     test $have_scheme -eq 1; and echo "tmux-lives: theme set to $scheme"
-    test $have_phase -eq 1; and echo "tmux-lives: theme phase set to $phase"
-    test $have_place -eq 1; and echo "tmux-lives: theme place set to $place"
-    test $have_mode -eq 1; and echo "tmux-lives: theme mode set to $mode"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
@@ -1959,10 +1933,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'theme [<rel>|list|off]      seed-based bar theme; no-arg=picker' \
-        "      --place <p>           bar|tabs|cap (default: bar)" \
-        "      --mode <m>            literal|derived (default: derived)" \
-        "      --phase <deg>         rotate the hue arc (default: 0)" \
+        'theme [<scheme>|list|off]   seed-based bar theme; no-arg=picker' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 

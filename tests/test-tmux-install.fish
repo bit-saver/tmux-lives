@@ -500,7 +500,10 @@ set -e tmux_lives_theme_key
 t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
-t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; end; and echo yes; or echo no)
+# theme-v6-surface Task 5: --place/--mode/--phase are retired (a scheme is now
+# a recipe chosen by name), so the row documenting them is gone too — this
+# used to assert the opposite (that they WERE listed); inverted here.
+t "setup help: retired theme flags are gone from the row" no (string match -qr -- '--(place|mode|phase)\b' (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help: --rotate retired from theme row" no (string match -q '*--rotate*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help: the four inert theme knobs are gone" no (string match -qr -- '--(vividness|shape|ease|contrast)' (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
@@ -1366,9 +1369,12 @@ functions -c __tmux_lives_theme_cmd __thc_bak
 function __tmux_lives_theme_cmd; echo "THEME:$argv"; end
 t "setup dispatch routes theme" "THEME:warm x" (__tmux_lives_setup_dispatch theme warm x)
 functions -e __tmux_lives_theme_cmd; functions -c __thc_bak __tmux_lives_theme_cmd; functions -e __thc_bak
-t "setup help lists theme" yes (string match -q '*theme [<rel>*bar theme*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+t "setup help lists theme" yes (string match -q '*theme [<scheme>*bar theme*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
-# v4: theme-cmd/apply/list surface — relationships, --place/--mode, --rotate retired.
+# v4/v5/v6: theme-cmd/apply/list surface — --rotate (v4) and --vividness/
+# --shape/--ease/--contrast (v5.1) were already retired; --place/--mode/
+# --phase (v6, theme-v6-surface Task 5) are retired here too, as the CLI
+# switches from a v5 relationship name to a v6 catalog scheme name.
 functions -c __tmux_lives_write_fragment __wfth_bak
 function __tmux_lives_write_fragment; end
 
@@ -1382,19 +1388,13 @@ t "theme no-arg outside tmux prints the mono default" yes (string match -q 'them
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 85%*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 set -U tmux_lives_bar_color '#485b3c'
-t "theme: invalid relationship rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
-t "theme: invalid relationship leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
-t "theme: invalid place rejected" 1 (__tmux_lives_theme_cmd ember --place middle 2>/dev/null; echo $status)
-t "theme: invalid place mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
-t "theme: invalid mode rejected" 1 (__tmux_lives_theme_cmd ember --mode dyed 2>/dev/null; echo $status)
-t "theme: invalid mode mutates nothing" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
-t "theme: --place low rejected"  1 (__tmux_lives_theme_cmd ember --place low 2>/dev/null; echo $status)
-t "theme: --place high rejected" 1 (__tmux_lives_theme_cmd ember --place high 2>/dev/null; echo $status)
-t "theme: --place error names the three survivors" 1 (__tmux_lives_theme_cmd ember --place low 2>&1 | string match -q '*bar, tabs, cap*'; and echo 1; or echo 0)
-t "theme: --place low mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "theme: unknown scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
+t "theme: unknown scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+# --place/--mode/--phase value validation (invalid place/mode/phase, --place
+# low|high, the "three survivors" error text) is gone along with the flags
+# themselves — v6 retires all three unconditionally (see the "cli:" block
+# below), so there is no longer a distinct "invalid VALUE" path to test here.
 t "theme: --rotate error no longer offers low/high" 0 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*low*'; and echo 1; or echo 0)
-t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd ember --phase x 2>/dev/null; echo $status)
-t "theme: invalid phase mutates nothing" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
 t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 2>/dev/null; echo $status)
 t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
@@ -1456,8 +1456,41 @@ t "migrate_v52 is silent when there is nothing to erase (idempotent)" '' "$_m52"
 t "post_update chains migrate_v52" yes (string match -q '*__tmux_lives_migrate_v52*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 
 set -e tmux_lives_bar_color
-t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
+# was "ember" (a v5 relationship) pre-theme-v6-surface Task 5 — under v6
+# validation an unresolvable name is rejected as an unknown scheme BEFORE the
+# seed check ever runs, so that name no longer exercises this path at all.
+# 'mono deep' is a real catalog entry, so this genuinely reaches the seed
+# check now.
+t "theme: a scheme without a seed refuses" 1 (__tmux_lives_theme_cmd 'mono deep' 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
+
+# --- theme-v6-surface Task 5: the CLI takes a v6 catalog scheme name -------------
+# write_fragment is already stubbed (from the v4 block above, restored later at
+# the end of the -L socket section); apply_live is stubbed here too so this
+# block stays a pure parser/validation test, per the task brief.
+functions -c __tmux_lives_theme_apply_live __tal_bak
+function __tmux_lives_theme_apply_live; end
+t "cli: a catalog name is accepted" 0 (__tmux_lives_theme_cmd 'mono deep' >/dev/null 2>&1; echo $status)
+t "cli: an unknown name is rejected" 1 (__tmux_lives_theme_cmd 'no such scheme' >/dev/null 2>&1; echo $status)
+t "cli: an unknown name names the scheme in the error" 1 (__tmux_lives_theme_cmd 'no such scheme' 2>&1 >/dev/null | string match -q '*no such scheme*'; and echo 1; or echo 0)
+t "cli: --place is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --place bar >/dev/null 2>&1; echo $status)
+t "cli: --mode is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --mode literal >/dev/null 2>&1; echo $status)
+t "cli: --phase is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --phase 30 >/dev/null 2>&1; echo $status)
+t "cli: --place says what replaced it" 1 (__tmux_lives_theme_cmd --place bar 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+# Supplementary to the brief's own "--mode/--phase is rejected" (status-only)
+# assertions above: proven by mutation that status alone does NOT discriminate
+# a broken retired-flag arm here — with the case arm disabled, "--mode
+# literal"/"--phase 30" fall through to case '*', get parsed as bogus scheme
+# names ("literal"/"30", neither a valid catalog entry), and STILL return 1
+# via the unrelated unknown-scheme path, so "is rejected" alone stayed green
+# under that mutation. Mirroring "--place says what replaced it" for the
+# other two retired flags closes that gap: only the real retirement arm's
+# message mentions "recipe".
+t "cli: --mode says what replaced it" 1 (__tmux_lives_theme_cmd --mode literal 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+t "cli: --phase says what replaced it" 1 (__tmux_lives_theme_cmd --phase 30 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+t "cli: setting a scheme stores all five recipe fields" "mono 0.55 0.11 0.50 deep" (__tmux_lives_theme_cmd 'mono deep' >/dev/null 2>&1; string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+t "cli: off is still off" off (__tmux_lives_theme_cmd off >/dev/null 2>&1; echo $tmux_lives_theme)
+functions -e __tmux_lives_theme_apply_live; functions -c __tal_bak __tmux_lives_theme_apply_live; functions -e __tal_bak
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
 t "catalog has 35 entries" 35 (count (__tmux_lives_theme_catalog))
@@ -1632,21 +1665,23 @@ set -g __fish_config_dir /tmp/th-noconf-$fish_pid
 set -g thsock tlt-$fish_pid
 command tmux -L $thsock new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
-__tmux_lives_theme_cmd ember --place cap --mode literal --phase 30 >/dev/null
-t "theme cmd persists relationship" ember "$tmux_lives_theme"
-t "theme cmd persists place" cap "$tmux_lives_theme_place"
-t "theme cmd persists mode" literal "$tmux_lives_theme_mode"
-t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
-# theme-v6-surface Task 4: __tmux_lives_theme_cmd is still v5 (Task 5 migrates the
-# CLI) and stores "ember" into the SAME tmux_lives_theme universal that apply_live's
-# 0-arg path (which theme_cmd triggers as a side effect, via __tmux_lives_write_fragment
-# + __tmux_lives_theme_apply_live) now reads as a v6 HARMONY MODE. "ember" is not one
-# of mono/analogous/complementary/split/triadic/tetradic/square, so
-# __tmux_lives_theme_render returns nothing and apply_live correctly falls through to
-# its legacy branch — the same branch the "off" block below documents with literal
-# constants. This asserts that real, current ground truth (a real, if temporary,
-# consequence of this task's own change) rather than the stale v5-vs-v5 comparison
-# ("$THP", computed via the old __tmux_lives_theme_palette) it replaces.
+# theme-v6-surface Task 5: __tmux_lives_theme_cmd now validates scheme names
+# against the v6 catalog, so it can no longer be used to get an unresolvable
+# name into tmux_lives_theme — "ember" (a v5 relationship, not a v6 catalog
+# scheme) would be rejected outright with "unknown scheme". The legacy-branch
+# behaviour these assertions exist to pin — apply_live falling through to its
+# legacy branch when tmux_lives_theme is set to something apply_live's v6
+# render cannot resolve — is still real and still needs coverage (an upgrading
+# user's leftover pre-migration universal is exactly this shape), so the
+# universal is set DIRECTLY here, bypassing the CLI's validation entirely, and
+# __tmux_lives_theme_apply_live is called directly (the same 0-arg,
+# universal-reading path theme_cmd itself calls as a side effect). "ember" is
+# not one of mono/analogous/complementary/split/triadic/tetradic/square, so
+# __tmux_lives_theme_render returns nothing and apply_live correctly falls
+# through to its legacy branch — the same branch the "off" block below
+# documents with literal constants.
+set -U tmux_lives_theme ember
+__tmux_lives_theme_apply_live
 t "theme live-applies bar_bg (legacy: relationship isn't a v6 mode)" (__tmux_lives_derive_status_bg '#485b3c' 0) (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
 t "theme live-applies sep_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
 t "theme live-applies tabs_color (legacy)" '' (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
@@ -1656,9 +1691,6 @@ t "theme live-applies text_fg (legacy)" default (command tmux -L $thsock show -g
 # the legacy branch resets the mark to default too — it does not push the seed verbatim.
 t "theme live-applies mark_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
 t "theme live-applies status-style (legacy)" (__tmux_lives_derive_status '#485b3c' 0) (command tmux -L $thsock show -gv status-style 2>/dev/null)
-# a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
-__tmux_lives_theme_cmd --phase 100000360 >/dev/null
-t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
 # off: v2 values return, role seeds neutralize, cap writes work again
 __tmux_lives_theme_cmd off >/dev/null
 t "off stores the off token" off "$tmux_lives_theme"
@@ -2093,7 +2125,10 @@ t "v3 barpos gone" 0 (grep -c '__tmux_lives_theme_barpos' $plugindir/conf.d/tmux
 # v41 never mentions the rotate universal, but not what the range is meant to
 # skip).
 t "no rotate universal outside migration" 0 (awk '/^function __tmux_lives_migrate_v4 /,/^end$/ {next} /^function __tmux_lives_migrate_v31/,/^end$/ {next} {print}' $plugindir/conf.d/tmux-lives-install.fish | grep -c 'tmux_lives_theme_rotate')
-t "help theme row mentions place" 1 (__tmux_lives_setup_help_lines | string match -q '*place*'; and echo 1; or echo 0)
+# theme-v6-surface Task 5: --place is retired, not merely undocumented — this
+# used to assert the row DID mention it (a v4/v5 cleanup regression guard);
+# inverted now that the flag itself is gone.
+t "help theme row no longer mentions place" 0 (__tmux_lives_setup_help_lines | string match -q '*place*'; and echo 1; or echo 0)
 
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
