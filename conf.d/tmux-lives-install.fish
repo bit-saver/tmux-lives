@@ -1345,6 +1345,76 @@ function __tmux_lives_theme_catalog_rest --description 'the non-curated catalog 
     __tmux_lives_theme_catalog | string match -rv '\|1$'
 end
 
+# --- theme engine v6: catalog --------------------------------------------------
+function __tmux_lives_theme_catalog_v6 --description 'v6 catalog: 42 schemes as name|mode|lspan|peakc|peakpos|arrangement|default (1 = in the curated 14). The COMPLETE 7-mode x 6-arrangement grid, one tuned recipe per cell, so nothing is arbitrary and curation later REMOVES rather than guesses. Names are descriptive (<mode> <arrangement>) on purpose: the set is provisional, generated rather than hand-picked, and meant to teach the space until real use replaces it. Generated from a 3,402-render sweep at three seeds keeping only recipes that satisfy all three bounds at ALL of them with a bound-1 margin >= 0.010, then filling cells by least-used (Lspan, peakC, peakPos) triple so the VALUE dimensions spread instead of collapsing onto one shape — collapse being precisely the v5 defect v6 exists to escape. mono deep is the one hand-placed row (the users repeatedly-favourite palette); its bound-1 margin is 0.0050 against >= 0.0113 everywhere else, so it is the least robust row in the catalog and is kept for being liked, not for being safe.'
+    printf '%s\n' \
+        'mono deep|mono|0.55|0.11|0.50|deep|1' \
+        'mono bright|mono|0.50|0.17|0.55|bright|1' \
+        'mono centre|mono|0.30|0.15|0.75|centre|0' \
+        'mono split|mono|0.70|0.13|0.35|split|0' \
+        'mono stack|mono|0.70|0.15|0.55|stack|0' \
+        'mono accent|mono|0.30|0.17|0.75|accent|0' \
+        'analogous deep|analogous|0.50|0.17|0.35|deep|0' \
+        'analogous bright|analogous|0.70|0.13|0.55|bright|0' \
+        'analogous centre|analogous|0.50|0.15|0.75|centre|1' \
+        'analogous split|analogous|0.30|0.13|0.55|split|1' \
+        'analogous stack|analogous|0.30|0.17|0.35|stack|0' \
+        'analogous accent|analogous|0.70|0.15|0.75|accent|0' \
+        'complementary deep|complementary|0.50|0.13|0.35|deep|0' \
+        'complementary bright|complementary|0.30|0.17|0.55|bright|0' \
+        'complementary centre|complementary|0.50|0.13|0.75|centre|0' \
+        'complementary split|complementary|0.70|0.15|0.35|split|0' \
+        'complementary stack|complementary|0.70|0.17|0.75|stack|1' \
+        'complementary accent|complementary|0.30|0.15|0.35|accent|1' \
+        'split deep|split|0.50|0.13|0.55|deep|1' \
+        'split bright|split|0.70|0.17|0.55|bright|1' \
+        'split centre|split|0.30|0.13|0.75|centre|0' \
+        'split split|split|0.50|0.15|0.55|split|0' \
+        'split stack|split|0.70|0.17|0.35|stack|0' \
+        'split accent|split|0.30|0.15|0.55|accent|0' \
+        'triadic deep|triadic|0.50|0.17|0.75|deep|0' \
+        'triadic bright|triadic|0.70|0.13|0.75|bright|0' \
+        'triadic centre|triadic|0.30|0.15|0.75|centre|1' \
+        'triadic split|triadic|0.30|0.13|0.35|split|1' \
+        'triadic stack|triadic|0.50|0.15|0.35|stack|0' \
+        'triadic accent|triadic|0.70|0.17|0.55|accent|0' \
+        'tetradic deep|tetradic|0.50|0.17|0.35|deep|0' \
+        'tetradic bright|tetradic|0.30|0.13|0.55|bright|0' \
+        'tetradic centre|tetradic|0.70|0.15|0.75|centre|0' \
+        'tetradic split|tetradic|0.50|0.13|0.55|split|0' \
+        'tetradic stack|tetradic|0.30|0.17|0.35|stack|1' \
+        'tetradic accent|tetradic|0.50|0.15|0.75|accent|1' \
+        'square deep|square|0.70|0.17|0.35|deep|1' \
+        'square bright|square|0.70|0.13|0.75|bright|1' \
+        'square centre|square|0.50|0.15|0.55|centre|0' \
+        'square split|square|0.30|0.13|0.75|split|0' \
+        'square stack|square|0.30|0.15|0.35|stack|0' \
+        'square accent|square|0.50|0.17|0.55|accent|0'
+end
+
+function __tmux_lives_theme_catalog_v6_default --description 'v6: the curated 14 — catalog rows flagged default=1. Two arrangements per mode, chosen so all seven modes AND all six arrangements are reachable from a cold open.'
+    # -e/--entire: a bare `-r '\|1$'` outputs only the matched substring ("|1"),
+    # not the whole line, since the pattern isn't anchored at the start — the
+    # same fish landmine __tmux_lives_theme_catalog_default (v5, above) hits.
+    __tmux_lives_theme_catalog_v6 | string match -re '\|1$'
+end
+
+function __tmux_lives_theme_catalog_v6_rest --description 'v6: the 28 non-curated rows, in catalog order. The picker appends these under the More Schemes header so the curated rows keep their positions.'
+    # -v inverts; --entire is not needed with -v (it emits whole non-matching lines).
+    __tmux_lives_theme_catalog_v6 | string match -rv '\|1$'
+end
+
+function __tmux_lives_theme_recipe --argument-names name --description 'v6: a catalog scheme NAME -> its five recipe fields (mode lspan peakc peakpos arrangement), one per line. The name is a label resolved by lookup and is never stored — the recipe is the identity. Unknown name -> nothing, status 1.'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        if test "$f[1]" = "$name"
+            printf '%s\n' $f[2] $f[3] $f[4] $f[5] $f[6]
+            return 0
+        end
+    end
+    return 1
+end
+
 function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0

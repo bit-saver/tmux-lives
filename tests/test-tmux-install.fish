@@ -3832,4 +3832,58 @@ t "bounds: every arrangement satisfies the engine bounds and no-white at every p
 # Surface WHICH combinations failed - a bare count sends the next reader hunting.
 test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
 
+# --- Task 2: the v6 catalog ---------------------------------------------------
+t "catalog v6: 42 rows" 42 (count (__tmux_lives_theme_catalog_v6))
+t "catalog v6: 14 curated" 14 (count (__tmux_lives_theme_catalog_v6_default))
+t "catalog v6: 28 in the rest" 28 (count (__tmux_lives_theme_catalog_v6_rest))
+t "catalog v6: default + rest is the whole catalog" 42 (math (count (__tmux_lives_theme_catalog_v6_default)) + (count (__tmux_lives_theme_catalog_v6_rest)))
+t "catalog v6: every row has 7 fields" 42 (__tmux_lives_theme_catalog_v6 | while read -l l; test (count (string split '|' -- $l)) -eq 7; and echo x; end | count)
+t "catalog v6: names are unique" 42 (__tmux_lives_theme_catalog_v6 | string split -f1 '|' | sort -u | count)
+t "catalog v6: all 7 modes present" 7 (__tmux_lives_theme_catalog_v6 | string split -f2 '|' | sort -u | count)
+t "catalog v6: all 6 arrangements present" 6 (__tmux_lives_theme_catalog_v6 | string split -f6 '|' | sort -u | count)
+t "catalog v6: the curated 14 cover all 6 arrangements" 6 (__tmux_lives_theme_catalog_v6_default | string split -f6 '|' | sort -u | count)
+t "catalog v6: the curated 14 cover all 7 modes" 7 (__tmux_lives_theme_catalog_v6_default | string split -f2 '|' | sort -u | count)
+t "recipe: mono deep is the known-liked classic" "mono 0.55 0.11 0.50 deep" (string join ' ' (__tmux_lives_theme_recipe 'mono deep'))
+t "recipe: an unknown name yields nothing" "" (string join ' ' (__tmux_lives_theme_recipe 'no such scheme'))
+t "recipe: defined" 1 (functions -q __tmux_lives_theme_recipe; and echo 1; or echo 0)
+
+# Value-dimension spread is the property that stops this catalog recreating the
+# v5 collapse (35 catalog rows, one palette shape with the hue nudged), so
+# assert it directly rather than trusting the generation. All three are 4, not
+# 3: the 41 generated rows use three values each (Lspan {0.30, 0.50, 0.70},
+# peakC {0.13, 0.15, 0.17}, peakPos {0.35, 0.55, 0.75}), and mono deep — the
+# hand-placed row — contributes a fourth of each (0.55, 0.11, 0.50). A value of
+# 3 anywhere means a generated row was mistyped or mono deep was normalised
+# onto the grid, which would lose the user's favourite palette.
+t "catalog v6: Lspan is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f3 '|' | sort -u | count)
+t "catalog v6: peakC is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f4 '|' | sort -u | count)
+t "catalog v6: peakPos is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f5 '|' | sort -u | count)
+
+# Every catalog recipe must satisfy ALL THREE bounds at several seeds. Bound 1
+# is the catalog's own contract — __t6_inbounds excludes it on purpose because
+# no clamp can raise a rendered peak the sRGB gamut has capped.
+set -g A6CATFAIL 0
+set -g A6CATN 0
+for s in '#5fab40' '#b7410e' '#2f6fb3'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        set -l p (__tmux_lives_theme_render $s $f[2] $f[3] $f[4] $f[5] $f[6])
+        set -g A6CATN (math $A6CATN + 1)
+        if test (count $p) -ne 7
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+            continue
+        end
+        set -l b (string split ' ' -- (__t6_bounds $p))
+        if test "$b[1]" -lt 0.105; or test "$b[1]" -gt 0.180
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+        else if test (__t6_inbounds $p) -ne 1
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+        end
+    end
+end
+# The vacuity guard: without this, a loop that silently rendered nothing would
+# report zero failures on the assertion below and pass.
+t "catalog v6: every recipe renders at all three seeds" 126 $A6CATN
+t "catalog v6: every recipe satisfies all three bounds at all three seeds" 0 $A6CATFAIL
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
