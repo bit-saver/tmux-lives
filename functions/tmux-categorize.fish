@@ -2699,6 +2699,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l rollpals
     set -l rollfgs
     set -l rolltabsfgs
+    # Fix round 2 review finding: curidx used to key the preview/tab-chip
+    # memo by $rollat directly, but $rollat PINS at count($rollhist) (12)
+    # once the history is capped -- $focus/$sel/$sel2 don't move either, so
+    # every roll past the 12th produced the SAME curidx while the content at
+    # index 12 kept changing underneath it, and the memo (whose only
+    # invalidation point, __tcz_thp_cacheclear, is called from nowhere in
+    # this arm) happily replayed the 12th roll's render forever after. A
+    # STABLE, NEVER-REUSED id per pushed entry closes it without touching
+    # the memo at all: two different rolls can never collide on the same id
+    # even after one evicts the other, and stepping back to the SAME
+    # surviving entry still yields the SAME id (a real cache hit, not a
+    # rebuild) since eviction removes entries from the front, never
+    # renumbers the ones that remain. rollnextid only ever grows.
+    set -l rollids
+    set -l rollnextid 1
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
@@ -2956,12 +2971,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # cursor sel2, independent of the scheme lists sel (see the if/else
         # above) -- a key of $sel alone would let a current<->off move (which
         # changes curpal) hit a stale cache slot keyed only by whatever $sel
-        # happened to be left at. Task 8 review fix: $rollat is now ALSO part
-        # of the identity -- curpal now varies with it while focus=roll (the
-        # branch above), so a key that omitted it would replay a stale
-        # rollpals entry across every history step, the exact bug this fix
-        # exists to close, one field over.
-        set -l curidx "$focus"_"$sel"_"$sel2"_"$rollat"
+        # happened to be left at. Fix round 2 review finding: a bare $rollat
+        # is NOT safe here once the 12-entry cap is in play -- $rollat PINS
+        # at 12 forever after the cap engages, while the CONTENT at index 12
+        # keeps changing with every further roll, and __tcz_thp_cacheclear
+        # (the memo's ONLY invalidation point) is never called from case z,
+        # so a bare $rollat key would replay the 12th roll's render forever
+        # after the 13th. $rollids[$rollat] is a STABLE, NEVER-REUSED id
+        # instead -- two different rolls can never collide on it even after
+        # one evicts the other, and stepping back to a SURVIVING entry still
+        # yields the SAME id (a real cache hit), since eviction drops
+        # entries off the front without renumbering the ones that remain.
+        set -l rollkey 0
+        test $focus = roll; and set rollkey $rollids[$rollat]
+        set -l curidx "$focus"_"$sel"_"$sel2"_"$rollkey"
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -3513,15 +3536,22 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -a rollpals (string join ' ' $rp)
                     set -a rollfgs $capfg
                     set -a rolltabsfgs $tabsfg
-                    # Trim all FOUR arrays in lockstep -- $rollpals/_fgs/
-                    # _tabsfgs must stay index-aligned with $rollhist, or a
-                    # step through history reads a palette one entry off from
-                    # the recipe it is supposedly previewing.
+                    # Fix round 2: a STABLE id for this entry, assigned once
+                    # and never reused -- see its declaration comment above
+                    # for why curidx needs this instead of $rollat once the
+                    # cap is in play.
+                    set -a rollids $rollnextid
+                    set rollnextid (math $rollnextid + 1)
+                    # Trim all FIVE arrays in lockstep -- $rollpals/_fgs/
+                    # _tabsfgs/_ids must stay index-aligned with $rollhist, or
+                    # a step through history reads a palette one entry off
+                    # from the recipe it is supposedly previewing.
                     if test (count $rollhist) -gt 12
                         set rollhist $rollhist[2..]
                         set rollpals $rollpals[2..]
                         set rollfgs $rollfgs[2..]
                         set rolltabsfgs $rolltabsfgs[2..]
+                        set rollids $rollids[2..]
                     end
                     set rollat (count $rollhist)
                     set focus roll

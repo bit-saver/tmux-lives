@@ -7013,7 +7013,7 @@ functions -e __tcz_thp_apply_now
 set -g CURSORBLOCK8 (awk '/^        set -l curpal '"'"''"'"'$/,/^        set -l curidx/' $catfile | string collect)
 t "cursor-row-palette block extraction is non-empty (task 8)" 1 (test -n "$CURSORBLOCK8"; and echo 1; or echo 0)
 t "cursor-row-palette block has a roll branch" 1 (string match -q '*focus = roll*' -- "$CURSORBLOCK8"; and echo 1; or echo 0)
-function __t9_cursorroll --argument-names rollat pal1 pal2 --description 'eval the REAL cursor-row-palette block (CURSORBLOCK8) against a throwaway scope with focus=roll, a two-entry rollpals/rollfgs/rolltabsfgs and the given rollat. Prints "<curpal>\t<curidx>".'
+function __t9_cursorroll --argument-names rollat pal1 pal2 --description 'eval the REAL cursor-row-palette block (CURSORBLOCK8) against a throwaway scope with focus=roll, a two-entry rollpals/rollfgs/rolltabsfgs/rollids and the given rollat. Prints "<curpal>\t<curidx>". Fix round 2: rollids seeded 1/2 (matching the two synthetic entries) -- curidx now reads $rollids[$rollat], not the raw $rollat, so an unseeded rollids would make this test vacuous again (both calls would resolve to the SAME empty index).'
     set -l focus roll
     set -l sel 0
     set -l sel2 0
@@ -7027,6 +7027,7 @@ function __t9_cursorroll --argument-names rollat pal1 pal2 --description 'eval t
     set -l rollpals $pal1 $pal2
     set -l rollfgs '#111111' '#222222'
     set -l rolltabsfgs '#333333' '#444444'
+    set -l rollids 1 2
     set -l rollat $rollat
     eval $CURSORBLOCK8
     printf '%s\t%s\n' "$curpal" "$curidx"
@@ -7072,7 +7073,7 @@ function __tmux_lives_theme_render
 end
 function __tcz_thp_apply_and_recolor
 end
-function __t9_casez_stack --argument-names count --description 'dispatch the REAL case-z arm <count> times in a row against one persistent throwaway scope (the stubs above make each roll distinguishable). Prints rollhist/rollpals/rollfgs/rolltabsfgs (each \x1e-joined) and rollat, tab-separated.'
+function __t9_casez_stack --argument-names count --description 'dispatch the REAL case-z arm <count> times in a row against one persistent throwaway scope (the stubs above make each roll distinguishable). Prints rollhist/rollpals/rollfgs/rolltabsfgs (each \x1e-joined) and rollat, tab-separated. Fix round 2: rollids/rollnextid declared explicitly (case z now writes both) -- undeclared, fish would still auto-create them as function-locals on first write inside the eval and the counter would still work, but relying on that implicitly is fragile; explicit matches every sibling array here.'
     set -l tok z
     set -l seed '#5f772b'
     set -l focus list
@@ -7084,10 +7085,12 @@ function __t9_casez_stack --argument-names count --description 'dispatch the REA
     set -l rollpals
     set -l rollfgs
     set -l rolltabsfgs
+    set -l rollids
+    set -l rollnextid 1
     for i in (seq $count)
         eval $CZ8WRAP
     end
-    printf '%s\t%s\t%s\t%s\t%s\n' (string join \x1e -- $rollhist) (string join \x1e -- $rollpals) (string join \x1e -- $rollfgs) (string join \x1e -- $rolltabsfgs) $rollat
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' (string join \x1e -- $rollhist) (string join \x1e -- $rollpals) (string join \x1e -- $rollfgs) (string join \x1e -- $rolltabsfgs) $rollat (string join \x1e -- $rollids)
 end
 set -g R8LOCK (string split \t -- (__t9_casez_stack 13))
 set -g R8LOCKHIST (string split \x1e -- $R8LOCK[1])
@@ -7095,10 +7098,19 @@ set -g R8LOCKPALS (string split \x1e -- $R8LOCK[2])
 set -g R8LOCKFGS (string split \x1e -- $R8LOCK[3])
 set -g R8LOCKTABSFGS (string split \x1e -- $R8LOCK[4])
 set -g R8LOCKAT $R8LOCK[5]
+set -g R8LOCKIDS (string split \x1e -- $R8LOCK[6])
 t "lockstep: 13 rolls still cap the history at 12" 12 (count $R8LOCKHIST)
 t "lockstep: 13 rolls still cap the palette array at 12" 12 (count $R8LOCKPALS)
 t "lockstep: 13 rolls still cap the fg array at 12" 12 (count $R8LOCKFGS)
 t "lockstep: 13 rolls still cap the tabsfg array at 12" 12 (count $R8LOCKTABSFGS)
+# Fix round 2: rollids joins the lockstep trim too -- an out-of-sync rollids
+# (e.g. left untrimmed while the other four cap at 12) reproduces almost the
+# EXACT bug this fix round closes: rollids[12] would still read "12" (the id
+# roll12 itself was assigned) even though the entry actually AT index 12 is
+# now roll13's, so curidx would collide with roll12's now-stale cache slot.
+t "lockstep: rollids caps at 12 too, in the same lockstep" 12 (count $R8LOCKIDS)
+t "lockstep: the oldest surviving id is 2 (id 1 was evicted with roll1)" 2 $R8LOCKIDS[1]
+t "lockstep: the id at rollat is 13 (roll13's own id), not 12 (roll12's)" 13 $R8LOCKIDS[$R8LOCKAT]
 t "lockstep: the oldest surviving recipe is roll2 (roll1 was evicted)" roll2 (string split '|' -- $R8LOCKHIST[1])[1]
 t "lockstep: the newest recipe is roll13" roll13 (string split '|' -- $R8LOCKHIST[-1])[1]
 t "lockstep: rollat lands on 12 (the newest)" 12 $R8LOCKAT
@@ -7116,6 +7128,76 @@ t "lockstep: the oldest surviving palette corresponds to roll2's recipe, at the 
 eval $__t8lock_real_roll
 eval $__t8lock_real_render
 eval $__t8lock_real_apply_and_recolor
+
+# --- Fix round 2 review finding: curidx must use a STABLE id, not the raw
+# rollat, or the preview/tab-chip memo replays a stale render from the 12th
+# roll forever after the 13th -----------------------------------------------
+# The earlier "cursor-row (roll)" tests above read $curpal directly and
+# could not see a caching bug -- that is exactly why it shipped. This one
+# routes through the ACTUAL memoized __tcz_thp_preview, extending the
+# extraction past curidx construction through the real call site.
+set -g CURSORPREVIEWBLOCK8 (awk '/^        set -l curpal '"'"''"'"'$/,/set -a lines \(__tcz_thp_ln \(__tcz_thp_preview/' $catfile | string collect)
+t "cursor-row+preview block extraction is non-empty (fix round 2)" 1 (test -n "$CURSORPREVIEWBLOCK8"; and echo 1; or echo 0)
+# Anchored to the actual CODE line, not just the substring "rollids[$rollat]" —
+# the declaration comment above this code also uses that phrase in prose (explaining
+# WHY), so a looser match would stay green even if the code itself reverted to a
+# bare $rollat while the comment was left stale — caught by mutation: reverting just
+# the code line (comment untouched) flips this from ok to FAIL, where the looser
+# substring-only form stayed vacuously green under the identical mutation.
+t "cursor-row+preview block keys off a stable id, not the raw rollat" 1 (string match -q '*test $focus = roll; and set rollkey $rollids[$rollat]*' -- "$CURSORPREVIEWBLOCK8"; and echo 1; or echo 0)
+function __t9_rollmemo --argument-names rollatarg rollidsblob rollpalsblob --description 'eval the REAL cursor-row-palette-through-preview block (CURSORPREVIEWBLOCK8, through the ACTUAL memoized __tcz_thp_preview -- not a stand-in) against a throwaway scope with focus=roll and the given rollids/rollpals (each \x1e-joined, index-aligned, same length). Deliberately does NOT clear the cache -- the point is to observe whether a key from an EARLIER call still hits, matching case z, which never calls __tcz_thp_cacheclear either. Prints the rendered preview-bar line (the last line __tcz_thp_preview contributes to $lines).'
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    set -l host somehost
+    set -l chiptitle ''
+    set -l focus roll
+    set -l sel 0
+    set -l sel2 0
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l legacy ''
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l rollpals (string split \x1e -- $rollpalsblob)
+    set -l rollfgs
+    set -l rolltabsfgs
+    for i in (seq (count $rollpals))
+        set -a rollfgs '#f5f5f5'
+        set -a rolltabsfgs '#f5f5f5'
+    end
+    set -l rollids (string split \x1e -- $rollidsblob)
+    set -l rollat $rollatarg
+    eval $CURSORPREVIEWBLOCK8
+    printf '%s\n' $lines[-1]
+end
+# Simulate exactly the scenario the review specified: seed the cache under
+# the key a 12th roll would produce, then perform a 13th roll (eviction
+# shifts rollids from [1..12] to [2..13], rollat stays PINNED at 12 since
+# the array length is unchanged), and confirm the render that comes back is
+# the 13th roll's, not a replay of the 12th's. Palettes are all-one-hex so a
+# decimal SGR triplet in the output unambiguously identifies which roll
+# produced it -- #111111 -> 17;17;17, #222222 -> 34;34;34.
+__tcz_thp_cacheclear
+set -l pal12 '#111111 #111111 #111111 #111111 #111111 #111111 #111111'
+set -l pal13 '#222222 #222222 #222222 #222222 #222222 #222222 #222222'
+set -l filler 'x' 'x' 'x' 'x' 'x' 'x' 'x' 'x' 'x' 'x' 'x'
+# Step A: the state exactly as it is right after the 12th roll -- rollids
+# [1..12], rollat=12. This populates the memo's cache slot for whichever key
+# rollat=12 computes at this point.
+set -g R8MEMO_12 (__t9_rollmemo 12 (string join \x1e -- 1 2 3 4 5 6 7 8 9 10 11 12) (string join \x1e -- $filler "$pal12"))
+# Step B: the state immediately after a 13th roll -- eviction dropped roll1's
+# id (1) off the front, rollat is STILL 12 (array length unchanged), and the
+# entry now AT index 12 is the NEW 13th roll's palette, not the 12th's.
+set -g R8MEMO_13 (__t9_rollmemo 12 (string join \x1e -- 2 3 4 5 6 7 8 9 10 11 12 13) (string join \x1e -- $filler "$pal13"))
+t "cache: the 12th roll's own render shows the 12th roll's colour" yes (string match -q '*17;17;17*' -- "$R8MEMO_12"; and echo yes; or echo no)
+t "cache: after a 13th roll, the render shows the 13TH roll's colour, not the 12th's" yes (string match -q '*34;34;34*' -- "$R8MEMO_13"; and echo yes; or echo no)
+t "cache: after a 13th roll, the render no longer shows the 12th roll's stale colour" no (string match -q '*17;17;17*' -- "$R8MEMO_13"; and echo yes; or echo no)
+t "cache: the two renders genuinely differ (no stale cache hit)" 1 (test "$R8MEMO_12" != "$R8MEMO_13"; and echo 1; or echo 0)
+__tcz_thp_cacheclear
 
 # =====================================================================
 # drop-autoapply-debounce-seed Task 2: a channel keypress costs a redraw and
