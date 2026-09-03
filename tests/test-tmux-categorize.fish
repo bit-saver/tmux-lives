@@ -8254,6 +8254,52 @@ set -g A6APPLY (functions __tcz_thp_apply_and_recolor | string collect)
 t "apply_and_recolor: body was actually captured" 1 (test (string length "$A6APPLY") -gt 200; and echo 1; or echo 0)
 t "apply_and_recolor: no phase argument remains" 0 (string match -q '*anch_phase*' -- "$A6APPLY"; and echo 1; or echo 0)
 
+# --- Task 9: no production code still calls the v5 engine -------------------
+# The picker-scoped checks above (A6PICK/A6APPLY) only cover
+# __tcz_theme_picker and __tcz_thp_apply_and_recolor. This is the
+# whole-file version: the v5 engine (__tmux_lives_theme_palette) must have
+# no CALLERS anywhere in either production file, though it stays DEFINED —
+# deleting it is a separate, trivially revertible commit once v6 has proven
+# itself live in the real world, not this task's job.
+set -g A6SRC (cat $plugindir/conf.d/tmux-lives-install.fish | string collect)
+set -g A6CAT (cat $plugindir/functions/tmux-categorize.fish | string collect)
+t "v5: install source was captured" 1 (test (string length "$A6SRC") -gt 10000; and echo 1; or echo 0)
+t "v5: categorize source was captured" 1 (test (string length "$A6CAT") -gt 10000; and echo 1; or echo 0)
+t "v5: the categorizer no longer calls theme_palette" 0 (string match -q '*__tmux_lives_theme_palette*' -- "$A6CAT"; and echo 1; or echo 0)
+# Count only lines that are neither the definition nor a comment; a plain
+# occurrence count would include the definition line itself and any prose
+# mentioning the name, and would break the moment a comment gets reworded.
+#
+# Two gotchas fixed from the first draft of this guard, both invisible until
+# tested against real data:
+# (1) `\n` as a `string split` separator must be UNQUOTED (or double-quoted).
+#     Single-quoted `'\n'` is the literal two characters backslash+n, which
+#     fish does NOT unescape, so it splits on stray literal "\n" occurrences
+#     inside the file's own printf format strings instead of real newlines —
+#     2,269 real lines collapsed to 56 "lines" here. Every other line-split
+#     call site in this file already uses unquoted \n; this now matches them.
+# (2) `string match -r 'PATTERN'` with no capturing group and no `.*` anchors
+#     returns only the MATCHED SUBSTRING, not the whole line — so a filter
+#     chained after it (`string match -rv '^function '`) is comparing against
+#     "__tmux_lives_theme_palette" itself, which never starts with "function
+#     " or "#", and therefore excludes NOTHING: every line mentioning the
+#     name, including its own definition, would count as a "caller". Proven
+#     by replicating the exact original pipeline against a synthetic
+#     comment/definition/caller fixture: it returned 3, not 1. Fixed by using
+#     GLOB-mode `string match` for the "contains" test (glob mode returns the
+#     whole line on a match) and keeping `-rv` (regex, inverted) for the
+#     exclusions — inverted matches always pass the whole line through
+#     unmodified, which is what makes -v safe here and -r-without-v not.
+#
+# RED proof (manual, not re-run automatically): temporarily adding a real
+# call `__tmux_lives_theme_palette $seedhex mono bar derived 0` inside
+# __tmux_lives_render_fragment moved this assertion's actual count from 0 to
+# 1, confirming the fixed guard discriminates; reverted and diffed
+# byte-identical to the pre-mutation file before committing.
+set -l A6PLINES (string split -- \n -- "$A6SRC")
+t "v5: theme_palette has no callers left in the install file" 0 (count (string match '*__tmux_lives_theme_palette*' -- $A6PLINES | string match -rv '^\s*#' | string match -rv '^function '))
+t "v5: theme_palette is still defined" 1 (count (string match -r '^function __tmux_lives_theme_palette' -- $A6PLINES))
+
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
@@ -8265,6 +8311,33 @@ if test -n "$fish_pid"; and string match -qr '^/tmp/tcz-shim-[0-9]+$' -- "$shimd
     rm -rf $shimdir
 end
 t "hygiene: this run leaves no shim dir behind" 0 (test -e "$shimdir"; and echo 1; or echo 0)
+
+# --- hygiene: this suite's own tmux socket files ----------------------------
+# Every `-L` server this file starts is killed by its own test, but killing a
+# tmux server does not unlink its SOCKET FILE — unlike test-tmux-install.fish,
+# this suite has never swept them, and they had accumulated into the hundreds
+# in /tmp/tmux-<uid>/ (plus two live orphaned servers from earlier interrupted
+# runs). Mirrors the sweep at the end of test-tmux-install.fish exactly: every
+# socket this suite creates carries $fish_pid (this re-exec'd process's own
+# pid) as a `-$fish_pid` suffix, so the glob cannot touch another run's files,
+# `neurotest*` (a different project's sockets), or the user's own `default`.
+set -l __tcg_sockdir /tmp/tmux-(id -u)
+# FAIL CLOSED before globbing. If $fish_pid were ever empty, `*-$fish_pid`
+# collapses to `*-` and would no longer be scoped to this run at all — a
+# directory-wide sweep would then risk the user's live `default` socket.
+# $fish_pid is a fish-protected special variable and cannot currently be
+# empty, but the guard encodes the invariant rather than relying on that,
+# same fail-closed shape as the install suite's own sweep.
+if test -z "$fish_pid"; or test -z "$__tcg_sockdir"
+    echo "FATAL: refusing to sweep sockets without a pid-scoped glob" >&2
+    exit 1
+end
+rm -f $__tcg_sockdir/*-$fish_pid 2>/dev/null
+# Self-checking: prove the sweep actually matched this run's names rather
+# than silently globbing nothing (the failure mode that let the original
+# leak in test-tmux-install.fish go unnoticed for so long).
+set -l __tcg_leftover (count (string match -r ".*$fish_pid.*" -- (ls $__tcg_sockdir 2>/dev/null)))
+t "hygiene: this run leaves no tmux socket files behind" 0 $__tcg_leftover
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

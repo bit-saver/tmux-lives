@@ -304,21 +304,46 @@ CLI setter. Known wart.
 
 ## Theme engine — where it actually stands
 
-**v6 is complete, constrained, gated, merged… and NOT WIRED.** `__tmux_lives_theme_render` is called
-only from tests. Three v5 call sites still render the user's bar:
-`conf.d/tmux-lives-install.fish:115` (fragment render), `:1472` (`theme_apply_live`), `:1511`
-(`theme list`).
+**v6 is wired and live in production code.** All three v5 call sites are gone — the fragment render,
+`theme_apply_live`, and `setup theme list` all call `__tmux_lives_theme_render`
+(`conf.d/tmux-lives-install.fish:116`, `:1606`, `:1640`). `__tmux_lives_theme_palette` (v5) stays
+**defined** but has zero callers left in production; deleting it is a separate, trivially revertible
+commit, not yet done.
 
-The signatures differ, so the surface work is **not a swap**:
+A theme is now a **catalog scheme NAME resolving to a five-field recipe** (`mode Lspan peakC peakPos
+arrangement`) via `__tmux_lives_theme_recipe`. **The recipe is the stored identity** — the name is a
+label, never persisted as such.
 
 ```
-v5:  __tmux_lives_theme_palette <seed> <relationship> <place> <mode> <phase>
-v6:  __tmux_lives_theme_render  <seedHex> <mode> <Lspan> <peakC> <peakPos> <arrangement>
+tmux-lives setup theme <scheme>|list|off
 ```
 
-The user's live theme is `tmux_lives_theme=wheat`, `_place=bar`, `_mode=derived`, `_phase=0` — all v5
-concepts. A v6 surface needs a catalog of named recipes, a CLI, a migration for stored universals, and
-the picker retargeted.
+`--place`/`--mode`/`--phase` all now **error**: "was removed in v6 — a scheme is now a recipe ... chosen
+by name; see 'tmux-lives setup theme list'".
+
+**Catalog: 42 rows, 14 curated.** `__tmux_lives_theme_catalog_v6` is the complete 7-mode × 6-arrangement
+grid — one tuned recipe per cell, curation only *removes*. `_v6_default` flags the 14 curated rows (two
+arrangements per mode, all seven modes and all six arrangements reachable cold); `_v6_rest` is the other
+28, under the picker's `More Schemes` header. `mono deep` is the one hand-placed row — the user's
+repeatedly-favourite palette, kept for being liked, not for being the most robust (bound-1 margin 0.0050
+against ≥0.0113 everywhere else).
+
+**Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed** — v5's
+relationship/place/mode/phase have no v6 mapping, so nothing else survives. Idempotent, runs on
+`fisher update`.
+
+**The picker is retargeted**: `__tcz_theme_picker` sources the v6 catalog and renders through
+`__tmux_lives_theme_render`; `z` now **rolls the real recipe space** with a session-local 12-entry roll
+history, replacing the old geometric-scheme randomizer.
+
+### The tie-break is now structural
+
+The instability this file used to flag — the text-floor swap's strict-inequality float argmax flipping on
+sub-0.005 engine perturbations and silently exchanging two roles' colours in a stored recipe — is
+**fixed** (`febb67e`). `__tmux_lives_theme_rampidx` gives every role an **integer** ramp index;
+`constrain`'s swap compares ramp-index distance, not lightness distance, whenever the arrangement pattern
+is known (production always passes it). Integers are distinct by construction — no float tie to sit on. A
+synthetic fixture with no pattern still falls back to the old float rule, deliberately.
 
 ### The v6 pipeline
 
@@ -344,7 +369,7 @@ perturbations — **predictions written down before they looked, all seven corre
 
 | | Bound | Enforced? |
 |---|---|---|
-| 1 | Peak chroma **0.105–0.180** | **No, and no clamp can.** At a dark seed the sRGB gamut caps peak chroma near 0.082 however much a recipe requests. It belongs to whoever curates recipes — the surface plan |
+| 1 | Peak chroma **0.105–0.180** | **No, and no clamp can.** At a dark seed the sRGB gamut caps peak chroma near 0.082 however much a recipe requests. It belongs to whoever curates recipes — the 42-row catalog above |
 | 2 | Big-three **mean** chroma ≤ **0.095** | Yes — scaled down together so the three keep their relative structure rather than flattening to one value |
 | 3 | Big-three max lightness ≤ **0.70** | Yes — **but the clamp targets 0.695** |
 
@@ -367,25 +392,11 @@ clamps bind in only ~14% of renders** — they trim outliers rather than definin
 catalog rows were one palette shape with the hue nudged; this is the opposite, which is the whole reason
 the rewrite existed.
 
-### ⛔ Carry into the surface plan — settle this DURING the design, not after
+### Still open
 
-**Palette identity is not stable under sub-0.005 engine perturbations for roughly 29% of rows.** The
-text-floor swap uses a **strict** inequality; 188 of 2,142 floor-firing rows sit within 0.0005 of a tie
-and 614 within 0.005. Any comparable nudge flips one, and a flip **exchanges a whole colour between
-roles** — measured worst case, a single role moving **0.36** in lightness from one 0.005 threshold
-change.
-
-Why it matters: a scheme is stored as a **recipe**, not as hexes. Once schemes are user-selectable, a
-future one-constant engine change would silently rewrite palettes the user had already chosen. It costs
-nothing today (no production caller) and predates the branch, so it did not block the merge. Options not
-yet explored: make the comparison non-strict with an epsilon; store a resolved palette alongside the
-recipe; or accept and version it.
-
-**Also carry:** all six arrangements place `text` at ramp index 1 or 7 — both **ends** of the chroma
-curve — so at `peakPos ≈ 0.5`, `text` renders at C 0.011–0.013, *below* v5's pinned 0.030. The spec
-claims v6 turns v5's off-white `text` into a tinted light; it does, but only at a `peakPos` near the end
-`text` occupies. This is the property most likely to make a curated recipe look like v5 on the one role
-the spec singled out.
+**All six arrangements place `text` at ramp index 1 or 7** (both ends of the chroma curve), so at
+`peakPos ≈ 0.5`, `text` renders at C 0.011–0.013 — *below* v5's pinned 0.030. Not resolved this cycle and
+not blocking; a curated recipe can avoid a mid-ramp `peakPos` if it matters in practice.
 
 ### OKLCH facts that make an assertion unsatisfiable if guessed
 
@@ -407,7 +418,6 @@ the spec singled out.
 
 See memories `[[theme_engine_v6]]`, `[[three_bounds_palette_rule]]`,
 `[[never_white_and_muted_is_a_destination]]`.
-
 ---
 
 ## The picker (theme + session)
@@ -564,25 +574,19 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
 
 ## Next work
 
-**The theme surface plan: wire v6 to production.** It does not exist yet — it must be brainstormed and
-written before anything is built. Read first:
+**The theme surface plan shipped this cycle** (`feat/theme-v6-surface`) — v6 is wired, the tie-instability
+finding is fixed, and the two specs this section used to point at are both fully built. See the theme
+engine section above for what actually changed; `git log` on that branch for the ordered commits.
 
-- `docs/superpowers/specs/2026-08-23-theme-engine-v6-design.md`
-- `docs/superpowers/specs/2026-08-28-palette-constraints-design.md`
+**Two things left open, both noted above, neither blocking:** `text` always sits at a ramp end (see
+"Still open" under Theme engine); and `__tmux_lives_theme_accents` (the v5 sep/active/windows/text tint
+function) is now dead code — v5 has zero production callers — a candidate for the same future cleanup
+that deletes `__tmux_lives_theme_palette` itself.
 
-Then: settle the **tie-instability** finding above *inside* that design (it is a design decision, not an
-implementation detail) → `superpowers:brainstorming` → `superpowers:writing-plans` → subagent-driven
-execution per the standing default.
-
-**Also open, unscheduled:** `__tmux_lives_theme_accents` is scheme-blind by construction (it declares
-`capHex` and never reads it), so `sep`/`active`/`windows`/`text` are lightness-only tints of the bar. Its
-premise as a *task* was superseded by the three-bounds rule, but the measurement still holds. And
-`active` is computed and pushed on every apply but painted by `window-status-current-format` only —
-verify it renders before trusting it.
-
-**Deployment status:** the live install on rocket and macwork was last updated **2026-08-30 19:12** and
-therefore does **not** contain the breadcrumb-stamping fix, the `[r]` tab title, the picker `⏎` fix, or
-any palette-constraints work. The user must run `fisher update` themselves.
+**Deployment status:** the live install on rocket and macwork predates this cycle, so it has none of the
+v6 surface wiring, the 42-row catalog, or the structural tie-break fix. The user must run `fisher update`
+themselves — doing so will visibly change their bar: the stored `amber / cap / derived` has no v6
+equivalent and migrates to `mono deep` (their seed survives).
 
 ---
 
