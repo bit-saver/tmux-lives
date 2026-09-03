@@ -3569,10 +3569,13 @@ t "swap: the changed bright palette is not near-white anywhere" 1 (__t6_nowhite_
 # These pin that they did NOT move.
 t "swap: deep is unmoved by the structural rule" "#434841 #73a561 #53654d #bed8b5 #9abd8d #638557 #c6e1ba" (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.55 0.11 0.50 deep))
 
-# If render ever stops passing the pattern, constrain silently falls back to
-# the float rule and this is the ONLY assertion that notices — five of six
-# arrangements are byte-identical under both rules.
-t "swap: render passes the arrangement through to constrain" 1 (test (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright)) = "$A6SWAPFIX"; and echo 1; or echo 0)
+# render() must pass the arrangement into constrain(). Comparing render's
+# output against constrain-called-WITH-the-pattern over the SAME pre-arranged
+# input diverges the moment render stops passing it: the left side stays
+# structural while render falls back to the float rule. The earlier form
+# compared render to a render-derived global and so held for ANY deterministic
+# engine — it could not fail.
+t "swap: render passes the arrangement through to constrain" (string join ' ' (__tmux_lives_theme_constrain (__t6_prearrange '#5fab40' mono 0.28 0.26 0.25 bright) bright)) (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright))
 
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
