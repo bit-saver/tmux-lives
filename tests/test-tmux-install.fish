@@ -372,8 +372,34 @@ set -g P5 (__tmux_lives_theme_palette '#5f772b' amber bar derived 0)
 t "palette still returns 7 roles from 5 args" 7 (count $P5)
 t "palette bar unchanged by the refactor" '#44502f' $P5[1]
 
-# apply_live's explicit form is now exactly 4 args.
-t "apply_live explicit form documents 4 args" yes (string match -q '*4 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
+# apply_live's explicit form is now exactly 5 args (the v6 recipe).
+t "apply_live explicit form documents 5 args" yes (string match -q '*5 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
+
+# --- theme-v6-surface Task 4: apply_live and theme list render v6 ------------------
+# The suite runs under a redirected XDG_CONFIG_HOME with no universals, so
+# tmux_lives_bar_color reads EMPTY and apply_live would take its legacy branch —
+# nothing to do with this change. Shadow the seed for this block only (a `set -g`
+# beats a `set -U` read for this process, the same mechanism the picker's seed
+# preview already relies on).
+set -g tmux_lives_bar_color '#5fab40'
+set -g A6SOCK "tl6-$fish_pid"
+command tmux -f /dev/null -L $A6SOCK new-session -d -s probe -c $HOME 'sleep 60' 2>/dev/null
+set -g tmux_lives_tmux_socket $A6SOCK
+__tmux_lives_theme_apply_live mono 0.55 0.11 0.50 deep
+t "apply_live: 5 args push the v6 palette's bar" '#434841' (command tmux -L $A6SOCK show -gv @tmux_lives_bar_bg 2>/dev/null)
+t "apply_live: 5 args push the v6 palette's cap" '#638557' (command tmux -L $A6SOCK show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "apply_live: 5 args push the v6 palette's tabs" '#53654d' (command tmux -L $A6SOCK show -gv @tmux_lives_tabs_color 2>/dev/null)
+t "apply_live: the mark stays the seed verbatim" (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color '')) (command tmux -L $A6SOCK show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "list v6: one line per catalog row" 42 (__tmux_lives_theme_list | count)
+# NB the brief's own pattern uses CAPTURING groups, which fish's `string match -r`
+# prints as extra output lines (whole match + each group) — 3 lines per input line
+# here, so the brief's literal pattern counts 126, not 42. Non-capturing groups
+# (?:...) keep the count at one line per match, which is what "one per catalog
+# row" actually means.
+t "list v6: every line names its scheme" 42 (__tmux_lives_theme_list | string match -r '(?:mono|analogous|complementary|split|triadic|tetradic|square) (?:deep|bright|centre|split|stack|accent)' | count)
+command tmux -L $A6SOCK kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
+set -e tmux_lives_bar_color
 
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
@@ -1446,7 +1472,9 @@ for e in (__tmux_lives_theme_catalog)
     test (count $p) -eq 7; or set bad (math $bad + 1)
 end
 t "every catalog recipe yields 7 hexes" 0 $bad
-t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
+# theme_list renders the v6 catalog now (Task 4); "ember glow" was a v5 catalog
+# name and no longer appears. "mono deep" is the v6 catalog's one hand-placed row.
+t "theme list names mono deep" 1 (string match -q '*mono deep*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
 
 # --- catalog composition (2026-07-28 weeding pass) ------------------------------------
 # The seed was verbatim at bar (glow) and cap (core) but NEVER at tabs — 0 of the 28 rows
@@ -1594,8 +1622,9 @@ set -e __t8_lastlit
 set -e __t8_firstder
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
-t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 35 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+# v6 catalog is 42 rows (was 35 under v5).
+t "theme list has 42 rows" 42 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 42 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir
@@ -1608,16 +1637,25 @@ t "theme cmd persists relationship" ember "$tmux_lives_theme"
 t "theme cmd persists place" cap "$tmux_lives_theme_place"
 t "theme cmd persists mode" literal "$tmux_lives_theme_mode"
 t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
-set -g THP (__tmux_lives_theme_palette '#485b3c' ember cap literal 30)
-t "theme live-applies bar_bg" "$THP[1]" (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
-t "theme live-applies sep_fg" "$THP[2]" (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
-t "theme live-applies tabs_color" "$THP[3]" (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
-t "theme live-applies active_fg" "$THP[4]" (command tmux -L $thsock show -gv @tmux_lives_active_fg 2>/dev/null)
-t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
-# apply-live pushes the seed verbatim as the mark color, not the cap sample
-t "theme live-applies mark_fg = seed" '#485b3c' (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
-t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
+# theme-v6-surface Task 4: __tmux_lives_theme_cmd is still v5 (Task 5 migrates the
+# CLI) and stores "ember" into the SAME tmux_lives_theme universal that apply_live's
+# 0-arg path (which theme_cmd triggers as a side effect, via __tmux_lives_write_fragment
+# + __tmux_lives_theme_apply_live) now reads as a v6 HARMONY MODE. "ember" is not one
+# of mono/analogous/complementary/split/triadic/tetradic/square, so
+# __tmux_lives_theme_render returns nothing and apply_live correctly falls through to
+# its legacy branch — the same branch the "off" block below documents with literal
+# constants. This asserts that real, current ground truth (a real, if temporary,
+# consequence of this task's own change) rather than the stale v5-vs-v5 comparison
+# ("$THP", computed via the old __tmux_lives_theme_palette) it replaces.
+t "theme live-applies bar_bg (legacy: relationship isn't a v6 mode)" (__tmux_lives_derive_status_bg '#485b3c' 0) (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
+t "theme live-applies sep_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
+t "theme live-applies tabs_color (legacy)" '' (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
+t "theme live-applies active_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_active_fg 2>/dev/null)
+t "theme live-applies cap_bg (legacy)" colour238 (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "theme live-applies text_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
+# the legacy branch resets the mark to default too — it does not push the seed verbatim.
+t "theme live-applies mark_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "theme live-applies status-style (legacy)" (__tmux_lives_derive_status '#485b3c' 0) (command tmux -L $thsock show -gv status-style 2>/dev/null)
 # a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
 __tmux_lives_theme_cmd --phase 100000360 >/dev/null
 t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
@@ -1630,28 +1668,36 @@ t "off pushes the neutral legacy cap" colour238 (command tmux -L $thsock show -g
 t "off pushes the legacy cap fg" "#f5f5f5" (command tmux -L $thsock show -gv @tmux_lives_cap_fg 2>/dev/null)
 # unset (not just 'off') applies mono — always-on's actual default. Also reset the knobs
 # this section mutated above (place->cap, mode->literal, phase->280, vividness->vivid) back
-# to their own defaults so THMONO's assumed bar/derived/0/balanced actually matches what
-# __tmux_lives_theme_apply_live reads.
+# to their own defaults so THMONO's assumed recipe actually matches what
+# __tmux_lives_theme_apply_live's 0-arg (universal-reading) path reads.
 set -e tmux_lives_theme
 set -e tmux_lives_theme_place
 set -e tmux_lives_theme_mode
 set -e tmux_lives_theme_phase
 set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
-set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono bar derived 0)
+# theme-v6-surface Task 4: apply_live's 0-arg path now reads the v6 recipe universals
+# (tmux_lives_theme/_lspan/_peakc/_peakpos/_arrangement), all unset here so it falls
+# to their defaults mono/0.55/0.11/0.50/deep — render THAT with __tmux_lives_theme_render
+# (v6), not the old __tmux_lives_theme_palette (v5); "mono" names the same idea in both
+# engines but the engines produce different hexes for it, so comparing against the v5
+# function would compare two different colours by coincidence of a shared name.
+set -g THMONO (__tmux_lives_theme_render '#485b3c' mono 0.55 0.11 0.50 deep)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-# Task 6 controller scope: the 4-arg apply-live path (the picker's `a`-preview and
-# esc-revert path) writes no state — direct-call it twice with only phase flipped
-# and confirm a derived color actually moves (same seed/relationship/place/mode).
-# Task 1 removed vividness/shape/ease/contrast entirely (they were accepted-but-inert),
-# so phase is the only knob left that moves a role color here.
-__tmux_lives_theme_apply_live sage bar derived 0
+# theme-v6-surface Task 4 controller scope: the explicit 5-arg apply-live path (the
+# picker's `a`-preview and esc-revert path) writes no state — direct-call it twice with
+# only mode flipped and confirm a derived color actually moves (same seed/lspan/peakc/
+# peakpos/arrangement). This replaces the old 4-arg "phase" version (v5's `sage bar
+# derived 0/180`): v6 has no phase knob, and passing 4 args to the new contract no
+# longer means "explicit" at all (any count other than 5 reads the universals) — both
+# old calls would silently read the SAME universal state and could never differ.
+__tmux_lives_theme_apply_live mono 0.55 0.11 0.50 deep
 set -g THEME_CAP_A (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-__tmux_lives_theme_apply_live sage bar derived 180
+__tmux_lives_theme_apply_live analogous 0.55 0.11 0.50 deep
 set -g THEME_CAP_B (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "apply-live 4-arg phase-0 cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
-t "apply-live 4-arg phase-180 cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
-t "apply-live 4-arg phase 0 vs 180 differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 5-arg mono cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
+t "apply-live 5-arg analogous cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 5-arg mono vs analogous differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd

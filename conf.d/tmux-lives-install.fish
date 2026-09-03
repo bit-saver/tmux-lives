@@ -1556,20 +1556,21 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v5 theme (or legacy when off/seedless) to the live server. With exactly 4 args (relationship place mode phase) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
-    set -l theme; set -l place; set -l mode; set -l phase
-    if test (count $argv) -eq 4
-        set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v6 theme (or legacy when off/seedless) to the live server. With exactly 5 args (mode lspan peakc peakpos arrangement) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l tlspan; set -l tpeakc; set -l tpeakpos; set -l tarr
+    if test (count $argv) -eq 5
+        set theme $argv[1]; set tlspan $argv[2]; set tpeakc $argv[3]; set tpeakpos $argv[4]; set tarr $argv[5]
     else
         set theme (__tmux_lives_key tmux_lives_theme mono)
-        set place (__tmux_lives_key tmux_lives_theme_place bar)
-        set mode (__tmux_lives_key tmux_lives_theme_mode derived)
-        set phase (__tmux_lives_key tmux_lives_theme_phase 0)
+        set tlspan (__tmux_lives_key tmux_lives_theme_lspan 0.55)
+        set tpeakc (__tmux_lives_key tmux_lives_theme_peakc 0.11)
+        set tpeakpos (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+        set tarr (__tmux_lives_key tmux_lives_theme_arrangement deep)
     end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase)
+        set tpal (__tmux_lives_theme_render $seed "$theme" "$tlspan" "$tpeakc" "$tpeakpos" "$tarr")
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -1598,17 +1599,12 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every catalog scheme + a 7-role gradient strip at the current seed/phase'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every v6 catalog scheme + a 7-role strip at the current seed'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
-    set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
-    for entry in (__tmux_lives_theme_catalog)
+    for entry in (__tmux_lives_theme_catalog_v6)
         set -l f (string split '|' $entry)
-        set -l name $f[1]
-        set -l rel $f[2]
-        set -l place $f[3]
-        set -l mode $f[4]
-        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase)
+        set -l pal (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -1616,7 +1612,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-11s %s\n' (string join '' $strip) $name $pal[6]
+        printf '%s %-20s %s\n' (string join '' $strip) $f[1] $pal[6]
     end
 end
 
