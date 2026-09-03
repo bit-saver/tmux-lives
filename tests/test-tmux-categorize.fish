@@ -4050,7 +4050,76 @@ t "expand toggles the flag"    1 (string match -q '*test "$expanded" = 1; and se
 t "expand clamps sel to the last scheme row" 1 (string match -q '*set -l lastrow (math $n - 1)*test $sel -gt $lastrow; and set sel $lastrow*' -- "$pbody"; and echo 1; or echo 0)
 t "save reads recipes"         1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
 t "apply-preview derives from recipe" 1 (string match -qr '(?s)case a\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
-t "save derives from recipe"          1 (string match -qr '(?s)case enter\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
+# Task 7 fix round (review Finding 2): "case enter\b.*?recipes\[" silently
+# anchored on __tcz_thp_hexentry's OWN "case enter" (its typed-hex commit
+# key, line ~2633) rather than the real save dispatch (line ~3492) — the
+# non-greedy search starts at the FIRST "case enter" textually, which is
+# hexentry's; hexentry's sits before BOTH recipes[ occurrences in the file
+# (inside __tcz_thp_apply_now and the curflag draw check), so the regex
+# found a real match belonging to an unrelated function and reported "found"
+# for the wrong reason — proven: this assertion still passes even with the
+# real dispatch's own case-enter body deleted outright. And the property it
+# named was ALREADY false regardless of which case enter it landed on: the
+# save arm no longer reads recipes[] at all — it reads $toks[$pi] directly
+# (the catalog NAME), and the CLI looks the recipe up by name. That left the
+# single most user-visible change in this task — 42 of 44 selectable rows
+# saving by catalog name through a different CLI shape — pinned by nothing.
+#
+# Fix: strip __tcz_thp_hexentry's entire nested body out of $pbody first
+# (same awk range-exclusion idiom "switcher-yellow retired" above uses), so
+# the ONLY "case enter" left is the real dispatch one, then assert the
+# actual v6 contract on what survives.
+set -l pbody_nohex (printf '%s\n' "$pbody" | awk '
+    /function __tcz_thp_hexentry/ {skip=1}
+    skip && /^    end$/ {skip=0; next}
+    !skip {print}
+' | string collect)
+t "pbody_nohex extraction is non-empty" 1 (test -n "$pbody_nohex"; and echo 1; or echo 0)
+# Prove the exclusion actually excised hexentry's BODY, not just its
+# definition line — its own function name and a marker unique to its own
+# case-enter arm (the "seed previewed:" note it sets, found nowhere else in
+# the picker) must both be gone. A bare substring count of "case enter" is
+# NOT a safe proxy for this: line ~3107 discusses "case enter" in a COMMENT
+# ("was the actual '⏎ closes the picker' bug (case enter already gated...")
+# — the same comment-defeats-grep trap this repo has hit before — so after a
+# correct exclusion there are still TWO "case enter" substrings left (the
+# comment, plus the real dispatch), not one; an "exactly 1" count would be
+# permanently red for a reason unrelated to the exclusion working.
+t "pbody_nohex no longer defines hexentry" 0 (string match -q '*function __tcz_thp_hexentry*' -- "$pbody_nohex"; and echo 1; or echo 0)
+t "pbody_nohex dropped hexentry's own seed-preview note (body content, not just the def line)" 0 (string match -q '*seed previewed: $seed*' -- "$pbody_nohex"; and echo 1; or echo 0)
+# Anchor on the EXACT case-label line, not a bare "case enter" substring: the
+# comment at ~3107 ("case enter already gated...") means a loose (?s)case
+# enter\b search — even past hexentry — still finds a real match starting
+# from THAT comment, and its non-greedy .*? then lands on the first toks[/
+# recipes[ that happens to follow it textually (case m's $toks[$ki], well
+# before the real save dispatch) rather than the save arm's own. Caught by
+# mutation, not assumed: with (?s)case enter\b, reverting the save arm to
+# `recipes[$pi]` (no toks[ anywhere after the real case enter) still read
+# "save derives the name from toks" as PASSING, because the comment-anchored
+# search found case m's unrelated toks[$ki] instead. A real case-enter LABEL
+# is always alone on its own line at this switch's fixed 12-space indent;
+# the comment mention never is (it has a `#` and other text on the same
+# line) — (?ms) with ^...$ line anchors excludes it structurally rather than
+# hoping no future comment mentions the phrase.
+t "save no longer reads recipes directly (past hexentry)" 0 (string match -qr '(?ms)^            case enter$.*?recipes\[' -- "$pbody_nohex"; and echo 1; or echo 0)
+t "save derives the name from toks (past hexentry)" 1 (string match -qr '(?ms)^            case enter$.*?toks\[' -- "$pbody_nohex"; and echo 1; or echo 0)
+# The CLI call shape itself: the name, and only the name — no --place/--mode/
+# --phase flags reintroduced (those error on the v6 CLI; see the whole-body
+# "save no longer passes --place/--mode" guards a few lines down for the
+# blunter whole-body negative this complements).
+t "save calls the CLI with exactly the name, no flags" 1 (string match -q '*fish -c '"'"'tmux-lives setup theme $argv[1]'"'"' "$apply" >/dev/null 2>&1*' -- "$pbody"; and echo 1; or echo 0)
+# Task 7 fix round (review Finding 3, second half): pin the five universal
+# NAMES the unnamed-save branch (:3606, reached when anch_name is empty —
+# Task 8's rolled-theme case) writes, scoped to that ONE call, not $pbody
+# broadly. The existing "anchor reads persisted lspan/peakc/peakpos/
+# arrangement" guards above match anywhere in $pbody, and are ALREADY
+# satisfied by __tcz_thp_init's own fish -c echo lines alone (which read the
+# same five universal names to POPULATE the anchor in the first place) — so a
+# misspelled universal name in THIS branch specifically would not be caught
+# by them. The exact literal call text, five `set -U` names in order plus
+# the two follow-up calls, is unique in the file, so a plain substring match
+# is a precise pin, not a loose one.
+t "the unnamed-save branch sets exactly the five persisted universals, by name, in order, then re-renders and applies live" 1 (string match -q '*fish -c '"'"'set -U tmux_lives_theme $argv[1]; set -U tmux_lives_theme_lspan $argv[2]; set -U tmux_lives_theme_peakc $argv[3]; set -U tmux_lives_theme_peakpos $argv[4]; set -U tmux_lives_theme_arrangement $argv[5]; __tmux_lives_write_fragment; __tmux_lives_theme_apply_live'"'"' $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr*' -- "$pbody"; and echo 1; or echo 0)
 # Task 7 (v6 recipes): the v6 CLI dropped --place/--mode entirely (they now
 # error — "removed in v6 — a scheme is now a recipe ... chosen by name"), and
 # the save path follows suit: it saves by catalog NAME (`tmux-lives setup
@@ -4096,8 +4165,41 @@ t "anchor snapshots lspan"        1 (string match -q '*set anch_lspan $tlspan*' 
 t "anchor snapshots peakc"        1 (string match -q '*set anch_peakc $tpeakc*'        -- "$initbody"; and echo 1; or echo 0)
 t "anchor snapshots peakpos"      1 (string match -q '*set anch_peakpos $tpeakpos*'    -- "$initbody"; and echo 1; or echo 0)
 t "anchor snapshots arrangement"  1 (string match -q '*set anch_arr $tarr*'            -- "$initbody"; and echo 1; or echo 0)
-t "anchor resolves a catalog name (or empty)" 1 (string match -q "*set anch_name ''*" -- "$initbody"; and echo 1; or echo 0)
 t "anchor drops rotate"           0 (string match -q '*anch_rotate*' -- "$initbody"; and echo 1; or echo 0)
+# Task 7 fix round (review Finding 3): the assertion this replaces matched
+# the literal `set anch_name ''` — the INITIALISER at :2496, immediately
+# ABOVE the reverse-lookup loop that actually resolves it. Deleting the
+# whole loop leaves that literal untouched and the old assertion still
+# passed — at which point anch_name is ALWAYS empty, every current-row save
+# silently falls through to the direct-write path, and the CLI save path
+# this recipe is supposed to take when it DOES match a catalog row becomes
+# dead code with nothing to notice. Task 8 depends on this mechanism.
+#
+# Exercise the REAL lookup, the way __t7_reload_compose exercises the real
+# __tcz_thp_reload: extract just the reverse-lookup block (bounded by its
+# own comment through the for-loop's own closing `end` — NOT __tcz_thp_init's
+# outer `end`, four columns further left) and eval it in a throwaway wrapper
+# that seeds theme/tlspan/tpeakc/tpeakpos/tarr directly, standing in for what
+# the fish -c universal read above this block would have left there. No
+# universal-store or subprocess dependency, so this is fast and hermetic.
+set -g ANCHLOOKUP7 (awk '/# Freeze the anchor from the values just read/,/^        end$/' $catfile | string collect)
+t "anchor lookup extraction is non-empty" 1 (test -n "$ANCHLOOKUP7"; and echo 1; or echo 0)
+t "anchor lookup extraction stopped at the for-loop's own end (did not swallow __tcz_thp_init's closing end)" 0 (string match -ra 'function __tcz_thp_reload' -- "$ANCHLOOKUP7" | count)
+function __t7_anchlookup --argument-names theme tlspan tpeakc tpeakpos tarr --description 'eval the REAL anchor reverse-lookup block from __tcz_thp_init against caller-supplied recipe fields; returns the resolved $anch_name.'
+    eval $ANCHLOOKUP7
+    echo $anch_name
+end
+# "mono deep" is the catalog row for mono|0.55|0.11|0.50|deep — verified
+# directly against the shipped __tmux_lives_theme_catalog_v6, not assumed;
+# also the exact default recipe __tcz_theme_picker's own locals fall back to
+# when nothing is persisted, so this is a real, reachable case, not a
+# hand-picked edge value.
+t "anchor lookup resolves a persisted catalog recipe to its name" 'mono deep' (__t7_anchlookup mono 0.55 0.11 0.50 deep)
+# "nonexistent" is not one of the six real arrangement names
+# (__tmux_lives_theme_arrangements: deep/bright/centre/split/stack/accent),
+# so no catalog row can match regardless of the other four fields — this is
+# exactly Task 8's rolled-theme case.
+t "anchor lookup resolves a non-catalog recipe to empty" '' (__t7_anchlookup mono 0.55 0.11 0.50 nonexistent)
 # the anchor's OWN palette-build call must also carry the v6 signature (seed
 # mode lspan peakc peakpos arrangement) — the same v3-breakage Task 1 fixed
 # for the main list, now grown from 5 to 6 args (place+mode+phase replaced by
@@ -5187,83 +5289,62 @@ t "a short note's row is still exactly IW+2 (52) visible columns (padded, not sh
 # tracks the actual strings rather than a snapshot of today's). Task 7 (v6
 # recipes): the old v5 relationship domain (mono/amber/wheat/.../teal, longest
 # 5 chars) is gone, along with $anch_scheme/$rel — the current-row note now
-# carries TWO placeholders, $anch_theme (a v6 harmony mode, longest
-# "complementary" at 13 chars) and $anch_arr (an arrangement, longest 6
-# chars), and the listed-scheme note carries $toks[$pi] (a catalog NAME —
-# "<mode> <arrangement>" — longest "complementary bright" at 20 chars). Both
-# domains are pulled from the engine itself (unique mode field of
-# __tmux_lives_theme_catalog_v6, and __tmux_lives_theme_arrangements) rather
-# than retyped, so a future mode/arrangement addition is covered
-# automatically. $seed is still substituted with a worst-case 7-char hex
+# carries TWO placeholders, $anch_theme (a v6 harmony mode) and $anch_arr (an
+# arrangement), and the listed-scheme note carries $toks[$pi] (a catalog NAME
+# — "<mode> <arrangement>"). $seed is substituted with a worst-case 7-char hex
 # literal. The draw site always prepends exactly one space
 # (" $MUTED$note$RST"), so that is added before comparing against IW (50).
 #
-# The wider v6 recipe means the true worst case for TWO of the four templates
-# now EXCEEDS 50 (measured: current-row 63, listed-scheme 56) — this is not a
-# regression this task introduced casually: the draw site's own I1 fix
-# already truncates $note through __tcz_popup_truncate specifically so an
-# overlong note is "structurally incapable of overflowing the frame
-# regardless of what text ever lands in $note" (its own comment, quoted
-# verbatim, a few lines above this block). So the invariant that actually
-# matters — and is now asserted directly, not inferred — is that the
-# TRUNCATED row never exceeds IW, whether or not the raw worst case does;
-# a template whose worst case still fits keeps the stronger "fits without
-# truncation" bar it always had.
+# Task 7 fix round (review Finding 1): the FIRST wording shipped here
+# ("● previewing $anch_theme $anch_arr (live) — ⏎ save · esc revert" /
+# "● previewing $toks[$pi] — ⏎ save · esc revert") was measured against a
+# constructed mode x arrangement / name domain and found to exceed IW in 42
+# of 42 catalog rows for the current-row template (min 52, max 63) and 14 of
+# 42 for the listed-scheme template — not a worst-case edge, the ONLY
+# behaviour, and specifically on the line that is the only place naming the
+# esc action ("esc revert" — the legend says "esc close", a different
+# action), so at the long end the hint was destroyed, not abbreviated. Fixed
+# by shortening the wording, not by accepting truncation: "previewing" is
+# dropped from both, and "revert" -> "undo" (2 chars shorter, applied to all
+# three browsing notes for consistency, not just the two that needed it).
+# Measured against the REAL 42-row catalog after the fix: current-row
+# min=39/max=50, listed-scheme min=32/max=43 — both fit in all 42, restoring
+# the plain "fits without truncation" bar below (no per-template branching
+# into a truncation-safety fallback, which would have let a FUTURE wording
+# regression pass silently by re-routing into "truncation catches it"
+# instead of failing).
+#
+# Iterates the REAL __tmux_lives_theme_catalog_v6 rows directly (not a
+# reconstructed mode/arrangement domain) for both placeholders, per review:
+# "verify it across all 42 rather than a sample."
 set -g NOTELITERALS9 (string match -ar 'set note "[^"]*"' -- (string split \n -- "$pk2") | string replace -r '^set note "(.*)"$' '$1')
 t "note-literal extraction found at least the 4 known notes (seed-preview/current/off/scheme)" yes (test (count $NOTELITERALS9) -ge 4; and echo yes; or echo no)
-set -g MODEDOMAIN9
-for e in (__tmux_lives_theme_catalog_v6)
-    set -l f (string split '|' -- $e)
-    contains -- $f[2] $MODEDOMAIN9; or set -a MODEDOMAIN9 $f[2]
-end
-set -g ARRDOMAIN9 (__tmux_lives_theme_arrangements)
-set -g NAMEDOMAIN9
-for e in (__tmux_lives_theme_catalog_v6)
-    set -a NAMEDOMAIN9 (string split '|' -- $e)[1]
-end
+set -g CATALOG9 (__tmux_lives_theme_catalog_v6)
+t "catalog9 extraction is exactly 42 rows" 42 (count $CATALOG9)
 for tmpl in $NOTELITERALS9
     set -l worst 0
-    set -l worststr "$tmpl"
     if string match -q '*$anch_theme*' -- "$tmpl"; and string match -q '*$anch_arr*' -- "$tmpl"
-        for m in $MODEDOMAIN9
-            for a in $ARRDOMAIN9
-                set -l s (string replace -a '$anch_theme' "$m" -- "$tmpl")
-                set s (string replace -a '$anch_arr' "$a" -- "$s")
-                set -l w (math (string length --visible -- "$s")" + 1")
-                if test $w -gt $worst
-                    set worst $w
-                    set worststr "$s"
-                end
-            end
+        for e in $CATALOG9
+            set -l f (string split '|' -- $e)
+            set -l s (string replace -a '$anch_theme' "$f[2]" -- "$tmpl")
+            set s (string replace -a '$anch_arr' "$f[6]" -- "$s")
+            set -l w (math (string length --visible -- "$s")" + 1")
+            test $w -gt $worst; and set worst $w
         end
     else if string match -q '*$toks[$pi]*' -- "$tmpl"
-        for v in $NAMEDOMAIN9
-            set -l s (string replace -a '$toks[$pi]' "$v" -- "$tmpl")
+        for e in $CATALOG9
+            set -l f (string split '|' -- $e)
+            set -l s (string replace -a '$toks[$pi]' "$f[1]" -- "$tmpl")
             set -l w (math (string length --visible -- "$s")" + 1")
-            if test $w -gt $worst
-                set worst $w
-                set worststr "$s"
-            end
+            test $w -gt $worst; and set worst $w
         end
     else if string match -q '*$seed*' -- "$tmpl"
         set -l s (string replace -a '$seed' '#ffffff' -- "$tmpl")
         set worst (math (string length --visible -- "$s")" + 1")
-        set worststr "$s"
     else
         set worst (math (string length --visible -- "$tmpl")" + 1")
     end
-    if test $worst -le 50
-        t "note fits within IW (50) at its worst case, leading space included: \"$tmpl\"" yes (test $worst -le 50; and echo yes; or echo no)
-    else
-        # Exceeds IW raw — prove the real draw-site truncation caps it instead
-        # of merely hoping it does. __tcz_popup_truncate is SGR-aware and
-        # counts DISPLAY columns; feeding it the same leading-space-prefixed
-        # worst-case text the draw site builds (minus the $MUTED/$RST colour
-        # codes, which are zero visible width and would not change the count)
-        # measures the same cap the styled real call gets.
-        set -l capped (__tcz_popup_truncate " $worststr" 50)
-        t "note exceeds IW at its worst case (\"$tmpl\") — draw-site truncation caps it at 50, not left to overflow" yes (test (string length --visible -- "$capped") -le 50; and echo yes; or echo no)
-    end
+    t "note fits within IW (50) at its worst case, leading space included: \"$tmpl\"" yes (test $worst -le 50; and echo yes; or echo no)
 end
 # end of the name. Extracted from the REAL draw block (__t9_frame_text), asserted
 # on rendered output rather than on the styling source.

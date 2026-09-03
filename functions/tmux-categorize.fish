@@ -2842,18 +2842,30 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             if test $sel2 -eq 0
                 __tcz_thp_apply_and_recolor "$seed" $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr
                 set previewed 2
-                set note "● previewing $anch_theme $anch_arr (live) — ⏎ save · esc revert"
+                # "previewing" dropped and "revert" -> "undo": the v6 mode+
+                # arrangement pair (up to "complementary"+"accent"/"bright"/
+                # "centre") runs long enough that the old wording overflowed
+                # IW=50 in 42 of 42 catalog rows, not just a worst case —
+                # measured, not assumed. This exact wording is the one
+                # measured to fit at 50 in all 42; "(live)" still carries the
+                # not-yet-saved meaning "previewing" used to.
+                set note "● $anch_theme $anch_arr (live) — ⏎ save · esc undo"
             else
                 __tcz_thp_apply_and_recolor "$seed" off 0.55 0.11 0.50 deep
                 set previewed 1
-                set note "● previewing off — ⏎ save · esc revert"
+                # "revert" -> "undo" only, for consistency with the other two
+                # notes below — "off" alone never overflowed IW.
+                set note "● previewing off — ⏎ save · esc undo"
             end
         else
             set -l pi (math $sel + 1)
             set -l rc (string split '|' -- $recipes[$pi])
             __tcz_thp_apply_and_recolor "$seed" $rc[1] $rc[2] $rc[3] $rc[4] $rc[5]
             set previewed 1
-            set note "● previewing $toks[$pi] — ⏎ save · esc revert"
+            # "previewing" dropped: the longest catalog NAME ("complementary
+            # bright") overflowed IW=50 in 14 of 42 rows; measured fit at 45
+            # in all 42 once dropped. "revert" -> "undo" for consistency.
+            set note "● $toks[$pi] — ⏎ save · esc undo"
         end
     end
     while true
