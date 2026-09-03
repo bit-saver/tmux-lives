@@ -1465,6 +1465,76 @@ end
 t "migrate_v52 is silent when there is nothing to erase (idempotent)" '' "$_m52"
 t "post_update chains migrate_v52" yes (string match -q '*__tmux_lives_migrate_v52*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 
+# --- theme-v6-surface Task 6: migrate v5's relationship/place/mode/phase to a v6 recipe ---
+# Existence first, matching the migrate_v51/v52 precedent above: an undefined
+# function inside a command substitution ABORTS the whole statement in fish
+# (verified directly — the substitution's error is not recoverable the way a
+# plain "unknown command" is), so several of the assertions below are guarded
+# by `functions -q` rather than called bare, or they would simply never run
+# pre-fix (no PASS, no FAIL — invisible to `grep FAIL`) instead of failing.
+t "migrate_v6 exists" 0 (functions -q __tmux_lives_migrate_v6; echo $status)
+set -U tmux_lives_theme amber
+set -U tmux_lives_theme_place cap
+set -U tmux_lives_theme_mode derived
+set -U tmux_lives_theme_phase 0
+set -U tmux_lives_bar_color '#5fab40'
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: the seed is preserved" '#5fab40' "$tmux_lives_bar_color"
+t "migrate v6: place is erased" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "migrate v6: mode is erased" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "migrate v6: phase is erased" 0 (set -q tmux_lives_theme_phase; and echo 1; or echo 0)
+t "migrate v6: the theme becomes the default recipe" "mono 0.55 0.11 0.50 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+set -g A6MIG1 (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: idempotent" "$A6MIG1" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+# Stronger idempotency check than the value-equality one above: that one would
+# pass even for a broken implementation that unconditionally re-writes the SAME
+# defaults on every call, because the defaults are constant. The real risk
+# named in the task brief is the early-return guard (`set -q
+# tmux_lives_theme_arrangement; and return 0`) failing to hold — i.e. a LATER
+# user choice getting silently stomped back to the default on the next fisher
+# update. Simulate that: the user picks a different scheme after migrating,
+# then migrate runs again (as it will on every future update) and must leave
+# it alone.
+set -U tmux_lives_theme coral
+set -U tmux_lives_theme_lspan 0.60
+set -U tmux_lives_theme_peakc 0.15
+set -U tmux_lives_theme_peakpos 0.45
+set -U tmux_lives_theme_arrangement chip
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: does not re-stomp a scheme the user picked after migrating" "coral 0.60 0.15 0.45 chip" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+if functions -q __tmux_lives_migrate_v6
+    set -g _m6silent (__tmux_lives_migrate_v6 2>&1 | string collect)
+else
+    set -g _m6silent __migrate_v6_missing__
+end
+t "migrate v6: a second run is silent" "" "$_m6silent"
+# "off" must be tested as a FRESH (never-migrated) install, not a continuation
+# of the state above: by this point tmux_lives_theme_arrangement is already
+# set (to "chip"), so the function's OWN first guard (`set -q
+# tmux_lives_theme_arrangement; and return 0`) would short-circuit before ever
+# reaching the off-specific branch a few lines later in the brief's own
+# pseudocode — the assertion would pass, but for the "already migrated" reason,
+# not because the off-handling actually ran. Reset to a state that looks like a
+# v5 install that was set to `off` and never touched by v6 before: recipe
+# fields unset, but a stale place/mode/phase left over from v5, which the
+# function's own comment says must still be erased even though theme is off.
+set -e tmux_lives_theme_arrangement
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -U tmux_lives_theme_place cap
+set -U tmux_lives_theme_mode literal
+set -U tmux_lives_theme_phase 12
+set -U tmux_lives_theme off
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: off is left alone" off "$tmux_lives_theme"
+t "migrate v6: off does not gain recipe fields" 0 (set -q tmux_lives_theme_arrangement; and echo 1; or echo 0)
+t "migrate v6: off still gets place erased" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "migrate v6: off still gets mode erased" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "migrate v6: off still gets phase erased" 0 (set -q tmux_lives_theme_phase; and echo 1; or echo 0)
+t "migrate v6: chained on post-update" 1 (functions __tmux_lives_migrate_v6 >/dev/null; and string match -q '*__tmux_lives_migrate_v6*' -- (functions _tmux_lives_post_update | string collect); and echo 1; or echo 0)
+
 set -e tmux_lives_bar_color
 # was "ember" (a v5 relationship) pre-theme-v6-surface Task 5 — under v6
 # validation an unresolvable name is rejected as an unknown scheme BEFORE the

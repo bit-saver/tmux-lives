@@ -2134,6 +2134,26 @@ function __tmux_lives_migrate_v52 --description 'v5.1 -> v5.2: auto-apply-on-dwe
     return 0
 end
 
+function __tmux_lives_migrate_v6 --description 'v5.2 -> v6: relationship/place/mode/phase have no v6 meaning — a scheme is a five-field RECIPE now, and no mapping from the old vocabulary would be trustworthy. Reset to the curated default (mono deep, the palette the user identified as their favourite) and PRESERVE THE SEED, which is the one thing that carries over. Leaves `off` alone. Scope-less `set -e`, like _v51/_v52: a scoped `set -e -U` silently no-ops under `fish --no-config`. Idempotent; runs on fisher update.'
+    # Already migrated if the recipe fields exist; nothing stored at all is a
+    # fresh install, which needs no notice either.
+    set -q tmux_lives_theme_arrangement; and return 0
+    set -q tmux_lives_theme_place; or set -q tmux_lives_theme_mode; or set -q tmux_lives_theme_phase; or set -q tmux_lives_theme; or return 0
+    set -e tmux_lives_theme_place
+    set -e tmux_lives_theme_mode
+    set -e tmux_lives_theme_phase
+    if test "$tmux_lives_theme" = off
+        return 0
+    end
+    set -U tmux_lives_theme mono
+    set -U tmux_lives_theme_lspan 0.55
+    set -U tmux_lives_theme_peakc 0.11
+    set -U tmux_lives_theme_peakpos 0.50
+    set -U tmux_lives_theme_arrangement deep
+    echo "tmux-lives: theme engine v6 — your old scheme has no v6 equivalent, so it is reset to 'mono deep' (your seed color is unchanged). Browse the rest with 'tmux-lives setup theme list' or the picker."
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -2144,6 +2164,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     __tmux_lives_migrate_v41
     __tmux_lives_migrate_v51
     __tmux_lives_migrate_v52
+    __tmux_lives_migrate_v6
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment
