@@ -273,12 +273,12 @@ t "recipe: defined" 1 (functions -q __tmux_lives_theme_recipe; and echo 1; or ec
 Value-dimension spread is the property that stops this catalog recreating the v5 collapse, so assert it directly rather than trusting the generation:
 
 ```fish
-t "catalog v6: Lspan is spread, not pinned" 3 (__tmux_lives_theme_catalog_v6 | string split -f3 '|' | sort -u | count)
+t "catalog v6: Lspan is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f3 '|' | sort -u | count)
 t "catalog v6: peakC is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f4 '|' | sort -u | count)
 t "catalog v6: peakPos is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f5 '|' | sort -u | count)
 ```
 
-(`peakC` and `peakPos` are 4 rather than 3 because `mono deep` contributes 0.11 and 0.50, which no generated row uses.)
+(All three are **4**, not 3: the generated rows use three values each — Lspan {0.30, 0.50, 0.70}, peakC {0.13, 0.15, 0.17}, peakPos {0.35, 0.55, 0.75} — and `mono deep`, the hand-placed row, contributes a fourth of each: 0.55, 0.11 and 0.50 respectively. Verified against the literal table above; a value of 3 anywhere means a generated row was mistyped or `mono deep` was normalised onto the grid, which would lose the user's favourite palette.)
 
 - [ ] **Step 2: Run and confirm failure**
 
@@ -1069,8 +1069,13 @@ set -g A6CAT (cat $plugindir/functions/tmux-categorize.fish | string collect)
 t "v5: install source was captured" 1 (test (string length "$A6SRC") -gt 10000; and echo 1; or echo 0)
 t "v5: categorize source was captured" 1 (test (string length "$A6CAT") -gt 10000; and echo 1; or echo 0)
 t "v5: the categorizer no longer calls theme_palette" 0 (string match -q '*__tmux_lives_theme_palette*' -- "$A6CAT"; and echo 1; or echo 0)
-# One definition, zero callers, in the install file.
-t "v5: theme_palette is defined but never called" 1 (string split '\n' -- "$A6SRC" | string match -r '__tmux_lives_theme_palette' | count)
+# The v5 engine stays DEFINED — deleting it is a separate, trivially
+# revertible commit once v6 has proven itself live — but must have no
+# CALLERS. Count only lines that are neither the definition nor a comment;
+# a plain occurrence count would include the definition and any prose
+# mentioning the name, and would break the moment a comment is reworded.
+t "v5: theme_palette has no callers left in the install file" 0 (string split '\n' -- "$A6SRC" | string match -r '__tmux_lives_theme_palette' | string match -rv '^\s*#' | string match -rv '^function ' | count)
+t "v5: theme_palette is still defined" 1 (string split '\n' -- "$A6SRC" | string match -r '^function __tmux_lives_theme_palette' | count)
 ```
 
 The `source was captured` pair is the vacuity guard — `$plugindir` is defined at the top of this suite, but this project has been bitten seven times by a body-grep against a variable that expanded empty.
