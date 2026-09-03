@@ -719,8 +719,13 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
 end
 
 function __tmux_lives_theme_constrain --description 'v6: seven arranged role hexes -> the same seven made ACCEPTABLE. arrange decides which colour goes where and stays a pure permutation; this decides what a colour must become. Order is load-bearing and fixed: big-role lightness clamp, big-role chroma clamp, no-white, then the text-contrast floor LAST because legibility is correctness and every earlier step can move bar or text.'
-    set -l out $argv
+    set -l out $argv[1..7]
     test (count $out) -eq 7; or return 1
+    # Optional 8th arg: the arrangement pattern. Production (render) ALWAYS
+    # passes it. Direct callers with a synthetic fixture have no arrangement
+    # and fall back to the lightness rule below, which is the only thing
+    # available without ramp information.
+    set -l pat "$argv[8]"
 
     # Bound 3: no large surface may be pale. The arrangement table keeps big
     # roles on ramp indices 1-4, but that is not sufficient — the window is
@@ -919,12 +924,32 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         # (1 3 6) — an unlinked partition, not a shared constant. Nothing
         # checks the two stay in sync; if either changes, check the other
         # by hand.
-        for i in 2 4 5
-            set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
-            set -l d (math "abs($li[1] - $lb[1])")
-            if test "$d" -gt "$bestd"
-                set best $i
-                set bestd $d
+        # Selection is STRUCTURAL when the pattern is known: ramp indices are
+        # integers and distinct by construction, so there is no tie to sit on
+        # and no engine constant can flip which colour becomes text. The float
+        # argmax it replaces had 188 of 2,142 floor-firing rows within 0.0005
+        # of a tie, and a flip EXCHANGES two roles' colours (worst measured
+        # 0.36 in lightness) — which would silently repaint a stored recipe.
+        # Mirrors the float rule exactly: text is the incumbent and a
+        # candidate must STRICTLY beat it.
+        set -l ridx (__tmux_lives_theme_rampidx "$pat")
+        if test (count $ridx) -eq 7
+            set -l bd (math "abs($ridx[7] - $ridx[1])")
+            for i in 2 4 5
+                set -l d (math "abs($ridx[$i] - $ridx[1])")
+                if test "$d" -gt "$bd"
+                    set best $i
+                    set bd $d
+                end
+            end
+        else
+            for i in 2 4 5
+                set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
+                set -l d (math "abs($li[1] - $lb[1])")
+                if test "$d" -gt "$bestd"
+                    set best $i
+                    set bestd $d
+                end
             end
         end
         if test $best -ne 7
@@ -1157,7 +1182,7 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     end
     set -l pal (__tmux_lives_theme_arrange "$arrangement" $hexes)
     test (count $pal) -eq 7; or return
-    __tmux_lives_theme_constrain $pal
+    __tmux_lives_theme_constrain $pal $arrangement
 end
 
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'

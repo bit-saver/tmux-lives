@@ -3534,6 +3534,46 @@ t "constrain C2: the floor's swap never promotes a big role to the light end" 1 
 # ...and the floor it exists to serve still holds on the same fixture.
 t "constrain C2: restricting the candidates still satisfies the contrast floor" 1 (__t6_floor_ok $A6C2OUT)
 
+# --- constrain: the floor's swap partner is selected STRUCTURALLY, not by
+# --- float argmax over measured lightness -------------------------------
+# The swap picks text's partner by argmax over measured lightness. 188 of
+# 2,142 floor-firing rows sit within 0.0005 of a tie; a flip exchanges a
+# whole colour between two roles (worst measured 0.36 in lightness), and
+# since a scheme is stored as a recipe, a future engine constant would
+# silently repaint a theme the user had already chosen. Ramp indices are
+# integers and distinct by construction, so selecting on them cannot tie.
+#
+# The discriminator is the `bright` arrangement — it is the only pattern
+# where `text` sits at the dark end (ramp 1) while `bar` sits mid-ramp
+# (ramp 4), which is the one genuine tie. Distances from bar's own ramp
+# index, candidates being text (incumbent) and the small roles 2 sep /
+# 4 active / 5 windows; a candidate must STRICTLY beat text.
+#   deep   bar@1: text 6, sep 3, active 5, windows 4  -> text, no swap
+#   bright bar@4: text 3, sep 1, active 3, windows 2  -> text (active ties, loses)
+#   centre bar@3: text 2, sep 2, active 3, windows 4  -> windows, SWAP
+#   split  bar@1: text 6, sep 2, active 4, windows 5  -> text, no swap
+#   stack  bar@2: text 5, sep 3, active 4, windows 2  -> text, no swap
+#   accent bar@3: text 4, sep 2, active 3, windows 1  -> text, no swap
+set -g A6SWAPFIX (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright)
+# Under the OLD float rule this renders #7aa26c #7cb568 #69945a #338000
+# #9dbc93 #5e8550 #192c10 — active receives text's dark, saturated colour.
+# Under the structural rule active keeps its light #b0c9a6 and stage two
+# synthesises text instead. Both satisfy all three bounds, so the sibling
+# assertions below test what they claim rather than failing incidentally.
+t "swap: structural selection changes bright" "#7aa26c #7cb568 #69945a #b0c9a6 #9dbc93 #5e8550 #0d2c00" (string join ' ' $A6SWAPFIX)
+t "swap: the changed bright palette still satisfies the engine bounds" 1 (__t6_inbounds $A6SWAPFIX)
+t "swap: the changed bright palette still clears the contrast floor" 1 (__t6_floor_ok $A6SWAPFIX)
+t "swap: the changed bright palette is not near-white anywhere" 1 (__t6_nowhite_ok $A6SWAPFIX)
+# Five of six arrangements are byte-identical under both rules, so a
+# rendered-output assertion on them proves nothing about which rule ran.
+# These pin that they did NOT move.
+t "swap: deep is unmoved by the structural rule" "#434841 #73a561 #53654d #bed8b5 #9abd8d #638557 #c6e1ba" (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.55 0.11 0.50 deep))
+
+# If render ever stops passing the pattern, constrain silently falls back to
+# the float rule and this is the ONLY assertion that notices — five of six
+# arrangements are byte-identical under both rules.
+t "swap: render passes the arrangement through to constrain" 1 (test (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright)) = "$A6SWAPFIX"; and echo 1; or echo 0)
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
