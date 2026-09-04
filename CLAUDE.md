@@ -418,6 +418,7 @@ not blocking; a curated recipe can avoid a mid-ramp `peakPos` if it matters in p
 
 See memories `[[theme_engine_v6]]`, `[[three_bounds_palette_rule]]`,
 `[[never_white_and_muted_is_a_destination]]`.
+
 ---
 
 ## The picker (theme + session)
