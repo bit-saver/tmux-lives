@@ -2637,8 +2637,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         # already gone, and every role derives from it, so the scheme
                         # looked unrestored too even with its own universals intact.
                         set seed $cand
-                        __tcz_thp_reload
-                        __tcz_thp_reanchor
+                        __tcz_thp_seedbatch
                         set note "seed previewed: $seed"
                         set flashfield seed
                     end
@@ -2745,6 +2744,39 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
     end
     __tcz_thp_reanchor
+    # Whole-branch review I2: rollpals/rollfgs/rolltabsfgs (the roll-history
+    # preview arrays, pushed only by case z below) were never rebuilt when the
+    # seed moved -- reload/reanchor cover the scheme strips and the current-row
+    # anchor, but nothing recomputed a roll's palette for a new seed, so
+    # roll+seed-edit left the roll preview (and its tab OSC) rendering the OLD
+    # seed while everything else had already moved on, with no stale/dim
+    # indicator to say so. One place, called alongside every reload+reanchor
+    # pair, so a future seed-changing call site gets this for free too.
+    # Gate BEFORE reload (which unconditionally sets stripseed = seed) — a
+    # bare settle with nothing actually touched (e.g. entering edit mode and
+    # pressing enter without moving a channel) must recompute nothing.
+    # Indices/ids stay unchanged (this rewrites CONTENT, not membership),
+    # which is safe only because __tcz_thp_reload — called first, always —
+    # wipes the memoized draw cache via __tcz_thp_cacheclear on every call, so
+    # a rolled entry's unchanged rollid cannot serve a stale cached render on
+    # the next draw.
+    function __tcz_thp_seedbatch --no-scope-shadowing --description 'the reload+reanchor+roll-rebuild triple, in one place'
+        set -l dirty 0
+        test "$seed" != "$stripseed"; and set dirty 1
+        __tcz_thp_reload
+        __tcz_thp_reanchor
+        if test $dirty -eq 1; and test (count $rollhist) -gt 0
+            for i in (seq (count $rollhist))
+                set -l rf (string split '|' -- $rollhist[$i])
+                test (count $rf) -eq 5; or continue
+                set -l rp (__tmux_lives_theme_render $seed $rf[1] $rf[2] $rf[3] $rf[4] $rf[5])
+                test (count $rp) -eq 7; or continue
+                set rollpals[$i] (string join ' ' $rp)
+                set rollfgs[$i] (__tmux_lives_contrast_fg "$rp[6]")
+                set rolltabsfgs[$i] (__tmux_lives_contrast_fg "$rp[3]")
+            end
+        end
+    end
     set -l sel 0
     # Seed edit mode (Task 4): editing=1 shows the seedzone's R/G/B sliders
     # instead of its readouts and reroutes ↑↓/←→ to them (see the seedzone
@@ -3618,8 +3650,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # re-entering the editor; and entering edit mode without
                     # touching a channel leaves the seed clean, which under an
                     # editing-only gate would still let `a` reach the bar.
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
+                    __tcz_thp_seedbatch
                     # Say so. Without a note the recompute is silent, any
                     # earlier `● previewing X` stays on screen through it, and
                     # `a` reads as having done nothing.
@@ -3655,8 +3686,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # Still LOCAL: no tmux option, no tab OSC. Applying the
                     # seed to the schemes is not adopting a scheme — that
                     # stays on `a` from the list, and ⏎ from the list.
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
+                    __tcz_thp_seedbatch
                     set editing 0
                     # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is
@@ -3736,6 +3766,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_init
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_reanchor
+    functions -e __tcz_thp_seedbatch
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_apply_now
     set -e __tcz_thp_saved

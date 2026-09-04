@@ -3920,8 +3920,11 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # to index while browsing history, instead of falling back to whatever the
 # scheme list's cursor last rendered. 2 -> 3, same justified-bump shape as
 # the apply_now guard's 3 -> 4 further down this file.
+# Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
+# FOURTH call, same 6-arg shape (seed + the roll's own 5 recipe fields) — the
+# per-call arg-count loop just below picks it up for free. 3 -> 4.
 set -l palcalls (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pbody"))
-t "picker has exactly 3 render calls" 3 (count $palcalls)
+t "picker has exactly 4 render calls" 4 (count $palcalls)
 for pc in $palcalls
     set -l argtail (string replace -r '.*__tmux_lives_theme_render ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
@@ -4059,7 +4062,13 @@ t "expand toggles the flag"    1 (string match -q '*test "$expanded" = 1; and se
 # (they now live on sel2, a separate list), so the post-expand clamp target
 # moved from n+1 (old off/anchor tail) to n-1 (the new last scheme row).
 t "expand clamps sel to the last scheme row" 1 (string match -q '*set -l lastrow (math $n - 1)*test $sel -gt $lastrow; and set sel $lastrow*' -- "$pbody"; and echo 1; or echo 0)
-t "save reads recipes"         1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
+# Coarse presence check only — NOT about the save arm specifically (that's
+# pinned precisely by "save no longer reads recipes directly (past hexentry)"
+# / "save derives the name from toks (past hexentry)" below, :4115-4116).
+# This just confirms $pbody references recipes[ SOMEWHERE (e.g. apply-preview,
+# pinned separately right below); the old label read as if it asserted the
+# save arm reads recipes[, which contradicts the later, more precise guard.
+t "picker body references recipes[ somewhere" 1 (string match -q '*recipes[*' -- "$pbody"; and echo 1; or echo 0)
 t "apply-preview derives from recipe" 1 (string match -qr '(?s)case a\b.*?recipes\[' -- "$pbody"; and echo 1; or echo 0)
 # Task 7 fix round (review Finding 2): "case enter\b.*?recipes\[" silently
 # anchored on __tcz_thp_hexentry's OWN "case enter" (its typed-hex commit
@@ -4400,7 +4409,10 @@ t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | co
 # (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render,
 # same two call sites (reload + reanchor). Task 8 review fix: a third site
 # (case z, rendering the rolled recipe once per roll) — 2 -> 3.
-t "picker: still has exactly 3 render calls" 3 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
+# Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
+# fourth, legitimate site (rebuilding rollpals/rollfgs/rolltabsfgs for a
+# changed seed) — 3 -> 4.
+t "picker: still has exactly 4 render calls" 4 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -4887,7 +4899,12 @@ t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
 # Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
 # Task 8 review fix: case z's new once-per-roll render joins reload+reanchor. 2 -> 3.
-t "consolidated guard: exactly 3 render call sites" 3 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
+# Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
+# FOURTH, legitimate site — rebuilding rollpals/rollfgs/rolltabsfgs for a
+# changed seed needs its own render call, same as the scheme strips
+# (__tcz_thp_reload) and the current-row anchor (__tcz_thp_reanchor) each do.
+# 3 -> 4.
+t "consolidated guard: exactly 4 render call sites" 4 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -4973,7 +4990,18 @@ t "reanchor runs once at open, right after its own definition" 1 (string match -
 # zero-width lookahead (matching the gap-less-drain guard's own technique
 # above) so the match text stays single-line and `count` means what it
 # says: exactly the one real pairing hexentry has.
-t "the seed screen reanchors immediately after reload" 1 (count (string match -ar '__tcz_thp_reload(?=\n\s*__tcz_thp_reanchor)' -- "$SEEDSCREEN"))
+# Whole-branch review I2: the seed screen's own reload+reanchor pair moved
+# into a shared __tcz_thp_seedbatch (also called from case a and case
+# enter-while-editing, so a rolled recipe rebuilds in lockstep with the seed
+# everywhere it can change) -- the adjacency this test is actually about no
+# longer lives textually inside $SEEDSCREEN at all. Split into the two
+# things that together prove the same invariant: hexentry calls seedbatch,
+# and seedbatch itself (checked once, not once per call site) reanchors
+# immediately after reload.
+t "the seed screen calls seedbatch" 1 (string match -ar '(?m)^\s*__tcz_thp_seedbatch\s*$' -- "$SEEDSCREEN" | count)
+set -g SEEDBATCHBODY (awk '/^    function __tcz_thp_seedbatch/,/^    end$/' $catfile | string collect)
+t "seedbatch body extraction is non-empty" 1 (test -n "$SEEDBATCHBODY"; and echo 1; or echo 0)
+t "seedbatch reanchors immediately after reload" 1 (count (string match -ar '__tcz_thp_reload(?=\n\s*__tcz_thp_reanchor)' -- "$SEEDBATCHBODY"))
 t "reanchor is erased on exit like its seed-screen siblings" 1 (string match -q '*functions -e __tcz_thp_reanchor*' -- "$SLB"; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
@@ -5949,7 +5977,11 @@ t "recompute: the case a arm was extracted" 1 (test -n "$__t11_aarm"; and echo 1
 t "recompute: case a branches on editing" 1 (string match -q '*editing*' -- "$__t11_aarm"; and echo 1; or echo 0)
 t "recompute: case a also recomputes when merely stale (so b-ing out is not a dead end)" 1 (string match -q '*seeddirty*' -- "$__t11_aarm"; and echo 1; or echo 0)
 t "recompute: case a still reaches apply-preview when not editing" 1 (string match -q '*__tcz_thp_apply_now*' -- "$__t11_aarm"; and echo 1; or echo 0)
-t "recompute: case a reloads when editing" 1 (string match -q '*__tcz_thp_reload*' -- "$__t11_aarm"; and echo 1; or echo 0)
+# Whole-branch review I2: the bare __tcz_thp_reload call moved into the
+# shared __tcz_thp_seedbatch (reload+reanchor+roll-rebuild, one place for
+# every seed-changing call site) -- __tcz_thp_reload no longer appears
+# textually inside case a's own arm at all.
+t "recompute: case a reloads (via seedbatch) when editing" 1 (string match -q '*__tcz_thp_seedbatch*' -- "$__t11_aarm"; and echo 1; or echo 0)
 
 # (6) the settle poll must no longer arm on a seed edit — that IS the auto
 # batch. Its other two clauses (the change-flash and the partial-paint
@@ -5971,7 +6003,14 @@ t "recompute: the edit-esc arm was extracted" 1 (test -n "$__t11_escarm"; and ec
 # the flag at all — reverting $seed reports fresh or stale on its own,
 # whichever is true, without this arm having to know which.
 t "recompute: the edit-esc arm does not hand-maintain the stale flag" 0 (string match -q '*seeddirty*' -- "$__t11_escarm"; and echo 1; or echo 0)
-t "recompute: staleness is derived from the seed the strips were built from" 1 (string match -r 'test "\$seed" != "\$stripseed"' -- $__t11_lines | count)
+# Whole-branch review I2: __tcz_thp_seedbatch adds a SECOND, independent
+# occurrence of this exact comparison — it cannot reuse the outer loop's own
+# $seeddirty, because seedbatch is also called from inside __tcz_thp_hexentry
+# (a separate nested function running its OWN inner read loop), where the
+# outer $seeddirty reflects whatever it was at the LAST full-loop iteration
+# before hexentry was entered, not this call's own seed change. Each call
+# site needs a fresh, self-contained check. 1 -> 2.
+t "recompute: staleness is derived from the seed the strips were built from" 2 (string match -r 'test "\$seed" != "\$stripseed"' -- $__t11_lines | count)
 t "recompute: every reload records the seed it built from" 1 (string match -r '^ *set stripseed \$seed$' -- $__t11_lines | count)
 
 # (8) CRITICAL, found in review. __tcz_thp_reload is --no-scope-shadowing and
@@ -6597,18 +6636,28 @@ t "enter while editing recomputes WIN (not left stale)" (math "26 - $STATIC9I") 
 # with `a` the only way back. Its own comment argued there was "nothing more to
 # do" because ←→ commits straight into $seed, which is true of $seed and false
 # of everything derived from it.
-function __t9_enter_reload --description 'eval the REAL enter-while-editing arm with the two recompute calls stubbed as counters, to prove the arm rebuilds the strips rather than leaving them on the old seed. Prints "<reloads> <reanchors>".'
+# Whole-branch review I2: the arm's own two direct calls moved into the
+# shared __tcz_thp_seedbatch (reload+reanchor+roll-rebuild). Stubbing
+# __tcz_thp_reload/__tcz_thp_reanchor alone is no longer enough to observe
+# them firing -- the extracted arm now calls __tcz_thp_seedbatch, which is
+# not otherwise registered in this throwaway harness, so pre-fix-for-this-
+# test that eval'd "Unknown command" and left both counters at 0 (proving
+# the update was needed, not just cosmetic). Eval the REAL seedbatch here
+# too, so the stubs beneath it still observe the call.
+set -g SEEDBATCH9 (awk '/^    function __tcz_thp_seedbatch/,/^    end$/' $catfile | string collect)
+function __t9_enter_reload --description 'eval the REAL enter-while-editing arm (which calls the REAL __tcz_thp_seedbatch) with reload/reanchor stubbed as counters beneath it, to prove the arm rebuilds the strips rather than leaving them on the old seed. Prints "<reloads> <reanchors>".'
     set -g __t9_er_rl 0
     set -g __t9_er_ra 0
     function __tcz_thp_reload;   set -g __t9_er_rl (math $__t9_er_rl + 1); end
     function __tcz_thp_reanchor; set -g __t9_er_ra (math $__t9_er_ra + 1); end
+    eval $SEEDBATCH9
     set -l editing 1
     set -l rows 26
     set -l STATIC_IDLE $STATIC9I
     set -l WIN 0
     set -l note ''
     eval $ENTERBODY9
-    functions -e __tcz_thp_reload __tcz_thp_reanchor
+    functions -e __tcz_thp_reload __tcz_thp_reanchor __tcz_thp_seedbatch
     echo "$__t9_er_rl $__t9_er_ra"
 end
 t "enter while editing rebuilds the strips for the seed just set" "1 1" (__t9_enter_reload)
@@ -6915,6 +6964,83 @@ t "case z: the newest entry is the just-rolled recipe" "triadic|0.60|0.15|0.45|a
 t "case z: rollat lands on 12 (the newest), not past the cap" 12 $R8Z12[2]
 eval $__t8z_real_roll
 eval $__t8z_real_apply_and_recolor
+
+# --- Whole-branch review I2: __tcz_thp_seedbatch rebuilds the roll-history
+# preview for a new seed, and skips the rebuild when nothing actually
+# changed --------------------------------------------------------------
+# Before this fix, rollpals/rollfgs/rolltabsfgs were written ONLY inside
+# case z (above) -- nothing recomputed them when the seed moved, so
+# roll-then-edit-the-seed left the roll preview (and its tab OSC) rendering
+# the OLD seed while the scheme strips and colour block had already moved
+# on. __tcz_thp_seedbatch is the fix: the shared reload+reanchor+roll-rebuild
+# triple now called from every seed-changing site (hexentry's ⏎, case a,
+# case enter-while-editing). Extract and eval the REAL function (function
+# definitions are global in fish regardless of where `function` runs, same
+# technique __tcz_thp_reload's own tests above already use), stubbing
+# __tcz_thp_reload/__tcz_thp_reanchor (heavy, tested elsewhere -- this is
+# about the roll-rebuild specifically) and __tmux_lives_theme_render (so the
+# rebuilt palette's content directly reveals which seed it was built from).
+set -l catfile $plugindir/functions/tmux-categorize.fish
+# Fresh extraction, not a reuse of the far-earlier $pbody local: this section
+# runs thousands of lines after $pbody was set (line ~3782) and other
+# sections in between rebind __tcz_theme_picker's own global definition for
+# their own stubbing (e.g. $pbody2 at ~4611 reads `functions
+# __tcz_theme_picker` directly rather than trusting $pbody for exactly this
+# reason) -- re-deriving from $catfile here means this assertion cannot be
+# quietly reading stale or substituted text.
+set -g PB9 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
+set -g SB9 (awk '/^    function __tcz_thp_seedbatch/,/^    end$/' $catfile | string collect)
+t "seedbatch body extraction is non-empty" 1 (test -n "$SB9"; and echo 1; or echo 0)
+# Anchored to a BARE call line (leading whitespace, nothing else on the
+# line): a plain substring count over "$PB9" also hits the function's own
+# `function __tcz_thp_seedbatch ...` definition line and the teardown's
+# `functions -e __tcz_thp_seedbatch` line, over-counting 3 real call sites as
+# 5 (caught running the full suite, not reasoned out in advance).
+t "seedbatch is called (not a bare reload+reanchor pair) at hexentry's commit, case a, and case enter-while-editing" 3 (string match -ra '(?m)^\s*__tcz_thp_seedbatch\s*$' -- "$PB9" | count)
+set -g __t9_sb_real_reload (functions __tcz_thp_reload 2>/dev/null | string collect)
+set -g __t9_sb_real_reanchor (functions __tcz_thp_reanchor 2>/dev/null | string collect)
+set -g __t9_sb_real_render (functions __tmux_lives_theme_render | string collect)
+function __tcz_thp_reload; end
+function __tcz_thp_reanchor; end
+function __tmux_lives_theme_render --argument-names __t9sb_seed __t9sb_mode
+    # first field encodes exactly which seed+mode this call was made with, so
+    # a rebuilt roll palette directly reveals whether it used the CURRENT
+    # seed (and the roll's own stored mode) or was skipped entirely.
+    printf '%s\n' "$__t9sb_seed:$__t9sb_mode" '#dddddd' '#eeeeee' '#cccccc' '#bbbbbb' '#aaaaaa' '#999999'
+end
+eval $SB9
+function __t9_seedbatch --argument-names newseed dirty --description 'call the REAL __tcz_thp_seedbatch against a throwaway scope with a 2-entry synthetic rollhist and pre-seeded rollpals/rollfgs/rolltabsfgs. seed = <newseed>; stripseed is set equal to <newseed> when <dirty> is 0 (nothing changed) or to a different value when <dirty> is 1 -- mirroring how __tcz_thp_reload itself would have left stripseed after the LAST rebuild. Prints rollpals[1], rollpals[2], rollfgs[1], rolltabsfgs[1], each on its own line.'
+    set -l seed $newseed
+    set -l stripseed $newseed
+    test $dirty -eq 1; and set stripseed '#000000'
+    set -l rollhist "mono|0.55|0.13|0.50|deep" "triadic|0.60|0.15|0.45|accent"
+    set -l rollpals "OLD1 OLD1b OLD1c OLD1d OLD1e OLD1f OLD1g" "OLD2 OLD2b OLD2c OLD2d OLD2e OLD2f OLD2g"
+    # NOT '#111111'/'#222222' etc: __tmux_lives_contrast_fg only ever returns
+    # EXACTLY #111111 or #f5f5f5 (its whole contract is a binary WCAG choice)
+    # -- seeding the stale value as one of those two coincidentally matches
+    # the recomputed result for SOME hex inputs, making the "is recomputed"
+    # assertion pass even with the rebuild removed (caught by mutation: with
+    # the roll-rebuild loop deleted, rollfgs[1] stayed staged at '#111111'
+    # while __tmux_lives_contrast_fg('#aaaaaa') ALSO happens to be '#111111',
+    # so the two were indistinguishable). Neither of these two is ever a
+    # possible real output, so no collision is possible.
+    set -l rollfgs '#123456' '#abcdef'
+    set -l rolltabsfgs '#654321' '#fedcba'
+    __tcz_thp_seedbatch
+    printf '%s\n' $rollpals[1] $rollpals[2] $rollfgs[1] $rolltabsfgs[1]
+end
+set -g SBCLEAN (__t9_seedbatch '#5f772b' 0)
+t "seedbatch: seed unchanged (stripseed already matches) leaves roll palettes untouched" "OLD1 OLD1b OLD1c OLD1d OLD1e OLD1f OLD1g" $SBCLEAN[1]
+t "seedbatch: seed unchanged leaves the SECOND roll entry untouched too" "OLD2 OLD2b OLD2c OLD2d OLD2e OLD2f OLD2g" $SBCLEAN[2]
+set -g SBDIRTY (__t9_seedbatch '#5f772b' 1)
+t "seedbatch: seed changed rebuilds the first roll entry for the NEW seed AND its own stored mode" "#5f772b:mono #dddddd #eeeeee #cccccc #bbbbbb #aaaaaa #999999" $SBDIRTY[1]
+t "seedbatch: seed changed rebuilds the second roll entry too, keeping ITS OWN mode (not the first entry's)" "#5f772b:triadic #dddddd #eeeeee #cccccc #bbbbbb #aaaaaa #999999" $SBDIRTY[2]
+t "seedbatch: rollfgs is recomputed from the rebuilt palette's cap field (field 6), not left stale" (__tmux_lives_contrast_fg '#aaaaaa') $SBDIRTY[3]
+t "seedbatch: rolltabsfgs is recomputed from the rebuilt palette's tabs field (field 3), not left stale" (__tmux_lives_contrast_fg '#eeeeee') $SBDIRTY[4]
+functions -e __tcz_thp_reload; functions -e __tcz_thp_reanchor
+test -n "$__t9_sb_real_reload"; and eval $__t9_sb_real_reload
+test -n "$__t9_sb_real_reanchor"; and eval $__t9_sb_real_reanchor
+eval $__t9_sb_real_render
 
 # --- Task 8: case enter (save) for focus=roll -------------------------------
 # The not-editing/save branch of case enter, run for real. "case a" is
@@ -7223,7 +7349,12 @@ t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0
 # Task 8 review fix: a genuinely NEW third site (case z, once per roll) — not
 # a regression of the per-keystroke recompute this section verifies is gone;
 # case left/right still contributes zero. 2 -> 3.
-t "picker back to exactly 3 render call sites" 3 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
+# Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
+# FOURTH, legitimate site (rebuilding rollpals/rollfgs/rolltabsfgs for a
+# changed seed, alongside the same reload+reanchor pair this section is
+# about) — not a regression of the per-keystroke recompute either; that
+# stays gone. 3 -> 4.
+t "picker back to exactly 4 render call sites" 4 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
 # Perf fence retained: one palette call must stay well under a redraw budget —
 # still relevant to the batch's own cost, just no longer paid per keystroke.
 # Task 7 (v6 recipes): times the picker's actual engine call now,
