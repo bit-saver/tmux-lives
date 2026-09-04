@@ -1387,6 +1387,57 @@ set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 85%*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+
+# --- Whole-branch review I3: the no-arg state print must not claim a
+# catalog name for a stored recipe that does not actually match one -------
+# Because the catalog is the complete 7x6 grid, "<mode> <arrangement>" is
+# ALWAYS some real catalog name — printing it unconditionally (the pre-fix
+# behaviour) named a real, DIFFERENT scheme for a recipe the user does not
+# actually have (e.g. a saved roll, functions/tmux-categorize.fish case z,
+# built to deliberately match no catalog row). This is the finding's own
+# reproduction: the catalog's real "triadic centre" row is
+# 0.30/0.15/0.75, not these values.
+set -g _tmx_had3 0
+set -q TMUX; and set _tmx_had3 1; and set -g _tmx_save3 $TMUX
+set -e TMUX
+set -U tmux_lives_theme triadic
+set -U tmux_lives_theme_lspan 0.54
+set -U tmux_lives_theme_peakc 0.168
+set -U tmux_lives_theme_peakpos 0.6
+set -U tmux_lives_theme_arrangement centre
+set -g _thnoarg (__tmux_lives_theme_cmd | string collect)
+# NOT a trailing-wildcard match against 'theme: triadic centre*' -- that glob
+# would ALSO match the correct "theme: triadic centre (custom recipe)" output
+# (it's a prefix), making the check vacuously true either way. Compare the
+# exact FIRST LINE instead, so this can only pass when the bare catalog-name
+# form (no caveat) is what actually got printed.
+set -l _thnoarg1 (string split \n -- "$_thnoarg")[1]
+t "theme no-arg: a recipe matching no catalog row is NOT printed as if it were that catalog name" 0 (test "$_thnoarg1" = "theme: triadic centre"; and echo 1; or echo 0)
+t "theme no-arg: a recipe matching no catalog row says so honestly" yes (string match -q 'theme: triadic centre (custom recipe)*' -- "$_thnoarg"; and echo yes; or echo no)
+# The other path: a recipe that DOES match a real catalog row exactly (the
+# curated default) must still print the plain name, no "(custom recipe)"
+# suffix — proves the fix discriminates instead of always appending the caveat.
+set -U tmux_lives_theme mono
+set -U tmux_lives_theme_lspan 0.55
+set -U tmux_lives_theme_peakc 0.11
+set -U tmux_lives_theme_peakpos 0.50
+set -U tmux_lives_theme_arrangement deep
+set -g _thnoarg2 (__tmux_lives_theme_cmd | string collect)
+t "theme no-arg: a recipe that DOES match a catalog row prints the real name" yes (string match -q 'theme: mono deep*' -- "$_thnoarg2"; and echo yes; or echo no)
+t "theme no-arg: a matching recipe does not get the custom-recipe caveat" 0 (string match -q '*custom recipe*' -- "$_thnoarg2"; and echo 1; or echo 0)
+test $_tmx_had3 -eq 1; and set -gx TMUX $_tmx_save3
+# Clean up: erase every recipe universal this block set. Left set, they leak
+# into every later fixture that assumes a fresh/unset theme (the v6 migration
+# tests just below key their OWN early-return guard on
+# tmux_lives_theme_arrangement being unset, and the v4 migration tests
+# further down assume the same) — caught by running the full suite, not
+# reasoned out in advance.
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
+
 set -U tmux_lives_bar_color '#485b3c'
 t "theme: unknown scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
 t "theme: unknown scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)

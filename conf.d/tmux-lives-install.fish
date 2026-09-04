@@ -1449,6 +1449,17 @@ function __tmux_lives_theme_recipe --argument-names name --description 'v6: a ca
     return 1
 end
 
+function __tmux_lives_theme_catalog_name --argument-names mode lspan peakc peakpos arrangement --description 'v6: the reverse of __tmux_lives_theme_recipe — five recipe fields -> the catalog NAME that resolves to them, or nothing (status 1) when no catalog row matches exactly. Because the catalog is the complete 7-mode x 6-arrangement grid, a <mode> <arrangement> pair is ALWAYS some valid catalog name — which is exactly why a caller cannot fall back to printing that pair unconditionally: for a stored recipe that does not match ANY row (a saved roll, functions/tmux-categorize.fish case z, is a real valid recipe built to deliberately match no catalog row) that pair names a real, different, wrong scheme. Callers must treat empty as a real outcome, not an error. Mirrors __tcz_thp_init'"'"'s own reverse lookup in the picker (functions/tmux-categorize.fish) — keep both in sync.'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        if test "$f[2]" = "$mode"; and test "$f[3]" = "$lspan"; and test "$f[4]" = "$peakc"; and test "$f[5]" = "$peakpos"; and test "$f[6]" = "$arrangement"
+            echo $f[1]
+            return 0
+        end
+    end
+    return 1
+end
+
 function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0
@@ -1663,8 +1674,24 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
         end
         set -l cur (__tmux_lives_key tmux_lives_theme mono)
         test "$cur" = off; and echo "theme: off (legacy bar colors)"; or begin
-            echo "theme: $cur "(__tmux_lives_key tmux_lives_theme_arrangement deep)
-            echo "  span: "(__tmux_lives_key tmux_lives_theme_lspan 0.55)"   peak chroma: "(__tmux_lives_key tmux_lives_theme_peakc 0.11)"   peak at: "(__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+            set -l lspan (__tmux_lives_key tmux_lives_theme_lspan 0.55)
+            set -l peakc (__tmux_lives_key tmux_lives_theme_peakc 0.11)
+            set -l peakpos (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+            set -l arr (__tmux_lives_key tmux_lives_theme_arrangement deep)
+            # Whole-branch review I3: because the catalog is the complete 7x6
+            # grid, "<mode> <arrangement>" is ALWAYS some real catalog name —
+            # printing it unconditionally (the old behaviour) named a real,
+            # DIFFERENT scheme for a stored recipe the user does not actually
+            # have (e.g. a saved roll, which by construction matches no
+            # catalog row). Resolve it for real instead of assuming the pair
+            # always names itself.
+            set -l name (__tmux_lives_theme_catalog_name $cur $lspan $peakc $peakpos $arr)
+            if test -n "$name"
+                echo "theme: $name"
+            else
+                echo "theme: $cur $arr (custom recipe)"
+            end
+            echo "  span: $lspan   peak chroma: $peakc   peak at: $peakpos"
         end
         return 0
     end
