@@ -1586,6 +1586,59 @@ t "migrate v6: off still gets mode erased" 0 (set -q tmux_lives_theme_mode; and 
 t "migrate v6: off still gets phase erased" 0 (set -q tmux_lives_theme_phase; and echo 1; or echo 0)
 t "migrate v6: chained on post-update" 1 (functions __tmux_lives_migrate_v6 >/dev/null; and string match -q '*__tmux_lives_migrate_v6*' -- (functions _tmux_lives_post_update | string collect); and echo 1; or echo 0)
 
+# --- Whole-branch review C1 (CRITICAL): the migration CHAIN, not each function
+# tested in isolation. Every existing migrate_v6 test above calls
+# __tmux_lives_migrate_v6 alone, which is exactly why this survived nine
+# per-task reviews: __tmux_lives_migrate_v4 still validates tmux_lives_theme
+# against the v5 __tmux_lives_theme_relationships list, and only 'mono'
+# appears in both the v5 and v6 vocabularies — so running the REAL chain
+# from _tmux_lives_post_update against any non-mono v6 recipe hits v4's
+# "retired v3 scheme" branch: it resets tmux_lives_theme to mono and
+# RESURRECTS tmux_lives_theme_place/_mode (v5 fields v6 deliberately erases).
+# __tmux_lives_migrate_v6 then sees tmux_lives_theme_arrangement already set
+# (v4 never touches it) and returns early, so nothing repairs the damage.
+# Reset every var any migration in the chain reads, so this test does not
+# depend on what earlier blocks in this file happened to leave behind.
+for v in tmux_lives_theme_rotate tmux_lives_theme_polarity tmux_lives_theme_range \
+    tmux_lives_cap tmux_lives_cap_vividness tmux_lives_cap_wheel tmux_lives_cap_role tmux_lives_cap_key \
+    tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_contrast \
+    tmux_lives_theme_autoapply tmux_lives_theme_place tmux_lives_theme_mode tmux_lives_theme_phase
+    set -e $v
+end
+set -U tmux_lives_bar_color '#5f772b'
+set -U tmux_lives_theme square
+set -U tmux_lives_theme_lspan 0.70
+set -U tmux_lives_theme_peakc 0.17
+set -U tmux_lives_theme_peakpos 0.35
+set -U tmux_lives_theme_arrangement deep
+set -g _c1chain (begin
+    __tmux_lives_migrate_v2
+    __tmux_lives_migrate_v31
+    __tmux_lives_migrate_v4
+    __tmux_lives_migrate_v41
+    __tmux_lives_migrate_v51
+    __tmux_lives_migrate_v52
+    __tmux_lives_migrate_v6
+end 2>&1 | string collect)
+t "chain: a non-mono v6 recipe survives the full post-update migration chain unchanged" "square 0.70 0.17 0.35 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+t "chain: place is not resurrected by the chain" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "chain: mode is not resurrected by the chain" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "chain: the chain prints nothing for an already-v6 install" '' "$_c1chain"
+# Clean up every universal this block set (including the ones we just
+# asserted are unset — belt and braces) so no leaked recipe state reaches any
+# later fixture. First found by running the full suite: a leaked
+# tmux_lives_theme_arrangement here made __tmux_lives_migrate_v6's OWN
+# early-return guard fire in the (unrelated, far-later) v4-migration test
+# block, silently no-opping __tmux_lives_migrate_v4 there and failing four of
+# its assertions.
+set -e tmux_lives_theme_place
+set -e tmux_lives_theme_mode
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
+
 set -e tmux_lives_bar_color
 # was "ember" (a v5 relationship) pre-theme-v6-surface Task 5 — under v6
 # validation an unresolvable name is rejected as an unknown scheme BEFORE the

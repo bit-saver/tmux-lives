@@ -2146,6 +2146,10 @@ function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migrat
 end
 
 function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: preserve the seed, retire tmux_lives_theme_rotate, and map a retired v3 scheme name onto v4 (mono/bar/derived). One notice when it changes anything.'
+    # A v6 install is already past v4: tmux_lives_theme holds a v6 HARMONY MODE,
+    # and six of the seven are not v5 relationship names — the reset branch below
+    # would clobber the user's chosen scheme on every future fisher update.
+    set -q tmux_lives_theme_arrangement; and return 0
     set -l changed 0
     if set -q tmux_lives_theme_rotate
         set -e tmux_lives_theme_rotate
