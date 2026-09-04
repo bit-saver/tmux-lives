@@ -1681,6 +1681,29 @@ t "cli: off is still off" off (__tmux_lives_theme_cmd off >/dev/null 2>&1; echo 
 # catalog entry. Verified programmatically, not just by string match, so a
 # future catalog change that silently invalidates the hint is caught too.
 t "cli: off's re-enable hint names a scheme that actually resolves" 1 (set -l hint (__tmux_lives_theme_cmd off 2>&1 | string match -rg "setup theme ([^']+)'\)"); test -n "$hint"; and test (count (__tmux_lives_theme_recipe "$hint")) -eq 5; and echo 1; or echo 0)
+# Whole-branch review I1: the assertion above resolves the hinted NAME through
+# __tmux_lives_theme_recipe directly — it never actually RUNS the printed
+# command, so it stayed green while running it for real failed. Every catalog
+# name is two words, and case '*' in the parse loop OVERWROTE $scheme on each
+# positional word instead of accumulating, so an unquoted two-word invocation
+# (exactly what the hint prints, and what a real shell passes) only ever saw
+# the LAST word. Split the hinted command on spaces the way a real shell would
+# and dispatch it for real, discriminating that bug specifically.
+set -U tmux_lives_theme off
+set -l hintcmd (__tmux_lives_theme_cmd off 2>&1 | string match -rg "setup theme ([^']+)'\)")
+set -l hintargs (string split ' ' -- "$hintcmd")
+t "off's re-enable hint is a command that actually runs" 0 (__tmux_lives_theme_cmd $hintargs >/dev/null 2>&1; echo $status)
+t "off's re-enable hint actually sets the hinted scheme" "mono 0.55 0.11 0.50 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+# Clean up: running the hinted command really did set these five (that's the
+# point of the assertion above) -- left set, tmux_lives_theme_arrangement
+# leaks into the far-later v4-migration block's own fixture and silently
+# no-ops __tmux_lives_migrate_v4 there via its own early-return guard, the
+# same class of leak the C1/I3 blocks above already had to fix.
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
 functions -e __tmux_lives_theme_apply_live; functions -c __tal_bak __tmux_lives_theme_apply_live; functions -e __tal_bak
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input

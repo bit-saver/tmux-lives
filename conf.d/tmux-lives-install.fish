@@ -1718,7 +1718,15 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|
                 echo "tmux-lives setup theme: --rotate was removed in v4 — a scheme now bundles its own hue arrangement; pick a different scheme by name (see 'tmux-lives setup theme list')" >&2
                 return 1
             case '*'
-                set scheme $argv[$i]; set have_scheme 1
+                # Every catalog name is two words (e.g. "mono deep") and arrives here
+                # unquoted from a real shell invocation — accumulate rather than
+                # overwrite, or every scheme in the product is unreachable without
+                # the caller quoting it (which nothing tells them to do).
+                if test $have_scheme -eq 1
+                    set scheme "$scheme $argv[$i]"
+                else
+                    set scheme $argv[$i]; set have_scheme 1
+                end
         end
         set i (math $i + 1)
     end
