@@ -4245,4 +4245,25 @@ t "roll: terminates when nothing passes" 5 (count (__tmux_lives_theme_roll '#4a4
 # carries for the (now-retired) z-shake code that first hit this landmine.
 t "roll: captures random into a var before quoted math" 0 (count (string match -ar 'math "[^"]*\(random' -- (functions __tmux_lives_theme_roll | string collect)))
 
+# --- Whole-branch review I4: "roll: terminates when nothing passes" (above)
+# only checks arity — measured, the grey seed #4a4a4a actually satisfies
+# bound 1 on 25 of 25 rolls, so the exhaustion fallback (the last line of
+# __tmux_lives_theme_roll, reached only when all 8 attempts miss bound 1)
+# never fires for that seed, and no real seed makes it deterministic (the
+# worst measured, #0a0a0a/#000000/#ffffff/#f8f8f8/#101010, is 1 miss in 6).
+# Replacing the fallback's "printf $r; return 0" with "return 1" leaves that
+# assertion reading 5 regardless — count() of nothing readable is not even
+# exercised. Force the exhaustion path deterministically instead: stub
+# __tmux_lives_theme_render to always return a palette whose peak chroma is
+# pinned at zero (a neutral grey has none), so EVERY one of the 8 attempts
+# fails bound 1 and the loop can only ever reach the fallback.
+set -g __ti_realrender (functions __tmux_lives_theme_render | string collect)
+function __tmux_lives_theme_render
+    printf '%s\n' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080'
+end
+t "roll: the fallback still returns five fields when every attempt misses bound 1" 5 (count (__tmux_lives_theme_roll '#4a4a4a'))
+t "roll: the fallback's arrangement is still a real arrangement (not empty/garbage)" 1 (contains -- (__tmux_lives_theme_roll '#4a4a4a')[5] (__tmux_lives_theme_arrangements); and echo 1; or echo 0)
+functions -e __tmux_lives_theme_render
+eval $__ti_realrender
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
