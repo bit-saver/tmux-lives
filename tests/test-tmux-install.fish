@@ -266,7 +266,7 @@ t "fragment seeds cursor-style when set" yes (string match -q '*set -g cursor-st
 set -g FRAGNOCUR (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s '' | string collect)
 t "fragment omits cursor-style when unset" yes (string match -q '*cursor-style*' -- "$FRAGNOCUR"; and echo no; or echo yes)
 
-# --- sync terminal-feature (arg 21) ------------------------------------------------
+# --- sync terminal-feature (arg 18) ------------------------------------------------
 # tmux decides PER CLIENT, at attach, whether a terminal can buffer synchronized output,
 # and it decides from its own terminal identification — it never asks the client. It
 # recognises Ghostty but not ShellFish, so it wrote every Claude frame unwrapped and
@@ -275,7 +275,7 @@ t "fragment omits cursor-style when unset" yes (string match -q '*cursor-style*'
 # the capability map to DECSET 2026 (3.3a emits the older iTerm2 DCS form), and only
 # there can the bug occur — 3.3a never answers the DECRQM query, so Claude never turns
 # sync on. See [[shellfish-cursor-flicker]].
-set -g SYNCBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0
+set -g SYNCBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep
 set -g FRAGSYNC (__tmux_lives_render_fragment $SYNCBASE 'xterm*' | string collect)
 set -g FRAGNOSYNC (__tmux_lives_render_fragment $SYNCBASE '' | string collect)
 t "fragment emits the sync terminal-feature when set" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAGSYNC"; and echo yes; or echo no)
@@ -329,17 +329,40 @@ command tmux -L $syncsock source-file $syncfrag 2>/dev/null
 t "emitted sync line, gate forced true, really sets the feature" yes (command tmux -L $syncsock show -gv terminal-features | string match -q '*:sync*'; and echo yes; or echo no)
 command tmux -L $syncsock kill-server 2>/dev/null; rm -f $syncfrag
 
-# --- Task 1: knobs removed, sync arg renumbered 21 -> 17 -------------------------
-# The four knobs are gone, so syncterm is positional 17. Pre-change, position 17 is
-# themeviv and syncterm is empty, so NO sync line is emitted — that is the failure
-# this pins. A silently-disabled sync feature has no rc and no visible symptom.
-set -g FRAG17 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 'xterm*' | string collect)
-t "sync is positional 17 after the knobs are removed" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAG17"; and echo yes; or echo no)
+# --- Task 1 (v5): knobs removed, sync arg renumbered 21 -> 17. Theme v6 surface
+# Task 3 renumbered it AGAIN, 17 -> 18: the v5 four-field theme (theme/place/mode/
+# phase) grew to the v6 five-field recipe (theme/lspan/peakc/peakpos/arrangement),
+# pushing syncterm one further right. Pre-change (this mutation), position 18 is
+# arrangement and syncterm is empty, so NO sync line is emitted — that is the
+# failure this pins. A silently-disabled sync feature has no rc and no visible symptom.
+set -g FRAG17 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*' | string collect)
+t "sync is positional 18 after the v6 recipe adds a fifth theme field" yes (string match -q "*set -as terminal-features 'xterm*:sync'*" -- "$FRAG17"; and echo yes; or echo no)
+
+# --- theme-v6-surface Task 3: the fragment carries a v6 recipe ------------------
+# argv 18 is syncterm — it MOVED from 17 when the recipe grew from four fields
+# to five. A renderer/writer mismatch here is silent, so pin the position and
+# pin that the line it drives still appears.
+set -g A6FRAG (__tmux_lives_render_fragment /tmp/cat.fish S M-s '#5fab40' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*')
+t "fragment: syncterm at argv 18 still emits the sync feature line" 1 (string match -q '*xterm*:sync*' -- "$A6FRAG"; and echo 1; or echo 0)
+t "fragment: a themed render sets status-style from the v6 palette" 1 (string match -q '*set -g status-style bg=#434841*' -- "$A6FRAG"; and echo 1; or echo 0)
+# NB the brief's own pattern omits the single-quoting the codebase requires around
+# every color @option (an unquoted #hex is read as a tmux COMMENT — see the
+# "QUOTE the values" note above __tmux_lives_render_fragment's @tmux_lives_bar_bg
+# line); a bare `#434841` with no quotes never appears in the real output, so the
+# pattern below carries the quotes the emitted line actually has.
+t "fragment: the recipe reaches the bar bg option" 1 (string match -q "*@tmux_lives_bar_bg '#434841'*" -- "$A6FRAG"; and echo 1; or echo 0)
+# An empty mode still means legacy, exactly as an empty relationship did.
+set -g A6FRAGOFF (__tmux_lives_render_fragment /tmp/cat.fish S M-s '#5fab40' 0 M-m M-t M-r C-M-a C-M-s block M-k off 0.55 0.11 0.50 deep 'xterm*')
+# Same quoting correction as above — an unquoted pattern would never match ANY
+# real output (themed or not) and this "0" would pass vacuously for the wrong
+# reason, proving nothing about the off-path specifically.
+t "fragment: theme off still takes the legacy path" 0 (string match -q "*@tmux_lives_bar_bg '#434841'*" -- "$A6FRAGOFF"; and echo 1; or echo 0)
+t "fragment: theme off still emits the sync feature line" 1 (string match -q '*xterm*:sync*' -- "$A6FRAGOFF"; and echo 1; or echo 0)
 
 # --- picker-seed-section Task 1: the picker opens at a percentage height, not a fixed 26 ----------
 # A popup taller than the client FAILS to open on tmux 3.3a ("height too large") —
 # it does not clamp. So the height must be a percentage, which always fits.
-set -g FRAGH (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono bar derived 0 'xterm*' | string collect)
+set -g FRAGH (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*' | string collect)
 t "theme-picker bind uses a percentage height" yes (string match -q '*-w 52 -h 85%*' -- "$FRAGH"; and echo yes; or echo no)
 t "theme-picker bind no longer pins 26 rows" no (string match -q '*-w 52 -h 26*' -- "$FRAGH"; and echo yes; or echo no)
 
@@ -349,8 +372,34 @@ set -g P5 (__tmux_lives_theme_palette '#5f772b' amber bar derived 0)
 t "palette still returns 7 roles from 5 args" 7 (count $P5)
 t "palette bar unchanged by the refactor" '#44502f' $P5[1]
 
-# apply_live's explicit form is now exactly 4 args.
-t "apply_live explicit form documents 4 args" yes (string match -q '*4 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
+# apply_live's explicit form is now exactly 5 args (the v6 recipe).
+t "apply_live explicit form documents 5 args" yes (string match -q '*5 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
+
+# --- theme-v6-surface Task 4: apply_live and theme list render v6 ------------------
+# The suite runs under a redirected XDG_CONFIG_HOME with no universals, so
+# tmux_lives_bar_color reads EMPTY and apply_live would take its legacy branch —
+# nothing to do with this change. Shadow the seed for this block only (a `set -g`
+# beats a `set -U` read for this process, the same mechanism the picker's seed
+# preview already relies on).
+set -g tmux_lives_bar_color '#5fab40'
+set -g A6SOCK "tl6-$fish_pid"
+command tmux -f /dev/null -L $A6SOCK new-session -d -s probe -c $HOME 'sleep 60' 2>/dev/null
+set -g tmux_lives_tmux_socket $A6SOCK
+__tmux_lives_theme_apply_live mono 0.55 0.11 0.50 deep
+t "apply_live: 5 args push the v6 palette's bar" '#434841' (command tmux -L $A6SOCK show -gv @tmux_lives_bar_bg 2>/dev/null)
+t "apply_live: 5 args push the v6 palette's cap" '#638557' (command tmux -L $A6SOCK show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "apply_live: 5 args push the v6 palette's tabs" '#53654d' (command tmux -L $A6SOCK show -gv @tmux_lives_tabs_color 2>/dev/null)
+t "apply_live: the mark stays the seed verbatim" (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color '')) (command tmux -L $A6SOCK show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "list v6: one line per catalog row" 42 (__tmux_lives_theme_list | count)
+# NB the brief's own pattern uses CAPTURING groups, which fish's `string match -r`
+# prints as extra output lines (whole match + each group) — 3 lines per input line
+# here, so the brief's literal pattern counts 126, not 42. Non-capturing groups
+# (?:...) keep the count at one line per match, which is what "one per catalog
+# row" actually means.
+t "list v6: every line names its scheme" 42 (__tmux_lives_theme_list | string match -r '(?:mono|analogous|complementary|split|triadic|tetradic|square) (?:deep|bright|centre|split|stack|accent)' | count)
+command tmux -L $A6SOCK kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
+set -e tmux_lives_bar_color
 
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
@@ -451,7 +500,10 @@ set -e tmux_lives_theme_key
 t "setup help documents --theme-key" yes (string match -q '*--theme-key*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 t "setup help: theme row says picker" yes (string match -q '*theme*no-arg=picker*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
-t "setup help: every theme flag listed" yes (begin; set -l h (__tmux_lives_setup_help_lines | string collect); string match -q '*--place*bar|tabs|cap*' -- $h; and string match -q '*--mode*literal|derived*' -- $h; and string match -q '*--phase <deg>*' -- $h; end; and echo yes; or echo no)
+# theme-v6-surface Task 5: --place/--mode/--phase are retired (a scheme is now
+# a recipe chosen by name), so the row documenting them is gone too — this
+# used to assert the opposite (that they WERE listed); inverted here.
+t "setup help: retired theme flags are gone from the row" no (string match -qr -- '--(place|mode|phase)\b' (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help: --rotate retired from theme row" no (string match -q '*--rotate*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help: the four inert theme knobs are gone" no (string match -qr -- '--(vividness|shape|ease|contrast)' (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 t "setup help fits the 80-col frame" 0 (count (__tmux_lives_setup_help_lines | string match -re '.{77,}'))
@@ -1172,8 +1224,8 @@ t "seed_hex named -> empty" 0 (count (__tmux_lives_seed_hex red))
 t "seed_hex empty -> empty" 0 (count (__tmux_lives_seed_hex ""))
 t "derive_status still parses rgb() after the refactor" 1 (string match -q 'bg=#*' -- (__tmux_lives_derive_status "rgb(31,111,235)" 0); and echo 1; or echo 0)
 t "derive_status unchanged on hex" "bg=#76846d,fg=#d3d8d0" (__tmux_lives_derive_status "#485b3c" 0)
-# --- theme engine v3: fragment renders the gradient-map roles ----------------
-# theme OFF (argv 17 absent): v2 values + neutral role seeds
+# --- theme engine v6 (theme-v6-surface Task 3): fragment renders the recipe roles ----
+# theme OFF (argv 18 absent): v2 values + neutral role seeds
 set -g TOFF (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k | string collect)
 t "off: v2 status-style survives" yes (string match -q '*set -g status-style bg=#*' -- "$TOFF"; and echo yes; or echo no)
 t "off: sep_fg seeded default"  yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TOFF"; and echo yes; or echo no)
@@ -1181,9 +1233,10 @@ t "off: text_fg seeded default" yes (string match -q '*set -g @tmux_lives_text_f
 t "off: mark_fg seeded default" yes (string match -q '*set -g @tmux_lives_mark_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: active_fg seeded default" yes (string match -q '*set -g @tmux_lives_active_fg default*' -- "$TOFF"; and echo yes; or echo no)
 t "off: cap is the legacy neutral (v2 engine gone)" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TOFF"; and echo yes; or echo no)
-# theme ON: every role @option carries its gradient sample
-set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived '' | string collect)
-set -g TONPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 0)
+# theme ON: every role @option carries its v6 recipe sample ('mono deep' = the
+# migration default, measured at this seed via __tmux_lives_theme_render)
+set -g TON (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep | string collect)
+set -g TONPAL (__tmux_lives_theme_render "#485b3c" mono 0.55 0.11 0.50 deep)
 t "on: status-style = bar+windows samples" yes (string match -q "*set -g status-style bg=$TONPAL[1],fg=$TONPAL[5]*" -- "$TON"; and echo yes; or echo no)
 t "on: bar_bg is the bar sample (quoted)" yes (string match -q "*set -g @tmux_lives_bar_bg '$TONPAL[1]'*" -- "$TON"; and echo yes; or echo no)
 t "on: sep_fg role"   yes (string match -q "*set -g @tmux_lives_sep_fg '$TONPAL[2]'*" -- "$TON"; and echo yes; or echo no)
@@ -1195,13 +1248,14 @@ t "on: cap_fg stays readable" yes (string match -q "*set -g @tmux_lives_cap_fg '
 t "on: mark_fg is the seed verbatim" yes (string match -q "*set -g @tmux_lives_mark_fg '#485b3c'*" -- "$TON"; and echo yes; or echo no)
 t "on: text_fg role" yes (string match -q "*set -g @tmux_lives_text_fg '$TONPAL[7]'*" -- "$TON"; and echo yes; or echo no)
 t "on: no claude_color anywhere" no (string match -q '*claude_color*' -- "$TON"; and echo yes; or echo no)
-# the four knobs are gone; phase is argv 16 (place/mode are argv 14-15) and is the
-# one remaining value that moves the curve.
-set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 | string collect)
-set -g TONKPAL (__tmux_lives_theme_palette "#485b3c" ember bar derived 90)
-t "on: phase reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
+# v6 has no v5-style hue phase; peakpos (argv 16) is the recipe field that moves the
+# ramp — and with it the whole downstream palette, cap included — while mode/lspan/
+# peakc/arrangement stay fixed.
+set -g TONK (__tmux_lives_render_fragment /x/cat.fish S M-s "#485b3c" 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.20 deep | string collect)
+set -g TONKPAL (__tmux_lives_theme_render "#485b3c" mono 0.55 0.11 0.20 deep)
+t "on: peakpos reaches the palette" yes (string match -q "*set -g @tmux_lives_cap_bg '$TONKPAL[6]'*" -- "$TONK"; and echo yes; or echo no)
 # a theme with an unusable seed falls back to the whole v2 path
-set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k ember | string collect)
+set -g TBAD (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono | string collect)
 t "on+no seed: v2 fallback cap" yes (string match -q "*set -g @tmux_lives_cap_bg 'colour238'*" -- "$TBAD"; and echo yes; or echo no)
 t "on+no seed: role seeds default" yes (string match -q '*set -g @tmux_lives_sep_fg default*' -- "$TBAD"; and echo yes; or echo no)
 # 'off' token renders the legacy branch; write_fragment's default is mono
@@ -1210,15 +1264,17 @@ t "off token renders legacy status-style" yes (string match -q '*set -g status-s
 t "off token renders legacy cap" yes (string match -q "*set -g @tmux_lives_cap_bg '*" -- "$TOFFTOK"; and echo yes; or echo no)
 t "write_fragment defaults the theme to mono" yes (string match -q '*tmux_lives_theme mono*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment passes theme_key" yes (string match -q '*tmux_lives_theme_key M-k*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-t "write_fragment passes theme_place" yes (string match -q '*tmux_lives_theme_place bar*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-t "write_fragment passes theme_mode" yes (string match -q '*tmux_lives_theme_mode derived*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_lspan" yes (string match -q '*tmux_lives_theme_lspan 0.55*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_peakc" yes (string match -q '*tmux_lives_theme_peakc 0.11*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_peakpos" yes (string match -q '*tmux_lives_theme_peakpos 0.50*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+t "write_fragment passes theme_arrangement" yes (string match -q '*tmux_lives_theme_arrangement deep*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 t "write_fragment has no rotate arg leakage" no (string match -q '*theme_rotate*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 
 # --- write_fragment's call-site ARGUMENT ORDER must match render_fragment's
 # positional reads. The existence-only checks just above (943-947) only prove each
 # lookup is PRESENT somewhere in the source — they cannot see a shift. Proven by
 # mutation: re-inserting a single extra (__tmux_lives_key ...) lookup ahead of the
-# tmux_lives_sync_terminals one shifts syncterm from position 17 to 18; the
+# tmux_lives_sync_terminals one shifts syncterm from position 18 to 19; the
 # fragment then emits `set -as terminal-features 'auto:sync'` (a glob matching no
 # real TERM), and tmux accepts an unknown terminal-feature name with NO error and
 # NO exit code — synchronized output silently dies, no symptom until a user's
@@ -1258,8 +1314,8 @@ functions -e __tmux_lives_key; functions -c __wf17_key_bak __tmux_lives_key; fun
 rm -f $fragment
 set -e wf17src; set -e wf17line
 
-t "write_fragment's call site passes exactly 17 args to render_fragment" 17 (count $_WF17_ARGV)
-t "write_fragment's call site: arg 17 is tmux_lives_sync_terminals" tmux_lives_sync_terminals "$_WF17_ARGV[17]"
+t "write_fragment's call site passes exactly 18 args to render_fragment" 18 (count $_WF17_ARGV)
+t "write_fragment's call site: arg 18 is tmux_lives_sync_terminals" tmux_lives_sync_terminals "$_WF17_ARGV[18]"
 set -e _WF17_ARGV
 
 # themed fragment parses on a real -L server and the options land
@@ -1313,9 +1369,12 @@ functions -c __tmux_lives_theme_cmd __thc_bak
 function __tmux_lives_theme_cmd; echo "THEME:$argv"; end
 t "setup dispatch routes theme" "THEME:warm x" (__tmux_lives_setup_dispatch theme warm x)
 functions -e __tmux_lives_theme_cmd; functions -c __thc_bak __tmux_lives_theme_cmd; functions -e __thc_bak
-t "setup help lists theme" yes (string match -q '*theme [<rel>*bar theme*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
+t "setup help lists theme" yes (string match -q '*theme [<scheme>*bar theme*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
-# v4: theme-cmd/apply/list surface — relationships, --place/--mode, --rotate retired.
+# v4/v5/v6: theme-cmd/apply/list surface — --rotate (v4) and --vividness/
+# --shape/--ease/--contrast (v5.1) were already retired; --place/--mode/
+# --phase (v6, theme-v6-surface Task 5) are retired here too, as the CLI
+# switches from a v5 relationship name to a v6 catalog scheme name.
 functions -c __tmux_lives_write_fragment __wfth_bak
 function __tmux_lives_write_fragment; end
 
@@ -1328,25 +1387,80 @@ set -e tmux_lives_theme
 t "theme no-arg outside tmux prints the mono default" yes (string match -q 'theme: mono*' -- (__tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
 test $_tmx_had -eq 1; and set -gx TMUX $_tmx_save
 t "theme no-arg opens the picker in tmux" yes (string match -q '*display-popup -B -E -w 52 -h 85%*theme-picker*' -- (functions __tmux_lives_theme_cmd | string collect); and echo yes; or echo no)
+
+# --- Whole-branch review I3: the no-arg state print must not claim a
+# catalog name for a stored recipe that does not actually match one -------
+# Because the catalog is the complete 7x6 grid, "<mode> <arrangement>" is
+# ALWAYS some real catalog name — printing it unconditionally (the pre-fix
+# behaviour) named a real, DIFFERENT scheme for a recipe the user does not
+# actually have (e.g. a saved roll, functions/tmux-categorize.fish case z,
+# built to deliberately match no catalog row). This is the finding's own
+# reproduction: the catalog's real "triadic centre" row is
+# 0.30/0.15/0.75, not these values.
+set -g _tmx_had3 0
+set -q TMUX; and set _tmx_had3 1; and set -g _tmx_save3 $TMUX
+set -e TMUX
+set -U tmux_lives_theme triadic
+set -U tmux_lives_theme_lspan 0.54
+set -U tmux_lives_theme_peakc 0.168
+set -U tmux_lives_theme_peakpos 0.6
+set -U tmux_lives_theme_arrangement centre
+set -g _thnoarg (__tmux_lives_theme_cmd | string collect)
+# NOT a trailing-wildcard match against 'theme: triadic centre*' -- that glob
+# would ALSO match the correct "theme: triadic centre (custom recipe)" output
+# (it's a prefix), making the check vacuously true either way. Compare the
+# exact FIRST LINE instead, so this can only pass when the bare catalog-name
+# form (no caveat) is what actually got printed.
+set -l _thnoarg1 (string split \n -- "$_thnoarg")[1]
+t "theme no-arg: a recipe matching no catalog row is NOT printed as if it were that catalog name" 0 (test "$_thnoarg1" = "theme: triadic centre"; and echo 1; or echo 0)
+t "theme no-arg: a recipe matching no catalog row says so honestly" yes (string match -q 'theme: triadic centre (custom recipe)*' -- "$_thnoarg"; and echo yes; or echo no)
+# The other path: a recipe that DOES match a real catalog row exactly (the
+# curated default) must still print the plain name, no "(custom recipe)"
+# suffix — proves the fix discriminates instead of always appending the caveat.
+set -U tmux_lives_theme mono
+set -U tmux_lives_theme_lspan 0.55
+set -U tmux_lives_theme_peakc 0.11
+set -U tmux_lives_theme_peakpos 0.50
+set -U tmux_lives_theme_arrangement deep
+set -g _thnoarg2 (__tmux_lives_theme_cmd | string collect)
+t "theme no-arg: a recipe that DOES match a catalog row prints the real name" yes (string match -q 'theme: mono deep*' -- "$_thnoarg2"; and echo yes; or echo no)
+t "theme no-arg: a matching recipe does not get the custom-recipe caveat" 0 (string match -q '*custom recipe*' -- "$_thnoarg2"; and echo 1; or echo 0)
+test $_tmx_had3 -eq 1; and set -gx TMUX $_tmx_save3
+# Clean up: erase every recipe universal this block set. Left set, they leak
+# into every later fixture that assumes a fresh/unset theme (the v6 migration
+# tests just below key their OWN early-return guard on
+# tmux_lives_theme_arrangement being unset, and the v4 migration tests
+# further down assume the same) — caught by running the full suite, not
+# reasoned out in advance.
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
+
 set -U tmux_lives_bar_color '#485b3c'
-t "theme: invalid relationship rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
-t "theme: invalid relationship leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
-t "theme: invalid place rejected" 1 (__tmux_lives_theme_cmd ember --place middle 2>/dev/null; echo $status)
-t "theme: invalid place mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
-t "theme: invalid mode rejected" 1 (__tmux_lives_theme_cmd ember --mode dyed 2>/dev/null; echo $status)
-t "theme: invalid mode mutates nothing" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
-t "theme: --place low rejected"  1 (__tmux_lives_theme_cmd ember --place low 2>/dev/null; echo $status)
-t "theme: --place high rejected" 1 (__tmux_lives_theme_cmd ember --place high 2>/dev/null; echo $status)
-t "theme: --place error names the three survivors" 1 (__tmux_lives_theme_cmd ember --place low 2>&1 | string match -q '*bar, tabs, cap*'; and echo 1; or echo 0)
-t "theme: --place low mutates nothing" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "theme: unknown scheme rejected" 1 (__tmux_lives_theme_cmd wat 2>/dev/null; echo $status)
+t "theme: unknown scheme leaves the universal unset" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
+# --place/--mode/--phase value validation (invalid place/mode/phase, --place
+# low|high, the "three survivors" error text) is gone along with the flags
+# themselves — v6 retires all three unconditionally (see the "cli:" block
+# below), so there is no longer a distinct "invalid VALUE" path to test here.
 t "theme: --rotate error no longer offers low/high" 0 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*low*'; and echo 1; or echo 0)
-t "theme: invalid phase rejected" 1 (__tmux_lives_theme_cmd ember --phase x 2>/dev/null; echo $status)
-t "theme: invalid phase mutates nothing" 0 (set -q tmux_lives_theme; and echo 1; or echo 0)
 t "theme: invalid vividness rejected" 1 (__tmux_lives_theme_cmd --vividness max 2>/dev/null; echo $status)
 t "theme: invalid shape rejected" 1 (__tmux_lives_theme_cmd --shape round 2>/dev/null; echo $status)
 t "theme: invalid ease rejected" 1 (__tmux_lives_theme_cmd --ease bounce 2>/dev/null; echo $status)
 t "theme: --rotate is gone" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>/dev/null; echo $status)
-t "theme: --rotate error mentions --place" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
+# Review fix round (2026-09-03): this used to assert the --rotate error
+# mentioned --place, which was correct at v4/v5 but became stale the moment
+# this same task retired --place two case-arms above — a user following that
+# advice would have landed on the --place retirement message next, a second
+# dead end. This is the assertion that SHOULD have broken when --place was
+# retired and did not (a status/substring check that stayed accidentally
+# true), caught only by an external review pass, not by the audit that caught
+# the other assertions this task broke. Inverted + replaced: the message must
+# no longer name the dead flag, and must point at the real v6 mechanism.
+t "theme: --rotate error no longer mentions the retired --place" 0 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*--place*'; and echo 1; or echo 0)
+t "theme: --rotate error points at the scheme list instead" 1 (__tmux_lives_theme_cmd ember --rotate 2 2>&1 | string match -q '*setup theme list*'; and echo 1; or echo 0)
 
 # --- Task 2: the four inert knobs are rejected, not silently accepted ------------
 # Verified inert before removal: swinging all four to their extremes produced
@@ -1402,9 +1516,195 @@ end
 t "migrate_v52 is silent when there is nothing to erase (idempotent)" '' "$_m52"
 t "post_update chains migrate_v52" yes (string match -q '*__tmux_lives_migrate_v52*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 
+# --- theme-v6-surface Task 6: migrate v5's relationship/place/mode/phase to a v6 recipe ---
+# Existence first, matching the migrate_v51/v52 precedent above: an undefined
+# function inside a command substitution ABORTS the whole statement in fish
+# (verified directly — the substitution's error is not recoverable the way a
+# plain "unknown command" is), so several of the assertions below are guarded
+# by `functions -q` rather than called bare, or they would simply never run
+# pre-fix (no PASS, no FAIL — invisible to `grep FAIL`) instead of failing.
+t "migrate_v6 exists" 0 (functions -q __tmux_lives_migrate_v6; echo $status)
+set -U tmux_lives_theme amber
+set -U tmux_lives_theme_place cap
+set -U tmux_lives_theme_mode derived
+set -U tmux_lives_theme_phase 0
+set -U tmux_lives_bar_color '#5fab40'
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: the seed is preserved" '#5fab40' "$tmux_lives_bar_color"
+t "migrate v6: place is erased" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "migrate v6: mode is erased" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "migrate v6: phase is erased" 0 (set -q tmux_lives_theme_phase; and echo 1; or echo 0)
+t "migrate v6: the theme becomes the default recipe" "mono 0.55 0.11 0.50 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+set -g A6MIG1 (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: idempotent" "$A6MIG1" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+# Stronger idempotency check than the value-equality one above: that one would
+# pass even for a broken implementation that unconditionally re-writes the SAME
+# defaults on every call, because the defaults are constant. The real risk
+# named in the task brief is the early-return guard (`set -q
+# tmux_lives_theme_arrangement; and return 0`) failing to hold — i.e. a LATER
+# user choice getting silently stomped back to the default on the next fisher
+# update. Simulate that: the user picks a different scheme after migrating,
+# then migrate runs again (as it will on every future update) and must leave
+# it alone.
+set -U tmux_lives_theme coral
+set -U tmux_lives_theme_lspan 0.60
+set -U tmux_lives_theme_peakc 0.15
+set -U tmux_lives_theme_peakpos 0.45
+set -U tmux_lives_theme_arrangement chip
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: does not re-stomp a scheme the user picked after migrating" "coral 0.60 0.15 0.45 chip" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+if functions -q __tmux_lives_migrate_v6
+    set -g _m6silent (__tmux_lives_migrate_v6 2>&1 | string collect)
+else
+    set -g _m6silent __migrate_v6_missing__
+end
+t "migrate v6: a second run is silent" "" "$_m6silent"
+# "off" must be tested as a FRESH (never-migrated) install, not a continuation
+# of the state above: by this point tmux_lives_theme_arrangement is already
+# set (to "chip"), so the function's OWN first guard (`set -q
+# tmux_lives_theme_arrangement; and return 0`) would short-circuit before ever
+# reaching the off-specific branch a few lines later in the brief's own
+# pseudocode — the assertion would pass, but for the "already migrated" reason,
+# not because the off-handling actually ran. Reset to a state that looks like a
+# v5 install that was set to `off` and never touched by v6 before: recipe
+# fields unset, but a stale place/mode/phase left over from v5, which the
+# function's own comment says must still be erased even though theme is off.
+set -e tmux_lives_theme_arrangement
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -U tmux_lives_theme_place cap
+set -U tmux_lives_theme_mode literal
+set -U tmux_lives_theme_phase 12
+set -U tmux_lives_theme off
+__tmux_lives_migrate_v6 >/dev/null 2>&1
+t "migrate v6: off is left alone" off "$tmux_lives_theme"
+t "migrate v6: off does not gain recipe fields" 0 (set -q tmux_lives_theme_arrangement; and echo 1; or echo 0)
+t "migrate v6: off still gets place erased" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "migrate v6: off still gets mode erased" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "migrate v6: off still gets phase erased" 0 (set -q tmux_lives_theme_phase; and echo 1; or echo 0)
+t "migrate v6: chained on post-update" 1 (functions __tmux_lives_migrate_v6 >/dev/null; and string match -q '*__tmux_lives_migrate_v6*' -- (functions _tmux_lives_post_update | string collect); and echo 1; or echo 0)
+
+# --- Whole-branch review C1 (CRITICAL): the migration CHAIN, not each function
+# tested in isolation. Every existing migrate_v6 test above calls
+# __tmux_lives_migrate_v6 alone, which is exactly why this survived nine
+# per-task reviews: __tmux_lives_migrate_v4 still validates tmux_lives_theme
+# against the v5 __tmux_lives_theme_relationships list, and only 'mono'
+# appears in both the v5 and v6 vocabularies — so running the REAL chain
+# from _tmux_lives_post_update against any non-mono v6 recipe hits v4's
+# "retired v3 scheme" branch: it resets tmux_lives_theme to mono and
+# RESURRECTS tmux_lives_theme_place/_mode (v5 fields v6 deliberately erases).
+# __tmux_lives_migrate_v6 then sees tmux_lives_theme_arrangement already set
+# (v4 never touches it) and returns early, so nothing repairs the damage.
+# Reset every var any migration in the chain reads, so this test does not
+# depend on what earlier blocks in this file happened to leave behind.
+for v in tmux_lives_theme_rotate tmux_lives_theme_polarity tmux_lives_theme_range \
+    tmux_lives_cap tmux_lives_cap_vividness tmux_lives_cap_wheel tmux_lives_cap_role tmux_lives_cap_key \
+    tmux_lives_theme_vividness tmux_lives_theme_shape tmux_lives_theme_ease tmux_lives_theme_contrast \
+    tmux_lives_theme_autoapply tmux_lives_theme_place tmux_lives_theme_mode tmux_lives_theme_phase
+    set -e $v
+end
+set -U tmux_lives_bar_color '#5f772b'
+set -U tmux_lives_theme square
+set -U tmux_lives_theme_lspan 0.70
+set -U tmux_lives_theme_peakc 0.17
+set -U tmux_lives_theme_peakpos 0.35
+set -U tmux_lives_theme_arrangement deep
+set -g _c1chain (begin
+    __tmux_lives_migrate_v2
+    __tmux_lives_migrate_v31
+    __tmux_lives_migrate_v4
+    __tmux_lives_migrate_v41
+    __tmux_lives_migrate_v51
+    __tmux_lives_migrate_v52
+    __tmux_lives_migrate_v6
+end 2>&1 | string collect)
+t "chain: a non-mono v6 recipe survives the full post-update migration chain unchanged" "square 0.70 0.17 0.35 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+t "chain: place is not resurrected by the chain" 0 (set -q tmux_lives_theme_place; and echo 1; or echo 0)
+t "chain: mode is not resurrected by the chain" 0 (set -q tmux_lives_theme_mode; and echo 1; or echo 0)
+t "chain: the chain prints nothing for an already-v6 install" '' "$_c1chain"
+# Clean up every universal this block set (including the ones we just
+# asserted are unset — belt and braces) so no leaked recipe state reaches any
+# later fixture. First found by running the full suite: a leaked
+# tmux_lives_theme_arrangement here made __tmux_lives_migrate_v6's OWN
+# early-return guard fire in the (unrelated, far-later) v4-migration test
+# block, silently no-opping __tmux_lives_migrate_v4 there and failing four of
+# its assertions.
+set -e tmux_lives_theme_place
+set -e tmux_lives_theme_mode
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
+
 set -e tmux_lives_bar_color
-t "theme: a relationship without a seed refuses" 1 (__tmux_lives_theme_cmd ember 2>/dev/null; echo $status)
+# was "ember" (a v5 relationship) pre-theme-v6-surface Task 5 — under v6
+# validation an unresolvable name is rejected as an unknown scheme BEFORE the
+# seed check ever runs, so that name no longer exercises this path at all.
+# 'mono deep' is a real catalog entry, so this genuinely reaches the seed
+# check now.
+t "theme: a scheme without a seed refuses" 1 (__tmux_lives_theme_cmd 'mono deep' 2>/dev/null; echo $status)
 set -U tmux_lives_bar_color '#485b3c'
+
+# --- theme-v6-surface Task 5: the CLI takes a v6 catalog scheme name -------------
+# write_fragment is already stubbed (from the v4 block above, restored later at
+# the end of the -L socket section); apply_live is stubbed here too so this
+# block stays a pure parser/validation test, per the task brief.
+functions -c __tmux_lives_theme_apply_live __tal_bak
+function __tmux_lives_theme_apply_live; end
+t "cli: a catalog name is accepted" 0 (__tmux_lives_theme_cmd 'mono deep' >/dev/null 2>&1; echo $status)
+t "cli: an unknown name is rejected" 1 (__tmux_lives_theme_cmd 'no such scheme' >/dev/null 2>&1; echo $status)
+t "cli: an unknown name names the scheme in the error" 1 (__tmux_lives_theme_cmd 'no such scheme' 2>&1 >/dev/null | string match -q '*no such scheme*'; and echo 1; or echo 0)
+t "cli: --place is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --place bar >/dev/null 2>&1; echo $status)
+t "cli: --mode is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --mode literal >/dev/null 2>&1; echo $status)
+t "cli: --phase is rejected" 1 (__tmux_lives_theme_cmd 'mono deep' --phase 30 >/dev/null 2>&1; echo $status)
+t "cli: --place says what replaced it" 1 (__tmux_lives_theme_cmd --place bar 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+# Supplementary to the brief's own "--mode/--phase is rejected" (status-only)
+# assertions above: proven by mutation that status alone does NOT discriminate
+# a broken retired-flag arm here — with the case arm disabled, "--mode
+# literal"/"--phase 30" fall through to case '*', get parsed as bogus scheme
+# names ("literal"/"30", neither a valid catalog entry), and STILL return 1
+# via the unrelated unknown-scheme path, so "is rejected" alone stayed green
+# under that mutation. Mirroring "--place says what replaced it" for the
+# other two retired flags closes that gap: only the real retirement arm's
+# message mentions "recipe".
+t "cli: --mode says what replaced it" 1 (__tmux_lives_theme_cmd --mode literal 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+t "cli: --phase says what replaced it" 1 (__tmux_lives_theme_cmd --phase 30 2>&1 >/dev/null | string match -q '*recipe*'; and echo 1; or echo 0)
+t "cli: setting a scheme stores all five recipe fields" "mono 0.55 0.11 0.50 deep" (__tmux_lives_theme_cmd 'mono deep' >/dev/null 2>&1; string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+t "cli: off is still off" off (__tmux_lives_theme_cmd off >/dev/null 2>&1; echo $tmux_lives_theme)
+# Review fix round (2026-09-03): the off-case re-enable hint used to say
+# "tmux-lives setup theme mono" — bare "mono" is a v5 relationship name, not a
+# runnable v6 scheme (catalog names are two words, e.g. "mono deep"); running
+# the suggested command errored. Fixed to name the actual curated-default
+# catalog entry. Verified programmatically, not just by string match, so a
+# future catalog change that silently invalidates the hint is caught too.
+t "cli: off's re-enable hint names a scheme that actually resolves" 1 (set -l hint (__tmux_lives_theme_cmd off 2>&1 | string match -rg "setup theme ([^']+)'\)"); test -n "$hint"; and test (count (__tmux_lives_theme_recipe "$hint")) -eq 5; and echo 1; or echo 0)
+# Whole-branch review I1: the assertion above resolves the hinted NAME through
+# __tmux_lives_theme_recipe directly — it never actually RUNS the printed
+# command, so it stayed green while running it for real failed. Every catalog
+# name is two words, and case '*' in the parse loop OVERWROTE $scheme on each
+# positional word instead of accumulating, so an unquoted two-word invocation
+# (exactly what the hint prints, and what a real shell passes) only ever saw
+# the LAST word. Split the hinted command on spaces the way a real shell would
+# and dispatch it for real, discriminating that bug specifically.
+set -U tmux_lives_theme off
+set -l hintcmd (__tmux_lives_theme_cmd off 2>&1 | string match -rg "setup theme ([^']+)'\)")
+set -l hintargs (string split ' ' -- "$hintcmd")
+t "off's re-enable hint is a command that actually runs" 0 (__tmux_lives_theme_cmd $hintargs >/dev/null 2>&1; echo $status)
+t "off's re-enable hint actually sets the hinted scheme" "mono 0.55 0.11 0.50 deep" (string join ' ' $tmux_lives_theme $tmux_lives_theme_lspan $tmux_lives_theme_peakc $tmux_lives_theme_peakpos $tmux_lives_theme_arrangement)
+# Clean up: running the hinted command really did set these five (that's the
+# point of the assertion above) -- left set, tmux_lives_theme_arrangement
+# leaks into the far-later v4-migration block's own fixture and silently
+# no-ops __tmux_lives_migrate_v4 there via its own early-return guard, the
+# same class of leak the C1/I3 blocks above already had to fix.
+set -e tmux_lives_theme
+set -e tmux_lives_theme_lspan
+set -e tmux_lives_theme_peakc
+set -e tmux_lives_theme_peakpos
+set -e tmux_lives_theme_arrangement
+functions -e __tmux_lives_theme_apply_live; functions -c __tal_bak __tmux_lives_theme_apply_live; functions -e __tal_bak
 
 # v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
 t "catalog has 35 entries" 35 (count (__tmux_lives_theme_catalog))
@@ -1419,7 +1719,9 @@ for e in (__tmux_lives_theme_catalog)
     test (count $p) -eq 7; or set bad (math $bad + 1)
 end
 t "every catalog recipe yields 7 hexes" 0 $bad
-t "theme list names ember glow" 1 (string match -q '*ember glow*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
+# theme_list renders the v6 catalog now (Task 4); "ember glow" was a v5 catalog
+# name and no longer appears. "mono deep" is the v6 catalog's one hand-placed row.
+t "theme list names mono deep" 1 (string match -q '*mono deep*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
 
 # --- catalog composition (2026-07-28 weeding pass) ------------------------------------
 # The seed was verbatim at bar (glow) and cap (core) but NEVER at tabs — 0 of the 28 rows
@@ -1567,8 +1869,9 @@ set -e __t8_lastlit
 set -e __t8_firstder
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
-t "theme list has 35 rows" 35 (count (__tmux_lives_theme_list))
-t "theme list rows carry truecolor swatches" 35 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
+# v6 catalog is 42 rows (was 35 under v5).
+t "theme list has 42 rows" 42 (count (__tmux_lives_theme_list))
+t "theme list rows carry truecolor swatches" 42 (count (string match -r '48;2;' (__tmux_lives_theme_list)))
 
 # live apply on the -L seam
 set -g _th_fcd $__fish_config_dir
@@ -1576,24 +1879,32 @@ set -g __fish_config_dir /tmp/th-noconf-$fish_pid
 set -g thsock tlt-$fish_pid
 command tmux -L $thsock new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
-__tmux_lives_theme_cmd ember --place cap --mode literal --phase 30 >/dev/null
-t "theme cmd persists relationship" ember "$tmux_lives_theme"
-t "theme cmd persists place" cap "$tmux_lives_theme_place"
-t "theme cmd persists mode" literal "$tmux_lives_theme_mode"
-t "theme cmd persists phase" 30 "$tmux_lives_theme_phase"
-set -g THP (__tmux_lives_theme_palette '#485b3c' ember cap literal 30)
-t "theme live-applies bar_bg" "$THP[1]" (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
-t "theme live-applies sep_fg" "$THP[2]" (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
-t "theme live-applies tabs_color" "$THP[3]" (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
-t "theme live-applies active_fg" "$THP[4]" (command tmux -L $thsock show -gv @tmux_lives_active_fg 2>/dev/null)
-t "theme live-applies cap_bg" "$THP[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "theme live-applies text_fg" "$THP[7]" (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
-# apply-live pushes the seed verbatim as the mark color, not the cap sample
-t "theme live-applies mark_fg = seed" '#485b3c' (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
-t "theme live-applies status-style" "bg=$THP[1],fg=$THP[5]" (command tmux -L $thsock show -gv status-style 2>/dev/null)
-# a pathological --phase is normalized mod 360 before storage (norm360 hang guard)
-__tmux_lives_theme_cmd --phase 100000360 >/dev/null
-t "huge phase normalized mod 360" 280 "$tmux_lives_theme_phase"
+# theme-v6-surface Task 5: __tmux_lives_theme_cmd now validates scheme names
+# against the v6 catalog, so it can no longer be used to get an unresolvable
+# name into tmux_lives_theme — "ember" (a v5 relationship, not a v6 catalog
+# scheme) would be rejected outright with "unknown scheme". The legacy-branch
+# behaviour these assertions exist to pin — apply_live falling through to its
+# legacy branch when tmux_lives_theme is set to something apply_live's v6
+# render cannot resolve — is still real and still needs coverage (an upgrading
+# user's leftover pre-migration universal is exactly this shape), so the
+# universal is set DIRECTLY here, bypassing the CLI's validation entirely, and
+# __tmux_lives_theme_apply_live is called directly (the same 0-arg,
+# universal-reading path theme_cmd itself calls as a side effect). "ember" is
+# not one of mono/analogous/complementary/split/triadic/tetradic/square, so
+# __tmux_lives_theme_render returns nothing and apply_live correctly falls
+# through to its legacy branch — the same branch the "off" block below
+# documents with literal constants.
+set -U tmux_lives_theme ember
+__tmux_lives_theme_apply_live
+t "theme live-applies bar_bg (legacy: relationship isn't a v6 mode)" (__tmux_lives_derive_status_bg '#485b3c' 0) (command tmux -L $thsock show -gv @tmux_lives_bar_bg 2>/dev/null)
+t "theme live-applies sep_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_sep_fg 2>/dev/null)
+t "theme live-applies tabs_color (legacy)" '' (command tmux -L $thsock show -gv @tmux_lives_tabs_color 2>/dev/null)
+t "theme live-applies active_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_active_fg 2>/dev/null)
+t "theme live-applies cap_bg (legacy)" colour238 (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
+t "theme live-applies text_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_text_fg 2>/dev/null)
+# the legacy branch resets the mark to default too — it does not push the seed verbatim.
+t "theme live-applies mark_fg (legacy)" default (command tmux -L $thsock show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "theme live-applies status-style (legacy)" (__tmux_lives_derive_status '#485b3c' 0) (command tmux -L $thsock show -gv status-style 2>/dev/null)
 # off: v2 values return, role seeds neutralize, cap writes work again
 __tmux_lives_theme_cmd off >/dev/null
 t "off stores the off token" off "$tmux_lives_theme"
@@ -1603,28 +1914,36 @@ t "off pushes the neutral legacy cap" colour238 (command tmux -L $thsock show -g
 t "off pushes the legacy cap fg" "#f5f5f5" (command tmux -L $thsock show -gv @tmux_lives_cap_fg 2>/dev/null)
 # unset (not just 'off') applies mono — always-on's actual default. Also reset the knobs
 # this section mutated above (place->cap, mode->literal, phase->280, vividness->vivid) back
-# to their own defaults so THMONO's assumed bar/derived/0/balanced actually matches what
-# __tmux_lives_theme_apply_live reads.
+# to their own defaults so THMONO's assumed recipe actually matches what
+# __tmux_lives_theme_apply_live's 0-arg (universal-reading) path reads.
 set -e tmux_lives_theme
 set -e tmux_lives_theme_place
 set -e tmux_lives_theme_mode
 set -e tmux_lives_theme_phase
 set -e tmux_lives_theme_vividness
 __tmux_lives_theme_apply_live
-set -g THMONO (__tmux_lives_theme_palette '#485b3c' mono bar derived 0)
+# theme-v6-surface Task 4: apply_live's 0-arg path now reads the v6 recipe universals
+# (tmux_lives_theme/_lspan/_peakc/_peakpos/_arrangement), all unset here so it falls
+# to their defaults mono/0.55/0.11/0.50/deep — render THAT with __tmux_lives_theme_render
+# (v6), not the old __tmux_lives_theme_palette (v5); "mono" names the same idea in both
+# engines but the engines produce different hexes for it, so comparing against the v5
+# function would compare two different colours by coincidence of a shared name.
+set -g THMONO (__tmux_lives_theme_render '#485b3c' mono 0.55 0.11 0.50 deep)
 t "unset theme applies mono (always-on)" "$THMONO[6]" (command tmux -L $thsock show -gv @tmux_lives_cap_bg 2>/dev/null)
-# Task 6 controller scope: the 4-arg apply-live path (the picker's `a`-preview and
-# esc-revert path) writes no state — direct-call it twice with only phase flipped
-# and confirm a derived color actually moves (same seed/relationship/place/mode).
-# Task 1 removed vividness/shape/ease/contrast entirely (they were accepted-but-inert),
-# so phase is the only knob left that moves a role color here.
-__tmux_lives_theme_apply_live sage bar derived 0
+# theme-v6-surface Task 4 controller scope: the explicit 5-arg apply-live path (the
+# picker's `a`-preview and esc-revert path) writes no state — direct-call it twice with
+# only mode flipped and confirm a derived color actually moves (same seed/lspan/peakc/
+# peakpos/arrangement). This replaces the old 4-arg "phase" version (v5's `sage bar
+# derived 0/180`): v6 has no phase knob, and passing 4 args to the new contract no
+# longer means "explicit" at all (any count other than 5 reads the universals) — both
+# old calls would silently read the SAME universal state and could never differ.
+__tmux_lives_theme_apply_live mono 0.55 0.11 0.50 deep
 set -g THEME_CAP_A (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-__tmux_lives_theme_apply_live sage bar derived 180
+__tmux_lives_theme_apply_live analogous 0.55 0.11 0.50 deep
 set -g THEME_CAP_B (command tmux -L $tmux_lives_tmux_socket show -gv @tmux_lives_cap_bg 2>/dev/null)
-t "apply-live 4-arg phase-0 cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
-t "apply-live 4-arg phase-180 cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
-t "apply-live 4-arg phase 0 vs 180 differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 5-arg mono cap_bg non-empty" 1 (test -n "$THEME_CAP_A"; and echo 1; or echo 0)
+t "apply-live 5-arg analogous cap_bg non-empty" 1 (test -n "$THEME_CAP_B"; and echo 1; or echo 0)
+t "apply-live 5-arg mono vs analogous differ" 1 (test "$THEME_CAP_A" != "$THEME_CAP_B"; and echo 1; or echo 0)
 command tmux -L $thsock kill-server 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -g __fish_config_dir $_th_fcd
@@ -2020,7 +2339,10 @@ t "v3 barpos gone" 0 (grep -c '__tmux_lives_theme_barpos' $plugindir/conf.d/tmux
 # v41 never mentions the rotate universal, but not what the range is meant to
 # skip).
 t "no rotate universal outside migration" 0 (awk '/^function __tmux_lives_migrate_v4 /,/^end$/ {next} /^function __tmux_lives_migrate_v31/,/^end$/ {next} {print}' $plugindir/conf.d/tmux-lives-install.fish | grep -c 'tmux_lives_theme_rotate')
-t "help theme row mentions place" 1 (__tmux_lives_setup_help_lines | string match -q '*place*'; and echo 1; or echo 0)
+# theme-v6-surface Task 5: --place is retired, not merely undocumented — this
+# used to assert the row DID mention it (a v4/v5 cleanup regression guard);
+# inverted now that the flag itself is gone.
+t "help theme row no longer mentions place" 0 (__tmux_lives_setup_help_lines | string match -q '*place*'; and echo 1; or echo 0)
 
 # v2 engine deletion (task 2): the geometric-harmony cap engine + its CLI are gone —
 # only __tmux_lives_theme_* + the OKLCH core + derive_status remain.
@@ -2080,20 +2402,20 @@ for i in (seq (count $_mig_names))
     test $_mig_had[$i] -eq 1; and set -U $_mig_names[$i] $_mig_saved[$i]
 end
 
-# --- v5 fragment argv: 13 theme(relationship) 14 place 15 mode 16 phase
-# (the four knobs — vividness/shape/ease/contrast — are retired as of Task 1;
-# see [[theme-engine-v3-gradient-map]]).
-set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 0 | string collect)
-# phase DOES move the curve (bar/tabs/cap hues), so it moves the cap role too.
-set -l frp (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k ember bar derived 90 | string collect)
+# --- v6 fragment argv (theme-v6-surface Task 3): 13 theme(mode) 14 lspan 15 peakc
+# 16 peakpos 17 arrangement (the v5 four-field theme — place/mode/phase, plus the
+# vividness/shape/ease/contrast knobs retired at v5 Task 1 — is gone from the
+# fragment; see [[theme-engine-v6]]).
+set -l fr0 (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep | string collect)
+# peakpos DOES move the ramp (bar/sep/tabs/... hues and chroma profile), so it moves the cap role too.
+set -l frp (__tmux_lives_render_fragment /X/cat.fish S M-s '#485B3C' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.20 deep | string collect)
 set -l cap0 (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$fr0")
 set -l capp (string match -r "@tmux_lives_cap_bg '[^']*'" -- "$frp")
-t "fragment phase changes the cap" 0 (test "$cap0" = "$capp"; and echo 1; or echo 0)
-# the bar is not the seed verbatim for non-mono relationships in 'derived' mode
-# (it's a curve sample) — assert the fragment's status-style bg matches whatever
-# the palette actually derives for ember, not the raw seed.
-set -l fr0pal (__tmux_lives_theme_palette '#485B3C' ember bar derived 0)
-t "fragment bar bg matches the derived bar" 1 (string match -q "*status-style bg=$fr0pal[1]*" -- "$fr0"; and echo 1; or echo 0)
+t "fragment peakpos changes the cap" 0 (test "$cap0" = "$capp"; and echo 1; or echo 0)
+# the bar is a ramp sample, not the seed verbatim — assert the fragment's
+# status-style bg matches whatever the recipe actually renders, not the raw seed.
+set -l fr0pal (__tmux_lives_theme_render '#485B3C' mono 0.55 0.11 0.50 deep)
+t "fragment bar bg matches the rendered bar" 1 (string match -q "*status-style bg=$fr0pal[1]*" -- "$fr0"; and echo 1; or echo 0)
 # post_update runs the v3.1 shim right after the v2 shim
 t "post_update calls the v31 shim" yes (string match -q '*__tmux_lives_migrate_v31*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
 # v3.1 migration erases the dead universals (guarded: save/restore around)
@@ -2203,8 +2525,8 @@ t "install: no stale theme popup height (20)" 0 (string match -q '*-w 52 -h 20*'
 t "setup help no longer lists cap" no (string match -q '*cap [<scheme>]*' -- (__tmux_lives_setup_help_lines | string collect); and echo yes; or echo no)
 
 # --- v3.3 Task 2: the ✦ mark is the seed's home base; claude window coloring
-# is removed. Reuse $fr0 (already the ember/bar/derived/balanced/arc/linear/auto
-# render from the v4 fragment argv section above) and $src (the full source text).
+# is removed. Reuse $fr0 (already the mono/0.55/0.11/0.50/deep v6 recipe render
+# from the fragment argv section above) and $src (the full source text).
 t "fragment mark_fg is the seed verbatim" 1 (string match -q "*@tmux_lives_mark_fg '#485b3c'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment window-status-format is plain (v3.3 render)" 1 (string match -q "*set -g window-status-format '#W'*" -- "$fr0"; and echo 1; or echo 0)
 t "fragment drops claude_color" 0 (string match -q '*claude_color*' -- "$fr0"; and echo 1; or echo 0)
@@ -2675,6 +2997,20 @@ t "ramp: ...and a light seed keeps its full span too" 1 (test (math "abs(($R6GL[
 
 # --- v6 arrangement: ramp positions -> roles ---------------------------------
 # Roles, in order: bar sep tabs active windows cap text.
+
+# The shared ramp-index table: the ONE home of the six patterns' index lists,
+# so __tmux_lives_theme_arrange (which permutes with it) and
+# __tmux_lives_theme_constrain (which will select the text-floor swap partner
+# with it) cannot drift apart.
+t "rampidx: deep" "1 4 2 6 5 3 7" (string join ' ' (__tmux_lives_theme_rampidx deep))
+t "rampidx: bright" "4 5 3 7 6 2 1" (string join ' ' (__tmux_lives_theme_rampidx bright))
+t "rampidx: centre" "3 5 2 6 7 4 1" (string join ' ' (__tmux_lives_theme_rampidx centre))
+t "rampidx: split" "1 3 4 5 6 2 7" (string join ' ' (__tmux_lives_theme_rampidx split))
+t "rampidx: stack" "2 5 3 6 4 1 7" (string join ' ' (__tmux_lives_theme_rampidx stack))
+t "rampidx: accent" "3 5 4 6 2 1 7" (string join ' ' (__tmux_lives_theme_rampidx accent))
+t "rampidx: unknown pattern yields nothing" "" (string join ' ' (__tmux_lives_theme_rampidx nosuch))
+t "rampidx: defined" 1 (functions -q __tmux_lives_theme_rampidx; and echo 1; or echo 0)
+
 set -g A6PATS (__tmux_lives_theme_arrangements)
 t "arrange: there are exactly six patterns" 6 (count $A6PATS)
 
@@ -2795,14 +3131,16 @@ end
 t "arrange: no big role draws a ramp index above 4 (rendered output, not a complete guard)" 1 $A6BIGOK
 
 # C1b (table check — the assertion that actually PINS the invariant): parse
-# the switch block directly out of __tmux_lives_theme_arrange rather than
-# calling it. Extracting a source region with awk and parsing it is an
-# established idiom in this file (see the migrate_v4/migrate_v41
-# body-exclusion greps above) — the brief's claim that "the list lives
-# inside a switch the test cannot read" is simply not true here. With no
-# `arrange` call, no rendering and no stage-one swap anywhere in the path,
-# nothing can mask a violation the way the rendered-output check above
-# demonstrably can.
+# the switch block directly out of __tmux_lives_theme_rampidx — the shared
+# table __tmux_lives_theme_arrange now consumes rather than owns, extracted
+# out to its own function so constrain's text-floor swap can read the same
+# indices without a second copy — rather than calling it. Extracting a
+# source region with awk and parsing it is an established idiom in this file
+# (see the migrate_v4/migrate_v41 body-exclusion greps above) — the brief's
+# claim that "the list lives inside a switch the test cannot read" is simply
+# not true here. With no `arrange` call, no rendering and no stage-one swap
+# anywhere in the path, nothing can mask a violation the way the
+# rendered-output check above demonstrably can.
 set -g A6TBLRAW (awk '/^    switch "\$pattern"$/,/^    end$/' $plugindir/conf.d/tmux-lives-install.fish)
 
 set -g A6TBLNAMES
@@ -2814,7 +3152,11 @@ for line in $A6TBLRAW
         set pending $cm
         continue
     end
-    set -l im (string match -rg '^\s*set idx (.+)$' -- $line)
+    # __tmux_lives_theme_rampidx emits its index list via `printf '%s\n' ...`
+    # rather than `set idx ...` (the extraction target moved when the table
+    # was pulled out of __tmux_lives_theme_arrange), so the capture matches
+    # that literal prefix instead.
+    set -l im (string match -rg "^\s*printf '%s\\\\n' (.+)\$" -- $line)
     if test -n "$im"; and test -n "$pending"
         set -a A6TBLNAMES $pending
         set -a A6TBLLISTS (string join ' ' -- $im)
@@ -3514,6 +3856,49 @@ t "constrain C2: the floor's swap never promotes a big role to the light end" 1 
 # ...and the floor it exists to serve still holds on the same fixture.
 t "constrain C2: restricting the candidates still satisfies the contrast floor" 1 (__t6_floor_ok $A6C2OUT)
 
+# --- constrain: the floor's swap partner is selected STRUCTURALLY, not by
+# --- float argmax over measured lightness -------------------------------
+# The swap picks text's partner by argmax over measured lightness. 188 of
+# 2,142 floor-firing rows sit within 0.0005 of a tie; a flip exchanges a
+# whole colour between two roles (worst measured 0.36 in lightness), and
+# since a scheme is stored as a recipe, a future engine constant would
+# silently repaint a theme the user had already chosen. Ramp indices are
+# integers and distinct by construction, so selecting on them cannot tie.
+#
+# The discriminator is the `bright` arrangement — it is the only pattern
+# where `text` sits at the dark end (ramp 1) while `bar` sits mid-ramp
+# (ramp 4), which is the one genuine tie. Distances from bar's own ramp
+# index, candidates being text (incumbent) and the small roles 2 sep /
+# 4 active / 5 windows; a candidate must STRICTLY beat text.
+#   deep   bar@1: text 6, sep 3, active 5, windows 4  -> text, no swap
+#   bright bar@4: text 3, sep 1, active 3, windows 2  -> text (active ties, loses)
+#   centre bar@3: text 2, sep 2, active 3, windows 4  -> windows, SWAP
+#   split  bar@1: text 6, sep 2, active 4, windows 5  -> text, no swap
+#   stack  bar@2: text 5, sep 3, active 4, windows 2  -> text, no swap
+#   accent bar@3: text 4, sep 2, active 3, windows 1  -> text, no swap
+set -g A6SWAPFIX (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright)
+# Under the OLD float rule this renders #7aa26c #7cb568 #69945a #338000
+# #9dbc93 #5e8550 #192c10 — active receives text's dark, saturated colour.
+# Under the structural rule active keeps its light #b0c9a6 and stage two
+# synthesises text instead. Both satisfy all three bounds, so the sibling
+# assertions below test what they claim rather than failing incidentally.
+t "swap: structural selection changes bright" "#7aa26c #7cb568 #69945a #b0c9a6 #9dbc93 #5e8550 #0d2c00" (string join ' ' $A6SWAPFIX)
+t "swap: the changed bright palette still satisfies the engine bounds" 1 (__t6_inbounds $A6SWAPFIX)
+t "swap: the changed bright palette still clears the contrast floor" 1 (__t6_floor_ok $A6SWAPFIX)
+t "swap: the changed bright palette is not near-white anywhere" 1 (__t6_nowhite_ok $A6SWAPFIX)
+# Five of six arrangements are byte-identical under both rules, so a
+# rendered-output assertion on them proves nothing about which rule ran.
+# These pin that they did NOT move.
+t "swap: deep is unmoved by the structural rule" "#434841 #73a561 #53654d #bed8b5 #9abd8d #638557 #c6e1ba" (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.55 0.11 0.50 deep))
+
+# render() must pass the arrangement into constrain(). Comparing render's
+# output against constrain-called-WITH-the-pattern over the SAME pre-arranged
+# input diverges the moment render stops passing it: the left side stays
+# structural while render falls back to the float rule. The earlier form
+# compared render to a render-derived global and so held for ANY deterministic
+# engine — it could not fail.
+t "swap: render passes the arrangement through to constrain" (string join ' ' (__tmux_lives_theme_constrain (__t6_prearrange '#5fab40' mono 0.28 0.26 0.25 bright) bright)) (string join ' ' (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright))
+
 # The seam bug is not hypothetical: these four seeds are real, reproducible
 # over-counts against the OLD linear-sort implementation (found by the sweep
 # described above), re-verified directly against it (mono #a33460 -> 2,
@@ -3768,5 +4153,117 @@ end
 t "bounds: every arrangement satisfies the engine bounds and no-white at every probe seed" 0 (count $A6FAILS)
 # Surface WHICH combinations failed - a bare count sends the next reader hunting.
 test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
+
+# --- Task 2: the v6 catalog ---------------------------------------------------
+t "catalog v6: 42 rows" 42 (count (__tmux_lives_theme_catalog_v6))
+t "catalog v6: 14 curated" 14 (count (__tmux_lives_theme_catalog_v6_default))
+t "catalog v6: 28 in the rest" 28 (count (__tmux_lives_theme_catalog_v6_rest))
+t "catalog v6: default + rest is the whole catalog" 42 (math (count (__tmux_lives_theme_catalog_v6_default)) + (count (__tmux_lives_theme_catalog_v6_rest)))
+t "catalog v6: every row has 7 fields" 42 (__tmux_lives_theme_catalog_v6 | while read -l l; test (count (string split '|' -- $l)) -eq 7; and echo x; end | count)
+t "catalog v6: names are unique" 42 (__tmux_lives_theme_catalog_v6 | string split -f1 '|' | sort -u | count)
+t "catalog v6: all 7 modes present" 7 (__tmux_lives_theme_catalog_v6 | string split -f2 '|' | sort -u | count)
+t "catalog v6: all 6 arrangements present" 6 (__tmux_lives_theme_catalog_v6 | string split -f6 '|' | sort -u | count)
+t "catalog v6: the curated 14 cover all 6 arrangements" 6 (__tmux_lives_theme_catalog_v6_default | string split -f6 '|' | sort -u | count)
+t "catalog v6: the curated 14 cover all 7 modes" 7 (__tmux_lives_theme_catalog_v6_default | string split -f2 '|' | sort -u | count)
+t "recipe: mono deep is the known-liked classic" "mono 0.55 0.11 0.50 deep" (string join ' ' (__tmux_lives_theme_recipe 'mono deep'))
+t "recipe: an unknown name yields nothing" "" (string join ' ' (__tmux_lives_theme_recipe 'no such scheme'))
+t "recipe: defined" 1 (functions -q __tmux_lives_theme_recipe; and echo 1; or echo 0)
+
+# Value-dimension spread is the property that stops this catalog recreating the
+# v5 collapse (35 catalog rows, one palette shape with the hue nudged), so
+# assert it directly rather than trusting the generation. All three are 4, not
+# 3: the 41 generated rows use three values each (Lspan {0.30, 0.50, 0.70},
+# peakC {0.13, 0.15, 0.17}, peakPos {0.35, 0.55, 0.75}), and mono deep — the
+# hand-placed row — contributes a fourth of each (0.55, 0.11, 0.50). A value of
+# 3 anywhere means a generated row was mistyped or mono deep was normalised
+# onto the grid, which would lose the user's favourite palette.
+t "catalog v6: Lspan is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f3 '|' | sort -u | count)
+t "catalog v6: peakC is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f4 '|' | sort -u | count)
+t "catalog v6: peakPos is spread, not pinned" 4 (__tmux_lives_theme_catalog_v6 | string split -f5 '|' | sort -u | count)
+
+# Every catalog recipe must satisfy ALL THREE bounds at several seeds. Bound 1
+# is the catalog's own contract — __t6_inbounds excludes it on purpose because
+# no clamp can raise a rendered peak the sRGB gamut has capped.
+set -g A6CATFAIL 0
+set -g A6CATN 0
+for s in '#5fab40' '#b7410e' '#2f6fb3'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        set -l p (__tmux_lives_theme_render $s $f[2] $f[3] $f[4] $f[5] $f[6])
+        set -g A6CATN (math $A6CATN + 1)
+        if test (count $p) -ne 7
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+            continue
+        end
+        set -l b (string split ' ' -- (__t6_bounds $p))
+        if test "$b[1]" -lt 0.105; or test "$b[1]" -gt 0.180
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+        else if test (__t6_inbounds $p) -ne 1
+            set -g A6CATFAIL (math $A6CATFAIL + 1)
+        end
+    end
+end
+# The vacuity guard: without this, a loop that silently rendered nothing would
+# report zero failures on the assertion below and pass.
+t "catalog v6: every recipe renders at all three seeds" 126 $A6CATN
+t "catalog v6: every recipe satisfies all three bounds at all three seeds" 0 $A6CATFAIL
+
+# --- Task 8: the roll — sample the MEASURED acceptable ridge, not the v6 core
+# spec's documented envelope. Uniform peakC 0.01-0.26 satisfies bound 1 only
+# 34.6% of the time (measured across 5,865 renders at four seeds); peakC
+# 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so a roll costs about one
+# render. __t6_bounds/__t6_inbounds live in THIS file (not the categorize
+# suite), so the engine-side roll assertions belong here too — only the
+# picker-wiring assertions (case z/tab/a/enter, the frame-row invariant)
+# live in test-tmux-categorize.fish.
+t "roll: defined" 1 (functions -q __tmux_lives_theme_roll; and echo 1; or echo 0)
+t "roll: returns five fields" 5 (count (__tmux_lives_theme_roll '#5fab40'))
+t "roll: the mode is a real harmony mode" 1 (contains -- (__tmux_lives_theme_roll '#5fab40')[1] mono analogous complementary split triadic tetradic square; and echo 1; or echo 0)
+t "roll: the arrangement is a real arrangement" 1 (contains -- (__tmux_lives_theme_roll '#5fab40')[5] (__tmux_lives_theme_arrangements); and echo 1; or echo 0)
+# 40 rolls must all render and all satisfy bound 1. This is the assertion that
+# matters: a roll that can produce a rejected palette defeats the whole point.
+set -g A6ROLLBAD 0
+set -g A6ROLLN 0
+for i in (seq 40)
+    set -l r (__tmux_lives_theme_roll '#5fab40')
+    set -g A6ROLLN (math $A6ROLLN + 1)
+    set -l p (__tmux_lives_theme_render '#5fab40' $r[1] $r[2] $r[3] $r[4] $r[5])
+    if test (count $p) -ne 7
+        set -g A6ROLLBAD (math $A6ROLLBAD + 1)
+        continue
+    end
+    set -l b (string split ' ' -- (__t6_bounds $p))
+    if test "$b[1]" -lt 0.105; or test "$b[1]" -gt 0.180; set -g A6ROLLBAD (math $A6ROLLBAD + 1); end
+end
+t "roll: forty rolls all happened" 40 $A6ROLLN
+t "roll: forty rolls all satisfy bound 1" 0 $A6ROLLBAD
+t "roll: terminates when nothing passes" 5 (count (__tmux_lives_theme_roll '#4a4a4a'))
+# fish landmine guard (2026-07 live bug, still relevant here): capture random
+# into a var BEFORE using it inside quoted math — an inline roll hands math
+# the LITERAL unexpanded text. Scoped to the roll function's own body, not the
+# whole file, matching the equivalent guard the categorize suite already
+# carries for the (now-retired) z-shake code that first hit this landmine.
+t "roll: captures random into a var before quoted math" 0 (count (string match -ar 'math "[^"]*\(random' -- (functions __tmux_lives_theme_roll | string collect)))
+
+# --- Whole-branch review I4: "roll: terminates when nothing passes" (above)
+# only checks arity — measured, the grey seed #4a4a4a actually satisfies
+# bound 1 on 25 of 25 rolls, so the exhaustion fallback (the last line of
+# __tmux_lives_theme_roll, reached only when all 8 attempts miss bound 1)
+# never fires for that seed, and no real seed makes it deterministic (the
+# worst measured, #0a0a0a/#000000/#ffffff/#f8f8f8/#101010, is 1 miss in 6).
+# Replacing the fallback's "printf $r; return 0" with "return 1" leaves that
+# assertion reading 5 regardless — count() of nothing readable is not even
+# exercised. Force the exhaustion path deterministically instead: stub
+# __tmux_lives_theme_render to always return a palette whose peak chroma is
+# pinned at zero (a neutral grey has none), so EVERY one of the 8 attempts
+# fails bound 1 and the loop can only ever reach the fallback.
+set -g __ti_realrender (functions __tmux_lives_theme_render | string collect)
+function __tmux_lives_theme_render
+    printf '%s\n' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080'
+end
+t "roll: the fallback still returns five fields when every attempt misses bound 1" 5 (count (__tmux_lives_theme_roll '#4a4a4a'))
+t "roll: the fallback's arrangement is still a real arrangement (not empty/garbage)" 1 (contains -- (__tmux_lives_theme_roll '#4a4a4a')[5] (__tmux_lives_theme_arrangements); and echo 1; or echo 0)
+functions -e __tmux_lives_theme_render
+eval $__ti_realrender
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

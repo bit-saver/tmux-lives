@@ -25,11 +25,12 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l statusviskey $argv[10]  # root-table status-visibility toggle ('' = no bind)
     set -l cursorstyle $argv[11]   # steady cursor-style (block|bar|underline) to stop the ShellFish cursor flicker; '' = leave tmux's default. See [[shellfish-cursor-flicker]].
     set -l themekey $argv[12]     # root-table theme-picker key ('' = no bind)
-    set -l theme $argv[13]        # v5 relationship ('' or 'off' = legacy; write_fragment passes the effective default mono)
-    set -l place $argv[14]        #   14 place       seed placement bar|tabs|cap ('' = bar)
-    set -l mode $argv[15]         #   15 mode        literal|derived ('' = derived)
-    set -l themephase $argv[16]   #   16 themephase  hue phase in degrees ('' = 0)
-    set -l syncterm $argv[17]     #   17 syncterm    TERM glob told to use synchronized output ('' = off)
+    set -l theme $argv[13]        # v6 harmony mode ('' or 'off' = legacy; write_fragment passes the effective default mono)
+    set -l tlspan $argv[14]       #   14 lspan       lightness span
+    set -l tpeakc $argv[15]       #   15 peakc       peak chroma
+    set -l tpeakpos $argv[16]     #   16 peakpos     chroma peak position along the ramp
+    set -l tarr $argv[17]         #   17 arrangement ramp-position-to-role pattern
+    set -l syncterm $argv[18]     #   18 syncterm    TERM glob told to use synchronized output ('' = off)
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -101,10 +102,10 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # Plain run-shell (no -b) is SYNCHRONOUS in tmux 3.3a — verified — so the value is in
     # place before the fragment finishes sourcing.
     set -a f "run-shell \"fish --no-config $cat status-right-install '$color'\""
-    # --- theme engine v5 (relationship curve): with a relationship in argv[13] the whole bar
-    # renders from the 7-role gradient palette (bar sep tabs active windows cap text) via
-    # __tmux_lives_theme_palette (seed + relationship/place/mode/phase); otherwise the v2
-    # path is unchanged.
+    # --- theme engine v6 (recipe): with a harmony mode in argv[13] the whole bar renders
+    # from the 7-role palette (bar sep tabs active windows cap text) via
+    # __tmux_lives_theme_render (seed + mode/lspan/peakc/peakpos/arrangement — a scheme is a
+    # RECIPE, not stored hexes); otherwise the v2 path is unchanged.
     set -l tpal
     # declared OUTSIDE the if: fish's `set -l` scopes to the enclosing BLOCK (if/for/while),
     # not just the function — a `set -l` inside the `if` below would go out of scope at its
@@ -112,7 +113,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l seedhex
     if test -n "$theme"
         set seedhex (__tmux_lives_seed_hex $color)
-        test -n "$seedhex"; and set tpal (__tmux_lives_theme_palette $seedhex "$theme" "$place" "$mode" "$themephase")
+        test -n "$seedhex"; and set tpal (__tmux_lives_theme_render $seedhex "$theme" "$tlspan" "$tpeakc" "$tpeakpos" "$tarr")
     end
     set -l themed 0
     test (count $tpal) -eq 7; and set themed 1
@@ -296,7 +297,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_place bar) (__tmux_lives_key tmux_lives_theme_mode derived) (__tmux_lives_key tmux_lives_theme_phase 0) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_lspan 0.55) (__tmux_lives_key tmux_lives_theme_peakc 0.11) (__tmux_lives_key tmux_lives_theme_peakpos 0.50) (__tmux_lives_key tmux_lives_theme_arrangement deep) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -687,26 +688,30 @@ function __tmux_lives_theme_arrangements --description 'v6: the six arrangement 
     printf '%s\n' deep bright centre split stack accent
 end
 
-function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. A PURE permutation — every output colour is one of the seven inputs, always. Unknown pattern -> nothing, status 1.'
-    set -l hexes $argv[2..8]
-    test (count $hexes) -eq 7; or return 1
-    set -l idx
+function __tmux_lives_theme_rampidx --argument-names pattern --description 'v6: an arrangement pattern -> its seven ramp indices, position i naming the ramp index that becomes role i (bar sep tabs active windows cap text). THE one home of the table: __tmux_lives_theme_arrange permutes with it and __tmux_lives_theme_constrain selects the text-floor swap partner with it, so the two cannot drift. Unknown pattern -> nothing, status 1.'
     switch "$pattern"
         case deep
-            set idx 1 4 2 6 5 3 7
+            printf '%s\n' 1 4 2 6 5 3 7
         case bright
-            set idx 4 5 3 7 6 2 1
+            printf '%s\n' 4 5 3 7 6 2 1
         case centre
-            set idx 3 5 2 6 7 4 1
+            printf '%s\n' 3 5 2 6 7 4 1
         case split
-            set idx 1 3 4 5 6 2 7
+            printf '%s\n' 1 3 4 5 6 2 7
         case stack
-            set idx 2 5 3 6 4 1 7
+            printf '%s\n' 2 5 3 6 4 1 7
         case accent
-            set idx 3 5 4 6 2 1 7
+            printf '%s\n' 3 5 4 6 2 1 7
         case '*'
             return 1
     end
+end
+
+function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: seven ramp-ordered hexes (dark to light) in $argv[2..8] -> the same seven reordered into role order bar sep tabs active windows cap text. Each pattern is a permutation of ramp indices; position i names the ramp index that becomes role i. A PURE permutation — every output colour is one of the seven inputs, always. Unknown pattern -> nothing, status 1.'
+    set -l hexes $argv[2..8]
+    test (count $hexes) -eq 7; or return 1
+    set -l idx (__tmux_lives_theme_rampidx "$pattern")
+    test (count $idx) -eq 7; or return 1
     set -l out
     for i in $idx
         set -a out $hexes[$i]
@@ -715,8 +720,13 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
 end
 
 function __tmux_lives_theme_constrain --description 'v6: seven arranged role hexes -> the same seven made ACCEPTABLE. arrange decides which colour goes where and stays a pure permutation; this decides what a colour must become. Order is load-bearing and fixed: big-role lightness clamp, big-role chroma clamp, no-white, then the text-contrast floor LAST because legibility is correctness and every earlier step can move bar or text.'
-    set -l out $argv
+    set -l out $argv[1..7]
     test (count $out) -eq 7; or return 1
+    # Optional 8th arg: the arrangement pattern. Production (render) ALWAYS
+    # passes it. Direct callers with a synthetic fixture have no arrangement
+    # and fall back to the lightness rule below, which is the only thing
+    # available without ramp information.
+    set -l pat "$argv[8]"
 
     # Bound 3: no large surface may be pale. The arrangement table keeps big
     # roles on ramp indices 1-4, but that is not sufficient — the window is
@@ -915,12 +925,32 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         # (1 3 6) — an unlinked partition, not a shared constant. Nothing
         # checks the two stay in sync; if either changes, check the other
         # by hand.
-        for i in 2 4 5
-            set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
-            set -l d (math "abs($li[1] - $lb[1])")
-            if test "$d" -gt "$bestd"
-                set best $i
-                set bestd $d
+        # Selection is STRUCTURAL when the pattern is known: ramp indices are
+        # integers and distinct by construction, so there is no tie to sit on
+        # and no engine constant can flip which colour becomes text. The float
+        # argmax it replaces had 188 of 2,142 floor-firing rows within 0.0005
+        # of a tie, and a flip EXCHANGES two roles' colours (worst measured
+        # 0.36 in lightness) — which would silently repaint a stored recipe.
+        # Mirrors the float rule exactly: text is the incumbent and a
+        # candidate must STRICTLY beat it.
+        set -l ridx (__tmux_lives_theme_rampidx "$pat")
+        if test (count $ridx) -eq 7
+            set -l bd (math "abs($ridx[7] - $ridx[1])")
+            for i in 2 4 5
+                set -l d (math "abs($ridx[$i] - $ridx[1])")
+                if test "$d" -gt "$bd"
+                    set best $i
+                    set bd $d
+                end
+            end
+        else
+            for i in 2 4 5
+                set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
+                set -l d (math "abs($li[1] - $lb[1])")
+                if test "$d" -gt "$bestd"
+                    set best $i
+                    set bestd $d
+                end
             end
         end
         if test $best -ne 7
@@ -1153,7 +1183,40 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     end
     set -l pal (__tmux_lives_theme_arrange "$arrangement" $hexes)
     test (count $pal) -eq 7; or return
-    __tmux_lives_theme_constrain $pal
+    __tmux_lives_theme_constrain $pal $arrangement
+end
+
+function __tmux_lives_theme_roll --argument-names seedHex --description 'v6: sample a recipe from the MEASURED acceptable ridge and return its five fields. Sampling the v6 core spec s documented envelope (peakC 0.01-0.26 uniform) satisfies bound 1 only 34.6% of the time; the region is a diagonal ridge that INVERTS — below peakC ~0.10 nothing passes at any position, and above ~0.20 the middle fails while the ends pass, because a mid-ramp peak sits where the gamut has headroom and overshoots the ceiling while an end peak is clipped back into range. peakC 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so this costs about one render. Rejects and resamples on a bound-1 miss, capped; on exhaustion returns the last candidate rather than nothing, because refusing to render is a worse outcome than one slightly-off palette.'
+    set -l modes mono analogous complementary split triadic tetradic square
+    set -l arrs (__tmux_lives_theme_arrangements)
+    set -l r
+    for attempt in (seq 8)
+        set -l m $modes[(random 1 (count $modes))]
+        set -l a $arrs[(random 1 (count $arrs))]
+        # Capture random into a var FIRST: fish performs NO command substitution
+        # inside double-quoted math, so an inline roll would hand math the
+        # LITERAL unexpanded text.
+        set -l rs (random 30 70)
+        set -l rc (random 130 180)
+        set -l rp (random 30 85)
+        set -l sp (math "$rs / 100")
+        set -l pc (math "$rc / 1000")
+        set -l po (math "$rp / 100")
+        set r $m $sp $pc $po $a
+        set -l p (__tmux_lives_theme_render $seedHex $m $sp $pc $po $a)
+        test (count $p) -eq 7; or continue
+        set -l peak 0
+        for hx in $p
+            set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $hx))
+            test "$o[2]" -gt "$peak"; and set peak $o[2]
+        end
+        if test "$peak" -ge 0.105; and test "$peak" -le 0.180
+            printf '%s\n' $r
+            return 0
+        end
+    end
+    printf '%s\n' $r
+    return 0
 end
 
 function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> readable fg via WCAG relative luminance: #111111 (light-ish bg) or #f5f5f5 (dark bg), crossover 0.179. Non-hex input (e.g. a tmux colourNNN fallback from a caller) -> #f5f5f5, matching v1s unparseable fallback.'
@@ -1316,6 +1379,87 @@ function __tmux_lives_theme_catalog_rest --description 'the non-curated catalog 
     __tmux_lives_theme_catalog | string match -rv '\|1$'
 end
 
+# --- theme engine v6: catalog --------------------------------------------------
+function __tmux_lives_theme_catalog_v6 --description 'v6 catalog: 42 schemes as name|mode|lspan|peakc|peakpos|arrangement|default (1 = in the curated 14). The COMPLETE 7-mode x 6-arrangement grid, one tuned recipe per cell, so nothing is arbitrary and curation later REMOVES rather than guesses. Names are descriptive (<mode> <arrangement>) on purpose: the set is provisional, generated rather than hand-picked, and meant to teach the space until real use replaces it. Generated from a 3,402-render sweep at three seeds keeping only recipes that satisfy all three bounds at ALL of them with a bound-1 margin >= 0.010, then filling cells by least-used (Lspan, peakC, peakPos) triple so the VALUE dimensions spread instead of collapsing onto one shape — collapse being precisely the v5 defect v6 exists to escape. mono deep is the one hand-placed row (the users repeatedly-favourite palette); its bound-1 margin is 0.0050 against >= 0.0113 everywhere else, so it is the least robust row in the catalog and is kept for being liked, not for being safe.'
+    printf '%s\n' \
+        'mono deep|mono|0.55|0.11|0.50|deep|1' \
+        'mono bright|mono|0.50|0.17|0.55|bright|1' \
+        'mono centre|mono|0.30|0.15|0.75|centre|0' \
+        'mono split|mono|0.70|0.13|0.35|split|0' \
+        'mono stack|mono|0.70|0.15|0.55|stack|0' \
+        'mono accent|mono|0.30|0.17|0.75|accent|0' \
+        'analogous deep|analogous|0.50|0.17|0.35|deep|0' \
+        'analogous bright|analogous|0.70|0.13|0.55|bright|0' \
+        'analogous centre|analogous|0.50|0.15|0.75|centre|1' \
+        'analogous split|analogous|0.30|0.13|0.55|split|1' \
+        'analogous stack|analogous|0.30|0.17|0.35|stack|0' \
+        'analogous accent|analogous|0.70|0.15|0.75|accent|0' \
+        'complementary deep|complementary|0.50|0.13|0.35|deep|0' \
+        'complementary bright|complementary|0.30|0.17|0.55|bright|0' \
+        'complementary centre|complementary|0.50|0.13|0.75|centre|0' \
+        'complementary split|complementary|0.70|0.15|0.35|split|0' \
+        'complementary stack|complementary|0.70|0.17|0.75|stack|1' \
+        'complementary accent|complementary|0.30|0.15|0.35|accent|1' \
+        'split deep|split|0.50|0.13|0.55|deep|1' \
+        'split bright|split|0.70|0.17|0.55|bright|1' \
+        'split centre|split|0.30|0.13|0.75|centre|0' \
+        'split split|split|0.50|0.15|0.55|split|0' \
+        'split stack|split|0.70|0.17|0.35|stack|0' \
+        'split accent|split|0.30|0.15|0.55|accent|0' \
+        'triadic deep|triadic|0.50|0.17|0.75|deep|0' \
+        'triadic bright|triadic|0.70|0.13|0.75|bright|0' \
+        'triadic centre|triadic|0.30|0.15|0.75|centre|1' \
+        'triadic split|triadic|0.30|0.13|0.35|split|1' \
+        'triadic stack|triadic|0.50|0.15|0.35|stack|0' \
+        'triadic accent|triadic|0.70|0.17|0.55|accent|0' \
+        'tetradic deep|tetradic|0.50|0.17|0.35|deep|0' \
+        'tetradic bright|tetradic|0.30|0.13|0.55|bright|0' \
+        'tetradic centre|tetradic|0.70|0.15|0.75|centre|0' \
+        'tetradic split|tetradic|0.50|0.13|0.55|split|0' \
+        'tetradic stack|tetradic|0.30|0.17|0.35|stack|1' \
+        'tetradic accent|tetradic|0.50|0.15|0.75|accent|1' \
+        'square deep|square|0.70|0.17|0.35|deep|1' \
+        'square bright|square|0.70|0.13|0.75|bright|1' \
+        'square centre|square|0.50|0.15|0.55|centre|0' \
+        'square split|square|0.30|0.13|0.75|split|0' \
+        'square stack|square|0.30|0.15|0.35|stack|0' \
+        'square accent|square|0.50|0.17|0.55|accent|0'
+end
+
+function __tmux_lives_theme_catalog_v6_default --description 'v6: the curated 14 — catalog rows flagged default=1. Two arrangements per mode, chosen so all seven modes AND all six arrangements are reachable from a cold open.'
+    # -e/--entire: a bare `-r '\|1$'` outputs only the matched substring ("|1"),
+    # not the whole line, since the pattern isn't anchored at the start — the
+    # same fish landmine __tmux_lives_theme_catalog_default (v5, above) hits.
+    __tmux_lives_theme_catalog_v6 | string match -re '\|1$'
+end
+
+function __tmux_lives_theme_catalog_v6_rest --description 'v6: the 28 non-curated rows, in catalog order. The picker appends these under the More Schemes header so the curated rows keep their positions.'
+    # -v inverts; --entire is not needed with -v (it emits whole non-matching lines).
+    __tmux_lives_theme_catalog_v6 | string match -rv '\|1$'
+end
+
+function __tmux_lives_theme_recipe --argument-names name --description 'v6: a catalog scheme NAME -> its five recipe fields (mode lspan peakc peakpos arrangement), one per line. The name is a label resolved by lookup and is never stored — the recipe is the identity. Unknown name -> nothing, status 1.'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        if test "$f[1]" = "$name"
+            printf '%s\n' $f[2] $f[3] $f[4] $f[5] $f[6]
+            return 0
+        end
+    end
+    return 1
+end
+
+function __tmux_lives_theme_catalog_name --argument-names mode lspan peakc peakpos arrangement --description 'v6: the reverse of __tmux_lives_theme_recipe — five recipe fields -> the catalog NAME that resolves to them, or nothing (status 1) when no catalog row matches exactly. Because the catalog is the complete 7-mode x 6-arrangement grid, a <mode> <arrangement> pair is ALWAYS some valid catalog name — which is exactly why a caller cannot fall back to printing that pair unconditionally: for a stored recipe that does not match ANY row (a saved roll, functions/tmux-categorize.fish case z, is a real valid recipe built to deliberately match no catalog row) that pair names a real, different, wrong scheme. Callers must treat empty as a real outcome, not an error. Mirrors __tcz_thp_init'"'"'s own reverse lookup in the picker (functions/tmux-categorize.fish) — keep both in sync.'
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        if test "$f[2]" = "$mode"; and test "$f[3]" = "$lspan"; and test "$f[4]" = "$peakc"; and test "$f[5]" = "$peakpos"; and test "$f[6]" = "$arrangement"
+            echo $f[1]
+            return 0
+        end
+    end
+    return 1
+end
+
 function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
     switch "$name"
         case mono;  echo 0
@@ -1456,20 +1600,21 @@ function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <
     end
 end
 
-function __tmux_lives_theme_apply_live --description 'internal: push the effective v5 theme (or legacy when off/seedless) to the live server. With exactly 4 args (relationship place mode phase) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
-    set -l theme; set -l place; set -l mode; set -l phase
-    if test (count $argv) -eq 4
-        set theme $argv[1]; set place $argv[2]; set mode $argv[3]; set phase $argv[4]
+function __tmux_lives_theme_apply_live --description 'internal: push the effective v6 theme (or legacy when off/seedless) to the live server. With exactly 5 args (mode lspan peakc peakpos arrangement) pushes THOSE values instead of the universals — the picker preview path; writes no state.'
+    set -l theme; set -l tlspan; set -l tpeakc; set -l tpeakpos; set -l tarr
+    if test (count $argv) -eq 5
+        set theme $argv[1]; set tlspan $argv[2]; set tpeakc $argv[3]; set tpeakpos $argv[4]; set tarr $argv[5]
     else
         set theme (__tmux_lives_key tmux_lives_theme mono)
-        set place (__tmux_lives_key tmux_lives_theme_place bar)
-        set mode (__tmux_lives_key tmux_lives_theme_mode derived)
-        set phase (__tmux_lives_key tmux_lives_theme_phase 0)
+        set tlspan (__tmux_lives_key tmux_lives_theme_lspan 0.55)
+        set tpeakc (__tmux_lives_key tmux_lives_theme_peakc 0.11)
+        set tpeakpos (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+        set tarr (__tmux_lives_key tmux_lives_theme_arrangement deep)
     end
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_palette $seed "$theme" "$place" "$mode" $phase)
+        set tpal (__tmux_lives_theme_render $seed "$theme" "$tlspan" "$tpeakc" "$tpeakpos" "$tarr")
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -1498,17 +1643,12 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     __tmux_lives_theme_push @tmux_lives_text_fg default
 end
 
-function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every catalog scheme + a 7-role gradient strip at the current seed/phase'
+function __tmux_lives_theme_list --description 'tmux-lives setup theme list: every v6 catalog scheme + a 7-role strip at the current seed'
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
-    set -l phase (__tmux_lives_key tmux_lives_theme_phase 0)
-    for entry in (__tmux_lives_theme_catalog)
+    for entry in (__tmux_lives_theme_catalog_v6)
         set -l f (string split '|' $entry)
-        set -l name $f[1]
-        set -l rel $f[2]
-        set -l place $f[3]
-        set -l mode $f[4]
-        set -l pal (__tmux_lives_theme_palette $seed $rel $place $mode $phase)
+        set -l pal (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal
@@ -1516,11 +1656,11 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
             test (count $m) -eq 3; or continue
             set -a strip (printf '\e[48;2;%d;%d;%dm  \e[0m' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]"))
         end
-        printf '%s %-11s %s\n' (string join '' $strip) $name $pal[6]
+        printf '%s %-20s %s\n' (string join '' $strip) $f[1] $pal[6]
     end
 end
 
-function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relationship>|list|off] [--phase <deg>] [--place bar|tabs|cap] [--mode literal|derived]: the v5 bar theme (relationship x placement x mode)'
+function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<scheme>|list|off]: the v6 bar theme, chosen by catalog scheme name (see: tmux-lives setup theme list)'
     if test (count $argv) -eq 0
         # inside tmux with display-popup: open the picker (the discovery surface);
         # otherwise print the current state.
@@ -1533,17 +1673,29 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
             end
         end
         set -l cur (__tmux_lives_key tmux_lives_theme mono)
-        test "$cur" = off; and echo "theme: off (legacy bar colors)"; or echo "theme: $cur"
-        set -l tphase (__tmux_lives_key tmux_lives_theme_phase 0)
-        set -l tplace (__tmux_lives_key tmux_lives_theme_place bar)
-        set -l tmode (__tmux_lives_key tmux_lives_theme_mode derived)
-        echo "  phase: $tphase   place: $tplace   mode: $tmode"
+        test "$cur" = off; and echo "theme: off (legacy bar colors)"; or begin
+            set -l lspan (__tmux_lives_key tmux_lives_theme_lspan 0.55)
+            set -l peakc (__tmux_lives_key tmux_lives_theme_peakc 0.11)
+            set -l peakpos (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+            set -l arr (__tmux_lives_key tmux_lives_theme_arrangement deep)
+            # Whole-branch review I3: because the catalog is the complete 7x6
+            # grid, "<mode> <arrangement>" is ALWAYS some real catalog name —
+            # printing it unconditionally (the old behaviour) named a real,
+            # DIFFERENT scheme for a stored recipe the user does not actually
+            # have (e.g. a saved roll, which by construction matches no
+            # catalog row). Resolve it for real instead of assuming the pair
+            # always names itself.
+            set -l name (__tmux_lives_theme_catalog_name $cur $lspan $peakc $peakpos $arr)
+            if test -n "$name"
+                echo "theme: $name"
+            else
+                echo "theme: $cur $arr (custom recipe)"
+            end
+            echo "  span: $lspan   peak chroma: $peakc   peak at: $peakpos"
+        end
         return 0
     end
     set -l scheme; set -l have_scheme 0
-    set -l phase; set -l have_phase 0
-    set -l place; set -l have_place 0
-    set -l mode; set -l have_mode 0
     set -l i 1
     while test $i -le (count $argv)
         switch $argv[$i]
@@ -1554,70 +1706,56 @@ function __tmux_lives_theme_cmd --description 'tmux-lives setup theme [<relation
                 set -U tmux_lives_theme off
                 __tmux_lives_write_fragment
                 __tmux_lives_theme_apply_live
-                echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono')"
+                echo "tmux-lives: theme off — legacy bar colors (re-enable with 'tmux-lives setup theme mono deep')"
                 return 0
-            case --phase
-                set i (math $i + 1); set phase $argv[$i]; set have_phase 1
+            case --place --mode --phase
+                echo "tmux-lives setup theme: $argv[$i] was removed in v6 — a scheme is now a recipe (mode, lightness span, peak chroma, peak position, arrangement) chosen by name; see 'tmux-lives setup theme list'" >&2
+                return 1
             case --vividness --shape --ease --contrast
                 echo "tmux-lives setup theme: $argv[$i] was removed in v5.1 — it never affected the output" >&2
                 return 1
-            case --place
-                set i (math $i + 1); set place $argv[$i]; set have_place 1
-            case --mode
-                set i (math $i + 1); set mode $argv[$i]; set have_mode 1
             case --rotate
-                echo "tmux-lives setup theme: --rotate was removed in v4 — use --place bar|tabs|cap to move the seed instead" >&2
+                echo "tmux-lives setup theme: --rotate was removed in v4 — a scheme now bundles its own hue arrangement; pick a different scheme by name (see 'tmux-lives setup theme list')" >&2
                 return 1
             case '*'
-                set scheme $argv[$i]; set have_scheme 1
+                # Every catalog name is two words (e.g. "mono deep") and arrives here
+                # unquoted from a real shell invocation — accumulate rather than
+                # overwrite, or every scheme in the product is unreachable without
+                # the caller quoting it (which nothing tells them to do).
+                if test $have_scheme -eq 1
+                    set scheme "$scheme $argv[$i]"
+                else
+                    set scheme $argv[$i]; set have_scheme 1
+                end
         end
         set i (math $i + 1)
     end
     # Validate everything before mutating any state (same contract as setup cap).
-    if test $have_scheme -eq 1; and not __tmux_lives_theme_valid "$scheme"
-        echo "tmux-lives setup theme: invalid relationship '$scheme' — valid: "(__tmux_lives_theme_relationships | string join ', ')" (or: list, off)" >&2
-        return 1
-    end
-    if test $have_phase -eq 1; and not string match -qr -- '^-?[0-9]+$' "$phase"
-        echo "tmux-lives setup theme: invalid phase '$phase' — whole degrees, e.g. --phase -30" >&2
-        return 1
-    end
-    test $have_phase -eq 1; and set phase (math "$phase % 360")
-    if test $have_place -eq 1
-        switch "$place"
-            case bar tabs cap
-            case '*'
-                echo "tmux-lives setup theme: invalid place '$place' — valid: bar, tabs, cap" >&2
-                return 1
-        end
-    end
-    if test $have_mode -eq 1
-        switch "$mode"
-            case literal derived
-            case '*'
-                echo "tmux-lives setup theme: invalid mode '$mode' — valid: literal, derived" >&2
-                return 1
-        end
-    end
+    set -l rec
     if test $have_scheme -eq 1
+        set rec (__tmux_lives_theme_recipe "$scheme")
+        if test (count $rec) -ne 5
+            echo "tmux-lives setup theme: unknown scheme '$scheme' — see 'tmux-lives setup theme list' (or: off)" >&2
+            return 1
+        end
         set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
         if test -z "$seed"
             echo "tmux-lives setup theme: no seed color — set one first: tmux-lives setup color '#rrggbb' (hex or rgb(); named colors have no derivable hue)" >&2
             return 1
         end
     end
-    test $have_phase -eq 1; and set -U tmux_lives_theme_phase $phase
-    test $have_place -eq 1; and set -U tmux_lives_theme_place $place
-    test $have_mode -eq 1; and set -U tmux_lives_theme_mode $mode
-    test $have_scheme -eq 1; and set -U tmux_lives_theme $scheme
+    if test $have_scheme -eq 1
+        set -U tmux_lives_theme $rec[1]
+        set -U tmux_lives_theme_lspan $rec[2]
+        set -U tmux_lives_theme_peakc $rec[3]
+        set -U tmux_lives_theme_peakpos $rec[4]
+        set -U tmux_lives_theme_arrangement $rec[5]
+    end
     # Persist into the fragment AND apply live (no reattach): write_fragment re-renders +
     # reloads; apply_live covers a server the reload can't reach (and the test seam).
     __tmux_lives_write_fragment
     __tmux_lives_theme_apply_live
     test $have_scheme -eq 1; and echo "tmux-lives: theme set to $scheme"
-    test $have_phase -eq 1; and echo "tmux-lives: theme phase set to $phase"
-    test $have_place -eq 1; and echo "tmux-lives: theme place set to $place"
-    test $have_mode -eq 1; and echo "tmux-lives: theme mode set to $mode"
 end
 
 function __tmux_lives_baseline_path --description 'path to the user-owned non-ShellFish baseline file (seam: tmux_lives_baseline_conf)'
@@ -1863,10 +2001,7 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         "      --theme-key <key>     theme picker (default: M-k; '' off)" \
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
-        'theme [<rel>|list|off]      seed-based bar theme; no-arg=picker' \
-        "      --place <p>           bar|tabs|cap (default: bar)" \
-        "      --mode <m>            literal|derived (default: derived)" \
-        "      --phase <deg>         rotate the hue arc (default: 0)" \
+        'theme [<scheme>|list|off]   seed-based bar theme; no-arg=picker' \
         'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
 end
 
@@ -2019,6 +2154,10 @@ function __tmux_lives_migrate_v31 --description 'v3 -> v3.1 seed-anchored migrat
 end
 
 function __tmux_lives_migrate_v4 --description 'idempotent on fisher update: preserve the seed, retire tmux_lives_theme_rotate, and map a retired v3 scheme name onto v4 (mono/bar/derived). One notice when it changes anything.'
+    # A v6 install is already past v4: tmux_lives_theme holds a v6 HARMONY MODE,
+    # and six of the seven are not v5 relationship names — the reset branch below
+    # would clobber the user's chosen scheme on every future fisher update.
+    set -q tmux_lives_theme_arrangement; and return 0
     set -l changed 0
     if set -q tmux_lives_theme_rotate
         set -e tmux_lives_theme_rotate
@@ -2067,6 +2206,26 @@ function __tmux_lives_migrate_v52 --description 'v5.1 -> v5.2: auto-apply-on-dwe
     return 0
 end
 
+function __tmux_lives_migrate_v6 --description 'v5.2 -> v6: relationship/place/mode/phase have no v6 meaning — a scheme is a five-field RECIPE now, and no mapping from the old vocabulary would be trustworthy. Reset to the curated default (mono deep, the palette the user identified as their favourite) and PRESERVE THE SEED, which is the one thing that carries over. Leaves `off` alone. Scope-less `set -e`, like _v51/_v52: a scoped `set -e -U` silently no-ops under `fish --no-config`. Idempotent; runs on fisher update.'
+    # Already migrated if the recipe fields exist; nothing stored at all is a
+    # fresh install, which needs no notice either.
+    set -q tmux_lives_theme_arrangement; and return 0
+    set -q tmux_lives_theme_place; or set -q tmux_lives_theme_mode; or set -q tmux_lives_theme_phase; or set -q tmux_lives_theme; or return 0
+    set -e tmux_lives_theme_place
+    set -e tmux_lives_theme_mode
+    set -e tmux_lives_theme_phase
+    if test "$tmux_lives_theme" = off
+        return 0
+    end
+    set -U tmux_lives_theme mono
+    set -U tmux_lives_theme_lspan 0.55
+    set -U tmux_lives_theme_peakc 0.11
+    set -U tmux_lives_theme_peakpos 0.50
+    set -U tmux_lives_theme_arrangement deep
+    echo "tmux-lives: theme engine v6 — your old scheme has no v6 equivalent, so it is reset to 'mono deep' (your seed color is unchanged). Browse the rest with 'tmux-lives setup theme list' or the picker."
+    return 0
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -2077,6 +2236,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     __tmux_lives_migrate_v41
     __tmux_lives_migrate_v51
     __tmux_lives_migrate_v52
+    __tmux_lives_migrate_v6
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment

@@ -2426,14 +2426,14 @@ function __tcz_thp_leg --argument-names cols --description 'memoizing front for 
     test (count $fresh) -gt 0; and printf '%s\n' $fresh
 end
 
-function __tcz_thp_apply_and_recolor --description 'apply <seed> [scheme place mode phase] live via a config-loaded subprocess child, invoked with -c (the only way to reach set -U/@tmux_lives_bar_color from this --no-config runtime), flush the per-pass tmux global-@option memo so the very next read reflects the write just made rather than whatever this pass loaded before it (tick-call-batching task 2 review fix: the picker loop is the one genuinely long-lived pass in this codebase -- __tcz_tmux_load never re-fires across its whole while-true session, so a write from a CHILD process is invisible to it without this), then push the resolved tab colour to attached ShellFish/iTerm2 clients via __tcz_tab_color + __tcz_recolor. Flush lives HERE, right after the write, not before each read site -- a future read site is then correct for free instead of needing to remember to flush first. Shared by every write-then-recolor site in the theme picker (apply/off/list preview in __tcz_thp_apply_now, and the esc/cancel revert) -- none of these reads wants the pre-write value (contrast __tcz_set_claude_opt'"'"'s dedup read, which does and must not gain a flush).'
+function __tcz_thp_apply_and_recolor --description 'apply <seed> [mode lspan peakc peakpos arrangement] live via a config-loaded subprocess child, invoked with -c (the only way to reach set -U/@tmux_lives_bar_color from this --no-config runtime), flush the per-pass tmux global-@option memo so the very next read reflects the write just made rather than whatever this pass loaded before it (tick-call-batching task 2 review fix: the picker loop is the one genuinely long-lived pass in this codebase -- __tcz_tmux_load never re-fires across its whole while-true session, so a write from a CHILD process is invisible to it without this), then push the resolved tab colour to attached ShellFish/iTerm2 clients via __tcz_tab_color + __tcz_recolor. Flush lives HERE, right after the write, not before each read site -- a future read site is then correct for free instead of needing to remember to flush first. Shared by every write-then-recolor site in the theme picker (apply/off/list preview in __tcz_thp_apply_now, and the esc/cancel revert) -- none of these reads wants the pre-write value (contrast __tcz_set_claude_opt'"'"'s dedup read, which does and must not gain a flush).'
     fish -c 'set -g tmux_lives_bar_color $argv[1]; __tmux_lives_theme_apply_live $argv[2..]' $argv >/dev/null 2>&1
     __tcz_tmux_flush
     set -l tabhex (__tcz_tab_color '')
     test -n "$tabhex"; and __tcz_recolor "$tabhex"
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of catalog entries (all 35 by default — the More Schemes header still marks where the curated 14 end and the rest begin; m collapses to just the curated 14) — each entry is a full recipe (relationship + seed placement + mode) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state) tracks which list ↑↓/jk steers; ⇥ toggles it, and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchor recipe (relationship AND place AND mode) AND the live phase — it clears the moment phase is nudged. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->35 (opens expanded; reloads and clamps sel to the new length), z shake (jump to a random row across the full 35-entry catalog, forcing expanded — a no-op on the default open, real once collapsed), a apply preview (no save; a scheme/off row previews its own recipe at the live phase, the current row previews its own frozen recipe plus its phase snapshot — vividness/shape/ease/contrast were removed, provably inert, never reached the engine), enter save (via the CLI, silenced — the selected rows recipe plus the live phase; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — place and mode now come from the selected catalog entrys recipe, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 4 rows idle / 9 editing — Task 6 grew the colour block 2 -> 3 rows so the hex could move off to the side and into the middle of the block; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-35 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of catalog entries (all 42 by default — the More Schemes header still marks where the curated 14 end and the rest begin; m collapses to just the curated 14) — each entry is a full five-field recipe (mode, lightness span, peak chroma, peak position, arrangement) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state/roll) tracks which list ↑↓/jk steers; ⇥ cycles between them (list -> state -> roll -> list, or list -> state -> list before the first roll of the session), and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchors full five-field recipe — it clears the moment any field of it differs. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->42 (opens expanded; reloads and clamps sel to the new length), z roll (sample a genuine recipe from the measured acceptable ridge of the full v6 space — not a catalog row at all — and push it as a new, session-local, 12-deep history reachable via ⇥; ↑↓ steps back through it), a apply preview (no save; a scheme/off row previews its own recipe, the current row previews its own frozen recipe — vividness/shape/ease/contrast were removed in v5.1, provably inert, never reached the engine; phase was retired outright in v6, superseded by the recipes own five fields), enter save (via the CLI by catalog name, silenced; a recipe matching no catalog name — e.g. a rolled theme — saves by writing its five universals directly; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — the recipe now comes from the selected catalog entry, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 4 rows idle / 9 editing — Task 6 grew the colour block 2 -> 3 rows so the hex could move off to the side and into the middle of the block; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-42 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -2446,23 +2446,26 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     test -r $__tcz_engine; and source $__tcz_engine
     set -l seed ''
     set -l theme mono
-    set -l phase 0
-    # The picker's WORKING phase is pinned at 0 (hidden knob). The PERSISTED
-    # phase is kept separately so the `current` row can still snapshot what you
-    # actually have — otherwise confirming your own theme would silently zero it.
-    set -l persisted_phase 0
+    set -l tlspan 0.55
+    set -l tpeakc 0.11
+    set -l tpeakpos 0.50
+    set -l tarr deep
+    # The anchor snapshot: the persisted recipe frozen at open, which the
+    # `current` row renders and which esc reverts to. anch_name is the catalog
+    # name that recipe resolves to, or EMPTY when it resolves to none — which
+    # is exactly what a rolled theme does once Task 8 lands, and is why the
+    # save path cannot assume a name exists.
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
+    set -l anch_name ''
     set -l expanded 1
     # Where the curated rows end and the appended ones begin. Constant for the
     # session; the reload composes default-then-rest in exactly this order.
-    set -l ndefault (count (__tmux_lives_theme_catalog_default))
+    set -l ndefault (count (__tmux_lives_theme_catalog_v6_default))
     set -l legacy ''
-    # place/mode: READ-ONLY picker state — populated once by __tcz_thp_init
-    # from the PERSISTED universals, consumed only by the anchor snapshot
-    # (below). Nothing in the interactive loop mutates them anymore: place/
-    # mode now come from the SELECTED catalog entry's recipe (see $recipes),
-    # not a user-cycled knob.
-    set -l place bar
-    set -l mode derived
     set -l previewed 0
     function __tcz_thp_init --no-scope-shadowing
         # Universal reads MUST go through a config-loaded child: this process
@@ -2472,28 +2475,32 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l init (fish -c '
             echo (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ""))
             echo (__tmux_lives_key tmux_lives_theme mono)
-            echo (__tmux_lives_key tmux_lives_theme_phase 0)
-            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-            echo (__tmux_lives_key tmux_lives_theme_place bar)
-            echo (__tmux_lives_key tmux_lives_theme_mode derived)' 2>/dev/null)
+            echo (__tmux_lives_key tmux_lives_theme_lspan 0.55)
+            echo (__tmux_lives_key tmux_lives_theme_peakc 0.11)
+            echo (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
+            echo (__tmux_lives_key tmux_lives_theme_arrangement deep)
+            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
-        # $phase stays pinned at 0 — hidden knob, so every SCHEME row previews and
-        # saves at 0, and a stored non-zero phase resets when you save a scheme
-        # (intended: a different SEED is the better lever). The persisted value is
-        # captured separately for the anchor snapshot so the `current` row still
-        # means "exactly what you have now" rather than silently zeroing it.
-        test (count $init) -ge 3; and test -n "$init[3]"; and set persisted_phase $init[3]
+        test (count $init) -ge 3; and test -n "$init[3]"; and set tlspan $init[3]
+        test (count $init) -ge 4; and test -n "$init[4]"; and set tpeakc $init[4]
+        test (count $init) -ge 5; and test -n "$init[5]"; and set tpeakpos $init[5]
+        test (count $init) -ge 6; and test -n "$init[6]"; and set tarr $init[6]
         set legacy ''
-        test (count $init) -ge 4; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[4]")
-        # place/mode: read for the anchor snapshot ONLY (see the top-level
-        # comment on the `place`/`mode` decls). picker-responsiveness-and-layout
-        # Task 6 (fix round) removed the dead seedfg local this init used to
-        # populate from a since-orphaned 5th echo line — place/mode shifted
-        # from init[6]/init[7] to init[5]/init[6] accordingly.
-        test (count $init) -ge 5; and test -n "$init[5]"; and set place $init[5]
-        test (count $init) -ge 6; and test -n "$init[6]"; and set mode $init[6]
+        test (count $init) -ge 7; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[7]")
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
+        # Freeze the anchor from the values just read, then reverse-look-up its
+        # catalog name. A recipe matching no row leaves anch_name empty.
+        set anch_theme $theme; set anch_lspan $tlspan; set anch_peakc $tpeakc
+        set anch_peakpos $tpeakpos; set anch_arr $tarr
+        set anch_name ''
+        for e in (__tmux_lives_theme_catalog_v6)
+            set -l f (string split '|' -- $e)
+            if test "$f[2]" = "$theme"; and test "$f[3]" = "$tlspan"; and test "$f[4]" = "$tpeakc"; and test "$f[5]" = "$tpeakpos"; and test "$f[6]" = "$tarr"
+                set anch_name $f[1]
+                break
+            end
+        end
     end
     __tcz_thp_init
     set -l toks
@@ -2503,14 +2510,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l recipes
     set -l cachekeys
     set -l cacheblobs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 35 all) + fgs, in-process; v5 engine results cached by knob-state key (seed/phase/expanded)'
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 42 all) + fgs, in-process; v6 engine results cached by knob-state key (seed/expanded)'
         # Rows are keyed by index; expanding or collapsing shifts what each
         # index means, and a new seed changes every palette. This is the ONE
         # invalidation point, which is what lets the row key stay a bare
         # integer instead of a sanitised palette string.
         __tcz_thp_cacheclear
         set toks; set pals; set fgs; set tabsfgs; set recipes
-        set -l key "$seed|$phase|$expanded"
+        set -l key "$seed|$expanded"
         set -l blob ''
         set -l ci (contains -i -- "$key" $cachekeys)
         if test -n "$ci"
@@ -2520,17 +2527,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             # Expanding APPENDS the rest under a header rather than swapping the
             # row source: the full catalog is in tier order, so a wholesale swap
             # scatters the curated rows and you lose track of what you have seen.
-            set -l rows (__tmux_lives_theme_catalog_default)
-            test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_rest)
+            set -l rows (__tmux_lives_theme_catalog_v6_default)
+            test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_v6_rest)
             for e in $rows
                 set -l f (string split '|' -- $e)
-                set -l p (__tmux_lives_theme_palette $seed $f[2] $f[3] $f[4] $phase)
+                set -l p (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # cap/tabs are pinned (fields 6/3 of pal) -> compute their fgs once
                 set -l capfg (__tmux_lives_contrast_fg "$p[6]")
                 set -l tabsfg (__tmux_lives_contrast_fg "$p[3]")
                 set -l pj (string join ' ' $p)
-                set -l recipe "$f[2]|$f[3]|$f[4]"
+                set -l recipe "$f[2]|$f[3]|$f[4]|$f[5]|$f[6]"
                 set -a lines "$f[1]|$pj|$capfg|$tabsfg|$recipe"
             end
             set -l bj (string join \x1e $lines)
@@ -2540,10 +2547,11 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
         for line in (string split \x1e -- $blob)
             # -m 4: caps the split at 4 pipes so the recipe (field 5, itself
-            # "relationship|place|mode") keeps its embedded |s intact — this
-            # only holds because fields 1-4 (name/palette/capfg/tabsfg) are
-            # themselves guaranteed pipe-free; a pipe creeping into any of
-            # them would shift the split and corrupt the recipe field.
+            # "mode|lspan|peakc|peakpos|arrangement") keeps its embedded |s
+            # intact — this only holds because fields 1-4 (name/palette/
+            # capfg/tabsfg) are themselves guaranteed pipe-free; a pipe
+            # creeping into any of them would shift the split and corrupt
+            # the recipe field.
             set -l f (string split -m 4 '|' -- $line)   # recipe is last; keep embedded |
             test -n "$f[1]"; or continue
             set -a toks $f[1]
@@ -2629,8 +2637,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         # already gone, and every role derives from it, so the scheme
                         # looked unrestored too even with its own universals intact.
                         set seed $cand
-                        __tcz_thp_reload
-                        __tcz_thp_reanchor
+                        __tcz_thp_seedbatch
                         set note "seed previewed: $seed"
                         set flashfield seed
                     end
@@ -2662,25 +2669,56 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     # correct, on every single open.
     set -l stripseed ''
     __tcz_thp_reload
-    set -l n (count $toks)          # n = catalog rows (14/35); the scheme list is sel 0..n-1
-    # anchor snapshot: the persisted theme, frozen for this picker session
+    set -l n (count $toks)          # n = catalog rows (14/42); the scheme list is sel 0..n-1
+    # anchor snapshot: the persisted theme, frozen for this picker session by
+    # __tcz_thp_init (anch_theme/lspan/peakc/peakpos/arr/name above); only the
+    # seed needs capturing here, since init runs before this reload.
     set -l anch_seed $seed
-    set -l anch_scheme $theme
-    set -l anch_phase $persisted_phase
-    set -l anch_place $place
-    set -l anch_mode $mode
     # Two-list model. The scheme list owns `sel` (0..n-1); the second list — the
     # current theme and off — owns `sel2` (0 = current, 1 = off). ⇥ moves between
     # them and ↑↓ never crosses. This replaces the old linear order, where off was
     # sel n and the current row was an sel n+1 tail reachable only by pressing c.
     set -l focus list
     set -l sel2 0
+    # Session-local roll history (Task 8): each entry is a "mode|lspan|peakc|
+    # peakpos|arrangement" recipe string joined the same way $recipes already
+    # are, so it splits with the same idiom everywhere it is consumed. Bounded
+    # to 12 (see case z) so "the second one was better" stays recoverable
+    # without growing unboundedly across a long session; not persisted, on
+    # purpose — naming and saving a roll permanently is a separate, deferred
+    # feature, and configuration stays cheap until an explicit save adopts it.
+    set -l rollhist
+    set -l rollat 0
+    # Review fix: parallel palette/fg arrays, one render PER ROLL (a discrete
+    # action, not a per-keypress one), so stepping rollat with ↑↓ is a bare
+    # array index -- same cost class as $pals/$fgs/$tabsfgs, no new render
+    # call in the hot path. Pushed and trimmed in LOCKSTEP with $rollhist in
+    # case z below -- desyncing any one of the four arrays from $rollat would
+    # replay a wrong palette against a correct-looking history entry.
+    set -l rollpals
+    set -l rollfgs
+    set -l rolltabsfgs
+    # Fix round 2 review finding: curidx used to key the preview/tab-chip
+    # memo by $rollat directly, but $rollat PINS at count($rollhist) (12)
+    # once the history is capped -- $focus/$sel/$sel2 don't move either, so
+    # every roll past the 12th produced the SAME curidx while the content at
+    # index 12 kept changing underneath it, and the memo (whose only
+    # invalidation point, __tcz_thp_cacheclear, is called from nowhere in
+    # this arm) happily replayed the 12th roll's render forever after. A
+    # STABLE, NEVER-REUSED id per pushed entry closes it without touching
+    # the memo at all: two different rolls can never collide on the same id
+    # even after one evicts the other, and stepping back to the SAME
+    # surviving entry still yields the SAME id (a real cache hit, not a
+    # rebuild) since eviction removes entries from the front, never
+    # renumbers the ones that remain. rollnextid only ever grows.
+    set -l rollids
+    set -l rollnextid 1
     set -l anchpal ''
     set -l anchfg '#f5f5f5'
     set -l anchtabsfg '#f5f5f5'
     # Recomputes anchpal/anchfg/anchtabsfg for the CURRENT $seed against the
-    # frozen anchor recipe (anch_scheme/place/mode/phase — these never change
-    # after the snapshot above). --no-scope-shadowing so it mutates the
+    # frozen anchor recipe (anch_theme/lspan/peakc/peakpos/arr — these never
+    # change after the snapshot above). --no-scope-shadowing so it mutates the
     # caller's vars directly, same as reload does
     # for toks/pals/fgs/tabsfgs. Call once here AND again after any seed edit
     # (hexentry's ⏎, or the in-frame edit's settle — picker-legibility-
@@ -2693,8 +2731,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set anchpal ''
         set anchfg '#f5f5f5'
         set anchtabsfg '#f5f5f5'
-        if test "$anch_scheme" != off
-            set -l ap (__tmux_lives_theme_palette $seed $anch_scheme $anch_place $anch_mode $anch_phase)
+        if test "$anch_theme" != off
+            set -l ap (__tmux_lives_theme_render $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)
             if test (count $ap) -eq 7
                 set -l apj (string join ' ' $ap)
                 set anchpal "$apj"
@@ -2706,6 +2744,39 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
     end
     __tcz_thp_reanchor
+    # Whole-branch review I2: rollpals/rollfgs/rolltabsfgs (the roll-history
+    # preview arrays, pushed only by case z below) were never rebuilt when the
+    # seed moved -- reload/reanchor cover the scheme strips and the current-row
+    # anchor, but nothing recomputed a roll's palette for a new seed, so
+    # roll+seed-edit left the roll preview (and its tab OSC) rendering the OLD
+    # seed while everything else had already moved on, with no stale/dim
+    # indicator to say so. One place, called alongside every reload+reanchor
+    # pair, so a future seed-changing call site gets this for free too.
+    # Gate BEFORE reload (which unconditionally sets stripseed = seed) — a
+    # bare settle with nothing actually touched (e.g. entering edit mode and
+    # pressing enter without moving a channel) must recompute nothing.
+    # Indices/ids stay unchanged (this rewrites CONTENT, not membership),
+    # which is safe only because __tcz_thp_reload — called first, always —
+    # wipes the memoized draw cache via __tcz_thp_cacheclear on every call, so
+    # a rolled entry's unchanged rollid cannot serve a stale cached render on
+    # the next draw.
+    function __tcz_thp_seedbatch --no-scope-shadowing --description 'the reload+reanchor+roll-rebuild triple, in one place'
+        set -l dirty 0
+        test "$seed" != "$stripseed"; and set dirty 1
+        __tcz_thp_reload
+        __tcz_thp_reanchor
+        if test $dirty -eq 1; and test (count $rollhist) -gt 0
+            for i in (seq (count $rollhist))
+                set -l rf (string split '|' -- $rollhist[$i])
+                test (count $rf) -eq 5; or continue
+                set -l rp (__tmux_lives_theme_render $seed $rf[1] $rf[2] $rf[3] $rf[4] $rf[5])
+                test (count $rp) -eq 7; or continue
+                set rollpals[$i] (string join ' ' $rp)
+                set rollfgs[$i] (__tmux_lives_contrast_fg "$rp[6]")
+                set rolltabsfgs[$i] (__tmux_lives_contrast_fg "$rp[3]")
+            end
+        end
+    end
     set -l sel 0
     # Seed edit mode (Task 4): editing=1 shows the seedzone's R/G/B sliders
     # instead of its readouts and reroutes ↑↓/←→ to them (see the seedzone
@@ -2826,26 +2897,50 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -e __tcz_pe_prev
     set -g __tcz_pe_force 1
     set -l apply ''
-    function __tcz_thp_apply_now --no-scope-shadowing --description 'apply whatever the cursor is currently on, live — the exact body case a runs. A scheme/off row previews its own recipe at the live phase; the current row re-previews its own frozen snapshot. Always followed by a __tcz_recolor tab emit.'
+    # Set instead of $apply when the save action is "the current row" but its
+    # recipe resolves to no catalog name (anch_name empty — exactly what a
+    # rolled theme, Task 8, produces): $apply can't carry a name, so this flag
+    # tells the post-loop save block to write the five universals directly.
+    set -l apply_unnamed 0
+    function __tcz_thp_apply_now --no-scope-shadowing --description 'apply whatever the cursor is currently on, live — the exact body case a runs. A scheme/off row previews its own recipe; the current row re-previews its own frozen snapshot. Always followed by a __tcz_recolor tab emit.'
         if test $focus = state
             if test $sel2 -eq 0
-                __tcz_thp_apply_and_recolor "$seed" $anch_scheme $anch_place $anch_mode $anch_phase
+                __tcz_thp_apply_and_recolor "$seed" $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr
                 set previewed 2
-                set note "● previewing $anch_scheme (live) — ⏎ save · esc revert"
+                # "previewing" dropped and "revert" -> "undo": the v6 mode+
+                # arrangement pair (up to "complementary"+"accent"/"bright"/
+                # "centre") runs long enough that the old wording overflowed
+                # IW=50 in 42 of 42 catalog rows, not just a worst case —
+                # measured, not assumed. This exact wording is the one
+                # measured to fit at 50 in all 42; "(live)" still carries the
+                # not-yet-saved meaning "previewing" used to.
+                set note "● $anch_theme $anch_arr (live) — ⏎ save · esc undo"
             else
-                __tcz_thp_apply_and_recolor "$seed" off bar derived $phase
+                __tcz_thp_apply_and_recolor "$seed" off 0.55 0.11 0.50 deep
                 set previewed 1
-                set note "● previewing off — ⏎ save · esc revert"
+                # "revert" -> "undo" only, for consistency with the other two
+                # notes below — "off" alone never overflowed IW.
+                set note "● previewing off — ⏎ save · esc undo"
+            end
+        else if test $focus = roll
+            # Task 8: a rolled recipe never sits in $recipes (it is not a
+            # catalog row), so it is read back out of $rollhist instead —
+            # same split idiom the scheme-list branch below uses on $recipes.
+            set -l rf (string split '|' -- $rollhist[$rollat])
+            if test (count $rf) -eq 5
+                __tcz_thp_apply_and_recolor "$seed" $rf[1] $rf[2] $rf[3] $rf[4] $rf[5]
+                set previewed 1
+                set note "● roll $rollat/"(count $rollhist)" (live) — ⏎ save · esc undo"
             end
         else
             set -l pi (math $sel + 1)
             set -l rc (string split '|' -- $recipes[$pi])
-            set -l rel $rc[1]
-            set -l rplace $rc[2]
-            set -l rmode $rc[3]
-            __tcz_thp_apply_and_recolor "$seed" $rel $rplace $rmode $phase
+            __tcz_thp_apply_and_recolor "$seed" $rc[1] $rc[2] $rc[3] $rc[4] $rc[5]
             set previewed 1
-            set note "● previewing $rel — ⏎ save · esc revert"
+            # "previewing" dropped: the longest catalog NAME ("complementary
+            # bright") overflowed IW=50 in 14 of 42 rows; measured fit at 45
+            # in all 42 once dropped. "revert" -> "undo" for consistency.
+            set note "● $toks[$pi] — ⏎ save · esc undo"
         end
     end
     while true
@@ -2877,6 +2972,21 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set curpal "$lb #6b6b6b #6b6b6b #6b6b6b #9a9a9a #444444 #d3d8d0"
                 set curfg '#f5f5f5'
             end
+        else if test $focus = roll
+            # Task 8 review fix: roll history has its own PRE-COMPUTED
+            # palette/fg arrays (rollpals/rollfgs/rolltabsfgs, pushed in
+            # lockstep with $rollhist by case z below) -- the same
+            # batch-once-index-many convention $pals/$fgs/$tabsfgs already
+            # use, so stepping rollat costs one array index, not a render
+            # call. Without this branch the preview bar and tab chip kept
+            # showing whatever the SCHEME list's cursor last rendered while
+            # the note line claimed "roll N/M" -- wrong data next to a label
+            # asserting otherwise, in the one interaction the feature exists
+            # for.
+            set curpal $rollpals[$rollat]
+            set -l cf $rollfgs[$rollat]
+            test -n "$cf"; and set curfg $cf
+            set curtabsfg "$rolltabsfgs[$rollat]"
         else
             set -l pi (math $sel + 1)
             set curpal $pals[$pi]
@@ -2893,8 +3003,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # cursor sel2, independent of the scheme lists sel (see the if/else
         # above) -- a key of $sel alone would let a current<->off move (which
         # changes curpal) hit a stale cache slot keyed only by whatever $sel
-        # happened to be left at.
-        set -l curidx "$focus"_"$sel"_"$sel2"
+        # happened to be left at. Fix round 2 review finding: a bare $rollat
+        # is NOT safe here once the 12-entry cap is in play -- $rollat PINS
+        # at 12 forever after the cap engages, while the CONTENT at index 12
+        # keeps changing with every further roll, and __tcz_thp_cacheclear
+        # (the memo's ONLY invalidation point) is never called from case z,
+        # so a bare $rollat key would replay the 12th roll's render forever
+        # after the 13th. $rollids[$rollat] is a STABLE, NEVER-REUSED id
+        # instead -- two different rolls can never collide on it even after
+        # one evicts the other, and stepping back to a SURVIVING entry still
+        # yields the SAME id (a real cache hit), since eviction drops
+        # entries off the front without renumbering the ones that remain.
+        set -l rollkey 0
+        test $focus = roll; and set rollkey $rollids[$rollat]
+        set -l curidx "$focus"_"$sel"_"$sel2"_"$rollkey"
         set -l B1 (printf '\e[1m')
         set -l B0 (printf '\e[22m')
         # NB: fish does NOT interpret \e inside quoted strings (only printf does) —
@@ -2985,7 +3107,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 set -l selflag 0
                 test $focus = list; and test $si -eq $sel; and set selflag 1
                 set -l curflag 0
-                test "$recipes[$idx]" = "$anch_scheme|$anch_place|$anch_mode"; and test "$phase" = "$anch_phase"; and set curflag 1
+                test "$recipes[$idx]" = "$anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr"; and set curflag 1
                 set -l row (__tcz_thp_row "$pals[$idx]" $toks[$idx] $selflag $curflag $idx $seeddirty)
                 if test $selflag -eq 1
                     # Pad to $IW BEFORE wrapping in SELBG: __tcz_thp_ln pads to the
@@ -3028,9 +3150,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # label would otherwise claim live for a bar that is not actually saved.
         test "$seed" != "$anch_seed"; and set islive 0
         # Previewing the off row IS "the current row's own recipe" when the
-        # persisted theme really is off — off has no place/mode/phase to diverge
-        # on, so that preview and the current row render identically.
-        if test $previewed -eq 1; and test "$anch_scheme" = off; and test $focus = state; and test $sel2 -eq 1
+        # persisted theme really is off — off has no recipe to diverge on, so
+        # that preview and the current row render identically.
+        if test $previewed -eq 1; and test "$anch_theme" = off; and test $focus = state; and test $sel2 -eq 1
             set islive 1
         end
         set -a lines (__tcz_thp_zsep $IW '' $BORDER $RST)
@@ -3038,16 +3160,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test $focus = state; and test $sel2 -eq 0; and set curflag2 1
         set -l anchcells (__tcz_thp_band "$legacy" band)
         test -n "$anchpal"; and set anchcells (__tcz_thp_cells "$anchpal" anchcells)
-        # The state row names the CATALOG ENTRY (e.g. "mono soft"), not the bare
-        # relationship (e.g. "mono") — several catalog rows share a relationship,
-        # so the row whose whole job is "what do I have" would otherwise be
-        # ambiguous about place/mode. Look up the entry whose recipe matches the
-        # anchor; fall back to the bare relationship when nothing matches (e.g. a
-        # CLI-only config with no catalog row at all, such as
-        # `tmux-lives setup theme amber --place cap --mode literal` — amber has a
-        # cap row (amber deep) but only at derived mode).
-        set -l anchname $anch_scheme
-        set -l anchrecipe "$anch_scheme|$anch_place|$anch_mode"
+        # The state row names the CATALOG ENTRY (e.g. "mono deep"), not the bare
+        # scheme name (e.g. "mono") — several catalog rows share a scheme, so
+        # the row whose whole job is "what do I have" would otherwise be
+        # ambiguous about lspan/peakc/peakpos/arrangement. Look up the entry
+        # whose recipe matches the anchor within the CURRENTLY LOADED list
+        # (collapsing/expanding can drop it out of view — see anch_name in
+        # __tcz_thp_init for the separate full-catalog lookup the save path
+        # uses instead); fall back to the bare scheme name when nothing
+        # matches (e.g. a rolled or CLI-only recipe with no catalog row at all).
+        set -l anchname $anch_theme
+        set -l anchrecipe "$anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr"
         set -l ari (contains -i -- "$anchrecipe" $recipes)
         test -n "$ari"; and set anchname $toks[$ari]
         # staticcache: "cur_"/"off_" prefixes below are load-bearing, not
@@ -3101,7 +3224,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' apply esc revert "--cachekey=$editing")
             set -a leglines ''
         else
-            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z shake '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
+            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
         end
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
@@ -3110,7 +3233,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # content, so a note whose visible width (leading space included)
         # exceeds $IW would push the printed row past the popup's width and
         # wrap, scrolling the top border off-screen. $note is free text
-        # (relationship names vary in length; a future wording tweak could
+        # (catalog names vary in length; a future wording tweak could
         # push any of these over again) — truncating HERE, at the one draw
         # site, makes an overlong note structurally incapable of overflowing
         # the frame regardless of what text ever lands in $note. Capture into
@@ -3254,6 +3377,15 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         set sel2 (math "$sel2 + $steps")
                         test $sel2 -lt 0; and set sel2 0
                         test $sel2 -gt 1; and set sel2 1
+                    else if test $focus = roll
+                        # focus=roll is only reachable after a roll has
+                        # happened (case z / ⇥), so $rollhist is never empty
+                        # here in practice — clamp both ends anyway rather
+                        # than relying on that, since ⇥ can leave and
+                        # re-enter the state.
+                        set rollat (math "$rollat + $steps")
+                        test $rollat -lt 1; and set rollat 1
+                        test $rollat -gt (count $rollhist); and set rollat (count $rollhist)
                     else
                         set -l dir down
                         test $steps -lt 0; and set dir up
@@ -3320,7 +3452,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set flashfield seed
                 end
             case m
-                # expand/collapse the catalog: 14 curated rows <-> all 35.
+                # expand/collapse the catalog: 14 curated rows <-> all 42.
                 # Reload FIRST so $n reflects the NEW list length before the
                 # sel clamp below runs (an un-reloaded $n would clamp against
                 # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
@@ -3396,31 +3528,79 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set -g __tcz_pe_force 1
                 end
             case z
-                # shake: land on a random row across the FULL catalog. RELOAD
-                # BEFORE ROLLING so the bound is the real expanded size — the
-                # roll used to be a hardcoded upper bound taken before the
-                # reload, which silently stopped covering the tail when the
-                # catalog grew (9 rows became unreachable). Never reintroduce
-                # a literal bound here — a guard test greps for one, and it
-                # matches comments too, so do not spell one out even in prose. Place/mode are not knobs to
-                # reroll — they're baked into each row's RECIPE (case a/enter
-                # derive them from $recipes) — so shake only needs an index.
-                # Capture random into a var FIRST: fish performs NO command
-                # substitution inside double-quoted math, so writing the roll
-                # directly as a math() argument would hand math the LITERAL
-                # unexpanded text (stderr into the popup) and vanish the
-                # assignment downstream (2026-07-20 live bug).
-                set expanded 1
-                __tcz_thp_reload
-                set n (count $toks)
-                set -l zi (random 0 (math $n - 1))
-                set sel $zi
-                set focus list
+                # Task 8: z no longer jumps within the catalog — it ROLLS a
+                # genuine recipe out of the full v6 space (mode x lspan x
+                # peakc x peakpos x arrangement), which is not a catalog row
+                # at all. __tmux_lives_theme_roll samples the MEASURED
+                # acceptable ridge (peakC 0.13-0.18 x peakPos 0.3-0.85, ~95%
+                # bound-1 hit rate) rather than the v6 core spec's documented
+                # envelope (peakC 0.01-0.26 uniform, only 34.6%), so this
+                # costs about one render, not several. The result becomes a
+                # new selectable STATE (like current/off), not a cursor move —
+                # ⇥ reaches it once it exists (see case tab below).
+                set -l r (__tmux_lives_theme_roll "$seed")
+                if test (count $r) -eq 5
+                    # Review fix: render ONCE here -- a discrete action, not
+                    # the per-keypress hot path -- and cache the result
+                    # alongside the recipe, the same batch-once-index-many
+                    # convention the catalog reload already uses for
+                    # $pals/$fgs/$tabsfgs (capfg from role 6/cap, tabsfg from
+                    # role 3/tabs; a guard test greps this arm for the reload
+                    # call's ABSENCE, so its name is deliberately not spelled
+                    # out here even in prose). Without this the cursor-row
+                    # preview block had nowhere accurate to read from while
+                    # browsing history with ↑↓, and fell back to whatever the
+                    # SCHEME list's cursor last rendered -- wrong colours next
+                    # to a note line claiming "roll N/M". Degrades to
+                    # blank-but-still-pushed on a render failure (mirrors that
+                    # same reload's own fallback) so the four arrays below
+                    # never desynchronise from each other.
+                    set -l rp (__tmux_lives_theme_render $seed $r[1] $r[2] $r[3] $r[4] $r[5])
+                    test (count $rp) -eq 7; or set rp "" "" "" "" "" "" ""
+                    set -l capfg (__tmux_lives_contrast_fg "$rp[6]")
+                    set -l tabsfg (__tmux_lives_contrast_fg "$rp[3]")
+                    # Bounded history so "the second one was better" is
+                    # recoverable. Session-local and deliberately not
+                    # persisted: naming and saving a roll permanently is a
+                    # separate, deferred feature — the user's own reason being
+                    # that naming carries a commitment cost.
+                    set -a rollhist (string join '|' $r)
+                    set -a rollpals (string join ' ' $rp)
+                    set -a rollfgs $capfg
+                    set -a rolltabsfgs $tabsfg
+                    # Fix round 2: a STABLE id for this entry, assigned once
+                    # and never reused -- see its declaration comment above
+                    # for why curidx needs this instead of $rollat once the
+                    # cap is in play.
+                    set -a rollids $rollnextid
+                    set rollnextid (math $rollnextid + 1)
+                    # Trim all FIVE arrays in lockstep -- $rollpals/_fgs/
+                    # _tabsfgs/_ids must stay index-aligned with $rollhist, or
+                    # a step through history reads a palette one entry off
+                    # from the recipe it is supposedly previewing.
+                    if test (count $rollhist) -gt 12
+                        set rollhist $rollhist[2..]
+                        set rollpals $rollpals[2..]
+                        set rollfgs $rollfgs[2..]
+                        set rolltabsfgs $rolltabsfgs[2..]
+                        set rollids $rollids[2..]
+                    end
+                    set rollat (count $rollhist)
+                    set focus roll
+                    __tcz_thp_apply_and_recolor "$seed" $r[1] $r[2] $r[3] $r[4] $r[5]
+                    set previewed 1
+                    set note "● roll $rollat/"(count $rollhist)" — ↑↓ step back · ⏎ save · esc revert"
+                end
                 set flashfield ''
             case tab
-                # move between the two lists. `c` is retired: a key meaning "current"
-                # that lands on current, from which you arrow to off, promises one
-                # thing and does another. ⇥ carries no such claim and toggles back.
+                # move between THREE things now: the scheme list, the second
+                # (current/off) list, and roll history once at least one roll
+                # has happened this session. `c` is retired: a key meaning
+                # "current" that lands on current, from which you arrow to
+                # off, promises one thing and does another. ⇥ carries no such
+                # claim and cycles list -> state -> roll -> list (or
+                # list -> state -> list when $rollhist is still empty, since
+                # there is nothing to tab into yet).
                 # Ignored while editing (Task 4 review Minor, folded in here): the
                 # second list has no seed of its own, and letting ⇥ through moved
                 # focus to `state` while `editing` still owned ↑↓/←→ — the second
@@ -3429,7 +3609,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # and b (itself focus-gated) could no longer get back. One key
                 # (b) recovers it, but the fix is one line, same gate as b's own.
                 if test "$editing" != 1
-                    test $focus = list; and set focus state; or set focus list
+                    switch $focus
+                        case list
+                            set focus state
+                        case state
+                            if test (count $rollhist) -gt 0
+                                set focus roll
+                            else
+                                set focus list
+                            end
+                        case roll
+                            set focus list
+                    end
                     set flashfield ''
                 end
             # previewed: 0 none, 1 a LISTED scheme, 2 the current row. The distinction
@@ -3459,8 +3650,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # re-entering the editor; and entering edit mode without
                     # touching a channel leaves the seed clean, which under an
                     # editing-only gate would still let `a` reach the bar.
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
+                    __tcz_thp_seedbatch
                     # Say so. Without a note the recompute is silent, any
                     # earlier `● previewing X` stays on screen through it, and
                     # `a` reads as having done nothing.
@@ -3496,8 +3686,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # Still LOCAL: no tmux option, no tab OSC. Applying the
                     # seed to the schemes is not adopting a scheme — that
                     # stays on `a` from the list, and ⏎ from the list.
-                    __tcz_thp_reload
-                    __tcz_thp_reanchor
+                    __tcz_thp_seedbatch
                     set editing 0
                     # The zone shrinks 9 -> 4 on the way out — see case b's own
                     # comment for why this recompute (not a $sel adjustment) is
@@ -3507,19 +3696,37 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 else
                     if test $focus = state
                         if test $sel2 -eq 0
-                            set apply $anch_scheme
-                            set phase $anch_phase
-                            set place $anch_place
-                            set mode $anch_mode
+                            # anch_name is the catalog name the persisted recipe
+                            # resolves to at open, or empty if it matches none —
+                            # which a rolled theme (Task 8) will not. Handle
+                            # both: a name saves through the CLI below; no name
+                            # saves by writing the five universals directly.
+                            if test -n "$anch_name"
+                                set apply $anch_name
+                            else
+                                set apply_unnamed 1
+                            end
                         else
                             set apply off
                         end
+                    else if test $focus = roll
+                        # A rolled recipe has no catalog name by construction
+                        # (it was never in $recipes to begin with — see case
+                        # z), so it always takes the unnamed-save path. Reuse
+                        # the anchor snapshot as the CARRIER for those five
+                        # fields rather than adding a second variable: nothing
+                        # reads $anch_theme/etc again before the loop breaks
+                        # below, and the post-loop unnamed-save call already
+                        # sends exactly these five names.
+                        set -l rf (string split '|' -- $rollhist[$rollat])
+                        if test (count $rf) -eq 5
+                            set anch_theme $rf[1]; set anch_lspan $rf[2]; set anch_peakc $rf[3]
+                            set anch_peakpos $rf[4]; set anch_arr $rf[5]
+                            set apply_unnamed 1
+                        end
                     else
                         set -l pi (math $sel + 1)
-                        set -l rc (string split '|' -- $recipes[$pi])
-                        set apply $rc[1]
-                        set place $rc[2]
-                        set mode $rc[3]
+                        set apply $toks[$pi]
                     end
                     break
                 end
@@ -3559,6 +3766,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     functions -e __tcz_thp_init
     functions -e __tcz_thp_reload
     functions -e __tcz_thp_reanchor
+    functions -e __tcz_thp_seedbatch
     functions -e __tcz_thp_hexentry
     functions -e __tcz_thp_apply_now
     set -e __tcz_thp_saved
@@ -3566,13 +3774,20 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     printf '\e[?25h\e[2J\e[H'
     # Commit the seed only if it actually moved — the CLI call below re-renders
     # the fragment, and every fragment write re-sources status-right.
-    if test -n "$apply"; and test "$seed" != "$anch_seed"
-        fish -c 'tmux-lives setup color $argv[1]' "$seed" >/dev/null 2>&1
+    if test -n "$apply"; or test $apply_unnamed -eq 1
+        if test "$seed" != "$anch_seed"
+            fish -c 'tmux-lives setup color $argv[1]' "$seed" >/dev/null 2>&1
+        end
     end
     if test "$apply" = off
         fish -c 'tmux-lives setup theme off' >/dev/null 2>&1
     else if test -n "$apply"
-        fish -c 'tmux-lives setup theme $argv[1] --place $argv[2] --mode $argv[3] --phase $argv[4]' "$apply" "$place" "$mode" "$phase" >/dev/null 2>&1
+        fish -c 'tmux-lives setup theme $argv[1]' "$apply" >/dev/null 2>&1
+    else if test $apply_unnamed -eq 1
+        # No catalog name — save the anchor's five recipe fields directly,
+        # the same universals the CLI itself would set, through the same
+        # config-loaded child every other universal-touching action here uses.
+        fish -c 'set -U tmux_lives_theme $argv[1]; set -U tmux_lives_theme_lspan $argv[2]; set -U tmux_lives_theme_peakc $argv[3]; set -U tmux_lives_theme_peakpos $argv[4]; set -U tmux_lives_theme_arrangement $argv[5]; __tmux_lives_write_fragment; __tmux_lives_theme_apply_live' $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr >/dev/null 2>&1
     end
     return 0
 end
