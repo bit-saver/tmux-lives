@@ -100,6 +100,12 @@ session cluster `new/attach/picker/fix/categorize/clear/close` (aliases `u`, `n/
   inline `(string repeat -n 0 …)` expands to **zero args** and silently shifts the trailing printf
   fields.
 
+⚠ **Every catalog scheme name is two words** (`mono deep`, `complementary bright`). `__tmux_lives_theme_cmd`'s
+`case '*'` now **accumulates** positionals into one name, so both `setup theme 'mono deep'` and the
+unquoted form work — it used to *overwrite* per word, which made every scheme in the product unusable
+unquoted and, worse, made the `off` message print a command that failed. `list` and `off` are matched by
+earlier `case` arms and are unaffected.
+
 Keys (all configurable via `setup keys`, `''` disables, baked into the fragment):
 `prefix S` / `M-s` picker · `M-m` single-shot launcher · `M-t` scratch split · `M-r` resize key-table ·
 `M-k` theme picker · `C-M-a` status position · `C-M-s` status visibility.
@@ -128,7 +134,7 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **839 plain / 838
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **917 plain / 916
   `--no-config`**. **The 1-count delta is BY DESIGN** (one isolation assertion is gated on plain fish)
   and has been for many cycles. Do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — they have
@@ -400,26 +406,11 @@ not blocking; a curated recipe can avoid a mid-ramp `peakPos` if it matters in p
 
 ### OKLCH facts that make an assertion unsatisfiable if guessed
 
-- **`peakC` is a request, not a guarantee** — the sRGB gamut caps it and the cap is **hue-dependent**:
-  0.260 at purple, 0.254 at red, but 0.153 at green and 0.140 at cyan.
-- **Hue families must be counted with a 25° tolerance, circularly** — never as distinct rounded hues.
-  `mono` reports **four** distinct rounded hues, because every colour round-trips through sRGB and the
-  gamut clamp shifts it. A linear sort also splits an anchor near 0/360 into two clusters.
-- **The text floor needs two stages.** A swap alone cannot rescue a mid-ramp bar (measured: `centre`
-  reaches only 0.309 against a 0.40 floor); stage two pushes text's *lightness* to `bar ± 0.40`. Stage
-  two then needs a bounded correction loop checking the **round-tripped hex**, because 8-bit
-  quantisation makes a target placed exactly on the floor round just under it.
-- **Stage two does NOT preserve chroma** (hue yes, 0.1–0.5°). sRGB has no chroma headroom near white,
-  so pushing `text` to `bar + 0.40` on the light side destroys chroma by construction — losses run
-  20–74%, reaching 93% at C 0.20 / H 290.
-- The no-white chroma floor has only ~0.00275 of gamut margin at its worst point (C 0.0577 available at
-  L 0.88 / H 269 against 0.055 required). Moving either the 0.88 ceiling or the 0.055 floor can put the
-  pair out of reach at the blue-violet end and stall the nudge loop.
+Four of them — `peakC` is gamut-capped **hue-dependently** (0.26 at purple, 0.15 at green); hue families
+must be counted with a 25° tolerance **circularly**; the text floor needs **two** stages; and stage two
+does **not** preserve chroma. Each was learned by writing an assertion that could not pass. Full numbers
+and the measurements behind them: `[[theme_engine_v6]]`.
 
-See memories `[[theme_engine_v6]]`, `[[three_bounds_palette_rule]]`,
-`[[never_white_and_muted_is_a_destination]]`.
-
----
 
 ## The picker (theme + session)
 
@@ -436,11 +427,10 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
   popup that overflowed the instant `b` was pressed.
 
 **Performance — three layers, all measured:**
-1. **Construction.** The cost is the **number of fish command substitutions**, not any one builder: a
-   function call inside `(…)` costs 0.108 ms against 0.0057 ms for a plain call — **19×**. Fixed by
-   memoizing row/static/swatch builders behind **one** clear helper called from **one** place
-   (`__tcz_thp_reload`) — that single invalidation point is what makes a bare-integer row key legal.
-   Result: 167 ms → 35 ms whole-frame.
+1. **Construction.** The cost is the **number of fish command substitutions**, not any one builder — a
+   call inside `(…)` is **19×** a plain call. Fixed by memoizing the row/static/swatch builders behind
+   **one** clear helper called from **one** place (`__tcz_thp_reload`); that single invalidation point is
+   what makes a bare-integer row key legal. 167 ms → 35 ms whole-frame. Numbers: `[[popup_geometry_and_perf]]`.
 2. **Emission.** `__tcz_popup_emit` diffs against `__tcz_pe_prev` and emits only changed rows inside a
    sync wrapper, full-painting when forced or when the row **count** differs. A burst of 40 arrows costs
    47 KB vs 458 KB; **isolated keypresses are 11.7% worse** (break-even ≈ 1.07 keys per 0.7 s window).
@@ -550,6 +540,26 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
 - tmux **silently accepts an unknown `terminal-features` name**.
 - A `-L` test socket still loads `~/.tmux.conf` unless started `-f /dev/null`.
 
+**Migrations** (2026-09-04, the Critical a whole-branch review caught after nine clean task reviews)
+- **A migration that validates against its OWN version's vocabulary poisons every later version.**
+  `__tmux_lives_migrate_v4` still checked `tmux_lives_theme` against the **v5** relationship list and runs
+  BEFORE `_v6` in `_tmux_lives_post_update`. Only `mono` exists in both vocabularies, so 36 of 42 v6
+  schemes hit its reset branch — forcing `theme=mono` and *resurrecting* the retired `place`/`mode` — after
+  which `_v6` early-returned because `_arrangement` was set. Result: a hybrid recipe matching no catalog
+  row, on **every** `fisher update`, permanently. Fixed with a forward guard
+  (`set -q tmux_lives_theme_arrangement; and return 0`) as `_v4`'s first line.
+- ⚠ **It was clean on day one and would have broken later** — the user's stored `amber` happened to be a
+  valid v5 name, so the first update migrated correctly. Damage began the first time they picked a
+  non-`mono` scheme and updated again. A migration bug that is latent at ship time is the worst shape.
+- ⚠ **Every migration test called its function in ISOLATION; nothing ran the chain.** That is why nine
+  reviews missed it. Task 6's strongest assertion even used `coral` — itself a v5 relationship — so a
+  chain-level version of that same fixture would still have passed. **A chain-level test is now the
+  required shape**: store a non-`mono` recipe, run the migrations in `_tmux_lives_post_update`'s order,
+  assert all five universals unchanged and nothing printed.
+- **The standing rule that removes this class: a version migration RESETS, it never preserves.** Keep the
+  seed, erase the retired universals, write the new default. No mapping logic. See
+  `[[theme_clobber_during_dev_is_fine]]`.
+
 **Testing** (see memory `[[sdd_assertion_discipline]]`)
 - **A test whose command substitution calls an undefined function does not fail** — fish aborts the whole
   statement, nothing prints, and a suite with no pass counter still reports `ALL PASS`.
@@ -580,14 +590,20 @@ finding is fixed, and the two specs this section used to point at are both fully
 engine section above for what actually changed; `git log` on that branch for the ordered commits.
 
 **Two things left open, both noted above, neither blocking:** `text` always sits at a ramp end (see
-"Still open" under Theme engine); and `__tmux_lives_theme_accents` (the v5 sep/active/windows/text tint
-function) is now dead code — v5 has zero production callers — a candidate for the same future cleanup
-that deletes `__tmux_lives_theme_palette` itself.
+"Still open" under Theme engine); and the v5 cluster is a candidate for deletion.
 
-**Deployment status:** the live install on rocket and macwork predates this cycle, so it has none of the
-v6 surface wiring, the 42-row catalog, or the structural tie-break fix. The user must run `fisher update`
-themselves — doing so will visibly change their bar: the stored `amber / cap / derived` has no v6
-equivalent and migrates to `mono deep` (their seed survives).
+⚠ **The v5 deletion is NOT simply "remove everything v5" — verified 2026-09-04, because the obvious
+reading is wrong.** `__tmux_lives_theme_palette` and `__tmux_lives_theme_valid` each have **zero**
+callers and go cleanly. `__tmux_lives_theme_accents` is **not** directly dead — it is called at `:1260`,
+inside `_palette` itself, so it is only *transitively* dead and becomes removable when `_palette` does.
+And `__tmux_lives_theme_relationships` has **two** callers: `:1592` (inside `_valid`) and `:2167` (inside
+`__tmux_lives_migrate_v4`'s reset branch, which old installs still need). **It survives the cleanup.**
+
+**Deployment status:** merged to `main` and pushed; the live install on rocket and macwork still predates
+this cycle. The user runs `fisher update` themselves — doing so will visibly change their bar: the stored
+`amber / cap / derived` has no v6 equivalent and migrates to `mono deep` (their seed survives). **Pending
+their live smoke:** the picker's roll (`z`) and its history, the reworded preview notes, `setup theme`
+with a two-word name, and whether 42 schemes is navigable in practice.
 
 ---
 
