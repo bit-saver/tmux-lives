@@ -4592,6 +4592,11 @@ set -g C1MARK (command tmux -L $C1SOCK show -gv @tmux_lives_mark_fg 2>/dev/null)
 t "C1: apply_live's mark_fg is not the bare seed" 0 (test "$C1MARK" = '#485b3c'; and echo 1; or echo 0)
 t "C1: apply_live's mark_fg matches the fragment's floored mark exactly" "$C1FRAGMARK" "$C1MARK"
 command tmux -L $C1SOCK kill-server 2>/dev/null
+# Killing the server does NOT unlink its socket file -- a fact this project
+# has recorded and re-learned. The suite's own end-of-run sweep cannot help
+# here: it lives ~1700 lines ABOVE this block, so it runs before this socket
+# is ever created. Unlink it inline, where the knowledge of the name is.
+rm -f /tmp/tmux-(id -u)/$C1SOCK 2>/dev/null
 set -e tmux_lives_tmux_socket
 set -e tmux_lives_bar_color
 
