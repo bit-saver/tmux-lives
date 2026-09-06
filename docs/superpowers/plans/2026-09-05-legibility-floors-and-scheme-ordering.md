@@ -169,7 +169,7 @@ Then replace the removed block inside `__tmux_lives_theme_constrain` with a sing
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `fish tests/test-tmux-install.fish 2>&1 | tail -1`
-Expected: `ALL PASS (923)` — 917 baseline + 6 new assertions.
+Expected: `ALL PASS (922)` — the 917 baseline plus the 5 assertions in the block above. **Count the `t "…"` lines you actually added and expect baseline + that number.** Do not invent an assertion to hit a number this plan states; if the plan's arithmetic and your count disagree, your count wins and the plan is wrong.
 
 - [ ] **Step 6: Prove byte-identity — this is the real gate for this task**
 
@@ -191,7 +191,7 @@ for t in tests/test-*.fish; do fish $t; done 2>&1 | grep -E '^FAIL|ALL PASS|SOME
 for t in tests/test-*.fish; do fish --no-config $t; done 2>&1 | grep -E '^FAIL|ALL PASS|SOME FAILED'
 ```
 
-Expected: 9 × `ALL PASS`, install at 923 plain / 922 `--no-config`.
+Expected: 9 × `ALL PASS`, install at 922 plain / 921 `--no-config` (the 1-count delta is BY DESIGN).
 
 - [ ] **Step 8: Commit**
 
@@ -291,8 +291,8 @@ Replace Task 1's single call inside `__tmux_lives_theme_constrain` with:
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `fish tests/test-tmux-install.fish 2>&1 | tail -1`
-Expected: `ALL PASS (930)`.
+Run: `fish tests/test-tmux-install.fish 2>&1 | grep -E '^FAIL' ; fish tests/test-tmux-install.fish 2>&1 | tail -1`
+Expected: no FAIL lines, and a total of **922 plus however many `t "…"` assertions you added in Step 1**. Assert the delta, not an absolute — this plan's stated totals have already been wrong once.
 
 - [ ] **Step 5: Full-sweep ratchet — every role, every scheme, six seeds**
 
