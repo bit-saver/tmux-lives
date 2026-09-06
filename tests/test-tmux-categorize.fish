@@ -4616,21 +4616,29 @@ t "leg desc muted"  1 (string match -q '*38;2;154;138;114*' -- "$L[1]"; and echo
 # malformed input (odd pair count) guard: no output
 t "leg guards odd pair count" 0 (count (__tcz_thp_leg 3 a b c))
 
-# picker wiring: the footer is __tcz_thp_leg 3-col calls (9 pairs idle —
-# picker-legibility-autoapply Task 5 briefly grew this to 10 with A auto;
-# drop-autoapply-debounce-seed Task 1 removed that pair),
+# picker wiring: the footer is __tcz_thp_leg calls (editing 5 pairs at
+# cols=3; idle 9 pairs at cols=3 — picker-legibility-autoapply Task 5
+# briefly grew idle to 10 with A auto; drop-autoapply-debounce-seed Task 1
+# removed that pair; legibility-floors-and-scheme-ordering Task 8 review grew
+# idle to 10 again with o/order, this time widening cols 3 -> 4 so the row
+# count does not move — see the call site's own comment for the arithmetic),
 # not two fixed-pitch __tcz_legend_row calls — supersedes the pre-gallery-
 # refinement assertions below that grepped for the old call pattern.
 # picker-legibility-autoapply Task 4 split this into TWO calls branched on
 # $editing; isolate the idle-branch one (the only one the checks below were
-# ever about) the same way the $pbody block above does.
+# ever about) the same way the $pbody block above does. The two calls no
+# longer share a column count, so they are matched separately rather than by
+# one shared pattern.
 set -l pbody2 (functions __tcz_theme_picker | string collect)
-set -l leggridall (string match -ra -- "__tcz_thp_leg 3 .*" $pbody2)
-t "picker legend is built via two __tcz_thp_leg 3-col calls (idle/editing)" 2 (count $leggridall)
+set -l leggrid3 (string match -ra -- "__tcz_thp_leg 3 .*" $pbody2)
+set -l leggrid4 (string match -ra -- "__tcz_thp_leg 4 .*" $pbody2)
+t "picker legend is built via one 3-col call (editing) and one 4-col call (idle)" "1 1" (string join ' ' -- (count $leggrid3) (count $leggrid4))
 # Isolate via `roll`, Task 8's replacement for the old `shake` marker (see
 # the equivalent block above for the full history: more -> shake -> roll).
-set -l leggrid (string match -r -- '.*roll.*' $leggridall)
-t "picker legend (idle branch) is a __tcz_thp_leg 3-col call" 1 (count $leggrid)
+# roll only ever appears in the idle/browsing call, so this still uniquely
+# isolates it now that idle is the 4-col call, not the 3-col one.
+set -l leggrid (string match -r -- '.*roll.*' $leggrid4)
+t "picker legend (idle branch) is a __tcz_thp_leg 4-col call" 1 (count $leggrid)
 # scoped to the two RETIRED bottom-legend calls specifically (pitch 12/9) —
 # NOT a whole-body absence check, since __tcz_theme_picker's inline seed
 # screens (b/t) still legitimately call the shared __tcz_legend_row at
@@ -5567,6 +5575,10 @@ t "seed-zone edit render: chan=2 does not mark R" no (string match -q '*▌R*' -
 # not source text — see the band/header assertions above for why a source
 # grep would not have caught this class of bug.
 set -g LEGI (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 0 1 | string collect)
+# __t9_frame_rows exposes the REAL leglines array the draw block just
+# produced via __t9_last_leglines, keyed to whichever call last ran — capture
+# the browsing (idle) one HERE, before the editing call below overwrites it.
+set -g LEGIROWS $__t9_last_leglines
 set -g LEGE (__t9_frame_text list 0 14 0 0 mono "$PAL9" '' 0 14 26 1 1 | string collect)
 # __t9_frame_rows (the last call underlying LEGE, editing=1) also exposes the
 # REAL leglines array the draw block produced, via __t9_last_leglines — so
@@ -5596,13 +5608,27 @@ t "idle legend does not name channels" 0 (string match -ra 'channel' -- "$LEGI" 
 # cause hidden three sections away from the symptom. Assert it explicitly so
 # the suite enforces the constraint rather than the next person remembering
 # it. picker-legibility-autoapply Task 5 briefly added A auto as the
-# browsing legend's tenth pair — measured: 9 pairs render 3 rows at cols=3,
+# browsing legend's tenth pair at cols=3 — measured: 9 pairs render 3 rows,
 # 10 spill a partial row and render 4 — so both modes moved 3 -> 4 (editing's
 # own pad grew from one blank row to two to match).
 # drop-autoapply-debounce-seed Task 1 removed auto-apply and that pair with
-# it, so browsing is back to 9 pairs / 3 rows and editing's pad is back to
+# it, so browsing was back to 9 pairs / 3 rows and editing's pad was back to
 # one blank row.
-t "browsing legend is 3 rows" 3 (count (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close))
+# Task 8 review fix: the legibility-floors-and-scheme-ordering plan's Task 8
+# review added a TENTH browsing pair (o/order, the colour-ordering toggle
+# Task 7 wired up but never advertised) WITHOUT growing the row count —
+# widening cols 3 -> 4 fits 10 pairs into the same 3 rows (measured: 49 of
+# 50 visible columns, one to spare, no description shortened), so
+# STATIC_IDLE/STATIC_EDIT and the editing legend's own pad are untouched.
+# This assertion used to call __tcz_thp_leg directly with the call site's OWN
+# literal args duplicated inline — a second, independent copy that could not
+# have caught the very drift it exists to catch (changing the real call site
+# would not change this hardcoded copy). Rebound to $LEGIROWS, the REAL
+# leglines array the draw block just produced (captured above, before the
+# editing call overwrites __t9_last_leglines) — this is what actually stops
+# a future pair from silently pushing the frame over.
+t "browsing legend is still 3 rows with o/order added" 3 (count $LEGIROWS)
+t "browsing legend advertises o / order" yes (string match -q '*order*' -- "$LEGI"; and echo yes; or echo no)
 t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
 
 # --- review I-1: the six draw-block cache keys, unguarded --------------------

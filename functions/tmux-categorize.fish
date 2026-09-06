@@ -2499,9 +2499,6 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l anch_arr deep
     set -l anch_name ''
     set -l expanded 1
-    # Where the curated rows end and the appended ones begin. Constant for the
-    # session; the reload composes default-then-rest in exactly this order.
-    set -l ndefault (count (__tmux_lives_theme_catalog_v6_default))
     set -l legacy ''
     set -l previewed 0
     set -l order catalog
@@ -3267,17 +3264,26 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # silently breaks the frame's total row count. The editing set is
         # only 5 pairs (2 rows via __tcz_thp_leg) — padded with blank framed
         # rows rather than invented pairs. picker-legibility-autoapply Task 5
-        # briefly added `A auto` as the browsing legend's tenth pair (measured:
-        # 9 pairs render 3 rows at cols=3, 10 render 4 — the tenth spilled into
-        # a partial row), which grew idle 3 -> 4 rows and padded editing's own
-        # blank rows 1 -> 2 to match. drop-autoapply-debounce-seed Task 1
-        # removed auto-apply and that pair with it, so browsing is back to 9
-        # pairs / 3 rows and editing's pad is back to 1 blank row.
+        # briefly added `A auto` as the browsing legend's tenth pair AT COLS=3
+        # (measured: 9 pairs render 3 rows at cols=3, 10 render 4 — the tenth
+        # spilled into a partial row), which grew idle 3 -> 4 rows and padded
+        # editing's own blank rows 1 -> 2 to match. drop-autoapply-debounce-seed
+        # Task 1 removed auto-apply and that pair with it, so browsing was
+        # back to 9 pairs / 3 rows and editing's pad was back to 1 blank row.
+        # legibility-floors-and-scheme-ordering Task 8 review: `o`/`order`
+        # (Task 7's colour-ordering toggle, dispatched but never advertised)
+        # is a TENTH browsing pair added WITHOUT repeating that cost — cols=3
+        # was never the only option, and widening to cols=4 fits 10 pairs
+        # into the SAME 3 rows (measured: 49 of the 50 available visible
+        # columns, one to spare, no description shortened), so
+        # STATIC_IDLE/STATIC_EDIT and editing's own pad stay untouched. The
+        # editing legend below is a separate call with its own pair count and
+        # width — deliberately NOT touched by this.
         if test "$editing" = 1
             set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' apply esc revert "--cachekey=$editing")
             set -a leglines ''
         else
-            set leglines (__tcz_thp_leg 3 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close "--cachekey=$editing")
+            set leglines (__tcz_thp_leg 4 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close  o order "--cachekey=$editing")
         end
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
