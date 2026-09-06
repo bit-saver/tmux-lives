@@ -823,12 +823,20 @@ After the existing loop that populates `$toks`/`$pals`/`$fgs`/`$tabsfgs`/`$recip
             # together or a row renders one scheme's name over another's
             # colours.
             set -l perm (__tcz_thp_order "$seed" $pals)
-            set -l t2; set -l p2; set -l f2; set -l b2; set -l r2
-            for i in $perm
-                set -a t2 $toks[$i]; set -a p2 $pals[$i]; set -a f2 $fgs[$i]
-                set -a b2 $tabsfgs[$i]; set -a r2 $recipes[$i]
+            # Apply the permutation ONLY if it is a complete one. A short or
+            # empty perm would silently truncate the catalog to nothing and
+            # the frame would still render, just empty — this file has already
+            # shipped one defect of exactly that shape (a zero-output command
+            # substitution collapsing an enclosing list), and a picker that
+            # shows no schemes has no other symptom to notice it by.
+            if test (count $perm) -eq (count $pals)
+                set -l t2; set -l p2; set -l f2; set -l b2; set -l r2
+                for i in $perm
+                    set -a t2 $toks[$i]; set -a p2 $pals[$i]; set -a f2 $fgs[$i]
+                    set -a b2 $tabsfgs[$i]; set -a r2 $recipes[$i]
+                end
+                set toks $t2; set pals $p2; set fgs $f2; set tabsfgs $b2; set recipes $r2
             end
-            set toks $t2; set pals $p2; set fgs $f2; set tabsfgs $b2; set recipes $r2
         end
 ```
 
