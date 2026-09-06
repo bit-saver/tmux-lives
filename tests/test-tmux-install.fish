@@ -3089,6 +3089,75 @@ set -g T1LKL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T1LK[7]))
 t "T1: clears the floor with every donor locked" 1 (test (math "abs($T1LKL[1] - $T1BL[1])") -ge 0.40; and echo 1; or echo 0)
 t "T1: locked roles keep their colours" "$T1IN[2] $T1IN[4] $T1IN[5]" "$T1LK[2] $T1LK[4] $T1LK[5]"
 
+# --- Task 2: the staircase ---------------------------------------------------
+# __tmux_lives_theme_floors is captured ONCE into a variable rather than called
+# inline inside each `t`/`for` — calling an undefined function inline aborts
+# the WHOLE enclosing statement in fish (no PASS, no FAIL, nothing printed),
+# which is exactly the "vacuous assertion" trap this repo has been bitten by
+# before. Routing every read through $T2FLOORS means a not-yet-defined
+# function leaves it unset/empty (a real, comparable value: count 0, every
+# index empty) instead of silently skipping the assertion.
+set -g T2FLOORS (__tmux_lives_theme_floors)
+t "T2: floors table has four rows" 4 (count $T2FLOORS)
+t "T2: text floor" "7:0.40" $T2FLOORS[1]
+t "T2: active floor" "4:0.32" $T2FLOORS[2]
+t "T2: windows floor" "5:0.26" $T2FLOORS[3]
+t "T2: sep floor" "2:0.15" $T2FLOORS[4]
+
+# The ordering is itself an invariant: descending, so the scarce
+# high-contrast colours go to the roles that need them most and a later
+# role can never outbid an earlier one. Gated on the row count first so a
+# missing/short table reads as NOT descending (0) rather than vacuously
+# skipping the loop and leaving the seed value of "descending" standing.
+set -g T2DESC 0
+if test (count $T2FLOORS) -eq 4
+    set T2DESC 1
+    set -g T2PREV 999
+    for r in $T2FLOORS
+        set -l fv (string split ':' -- $r)[2]
+        test "$fv" -lt "$T2PREV"; or set T2DESC 0
+        set T2PREV $fv
+    end
+end
+t "T2: floors are strictly descending" 1 $T2DESC
+
+# End to end through the real pipeline: every foreground clears its own floor.
+# Counted (cleared-out-of-total) rather than a flag pre-seeded to "pass" --
+# same vacuity concern as above: if $T2FLOORS is empty the loop below never
+# runs, and a counter that starts at 0 and only rises on a real clear reports
+# that honestly (0 cleared, of 0 known floors -- see the row-count assertion
+# above for that half) instead of reporting a stale "all clear".
+set -g T2P (__tmux_lives_theme_render '#485b3c' square 0.30 0.13 0.75 split)
+set -g T2BL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T2P[1]))
+set -g T2CLEARED 0
+for r in $T2FLOORS
+    set -l f (string split ':' -- $r)
+    set -l rl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T2P[$f[1]]))
+    test (math "abs($rl[1] - $T2BL[1])") -ge $f[2]; and set T2CLEARED (math $T2CLEARED + 1)
+end
+t "T2: square split at the user's seed clears every floor" 4 $T2CLEARED
+
+# --- Task 2: the ratchet -----------------------------------------------------
+# The whole point of a ratchet is that it fires on a breach ANYWHERE, so it
+# sweeps rather than samples. A guard that samples can be green by luck: this
+# project's bounds ratchet passed while 46 renders breached, and moving peakC
+# one step (0.13 -> 0.14) turned it red.
+set -g T2BREACH 0
+for seed in '#485b3c' '#63abab' '#87cb48' '#7a00ff' '#b03a48' '#0088ff'
+    for row in (__tmux_lives_theme_catalog_v6)
+        set -l cf (string split '|' -- $row)
+        set -l p (__tmux_lives_theme_render $seed $cf[2] $cf[3] $cf[4] $cf[5] $cf[6])
+        test (count $p) -eq 7; or continue
+        set -l bl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[1]))
+        for r in (__tmux_lives_theme_floors)
+            set -l f (string split ':' -- $r)
+            set -l rl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[$f[1]]))
+            test (math "abs($rl[1] - $bl[1])") -ge $f[2]; or set T2BREACH (math $T2BREACH + 1)
+        end
+    end
+end
+t "T2 ratchet: zero floor breaches across 252 renders x 4 roles" 0 $T2BREACH
+
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
 
 # the patterns must actually differ — six names mapping to one order would be
@@ -3897,10 +3966,24 @@ t "constrain C2: restricting the candidates still satisfies the contrast floor" 
 set -g A6SWAPFIX (__tmux_lives_theme_render '#5fab40' mono 0.28 0.26 0.25 bright)
 # Under the OLD float rule this renders #7aa26c #7cb568 #69945a #338000
 # #9dbc93 #5e8550 #192c10 — active receives text's dark, saturated colour.
-# Under the structural rule active keeps its light #b0c9a6 and stage two
-# synthesises text instead. Both satisfy all three bounds, so the sibling
-# assertions below test what they claim rather than failing incidentally.
-t "swap: structural selection changes bright" "#7aa26c #7cb568 #69945a #b0c9a6 #9dbc93 #5e8550 #0d2c00" (string join ' ' $A6SWAPFIX)
+# Under the structural rule (Task 1, text-only floor) active kept its light
+# #b0c9a6 and stage two synthesised text instead, because only TEXT was
+# floored at that point — the table above, which is specifically about
+# TEXT's own tie-break (the loop's first iteration, locked=''), is unchanged
+# by anything below and still predicts it correctly.
+#
+# Task 2 (this task) floors active (0.32) and windows (0.26) too, in the
+# SAME loop, immediately after text. Neither clears its own floor naturally
+# at this recipe, so each runs its own independent swap/nudge AFTER text's
+# decision above — which is why active and windows both move again from the
+# Task-1 pin even though text's tie-break table is untouched. Pinned value
+# re-measured directly against the Task-2 pipeline (__tmux_lives_theme_floors
+# now iterates 7,4,5,2): text still clears bar by 0.409, active by 0.330,
+# windows by 0.269 and sep by 0.151 — all four floors hold simultaneously.
+# Both the old (Task-1) and new (Task-2) results satisfy all three engine
+# bounds, so the sibling assertions below test what they claim rather than
+# failing incidentally.
+t "swap: structural selection changes bright" "#7aa26c #9cd788 #69945a #2a3e21 #35502c #5e8550 #0d2c00" (string join ' ' $A6SWAPFIX)
 t "swap: the changed bright palette still satisfies the engine bounds" 1 (__t6_inbounds $A6SWAPFIX)
 t "swap: the changed bright palette still clears the contrast floor" 1 (__t6_floor_ok $A6SWAPFIX)
 t "swap: the changed bright palette is not near-white anywhere" 1 (__t6_nowhite_ok $A6SWAPFIX)
@@ -4085,11 +4168,20 @@ t "range: a muted recipe stays muted" 1 (test "$E6MUTED[1]" -lt 0.08; and echo 1
 t "range: a vivid recipe actually reaches high chroma" 1 (test "$E6VIVID[1]" -gt 0.20; and echo 1; or echo 0)
 t "range: peak chroma spans a REAL interval, not v5's 0.001" 1 (test (math "$E6VIVID[1] - $E6MUTED[1]") -gt 0.10; and echo 1; or echo 0)
 
-# Field 2 is the RAMP span (six non-text roles) — the span the recipe actually
-# controls. Thresholds are measured, not guessed: the muted recipe yields
-# 0.2099 and the vivid one 0.5417. Every one of these still rejects v5, which
-# measures 0.4676-0.4684 under BOTH span definitions.
-t "range: a narrow recipe has a narrow lightness span" 1 (test "$E6MUTED[2]" -lt 0.30; and echo 1; or echo 0)
+# Field 2 is the RAMP span (six non-text roles) — the span the recipe
+# actually controls, MODULO Task 2's floors on active (0.32) and windows
+# (0.26): both roles are among these six, so a ramp requested narrower than
+# either floor gets pulled wider than asked. Thresholds are measured, not
+# guessed: pre-Task-2 the muted recipe measured 0.2099; with the staircase
+# now forcing active out to (at least) 0.32 from bar, it measures 0.3295
+# instead — active's OWN floor, not the recipe's requested span, is what
+# sets this recipe's ramp span now. The vivid recipe is unaffected (0.5417,
+# unchanged) because its wide requested span already clears every floor
+# before the loop runs, so floor_role is a no-op for all three of its
+# candidate roles. 0.35 keeps real margin above the new 0.3295 floor while
+# still meaning "narrow" against vivid's 0.5417. Every one of these still
+# rejects v5, which measures 0.4676-0.4684 under BOTH span definitions.
+t "range: a narrow recipe has a narrow lightness span" 1 (test "$E6MUTED[2]" -lt 0.35; and echo 1; or echo 0)
 t "range: a wide recipe has a wide lightness span" 1 (test "$E6VIVID[2]" -gt 0.50; and echo 1; or echo 0)
 t "range: lightness span VARIES, unlike v5's identical 0.47" 1 (test (math "$E6VIVID[2] - $E6MUTED[2]") -gt 0.20; and echo 1; or echo 0)
 

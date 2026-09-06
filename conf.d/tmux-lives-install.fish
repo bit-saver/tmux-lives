@@ -981,6 +981,10 @@ function __tmux_lives_theme_floor_role --description 'v6: force ONE foreground r
     printf '%s\n' $out
 end
 
+function __tmux_lives_theme_floors --description 'v6: the foreground legibility staircase, role:floor, STRICTLY DESCENDING. Four floors and not one shared value, because a single floor pushes text, active and windows all to bar +/- floor, collapsing three roles onto two lightness values -- this project already measured that forcing similarity reads as LESS cohesive, since the small roles carry the palette curve. Descending order is load-bearing: roles are floored most-demanding first and locked, so the scarce high-contrast colours are allocated to the roles that need them most and no later swap can undo an earlier guarantee. Values are calibrated against a 210-render sweep, not derived; see the spec.'
+    printf '%s\n' 7:0.40 4:0.32 5:0.26 2:0.15
+end
+
 function __tmux_lives_theme_constrain --description 'v6: seven arranged role hexes -> the same seven made ACCEPTABLE. arrange decides which colour goes where and stays a pure permutation; this decides what a colour must become. Order is load-bearing and fixed: big-role lightness clamp, big-role chroma clamp, no-white, then the text-contrast floor LAST because legibility is correctness and every earlier step can move bar or text.'
     set -l out $argv[1..7]
     test (count $out) -eq 7; or return 1
@@ -1160,7 +1164,33 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         end
     end
 
-    set out (__tmux_lives_theme_floor_role 0.40 7 "$pat" '' $out)
+    # The foreground floors. Most-demanding first; each role LOCKS once
+    # satisfied so a later role's swap cannot take its colour back. That
+    # lock is the whole reason this terminates with all four guarantees
+    # simultaneously true — this repo's single most-repeated defect shape
+    # is "an invariant one stage establishes is not one a later stage is
+    # obliged to preserve", confirmed ten times.
+    #
+    # `$lockcsv` is built into a variable rather than inlined as
+    # `(string join ',' $flocked)` at the call site: on the FIRST iteration
+    # $flocked is empty, and `string join` over an empty list prints nothing
+    # at all -- a zero-output command substitution, which fish collapses to
+    # ZERO arguments rather than one empty one (the exact gotcha this file's
+    # CLAUDE.md already names). Inlined, that silently shifts every
+    # positional argument after it by one, so __tmux_lives_theme_floor_role's
+    # `test (count $out) -eq 7` fails on every call and constrain emits
+    # nothing for every recipe -- caught here by running the suite, not by
+    # inspection. `set -l lockcsv ''` guarantees ONE argument (an empty
+    # string, not zero) every time, matching Task 1's own `''`-for-none
+    # convention.
+    set -l flocked
+    for frow in (__tmux_lives_theme_floors)
+        set -l ff (string split ':' -- $frow)
+        set -l lockcsv ''
+        test (count $flocked) -gt 0; and set lockcsv (string join ',' $flocked)
+        set out (__tmux_lives_theme_floor_role $ff[2] $ff[1] "$pat" $lockcsv $out)
+        set -a flocked $ff[1]
+    end
     printf '%s\n' $out
 end
 
