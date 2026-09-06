@@ -721,14 +721,20 @@ function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a
     for idx in 3 1 6 5 2 7 4
         set -l h ''
         test (count $pal) -ge $idx; and set h "$pal[$idx]"
-        set -l rgb (__tmux_lives_hex_to_rgb01 "$h")
-        if test (count $rgb) -ne 3
+        # Validate the SHAPE before converting. __tmux_lives_hex_to_rgb01 has no
+        # shape check of its own — a non-hex string reaches `math "0xno/255"` and
+        # fish's math diagnostics go straight to STDERR, which they do bypassing
+        # in-process redirection. This helper runs inside a display-popup that is
+        # painting a frame to the tty, so stray stderr lands in the middle of the
+        # drawing and corrupts it. Checking first costs one `string match`.
+        if not string match -qr '^#[0-9a-fA-F]{6}$' -- "$h"
             # Non-hex degrades to the far end so it sorts last rather than
             # collapsing the whole key (a zero-output substitution would empty
             # the enclosing argument entirely).
             set key "$key"(printf '%07.3f%05.3f' 999.999 9.999)
             continue
         end
+        set -l rgb (__tmux_lives_hex_to_rgb01 "$h")
         set -l o (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
         set -l d (math "($o[3] - $seedhue + 360) % 360")
         set key "$key"(printf '%07.3f%05.3f' $d $o[1])
@@ -738,9 +744,9 @@ end
 
 function __tcz_thp_order --description 'pure: 1-based palette indices in colour order. argv[1] is the seed hex; argv[2..] are space-joined 7-hex palettes. Ties break on the original index so the total order is STABLE — the row caches are keyed by position, and a wobbling order would silently mis-key them.'
     set -l seedhex $argv[1]
-    set -l srgb (__tmux_lives_hex_to_rgb01 "$seedhex")
     set -l shue 0
-    if test (count $srgb) -eq 3
+    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedhex"
+        set -l srgb (__tmux_lives_hex_to_rgb01 "$seedhex")
         set shue (__tmux_lives_rgb_to_oklch $srgb[1] $srgb[2] $srgb[3])[3]
     end
     set -l lines
