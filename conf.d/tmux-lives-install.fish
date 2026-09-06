@@ -159,7 +159,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
         set -a f "set -g @tmux_lives_sep_fg '$tpal[2]'"           # sep = accent-ring sample; the • separators
         set -a f "set -g @tmux_lives_tabs_color '$tpal[3]'"       # tabs = kin of bar+cap (v3.3); Phase 2 wires ShellFish OSC
         set -a f "set -g @tmux_lives_active_fg '$tpal[4]'"        # active = accent-ring sample; the current window's name
-        set -a f "set -g @tmux_lives_mark_fg '$seedhex'"          # the ✦ mark = the seed's home base
+        set -a f "set -g @tmux_lives_mark_fg '"(__tmux_lives_theme_mark "$barbg" "$seedhex")"'"   # the ✦ mark = the seed's home base, floored to stay visible on bar
         set -a f "set -g @tmux_lives_text_fg '$tpal[7]'"          # text = the bar's contrast side; centre identity
     else
         set -a f "set -g @tmux_lives_sep_fg default"
@@ -1281,6 +1281,39 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     set -l pal (__tmux_lives_theme_arrange "$arrangement" $hexes)
     test (count $pal) -eq 7; or return
     __tmux_lives_theme_constrain $pal $arrangement
+end
+
+function __tmux_lives_theme_mark --argument-names barhex seedhex --description 'v6: the ✦ presence glyph, which is the SEED rather than a palette role and so is not covered by render(). Returns the seed floored to the glyph threshold (0.15 OKLCH lightness) against bar, keeping hue and chroma. Measured: the shipped engine reaches dL 0.000 / WCAG 1.00 here — the mark is sometimes exactly the bar colour. A seed already clearing the floor is returned VERBATIM: the mark is the seeds home base and must stay the literal seed wherever it legibly can. Non-hex input (a colourNNN fallback, or "default" when the theme is off) is returned unchanged. Lives here, not inside render(), so renders seven-element contract is untouched.'
+    set -l sb (__tmux_lives_hex_to_rgb01 "$barhex")
+    set -l ss (__tmux_lives_hex_to_rgb01 "$seedhex")
+    if test (count $sb) -ne 3; or test (count $ss) -ne 3
+        echo "$seedhex"
+        return
+    end
+    set -l lb (__tmux_lives_rgb_to_oklch $sb[1] $sb[2] $sb[3])
+    set -l ls (__tmux_lives_rgb_to_oklch $ss[1] $ss[2] $ss[3])
+    if test (math "abs($ls[1] - $lb[1])") -ge 0.15
+        echo "$seedhex"
+        return
+    end
+    set -l up (math "$lb[1] + 0.15")
+    set -l dn (math "$lb[1] - 0.15")
+    set -l newL $up
+    set -l dir 1
+    # Same ceiling as the floors: 0.88, never near-white.
+    test "$up" -gt 0.88; and set newL $dn; and set dir -1
+    set -l cand (__tmux_lives_oklch_hex $newL $ls[2] $ls[3])
+    set -l tries 0
+    while test $tries -lt 10
+        set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+        test (math "abs($back[1] - $lb[1])") -ge 0.15; and break
+        set newL (math "$newL + $dir * 0.01")
+        test "$newL" -gt 0.88; and set newL 0.88
+        test "$newL" -lt 0.05; and set newL 0.05
+        set cand (__tmux_lives_oklch_hex $newL $ls[2] $ls[3])
+        set tries (math "$tries + 1")
+    end
+    echo $cand
 end
 
 function __tmux_lives_theme_roll --argument-names seedHex --description 'v6: sample a recipe from the MEASURED acceptable ridge and return its five fields. Sampling the v6 core spec s documented envelope (peakC 0.01-0.26 uniform) satisfies bound 1 only 34.6% of the time; the region is a diagonal ridge that INVERTS — below peakC ~0.10 nothing passes at any position, and above ~0.20 the middle fails while the ends pass, because a mid-ramp peak sits where the gamut has headroom and overshoots the ceiling while an end peak is clipped back into range. peakC 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so this costs about one render. Rejects and resamples on a bound-1 miss, capped; on exhaustion returns the last candidate rather than nothing, because refusing to render is a worse outcome than one slightly-off palette.'

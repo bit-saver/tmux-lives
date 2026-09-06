@@ -4444,4 +4444,35 @@ t "T4: bound 2 breaches after the floors" 0 $T4B2
 t "T4: bound 3 breaches after the floors" 0 $T4B3
 t "T4: no-white breaches after the floors" 0 $T4NW
 
+# --- Task 5: the mark ---------------------------------------------------------
+# ΔL 0.000 was MEASURED in the shipped engine — the ✦ is sometimes exactly the
+# bar colour — so the identical case is reachable, not hypothetical.
+set -g T5A (__tmux_lives_theme_mark '#2a2e28' '#2a2e28')
+set -g T5AB (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 '#2a2e28'))
+set -g T5AL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T5A))
+t "T5: an identical seed and bar are separated to the glyph floor" 1 (test (math "abs($T5AL[1] - $T5AB[1])") -ge 0.15; and echo 1; or echo 0)
+# A seed that already clears the floor is returned untouched — the ✦ is the
+# seed's home base and must stay the literal seed wherever it legibly can.
+set -g T5B (__tmux_lives_theme_mark '#2a2e28' '#d8c8a8')
+t "T5: a seed that already clears the floor is unchanged" '#d8c8a8' $T5B
+t "T5: non-hex input degrades to the seed unchanged" 'default' (__tmux_lives_theme_mark 'colour236' 'default')
+
+# --- Task 5: the fragment uses the floored mark ------------------------------
+# Bound to a variable defined ABOVE, and paired with a positive count, so an
+# empty render cannot pass this by matching nothing.
+#
+# Arrangement is 'centre', not the brief's 'split': measured (and confirmed
+# independently outside fish), 'square 0.30 0.13 0.75 split' renders bar
+# #2a2e28 against this seed, dL 0.151283 -- already >= the 0.15 floor, so the
+# seed is CORRECTLY returned verbatim there (its own home-base rule), and the
+# brief's "not the bare seed" expectation does not hold for that fixture. Every
+# other arrangement at these same knobs needs flooring (dL 0.0003-0.15);
+# 'centre' (dL 0.050182) is picked as a clear, non-boundary case so this
+# assertion actually exercises the floor path instead of sitting 0.0013 from
+# the line that decides it.
+set -g T5FRAG (__tmux_lives_render_fragment /X/cat.fish S M-s '#485b3c' 0 M-m M-t M-r C-M-a C-M-s block M-k square 0.30 0.13 0.75 centre 'xterm*')
+t "T5: fragment renders a non-empty body" 1 (test (count $T5FRAG) -gt 20; and echo 1; or echo 0)
+t "T5: fragment sets mark_fg exactly once" 1 (printf '%s\n' $T5FRAG | grep -c '@tmux_lives_mark_fg')
+t "T5: mark_fg is not the bare seed" 0 (printf '%s\n' $T5FRAG | grep -c "@tmux_lives_mark_fg '#485b3c'")
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
