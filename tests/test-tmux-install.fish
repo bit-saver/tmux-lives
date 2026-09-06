@@ -3071,6 +3071,24 @@ for p in centre accent
     t "constrain: a mid-ramp bar still gets legible text ($p)" 1 (test (math "abs($ltxt[1] - $lbar[1])") -ge 0.40; and echo 1; or echo 0)
 end
 
+# --- Task 1: __tmux_lives_theme_floor_role extraction -------------------------
+# An evenly-spaced synthetic ramp. bar (index 1) sits at L~0.13; index 7 at
+# L~0.72. Floor the text role against it and assert the gap actually clears,
+# measured on the ROUND-TRIPPED hex rather than the requested lightness.
+set -g T1IN '#101010' '#2a2a2a' '#444444' '#5e5e5e' '#787878' '#929292' '#acacac'
+set -g T1OUT (__tmux_lives_theme_floor_role 0.40 7 '' '' $T1IN)
+t "T1: floor_role returns seven hexes" 7 (count $T1OUT)
+set -g T1BL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T1OUT[1]))
+set -g T1TL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T1OUT[7]))
+t "T1: text clears its 0.40 floor against bar" 1 (test (math "abs($T1TL[1] - $T1BL[1])") -ge 0.40; and echo 1; or echo 0)
+t "T1: bar is untouched by the floor" "$T1IN[1]" "$T1OUT[1]"
+# The locked list must exclude a donor. Lock 2, 4 and 5 and the swap has no
+# candidate left, so the nudge must carry it alone and still clear the floor.
+set -g T1LK (__tmux_lives_theme_floor_role 0.40 7 '' '2,4,5' $T1IN)
+set -g T1LKL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T1LK[7]))
+t "T1: clears the floor with every donor locked" 1 (test (math "abs($T1LKL[1] - $T1BL[1])") -ge 0.40; and echo 1; or echo 0)
+t "T1: locked roles keep their colours" "$T1IN[2] $T1IN[4] $T1IN[5]" "$T1LK[2] $T1LK[4] $T1LK[5]"
+
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
 
 # the patterns must actually differ — six names mapping to one order would be

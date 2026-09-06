@@ -719,6 +719,268 @@ function __tmux_lives_theme_arrange --argument-names pattern --description 'v6: 
     printf '%s\n' $out
 end
 
+function __tmux_lives_theme_floor_role --description 'v6: force ONE foreground role to clear <floor> OKLCH lightness against bar (role 1), by swapping with another unlocked foreground role first and nudging its lightness only if no swap suffices. Prints the seven role hexes. <locked> is a comma-separated list of role indices that may not donate — roles already floored by an earlier call, so a later role can never undo an earlier guarantee. Extracted verbatim from the single-role text floor; the comments below record review-caught defects and measured counter-examples that all still hold.'
+    set -l floor $argv[1]
+    set -l role $argv[2]
+    set -l pat "$argv[3]"
+    set -l lockcsv "$argv[4]"
+    set -l out $argv[5..11]
+    test (count $out) -eq 7; or return 1
+
+    # The floor. Role 1 is bar, role 7 is text.
+    set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
+    set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$role]))
+    if test (math "abs($lt[1] - $lb[1])") -lt $floor
+        # Find the colour furthest in lightness from bar and swap it into text,
+        # preserving the permutation (the displaced colour takes text's old slot)
+        # so no colour is dropped or duplicated.
+        set -l best $role
+        set -l bestd (math "abs($lt[1] - $lb[1])")
+        # Spec constraint C2: candidates are the SMALL roles only — 2 sep,
+        # 4 active, 5 windows. NOT (seq 2 6), which would include 3 tabs and
+        # 6 cap. This is a restriction, not a shorthand: do not "simplify" it
+        # back to a range. A swap is an EXCHANGE, so a big role chosen here
+        # receives text's colour, and text is often light — measured at this
+        # function's own contract boundary, cap came back at L 0.879756 from
+        # an input whose big roles all entered at or below L 0.659, breaching
+        # bound 3 by 0.18. The floor runs LAST, after both clamps, so nothing
+        # downstream can catch that. No shipped arrangement table reaches the
+        # case today (swept over 3,024 renders, `best` is only ever 7, 5, 4 or
+        # 2, and restricting the range leaves all 3,024 byte-identical) — the
+        # table is what a future task edits, which is why the restriction
+        # belongs here rather than in the tables.
+        #
+        # This set (2 4 5) is the other half of the big-role set at :777
+        # (1 3 6) — an unlinked partition, not a shared constant. Nothing
+        # checks the two stay in sync; if either changes, check the other
+        # by hand.
+        set -l locked (string split ',' -- "$lockcsv")
+        set -l cands
+        for i in 2 4 5 7
+            test $i -eq $role; and continue
+            contains -- "$i" $locked; and continue
+            set -a cands $i
+        end
+        # Selection is STRUCTURAL when the pattern is known: ramp indices are
+        # integers and distinct by construction, so there is no tie to sit on
+        # and no engine constant can flip which colour becomes text. The float
+        # argmax it replaces had 188 of 2,142 floor-firing rows within 0.0005
+        # of a tie, and a flip EXCHANGES two roles' colours (worst measured
+        # 0.36 in lightness) — which would silently repaint a stored recipe.
+        # Mirrors the float rule exactly: text is the incumbent and a
+        # candidate must STRICTLY beat it.
+        set -l ridx (__tmux_lives_theme_rampidx "$pat")
+        if test (count $ridx) -eq 7
+            set -l bd (math "abs($ridx[$role] - $ridx[1])")
+            for i in $cands
+                set -l d (math "abs($ridx[$i] - $ridx[1])")
+                if test "$d" -gt "$bd"
+                    set best $i
+                    set bd $d
+                end
+            end
+        else
+            for i in $cands
+                set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
+                set -l d (math "abs($li[1] - $lb[1])")
+                if test "$d" -gt "$bestd"
+                    set best $i
+                    set bestd $d
+                end
+            end
+        end
+        if test $best -ne $role
+            set -l tmp $out[$role]
+            set out[$role] $out[$best]
+            set out[$best] $tmp
+        end
+        # Stage two. A mid-ramp bar can have NOTHING far enough away inside its
+        # own palette — measured, centre reaches only 0.309 and accent 0.358
+        # against a 0.40 floor. Legibility is correctness, not taste, so push
+        # text's LIGHTNESS to the floor while keeping its HUE and REQUESTING
+        # the chroma it drew from the harmony. Only hue is actually guaranteed:
+        # sRGB has little to no chroma headroom near white or black, so a push
+        # toward the light or dark extreme can lose most of the requested
+        # chroma (measured 20%-93% loss) even though the hue survives intact.
+        # It stays a generated colour; only L is constrained, and only when the
+        # swap was not enough.
+        set -l lt2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$role]))
+        if test (math "abs($lt2[1] - $lb[1])") -lt $floor
+            set -l up (math "$lb[1] + $floor")
+            set -l dn (math "$lb[1] - $floor")
+            set -l newL $up
+            set -l dir 1
+            # 0.88, not 0.97: the light end must stay tinted, never near-white.
+            # With bar clamped at 0.70 this makes the floor fall to the dark
+            # side whenever the light side would breach, so the contrast floor
+            # and the no-white rule stay simultaneously satisfiable.
+            test "$up" -gt 0.88; and set newL $dn; and set dir -1
+            # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
+            # so a target placed exactly ON the floor can round to just under
+            # it (measured: accent lands 0.001 short of 0.40 without this).
+            # Nudge outward in the same direction until the ACTUAL round-tripped
+            # gap clears the floor, rather than trusting the requested L.
+            set -l cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+            set -l tries 0
+            while test $tries -lt 10
+                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+                test (math "abs($back[1] - $lb[1])") -ge $floor; and break
+                set newL (math "$newL + $dir * 0.01")
+                test "$newL" -gt 0.88; and set newL 0.88
+                test "$newL" -lt 0.05; and set newL 0.05
+                set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
+                set tries (math "$tries + 1")
+            end
+            # Verify the loop's OWN result rather than trusting it exited
+            # clean — the loop can exhaust its budget without ever re-checking
+            # the final nudge it computed, which would silently ship a `text`
+            # that violates the one hard rule. Best effort, never silent: if
+            # ten nudges were not enough, fall back to whichever extreme is
+            # further from bar (0.88 or 0.05), which maximises the achievable
+            # gap while staying inside the no-white ceiling. Review-caught:
+            # this used to target a literal 0.97, ignoring the ceiling above.
+            set -l final (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+            if test (math "abs($final[1] - $lb[1])") -lt $floor
+                set -l dHi (math "abs(0.88 - $lb[1])")
+                set -l dLo (math "abs($lb[1] - 0.05)")
+                set -l extremeL 0.88
+                test "$dLo" -gt "$dHi"; and set extremeL 0.05
+                set cand (__tmux_lives_oklch_hex $extremeL $lt2[2] $lt2[3])
+            end
+            # C3 re-check. Review-caught: stage two SYNTHESISES a brand new
+            # lightness on both exit paths above (the nudge loop and the
+            # extreme fallback), and either can round-trip past the no-white
+            # ceiling — in EITHER direction. A target placed just under 0.88
+            # can round DOWN, which used to freeze the nudge loop's own
+            # progress (every +0.01 nudge re-clamps to the SAME candidate,
+            # ten times, with zero gap gained — measured: bar L 0.4798 stalls
+            # at gap 0.399785 for all ten tries). A target placed AT 0.88 can
+            # round UP past it on the loop's early-break exit (measured:
+            # L 0.88045). The swap above never needs this: every OTHER role
+            # already cleared C3 before the floor ran, so only stage two's
+            # own synthesis can reintroduce a violation.
+            set -l fo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+            set -l fL $fo[1]
+            set -l fC $fo[2]
+            set -l fH $fo[3]
+            set -l fchanged 0
+            if test "$fL" -gt 0.88
+                set fL 0.88
+                set fchanged 1
+            end
+            if test "$fL" -gt 0.72; and test "$fC" -lt 0.055
+                set fC 0.055
+                set fchanged 1
+            end
+            if test $fchanged -eq 1
+                # Push toward compliance AND the gap TOGETHER, not clamp then
+                # hope. Review-caught (round 3): a clamp-only pass can erode
+                # a gap that was already satisfied — a live counter-example,
+                # bar L 0.479426, clamps text to L 0.874739, gap 0.395313.
+                # The clamp direction and the gap direction do not actually
+                # fight here: this branch is only reached with a LIGHT-side
+                # target (the dir-flip pre-check above already routes
+                # bar > 0.48 to dark from the start, so bar <= 0.48 always
+                # holds here), which means 0.88 - bar >= 0.40 by construction
+                # — pushing L all the way to the SAME 0.88 ceiling the
+                # no-white clamp already respects is always enough gap,
+                # except for a razor-thin quantisation-defeated sliver right
+                # at bar ~ 0.48 (a live example: bar L 0.4798, the achievable
+                # window is ~0.0002 wide and rounding can miss it entirely —
+                # ten +0.01 nudges all reclamp to the SAME candidate with
+                # zero progress). So: nudge L UP toward 0.88 whenever the gap
+                # is short (never down for that reason — only the ceiling
+                # pulls L down), nudge C up whenever it is short, and re-test
+                # all three conditions together each pass.
+                set -l lcand (__tmux_lives_oklch_hex $fL $fC $fH)
+                set -l ftries 0
+                set -l lok3 0
+                while test $ftries -lt 20
+                    set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
+                    set -l flok 1
+                    test "$fback[1]" -gt 0.88; and set flok 0
+                    set -l fcok 1
+                    test "$fback[1]" -gt 0.72; and test "$fback[2]" -lt 0.055; and set fcok 0
+                    set -l fgapok 1
+                    test (math "abs($fback[1] - $lb[1])") -lt $floor; and set fgapok 0
+                    if test $flok -eq 1; and test $fcok -eq 1; and test $fgapok -eq 1
+                        set lok3 1
+                        break
+                    end
+                    test $flok -eq 0; and set fL 0.88
+                    test $fcok -eq 0; and set fC (math "$fC + 0.005")
+                    if test $fgapok -eq 0; and test "$fL" -lt 0.88
+                        set fL (math "$fL + 0.01")
+                        test "$fL" -gt 0.88; and set fL 0.88
+                    end
+                    set lcand (__tmux_lives_oklch_hex $fL $fC $fH)
+                    set ftries (math "$ftries + 1")
+                end
+                if test $lok3 -eq 1
+                    set cand $lcand
+                else
+                    # The razor-thin sliver above: light cannot reach the
+                    # gap even AT the ceiling, which per the margin argument
+                    # only happens for bar close to 0.48 — comfortably
+                    # inside the range where dark (bar - 0.40) is UNCLAMPED
+                    # and reaches the full 0.40 gap with room to spare, and
+                    # nowhere near the no-white thresholds (L <= 0.72).
+                    set -l dn2 (math "$lb[1] - $floor")
+                    test "$dn2" -lt 0.05; and set dn2 0.05
+                    set -l dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
+                    set -l dtries 0
+                    while test $dtries -lt 10
+                        set -l dback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+                        test (math "abs($dback[1] - $lb[1])") -ge $floor; and break
+                        set dn2 (math "$dn2 - 0.01")
+                        test "$dn2" -lt 0.05; and set dn2 0.05
+                        set dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
+                        set dtries (math "$dtries + 1")
+                    end
+                    set -l dback2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+                    set -l dgapok 1
+                    test (math "abs($dback2[1] - $lb[1])") -lt $floor; and set dgapok 0
+                    set -l dlok 1
+                    test "$dback2[1]" -gt 0.88; and set dlok 0
+                    set -l dcok 1
+                    test "$dback2[1]" -gt 0.72; and test "$dback2[2]" -lt 0.055; and set dcok 0
+                    if test $dgapok -eq 1; and test $dlok -eq 1; and test $dcok -eq 1
+                        set cand $dcand
+                    else
+                        # Neither side holds both bounds for this bar. Not
+                        # expected to be reachable — light was already
+                        # pushed to its own ceiling and dark is normally
+                        # unclamped whenever light's margin is this thin —
+                        # but if it ever fires, that is a genuine conflict
+                        # outside what this design has accounted for, worth
+                        # reporting with the bar/lcand/dcand numbers rather
+                        # than trusting this branch blindly. Defensive only:
+                        # swept 7065 seed x mode x arrangement x Lspan x
+                        # peakC x peakPos combinations (720 at the reviewer's
+                        # exact shape, peakC 0.12 / peakPos 0.3; 4320 across
+                        # 12 Lspans and 10 seeds at the same peakC/peakPos;
+                        # 2025 additionally varying peakC 0.04-0.26 and
+                        # peakPos 0.1-0.9) and never observed it fire. Keep
+                        # whichever side reaches the larger gap so an
+                        # unforeseen case is at least minimised, not
+                        # silently pinned to one bound.
+                        set -l fbacklast (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
+                        set -l lgap (math "abs($fbacklast[1] - $lb[1])")
+                        set -l dgap (math "abs($dback2[1] - $lb[1])")
+                        if test "$dgap" -gt "$lgap"
+                            set cand $dcand
+                        else
+                            set cand $lcand
+                        end
+                    end
+                end
+            end
+            set out[$role] $cand
+        end
+    end
+    printf '%s\n' $out
+end
+
 function __tmux_lives_theme_constrain --description 'v6: seven arranged role hexes -> the same seven made ACCEPTABLE. arrange decides which colour goes where and stays a pure permutation; this decides what a colour must become. Order is load-bearing and fixed: big-role lightness clamp, big-role chroma clamp, no-white, then the text-contrast floor LAST because legibility is correctness and every earlier step can move bar or text.'
     set -l out $argv[1..7]
     test (count $out) -eq 7; or return 1
@@ -898,250 +1160,7 @@ function __tmux_lives_theme_constrain --description 'v6: seven arranged role hex
         end
     end
 
-    # The floor. Role 1 is bar, role 7 is text.
-    set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[1]))
-    set -l lt (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
-    if test (math "abs($lt[1] - $lb[1])") -lt 0.40
-        # Find the colour furthest in lightness from bar and swap it into text,
-        # preserving the permutation (the displaced colour takes text's old slot)
-        # so no colour is dropped or duplicated.
-        set -l best 7
-        set -l bestd (math "abs($lt[1] - $lb[1])")
-        # Spec constraint C2: candidates are the SMALL roles only — 2 sep,
-        # 4 active, 5 windows. NOT (seq 2 6), which would include 3 tabs and
-        # 6 cap. This is a restriction, not a shorthand: do not "simplify" it
-        # back to a range. A swap is an EXCHANGE, so a big role chosen here
-        # receives text's colour, and text is often light — measured at this
-        # function's own contract boundary, cap came back at L 0.879756 from
-        # an input whose big roles all entered at or below L 0.659, breaching
-        # bound 3 by 0.18. The floor runs LAST, after both clamps, so nothing
-        # downstream can catch that. No shipped arrangement table reaches the
-        # case today (swept over 3,024 renders, `best` is only ever 7, 5, 4 or
-        # 2, and restricting the range leaves all 3,024 byte-identical) — the
-        # table is what a future task edits, which is why the restriction
-        # belongs here rather than in the tables.
-        #
-        # This set (2 4 5) is the other half of the big-role set at :777
-        # (1 3 6) — an unlinked partition, not a shared constant. Nothing
-        # checks the two stay in sync; if either changes, check the other
-        # by hand.
-        # Selection is STRUCTURAL when the pattern is known: ramp indices are
-        # integers and distinct by construction, so there is no tie to sit on
-        # and no engine constant can flip which colour becomes text. The float
-        # argmax it replaces had 188 of 2,142 floor-firing rows within 0.0005
-        # of a tie, and a flip EXCHANGES two roles' colours (worst measured
-        # 0.36 in lightness) — which would silently repaint a stored recipe.
-        # Mirrors the float rule exactly: text is the incumbent and a
-        # candidate must STRICTLY beat it.
-        set -l ridx (__tmux_lives_theme_rampidx "$pat")
-        if test (count $ridx) -eq 7
-            set -l bd (math "abs($ridx[7] - $ridx[1])")
-            for i in 2 4 5
-                set -l d (math "abs($ridx[$i] - $ridx[1])")
-                if test "$d" -gt "$bd"
-                    set best $i
-                    set bd $d
-                end
-            end
-        else
-            for i in 2 4 5
-                set -l li (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[$i]))
-                set -l d (math "abs($li[1] - $lb[1])")
-                if test "$d" -gt "$bestd"
-                    set best $i
-                    set bestd $d
-                end
-            end
-        end
-        if test $best -ne 7
-            set -l tmp $out[7]
-            set out[7] $out[$best]
-            set out[$best] $tmp
-        end
-        # Stage two. A mid-ramp bar can have NOTHING far enough away inside its
-        # own palette — measured, centre reaches only 0.309 and accent 0.358
-        # against a 0.40 floor. Legibility is correctness, not taste, so push
-        # text's LIGHTNESS to the floor while keeping its HUE and REQUESTING
-        # the chroma it drew from the harmony. Only hue is actually guaranteed:
-        # sRGB has little to no chroma headroom near white or black, so a push
-        # toward the light or dark extreme can lose most of the requested
-        # chroma (measured 20%-93% loss) even though the hue survives intact.
-        # It stays a generated colour; only L is constrained, and only when the
-        # swap was not enough.
-        set -l lt2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
-        if test (math "abs($lt2[1] - $lb[1])") -lt 0.40
-            set -l up (math "$lb[1] + 0.40")
-            set -l dn (math "$lb[1] - 0.40")
-            set -l newL $up
-            set -l dir 1
-            # 0.88, not 0.97: the light end must stay tinted, never near-white.
-            # With bar clamped at 0.70 this makes the floor fall to the dark
-            # side whenever the light side would breach, so the contrast floor
-            # and the no-white rule stay simultaneously satisfiable.
-            test "$up" -gt 0.88; and set newL $dn; and set dir -1
-            # Encoding L,C,H to a hex and back is lossy (8-bit sRGB rounding),
-            # so a target placed exactly ON the floor can round to just under
-            # it (measured: accent lands 0.001 short of 0.40 without this).
-            # Nudge outward in the same direction until the ACTUAL round-tripped
-            # gap clears the floor, rather than trusting the requested L.
-            set -l cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
-            set -l tries 0
-            while test $tries -lt 10
-                set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
-                test (math "abs($back[1] - $lb[1])") -ge 0.40; and break
-                set newL (math "$newL + $dir * 0.01")
-                test "$newL" -gt 0.88; and set newL 0.88
-                test "$newL" -lt 0.05; and set newL 0.05
-                set cand (__tmux_lives_oklch_hex $newL $lt2[2] $lt2[3])
-                set tries (math "$tries + 1")
-            end
-            # Verify the loop's OWN result rather than trusting it exited
-            # clean — the loop can exhaust its budget without ever re-checking
-            # the final nudge it computed, which would silently ship a `text`
-            # that violates the one hard rule. Best effort, never silent: if
-            # ten nudges were not enough, fall back to whichever extreme is
-            # further from bar (0.88 or 0.05), which maximises the achievable
-            # gap while staying inside the no-white ceiling. Review-caught:
-            # this used to target a literal 0.97, ignoring the ceiling above.
-            set -l final (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
-            if test (math "abs($final[1] - $lb[1])") -lt 0.40
-                set -l dHi (math "abs(0.88 - $lb[1])")
-                set -l dLo (math "abs($lb[1] - 0.05)")
-                set -l extremeL 0.88
-                test "$dLo" -gt "$dHi"; and set extremeL 0.05
-                set cand (__tmux_lives_oklch_hex $extremeL $lt2[2] $lt2[3])
-            end
-            # C3 re-check. Review-caught: stage two SYNTHESISES a brand new
-            # lightness on both exit paths above (the nudge loop and the
-            # extreme fallback), and either can round-trip past the no-white
-            # ceiling — in EITHER direction. A target placed just under 0.88
-            # can round DOWN, which used to freeze the nudge loop's own
-            # progress (every +0.01 nudge re-clamps to the SAME candidate,
-            # ten times, with zero gap gained — measured: bar L 0.4798 stalls
-            # at gap 0.399785 for all ten tries). A target placed AT 0.88 can
-            # round UP past it on the loop's early-break exit (measured:
-            # L 0.88045). The swap above never needs this: every OTHER role
-            # already cleared C3 before the floor ran, so only stage two's
-            # own synthesis can reintroduce a violation.
-            set -l fo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
-            set -l fL $fo[1]
-            set -l fC $fo[2]
-            set -l fH $fo[3]
-            set -l fchanged 0
-            if test "$fL" -gt 0.88
-                set fL 0.88
-                set fchanged 1
-            end
-            if test "$fL" -gt 0.72; and test "$fC" -lt 0.055
-                set fC 0.055
-                set fchanged 1
-            end
-            if test $fchanged -eq 1
-                # Push toward compliance AND the gap TOGETHER, not clamp then
-                # hope. Review-caught (round 3): a clamp-only pass can erode
-                # a gap that was already satisfied — a live counter-example,
-                # bar L 0.479426, clamps text to L 0.874739, gap 0.395313.
-                # The clamp direction and the gap direction do not actually
-                # fight here: this branch is only reached with a LIGHT-side
-                # target (the dir-flip pre-check above already routes
-                # bar > 0.48 to dark from the start, so bar <= 0.48 always
-                # holds here), which means 0.88 - bar >= 0.40 by construction
-                # — pushing L all the way to the SAME 0.88 ceiling the
-                # no-white clamp already respects is always enough gap,
-                # except for a razor-thin quantisation-defeated sliver right
-                # at bar ~ 0.48 (a live example: bar L 0.4798, the achievable
-                # window is ~0.0002 wide and rounding can miss it entirely —
-                # ten +0.01 nudges all reclamp to the SAME candidate with
-                # zero progress). So: nudge L UP toward 0.88 whenever the gap
-                # is short (never down for that reason — only the ceiling
-                # pulls L down), nudge C up whenever it is short, and re-test
-                # all three conditions together each pass.
-                set -l lcand (__tmux_lives_oklch_hex $fL $fC $fH)
-                set -l ftries 0
-                set -l lok3 0
-                while test $ftries -lt 20
-                    set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
-                    set -l flok 1
-                    test "$fback[1]" -gt 0.88; and set flok 0
-                    set -l fcok 1
-                    test "$fback[1]" -gt 0.72; and test "$fback[2]" -lt 0.055; and set fcok 0
-                    set -l fgapok 1
-                    test (math "abs($fback[1] - $lb[1])") -lt 0.40; and set fgapok 0
-                    if test $flok -eq 1; and test $fcok -eq 1; and test $fgapok -eq 1
-                        set lok3 1
-                        break
-                    end
-                    test $flok -eq 0; and set fL 0.88
-                    test $fcok -eq 0; and set fC (math "$fC + 0.005")
-                    if test $fgapok -eq 0; and test "$fL" -lt 0.88
-                        set fL (math "$fL + 0.01")
-                        test "$fL" -gt 0.88; and set fL 0.88
-                    end
-                    set lcand (__tmux_lives_oklch_hex $fL $fC $fH)
-                    set ftries (math "$ftries + 1")
-                end
-                if test $lok3 -eq 1
-                    set cand $lcand
-                else
-                    # The razor-thin sliver above: light cannot reach the
-                    # gap even AT the ceiling, which per the margin argument
-                    # only happens for bar close to 0.48 — comfortably
-                    # inside the range where dark (bar - 0.40) is UNCLAMPED
-                    # and reaches the full 0.40 gap with room to spare, and
-                    # nowhere near the no-white thresholds (L <= 0.72).
-                    set -l dn2 (math "$lb[1] - 0.40")
-                    test "$dn2" -lt 0.05; and set dn2 0.05
-                    set -l dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
-                    set -l dtries 0
-                    while test $dtries -lt 10
-                        set -l dback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
-                        test (math "abs($dback[1] - $lb[1])") -ge 0.40; and break
-                        set dn2 (math "$dn2 - 0.01")
-                        test "$dn2" -lt 0.05; and set dn2 0.05
-                        set dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
-                        set dtries (math "$dtries + 1")
-                    end
-                    set -l dback2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
-                    set -l dgapok 1
-                    test (math "abs($dback2[1] - $lb[1])") -lt 0.40; and set dgapok 0
-                    set -l dlok 1
-                    test "$dback2[1]" -gt 0.88; and set dlok 0
-                    set -l dcok 1
-                    test "$dback2[1]" -gt 0.72; and test "$dback2[2]" -lt 0.055; and set dcok 0
-                    if test $dgapok -eq 1; and test $dlok -eq 1; and test $dcok -eq 1
-                        set cand $dcand
-                    else
-                        # Neither side holds both bounds for this bar. Not
-                        # expected to be reachable — light was already
-                        # pushed to its own ceiling and dark is normally
-                        # unclamped whenever light's margin is this thin —
-                        # but if it ever fires, that is a genuine conflict
-                        # outside what this design has accounted for, worth
-                        # reporting with the bar/lcand/dcand numbers rather
-                        # than trusting this branch blindly. Defensive only:
-                        # swept 7065 seed x mode x arrangement x Lspan x
-                        # peakC x peakPos combinations (720 at the reviewer's
-                        # exact shape, peakC 0.12 / peakPos 0.3; 4320 across
-                        # 12 Lspans and 10 seeds at the same peakC/peakPos;
-                        # 2025 additionally varying peakC 0.04-0.26 and
-                        # peakPos 0.1-0.9) and never observed it fire. Keep
-                        # whichever side reaches the larger gap so an
-                        # unforeseen case is at least minimised, not
-                        # silently pinned to one bound.
-                        set -l fbacklast (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
-                        set -l lgap (math "abs($fbacklast[1] - $lb[1])")
-                        set -l dgap (math "abs($dback2[1] - $lb[1])")
-                        if test "$dgap" -gt "$lgap"
-                            set cand $dcand
-                        else
-                            set cand $lcand
-                        end
-                    end
-                end
-            end
-            set out[7] $cand
-        end
-    end
+    set out (__tmux_lives_theme_floor_role 0.40 7 "$pat" '' $out)
     printf '%s\n' $out
 end
 
