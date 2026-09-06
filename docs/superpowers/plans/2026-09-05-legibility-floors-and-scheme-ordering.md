@@ -116,7 +116,7 @@ Mechanical substitutions, and nothing else:
 
 | was | becomes |
 |---|---|
-| the literal `0.40` (all 6 occurrences in this block) | `$floor` |
+| the literal `0.40` (**every occurrence — there are 10, not the 6 an earlier draft of this table claimed; replacing only some would leave stray literals that silently ignore a caller's floor**) | `$floor` |
 | `$out[7]` | `$out[$role]` |
 | `set out[7]` | `set out[$role]` |
 | `set best 7` / `test $best -ne 7` | `set best $role` / `test $best -ne $role` |
