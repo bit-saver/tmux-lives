@@ -3833,8 +3833,10 @@ t "reload no longer swaps to the whole catalog wholesale" 0 (string match -ra 's
 # The two source-greps above are defeatable: e.g. appending catalog_rest BUT
 # also prepending it ahead of the curated rows still contains the string
 # "catalog_rest" and still avoids the banned wholesale-swap shape, so both
-# checks pass while the "curated 14 first, then the rest" contract the More
-# Schemes header depends on is broken. Prove composition DIRECTLY instead: eval
+# checks pass while the "curated 14 first, then the rest" contract that keeps
+# a collapse a stable subset (and lets case-m's find-by-name reliably locate
+# the cursor's row across a collapse/expand) is broken. Prove composition
+# DIRECTLY instead: eval
 # the real function body (function definitions are global in fish regardless
 # of where `function` runs) so __tcz_thp_reload becomes callable, then call it
 # normally (not eval'd) from a throwaway wrapper that declares the locals it
@@ -5149,7 +5151,7 @@ t "floor: rows 23 is rejected (below STATIC_EDIT + 3)" '' (__t9_floor 23)
 t "floor: rows 24 is rejected (below STATIC_EDIT + 3, Task 6 raised the floor 24 -> 25)" '' (__t9_floor 24)
 t "floor: rows 25 is admitted (Task 6 raised the floor 24 -> 25)" admit (__t9_floor 25)
 
-function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_theme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault are Task 8 additions (More Schemes header + virtual-row window); omitted by pre-Task-8 callers, which leaves them empty and reproduces the pre-header behavior exactly. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
+function __t9_frame_rows --argument-names focus sel2 n sel previewed anch_theme anchpal flashfield expanded ndefault rows editing chan notearg --description 'eval the REAL draw block against a given picker state; returns the row count it produced. flashfield is included for completeness (it guards color/timing of the read AFTER the draw, not row count) rather than because this range reads it today. expanded/ndefault used to feed the More Schemes headers virtual-row math; the legibility-floors-and-scheme-ordering plans Task 8 deleted the header and its +1 offset outright, so the draw block no longer reads either positional — both stay in this harnesss own signature only because dozens of existing callers still pass them, and passing them is now a no-op. picker-seed-section Task 1: rows is the popup height WIN is derived from; defaults to 26 (todays fixed size) when omitted, so every pre-Task-1 caller keeps pinning exactly what it always has. picker-legibility-autoapply Task 3: WIN = rows - STATIC_IDLE or STATIC_EDIT depending on <editing>, matching the real function, both read out of it rather than restated — see STATIC9I/STATIC9E above. review finding 3: editing/chan (default 0/1, idle/R) are the seed-zones own edit-mode state, passed positionally to __tcz_thp_seedzone inside DRAWTEXT9 — every pre-finding-3 caller omits them and gets the same idle default the real picker opens in, so nothing here drifts for them. final review (I1): notearg is a trailing addition — empty/omitted reproduces every earlier callers own hardcoded "a note" exactly — that lets a caller feed the draw blocks REAL note-row line (__tcz_thp_ln " $MUTED$note$RST" ...) an arbitrary string, to prove the I1 truncation fix structurally caps it rather than trusting todays wording to stay short.'
     # Task 1's row cache is keyed by index alone, and this harness reuses the
     # same indices across states with different synthetic palettes/selection —
     # clear it first so no state sees a row memoized by an earlier one.
@@ -5432,10 +5434,15 @@ t "selected row is exactly the inner width plus both borders" 52 (string length 
 # where the pre-fix code left it unstyled.
 t "band survives to the right border" 0 (string match -ra '\e\[0m ' -- "$BANDROW" | count)
 
-# --- Task 8: frame stays 26 with the header, and the header exists only expanded --
-# The harness evals the REAL draw block, so it cannot drift from the implementation.
-t "frame: 26 rows — expanded, header on screen"     26 (__t9_frame_rows list 0 35 13 0 mono "$PAL9" '' 1 14)
-t "frame: 26 rows — expanded, scrolled past header" 26 (__t9_frame_rows list 0 35 30 0 mono "$PAL9" '' 1 14)
+# --- frame stays 26 rows across expanded states -----------------------------
+# These once covered the More Schemes header (a virtual row spent on a label
+# rather than a scheme near the curated/rest boundary); the
+# legibility-floors-and-scheme-ordering plan's own Task 8 deleted that header
+# outright, so every virtual row is a real scheme now. Kept as plain
+# boundary/scroll-position geometry checks — the harness evals the REAL draw
+# block, so it cannot drift from the implementation.
+t "frame: 26 rows — expanded, near the old header boundary" 26 (__t9_frame_rows list 0 35 13 0 mono "$PAL9" '' 1 14)
+t "frame: 26 rows — expanded, scrolled past the old boundary" 26 (__t9_frame_rows list 0 35 30 0 mono "$PAL9" '' 1 14)
 t "frame: 26 rows — expanded, top of list"          26 (__t9_frame_rows list 0 35 0  0 mono "$PAL9" '' 1 14)
 # sel=34 is the very last of the 35 catalog rows: the window clamps against
 # the end (same clamped start as sel=30 above) and the row loop reaches
@@ -5518,10 +5525,11 @@ t "frame: 24 rows editing"             24 (__t9_frame_rows list 0 14 0 0 mono "$
 t "frame: 19 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 19 1 1)
 t "frame: 20 rows editing collapses to STATIC_EDIT (unreachable once the floor is fixed)" 22 (__t9_frame_rows list 0 14 0 0 mono "$PAL9" '' 0 14 20 1 1)
 
-# The header must appear ONLY when expanded, and only while it's still inside
-# the scrolled window — this is the fix-discriminator.
+# Task 8: the More Schemes header is gone outright — under colour ordering it
+# would sit between an arbitrary interleaved pair, so it no longer exists in
+# ANY state, expanded or not, near the old boundary or away from it.
 t "header absent when collapsed" 0 (__t9_frame_text list 0 14 5 0 mono "$PAL9" '' 0 14 | string match -ra 'More Schemes' | count)
-t "header present when expanded near the boundary" 1 (__t9_frame_text list 0 35 13 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
+t "header absent when expanded near the old boundary" 0 (__t9_frame_text list 0 35 13 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
 # Same scrolled-past state as "expanded, scrolled past header" above (sel=30):
 # only the collapsed case was ever asserted header-free before this.
 t "header absent when expanded and scrolled past" 0 (__t9_frame_text list 0 35 30 0 mono "$PAL9" '' 1 14 | string match -ra 'More Schemes' | count)
@@ -6325,20 +6333,6 @@ end
 t "current row names the catalog entry, not the bare relationship" catalogA (__t9_anchname mono 0.55 0.11 0.50 deep)
 t "current row names a different catalog entry sharing no relationship" catalogB (__t9_anchname triadic 0.40 0.15 0.60 bright)
 t "current row falls back to the relationship when no catalog row matches" triadic (__t9_anchname triadic 0.99 0.15 0.60 bright)
-
-# --- Task 6: the More Schemes group header --------------------------------------
-# A row INSIDE the list, not a frame element: the user rejected the section-border
-# form because it "would make it look far too separate" and broke the single-list
-# feel. So no border connectors, and it must measure like any other list row.
-t "grouphdr exists" 0 (functions -q __tcz_thp_grouphdr; echo $status)
-set -g GH6 (__tcz_thp_grouphdr 50 'More Schemes')
-set -g GH6V (string replace -ra '\x1b\[[0-9;]*m' '' -- "$GH6")
-t "grouphdr is exactly 50 visible cols" 50 (string length --visible -- "$GH6V")
-t "grouphdr carries the label" yes (string match -q '*More Schemes*' -- "$GH6V"; and echo yes; or echo no)
-t "grouphdr leaves col 1 blank (never selectable)" ' ' (string sub -s 1 -l 1 -- "$GH6V")
-t "grouphdr has no border connectors" 0 (string match -ra '[├┤]' -- "$GH6V" | count)
-t "grouphdr keeps a blank column before the right edge" ' ' (string sub -s 50 -l 1 -- "$GH6V")
-t "grouphdr is one line" 1 (count $GH6)
 
 # --- Task 4: edit mode ----------------------------------------------------------
 set -g PB4 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string collect)
@@ -8571,6 +8565,15 @@ t "T7 live: pals permuted in lockstep with toks" yes (test (string join \x1e -- 
 t "T7 live: fgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_fgs_base)) = (string join \x1e -- $T7ORD_fgs_ord); and echo yes; or echo no)
 t "T7 live: tabsfgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_tabsfgs_base)) = (string join \x1e -- $T7ORD_tabsfgs_ord); and echo yes; or echo no)
 t "T7 live: recipes permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_recipes_base)) = (string join \x1e -- $T7ORD_recipes_ord); and echo yes; or echo no)
+
+
+# --- Task 8: no group header -------------------------------------------------
+set -g T8SRC (functions __tcz_theme_picker)
+t "T8: picker source is non-empty" 1 (test (string length -- "$T8SRC") -gt 1000; and echo 1; or echo 0)
+t "T8: no More Schemes header is emitted" 0 (printf '%s\n' $T8SRC | grep -c 'thp_grouphdr')
+# The virtual-row offset that existed only for the header must go with it, or
+# the cursor and the window disagree by one at the boundary.
+t "T8: no ndefault virtual-row offset remains" 0 (printf '%s\n' $T8SRC | grep -cE 'set vsel \(math \$sel \+ 1\)')
 
 
 # --- hygiene: this suite's own shim dir ------------------------------------

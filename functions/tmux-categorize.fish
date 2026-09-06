@@ -2165,17 +2165,6 @@ function __tcz_thp_zsep --argument-names w label od t --description 'pure: zone 
     set -l fillstr (string repeat -n $fill ─)
     printf '%s├─ \e[1m%s%s\e[22m%s %s┤%s\n' $od $MUT "$label" $od "$fillstr" $t
 end
-function __tcz_thp_grouphdr --argument-names w label --description 'pure: an in-list group header, exactly <w> visible cols — col 1 blank (a scheme row carries its selection marker there; this row is never selectable), then ──, the BOLD label in the title role, then ─ fill stopping one column short of w so a blank column separates the rule from the right border. Deliberately NOT __tcz_thp_zsep: that form connects to the frame with ├ ┤ and reads as a separate section, which the user rejected.'
-    set -l TIT (__tcz_theme title)
-    set -l MUT (__tcz_theme muted)
-    set -l RST (__tcz_theme reset)
-    set -l len (string length --visible -- "$label")
-    # 1 blank + 2 dashes + 1 space + label + 1 space + fill + 1 trailing blank = w
-    set -l fill (math "$w - 6 - $len")
-    test $fill -lt 0; and set fill 0
-    set -l fillstr (string repeat -n $fill ─)
-    printf ' %s──%s \e[1m%s%s\e[22m%s %s%s %s' $MUT $RST $TIT "$label" $RST $MUT "$fillstr" $RST
-end
 function __tcz_thp_tabstrip_uncached --argument-names tabshex tabsfg title w --description 'pure: fake ShellFish tab BAR — a full-<w>-col band in the tabs-role color: the active tab (bold <title>) plus two faint ⋯ tabs behind │ separators, mimicking the real iOS tab strip the tabs role paints. EMPTY when tabshex is non-hex or title is empty (the reserved preview row renders blank).'
     set -l bg (__tcz_thp_bg "$tabshex")
     test -n "$bg"; or return
@@ -2481,7 +2470,7 @@ function __tcz_thp_apply_and_recolor --description 'apply <seed> [mode lspan pea
     test -n "$tabhex"; and __tcz_recolor "$tabhex"
 end
 
-function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of catalog entries (all 42 by default — the More Schemes header still marks where the curated 14 end and the rest begin; m collapses to just the curated 14) — each entry is a full five-field recipe (mode, lightness span, peak chroma, peak position, arrangement) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state/roll) tracks which list ↑↓/jk steers; ⇥ cycles between them (list -> state -> roll -> list, or list -> state -> list before the first roll of the session), and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchors full five-field recipe — it clears the moment any field of it differs. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->42 (opens expanded; reloads and clamps sel to the new length), z roll (sample a genuine recipe from the measured acceptable ridge of the full v6 space — not a catalog row at all — and push it as a new, session-local, 12-deep history reachable via ⇥; ↑↓ steps back through it), a apply preview (no save; a scheme/off row previews its own recipe, the current row previews its own frozen recipe — vividness/shape/ease/contrast were removed in v5.1, provably inert, never reached the engine; phase was retired outright in v6, superseded by the recipes own five fields), enter save (via the CLI by catalog name, silenced; a recipe matching no catalog name — e.g. a rolled theme — saves by writing its five universals directly; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — the recipe now comes from the selected catalog entry, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 4 rows idle / 9 editing — Task 6 grew the colour block 2 -> 3 rows so the hex could move off to the side and into the middle of the block; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows regardless of the 14-vs-42 catalog size — when expanded one of them is spent on the More Schemes group header rather than a scheme, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
+function __tcz_theme_picker --argument-names client --description 'interactive theme picker (gallery model): tab-chip + fake-bar preview, a seed configuration zone, then a windowed scrollable list of catalog entries (all 42 by default; m collapses to just the curated 14) — each entry is a full five-field recipe (mode, lightness span, peak chroma, peak position, arrangement) baked into the catalog, never user-cycled — plus a second, UNTITLED list at the bottom holding the current theme and off (the current row is a frozen snapshot of the persisted theme, taken once at open). Two lists, two cursors: sel (0..n-1) walks the scheme list via __tcz_thp_vismap (clamped to n-1); sel2 (0 = current, 1 = off) walks the second list. focus (list/state/roll) tracks which list ↑↓/jk steers; ⇥ cycles between them (list -> state -> roll -> list, or list -> state -> list before the first roll of the session), and ↑↓ never crosses between them. The current entrys NAME renders in brand bold (matching the second-list current label) whichever row matches the anchors full five-field recipe — it clears the moment any field of it differs. b seed (RGB sliders; t drops to typed hex), m expand/collapse the catalog 14<->42 (opens expanded; reloads and clamps sel to the new length), z roll (sample a genuine recipe from the measured acceptable ridge of the full v6 space — not a catalog row at all — and push it as a new, session-local, 12-deep history reachable via ⇥; ↑↓ steps back through it), a apply preview (no save; a scheme/off row previews its own recipe, the current row previews its own frozen recipe — vividness/shape/ease/contrast were removed in v5.1, provably inert, never reached the engine; phase was retired outright in v6, superseded by the recipes own five fields), enter save (via the CLI by catalog name, silenced; a recipe matching no catalog name — e.g. a rolled theme — saves by writing its five universals directly; the current row saves its snapshot verbatim), Esc/q revert+close. The earlier relationship-axis pickers p/P place-cycle, m/M mode-toggle, and r reset keys are RETIRED — the recipe now comes from the selected catalog entry, never a user-cycled knob. Runs INSIDE a display-popup (-w 52 -h 85%); the frame always emits exactly as many rows as the popup — 17 static chrome/seed-zone/second-list/legend rows idle, 22 editing (the seed zone is 4 rows idle / 9 editing — Task 6 grew the colour block 2 -> 3 rows so the hex could move off to the side and into the middle of the block; the browsing legend is 3 rows, 9 pairs at pitch 3 — see __tcz_thp_seedzone and STATIC_IDLE/STATIC_EDIT below) + a scheme window derived from the popup'"'"'s own reported height (WIN = rows - STATIC_IDLE or STATIC_EDIT depending on mode, read via `stty size`; a popup taller than the client refuses to open on tmux 3.3a rather than clamping, so a fixed row count could not survive a shorter client). The open-time admission floor is checked against the STRICTER STATIC_EDIT regardless of which mode the picker opens in, so a later b press can never overflow the popup it already opened in. The window holds WIN virtual rows, one per scheme regardless of the 14-vs-42 catalog size, and when the catalog is shorter than WIN the remainder is padded with blank framed rows so the frame still ends exactly at the popup'"'"'s bottom.'
     # This script runs under fish --no-config: the install-side engine is sourced
     # ONCE below so the HOT path (palette batch, draw, readouts) runs in-process
     # (no per-keypress subprocess spawn — the 2026-07-17 live lag, brutal on
@@ -2578,9 +2567,9 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set blob $cacheblobs[$ci]
         else
             set -l lines
-            # Expanding APPENDS the rest under a header rather than swapping the
-            # row source: the full catalog is in tier order, so a wholesale swap
-            # scatters the curated rows and you lose track of what you have seen.
+            # Expanding APPENDS the rest rather than swapping the row source: the
+            # full catalog is in tier order, so a wholesale swap scatters the
+            # curated rows and you lose track of what you have seen.
             set -l rows (__tmux_lives_theme_catalog_v6_default)
             test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_v6_rest)
             for e in $rows
@@ -3149,16 +3138,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # blank-zsep/legend×3/note/
         # bottom-border) + WIN scheme rows = rows (the popup's own reported
         # height, see STATIC_IDLE/STATIC_EDIT above).
-        # Virtual rows = schemes + the More Schemes header when expanded. sel indexes
-        # SCHEMES only, so it can never land on the header and vismap needs no change:
-        # stepping over it falls out of the model instead of being a special case that
-        # ↑↓, PgUp/PgDn, z and the collapse clamp would each have to repeat.
+        # Virtual rows = schemes, 1:1 — under colour ordering the header would sit
+        # between an arbitrary interleaved pair, so it was dropped (the More
+        # Schemes header and its +1 offset are gone). sel indexes SCHEMES and
+        # nothing else, so vismap needs no change: there is no boundary to step
+        # over any more.
         set -l vtotal $n
         set -l vsel $sel
-        if test "$expanded" = 1
-            set vtotal (math $n + 1)
-            test $sel -ge $ndefault; and set vsel (math $sel + 1)
-        end
         set -l win (__tcz_thp_window $vsel $vtotal $WIN)
         set -l ws (string split ' ' $win)
         set -l start $ws[1]
@@ -3169,14 +3155,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -a lines (__tcz_thp_zsep $IW schemes $BORDER $RST)
         if test $count -gt 0
             for i in (seq $start (math $start + $count - 1))
-                if test "$expanded" = 1; and test $i -eq $ndefault
-                    set -a lines (__tcz_thp_ln (__tcz_thp_grouphdr $IW 'More Schemes') $IW $BORDER $RST)
-                    continue
-                end
                 set -l si $i
-                if test "$expanded" = 1; and test $i -gt $ndefault
-                    set si (math $i - 1)
-                end
                 set -l idx (math $si + 1)
                 set -l selflag 0
                 test $focus = list; and test $si -eq $sel; and set selflag 1
