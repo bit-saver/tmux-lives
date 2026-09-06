@@ -4409,4 +4409,39 @@ t "roll: the fallback's arrangement is still a real arrangement (not empty/garba
 functions -e __tmux_lives_theme_render
 eval $__ti_realrender
 
+# --- Task 4: nothing the floors touch may breach the older bounds ------------
+# The floors now re-encode four roles instead of one, after both big-role
+# clamps (bound 2's chroma clamp and bound 3's lightness clamp) have already
+# run, and those two clamps are documented above as fighting each other at
+# the 8-bit quantisation floor. This sweeps every catalog recipe at six
+# seeds and counts breaches of the three OLDER bounds after the floor stage
+# has had its turn, rather than sampling a handful and hoping.
+set -g T4B2 0   # bound 2: mean chroma of bar/tabs/cap <= 0.095
+set -g T4B3 0   # bound 3: max lightness of bar/tabs/cap <= 0.70
+set -g T4NW 0   # no-white: L > 0.72 requires C >= 0.055, and L <= 0.88 always
+for seed in '#485b3c' '#63abab' '#87cb48' '#7a00ff' '#b03a48' '#0088ff'
+    for row in (__tmux_lives_theme_catalog_v6)
+        set -l cf (string split '|' -- $row)
+        set -l p (__tmux_lives_theme_render $seed $cf[2] $cf[3] $cf[4] $cf[5] $cf[6])
+        test (count $p) -eq 7; or continue
+        set -l cs 0
+        set -l lmax 0
+        for i in 1 3 6
+            set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[$i]))
+            set cs (math "$cs + $o[2]")
+            test "$o[1]" -gt "$lmax"; and set lmax $o[1]
+        end
+        test (math "$cs / 3") -gt 0.095; and set T4B2 (math $T4B2 + 1)
+        test "$lmax" -gt 0.70; and set T4B3 (math $T4B3 + 1)
+        for i in 1 2 3 4 5 6 7
+            set -l o (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[$i]))
+            test "$o[1]" -gt 0.88; and set T4NW (math $T4NW + 1)
+            test "$o[1]" -gt 0.72; and test "$o[2]" -lt 0.055; and set T4NW (math $T4NW + 1)
+        end
+    end
+end
+t "T4: bound 2 breaches after the floors" 0 $T4B2
+t "T4: bound 3 breaches after the floors" 0 $T4B3
+t "T4: no-white breaches after the floors" 0 $T4NW
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

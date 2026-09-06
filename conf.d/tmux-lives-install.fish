@@ -919,19 +919,24 @@ function __tmux_lives_theme_floor_role --description 'v6: force ONE foreground r
                 # bar L 0.479426, clamps text to L 0.874739, gap 0.395313.
                 # The clamp direction and the gap direction do not actually
                 # fight here: this branch is only reached with a LIGHT-side
-                # target (the dir-flip pre-check above already routes
-                # bar > 0.48 to dark from the start, so bar <= 0.48 always
-                # holds here), which means 0.88 - bar >= 0.40 by construction
-                # — pushing L all the way to the SAME 0.88 ceiling the
-                # no-white clamp already respects is always enough gap,
-                # except for a razor-thin quantisation-defeated sliver right
-                # at bar ~ 0.48 (a live example: bar L 0.4798, the achievable
-                # window is ~0.0002 wide and rounding can miss it entirely —
-                # ten +0.01 nudges all reclamp to the SAME candidate with
-                # zero progress). So: nudge L UP toward 0.88 whenever the gap
-                # is short (never down for that reason — only the ceiling
-                # pulls L down), nudge C up whenever it is short, and re-test
-                # all three conditions together each pass.
+                # target — the dir-flip pre-check above already routes
+                # bar > (0.88 - $floor) to dark from the start, so
+                # bar <= (0.88 - $floor) always holds here. That threshold
+                # is 0.48 at the text floor of 0.40 and 0.73 at the glyph
+                # floor of 0.15 — it is FLOOR-DEPENDENT, not the constant
+                # this comment used to name. Which means 0.88 - bar >=
+                # $floor by construction — pushing L all the way to the
+                # SAME 0.88 ceiling the no-white clamp already respects is
+                # always enough gap, except for a razor-thin
+                # quantisation-defeated sliver right at bar ~ (0.88 -
+                # $floor) (a live example at the text floor: bar L 0.4798,
+                # the achievable window is ~0.0002 wide and rounding can
+                # miss it entirely — ten +0.01 nudges all reclamp to the
+                # SAME candidate with zero progress). So: nudge L UP toward
+                # 0.88 whenever the gap is short (never down for that
+                # reason — only the ceiling pulls L down), nudge C up
+                # whenever it is short, and re-test all three conditions
+                # together each pass.
                 set -l lcand (__tmux_lives_oklch_hex $fL $fC $fH)
                 set -l ftries 0
                 set -l lok3 0
@@ -961,10 +966,13 @@ function __tmux_lives_theme_floor_role --description 'v6: force ONE foreground r
                 else
                     # The razor-thin sliver above: light cannot reach the
                     # gap even AT the ceiling, which per the margin argument
-                    # only happens for bar close to 0.48 — comfortably
-                    # inside the range where dark (bar - 0.40) is UNCLAMPED
-                    # and reaches the full 0.40 gap with room to spare, and
-                    # nowhere near the no-white thresholds (L <= 0.72).
+                    # only happens for bar close to (0.88 - $floor) —
+                    # comfortably inside the range where dark (bar -
+                    # $floor) is UNCLAMPED and reaches the full $floor gap
+                    # with room to spare, and nowhere near the no-white
+                    # thresholds (L <= 0.72). That threshold is 0.48 at the
+                    # text floor of 0.40 and 0.73 at the glyph floor of
+                    # 0.15 — FLOOR-DEPENDENT, same as above.
                     set -l dn2 (math "$lb[1] - $floor")
                     test "$dn2" -lt 0.05; and set dn2 0.05
                     set -l dcand (__tmux_lives_oklch_hex $dn2 $lt2[2] $lt2[3])
