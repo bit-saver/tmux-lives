@@ -1284,8 +1284,29 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
 end
 
 function __tmux_lives_theme_mark --argument-names barhex seedhex --description 'v6: the ✦ presence glyph, which is the SEED rather than a palette role and so is not covered by render(). Returns the seed floored to the glyph threshold (0.15 OKLCH lightness) against bar, keeping hue and chroma. Measured: the shipped engine reaches dL 0.000 / WCAG 1.00 here — the mark is sometimes exactly the bar colour. A seed already clearing the floor is returned VERBATIM: the mark is the seeds home base and must stay the literal seed wherever it legibly can. Non-hex input (a colourNNN fallback, or "default" when the theme is off) is returned unchanged. Lives here, not inside render(), so renders seven-element contract is untouched.'
+    # Reject a malformed hex BEFORE it ever reaches __tmux_lives_hex_to_rgb01,
+    # same as __tmux_lives_theme_render above: that function has no shape
+    # check of its own, so a short/long/non-hex string can still LOOK like it
+    # produced 3 fields (a 5-char string like "12345" silently yields 3 wrong
+    # RGB values — count alone is not a validity check) or, worse, reaches
+    # `math "0x.."/255` on genuine garbage and fish's math diagnostics print
+    # straight to stderr, bypassing in-process redirection entirely. The only
+    # fix is never calling it with bad input. Both arguments are checked: a
+    # bad bar is just as unsafe to feed onward as a bad seed.
+    string match -qr '^#?[0-9a-fA-F]{6}$' -- "$barhex"; or begin
+        echo "$seedhex"
+        return
+    end
+    string match -qr '^#?[0-9a-fA-F]{6}$' -- "$seedhex"; or begin
+        echo "$seedhex"
+        return
+    end
     set -l sb (__tmux_lives_hex_to_rgb01 "$barhex")
     set -l ss (__tmux_lives_hex_to_rgb01 "$seedhex")
+    # Defensive, not reachable: every string the shape checks above admit is a
+    # valid 6-hex-digit colour, and __tmux_lives_hex_to_rgb01 always emits
+    # exactly 3 lines for one. Kept as a fail-safe contract guard, mirroring
+    # __tmux_lives_theme_render's own comment at the same point.
     if test (count $sb) -ne 3; or test (count $ss) -ne 3
         echo "$seedhex"
         return

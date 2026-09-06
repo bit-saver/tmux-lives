@@ -4457,6 +4457,31 @@ set -g T5B (__tmux_lives_theme_mark '#2a2e28' '#d8c8a8')
 t "T5: a seed that already clears the floor is unchanged" '#d8c8a8' $T5B
 t "T5: non-hex input degrades to the seed unchanged" 'default' (__tmux_lives_theme_mark 'colour236' 'default')
 
+# --- Task 5 hardening (review finding): shape, not just count -----------------
+# Review-demonstrated hole: __tmux_lives_hex_to_rgb01 has no shape check of its
+# own, so a malformed string can still emit exactly 3 fields — count == 3 is
+# NOT proof the input was six real hex digits. "12345" (5 chars) silently
+# yields OKLCH L~0.289 (measured); "1234567" (7 chars, reading its first six
+# characters) yields L~0.319. Both sail past a bare `count -ne 3` guard.
+#
+# The partner hex ('#405030', L~0.408) is chosen DELIBERATELY, not
+# arbitrarily: it sits within 0.15 of both garbage lightnesses, so a
+# count-only guard does NOT take the "already clears the floor" early return
+# either — it falls through into the floor-computation branch and returns a
+# genuinely wrong computed colour. Confirmed against the pre-fix code before
+# writing this comment: mark('12345', '#405030') => '#4b5b3b' (not the seed);
+# mark('#405030', '12345') => '#5b8050'; mark('#405030', '1234567') =>
+# '#54779d' — three distinct wrong answers, not the same accidental one. An
+# earlier attempt at this fixture used '#d8c8a8' (L~0.838) as the partner,
+# which sits > 0.15 from either garbage value, so the pre-fix code's OWN
+# "already clears" branch happened to return the correct-looking answer for
+# the wrong reason — a vacuous pass masquerading as coverage. Same
+# anti-pattern __tmux_lives_theme_render's own leading comment already warns
+# about, one function above this one in the same file.
+t "T5 hardening: a malformed (5-char) bar degrades to the seed unchanged" '#405030' (__tmux_lives_theme_mark '12345' '#405030')
+t "T5 hardening: a malformed (5-char) seed degrades to the seed unchanged" '12345' (__tmux_lives_theme_mark '#405030' '12345')
+t "T5 hardening: a malformed (7-char) seed degrades to the seed unchanged" '1234567' (__tmux_lives_theme_mark '#405030' '1234567')
+
 # --- Task 5: the fragment uses the floored mark ------------------------------
 # Bound to a variable defined ABOVE, and paired with a positive count, so an
 # empty render cannot pass this by matching nothing.
