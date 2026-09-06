@@ -8480,8 +8480,17 @@ t "T6: tabs (the FIRST swatch-strip block), not bar, decides when two blocks dis
 
 
 # --- Task 7: the order toggle -------------------------------------------------
-# Carries state forward TWICE — reorder, read, reorder back, read — because a
-# stateful defect that survives one transition often fails on the second.
+# Review fix: the previous comment here ("carries state forward TWICE —
+# reorder, read, reorder back, read") described a dynamic double-toggle that
+# none of the four assertions below actually run — every one of them is a
+# static single-pass grep/awk check against the picker's own source text, not
+# an executed toggle. Corrected to say what is actually verified: `o` is
+# wired up as a dispatch case, that case's own text names the ONE
+# invalidation point (__tcz_thp_reload), and the persisted universal's name
+# is spelled correctly at exactly its two legitimate sites (read + write).
+# The live-execution gap this left — does __tcz_thp_reload ACTUALLY produce a
+# correct, lockstep permutation when $order=colour, not just call something
+# named __tcz_thp_reload — is closed below by a real eval'd run, not a grep.
 set -g T7SRC (functions __tcz_theme_picker)
 t "T7: picker source is non-empty" 1 (test (string length -- "$T7SRC") -gt 1000; and echo 1; or echo 0)
 t "T7: o is dispatched" 1 (printf '%s\n' $T7SRC | grep -cE '^\s+case o$')
@@ -8498,8 +8507,70 @@ t "T7: o is dispatched" 1 (printf '%s\n' $T7SRC | grep -cE '^\s+case o$')
 t "T7: the toggle clears the row caches" 1 (printf '%s\n' $T7SRC | awk '/^            case b$/{exit} /^            case o$/{f=1} f{print}' | grep -c '__tcz_thp_reload')
 # Read (init) and write (toggle) each spell the universal name once, on their
 # own line -- a correct, ordinary shape for a universal, not a defect to
-# collapse to one occurrence via indirection.
-t "T7: the order universal is read at init" 2 (printf '%s\n' $T7SRC | grep -c 'tmux_lives_theme_order')
+# collapse to one occurrence via indirection. Renamed (review fix): this
+# counts BOTH legitimate sites, not just the read.
+t "T7: the order universal is spelled at both its read and write sites" 2 (printf '%s\n' $T7SRC | grep -c 'tmux_lives_theme_order')
+
+# Review fix (promoted from Minor): everything above is a static grep/awk
+# check against source text -- it proves `case o` NAMES __tcz_thp_reload and
+# proves __tcz_thp_order sorts correctly in isolation (Task 6's own tests),
+# but nothing had ever actually RUN __tcz_thp_reload with $order=colour and
+# checked what came out. That seam -- two things each individually tested,
+# never driven together -- is exactly how this project's last cycle shipped
+# a Critical that survived nine clean task reviews (a migration reset
+# tested in isolation, never as part of the real chain). Close it here with
+# a live eval'd run, the same $RB7 technique __t7_reload_compose and
+# __t9_case_m already use above. Re-eval $RB7 immediately before use rather
+# than trusting it survived every stub/erase other tests apply to
+# __tcz_thp_reload between here and there (several do, e.g. the counting
+# stub at picker-seed-section Task 6's tests) -- $RB7 itself is untouched
+# (set -g once, never reassigned), so re-eval'ing is cheap insurance, not a
+# guess.
+eval $RB7
+function __t7ord_reload_into --argument-names suffix orderval --description 'call the REAL __tcz_thp_reload against a throwaway scope with $order set to <orderval>, then publish all five resulting index-parallel arrays into globals named <array>_<suffix> so two calls (catalog baseline vs colour) survive both returns and can be compared afterward.'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l seed '#5f772b'
+    set -l expanded 1
+    set -l order $orderval
+    __tcz_thp_reload
+    set -g "T7ORD_toks_$suffix" $toks
+    set -g "T7ORD_pals_$suffix" $pals
+    set -g "T7ORD_fgs_$suffix" $fgs
+    set -g "T7ORD_tabsfgs_$suffix" $tabsfgs
+    set -g "T7ORD_recipes_$suffix" $recipes
+end
+__t7ord_reload_into base catalog
+__t7ord_reload_into ord colour
+t "T7 live: order=colour reload keeps the full 42-row catalog" 42 (count $T7ORD_toks_ord)
+# The permutation __tcz_thp_reload is EXPECTED to have applied internally,
+# computed independently here from the catalog-order baseline -- confirmed
+# non-identity for this seed (real catalog hues, not a coincidence the test
+# could pass by accident) so a broken/unpermuted array cannot slip through
+# by matching its own unpermuted self.
+set -g T7ORD_PERM (__tcz_thp_order '#5f772b' $T7ORD_pals_base)
+t "T7 live: the independently-computed permutation is not the identity" no (test (string join ' ' -- $T7ORD_PERM) = (string join ' ' -- (seq 1 (count $T7ORD_PERM))); and echo yes; or echo no)
+function __t7ord_apply_perm --description 'apply $T7ORD_PERM to a given list, printing the permuted result one per line.'
+    set -l src $argv
+    for i in $T7ORD_PERM
+        printf '%s\n' $src[$i]
+    end
+end
+# Five separate assertions, one per array, each checked against the SAME
+# $T7ORD_PERM -- this is what "lockstep" means and what the mutation below
+# proves this catches: a permutation applied to some arrays and not others
+# (or applied inconsistently) fails exactly the arrays it desyncs, not all
+# five uniformly.
+t "T7 live: toks permuted to match __tcz_thp_order" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_toks_base)) = (string join \x1e -- $T7ORD_toks_ord); and echo yes; or echo no)
+t "T7 live: pals permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_pals_base)) = (string join \x1e -- $T7ORD_pals_ord); and echo yes; or echo no)
+t "T7 live: fgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_fgs_base)) = (string join \x1e -- $T7ORD_fgs_ord); and echo yes; or echo no)
+t "T7 live: tabsfgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_tabsfgs_base)) = (string join \x1e -- $T7ORD_tabsfgs_ord); and echo yes; or echo no)
+t "T7 live: recipes permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_recipes_base)) = (string join \x1e -- $T7ORD_recipes_ord); and echo yes; or echo no)
 
 
 # --- hygiene: this suite's own shim dir ------------------------------------
