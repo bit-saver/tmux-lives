@@ -2515,6 +2515,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l ndefault (count (__tmux_lives_theme_catalog_v6_default))
     set -l legacy ''
     set -l previewed 0
+    set -l order catalog
     function __tcz_thp_init --no-scope-shadowing
         # Universal reads MUST go through a config-loaded child: this process
         # runs --no-config, which neither READS nor WRITES universal variables
@@ -2527,7 +2528,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_peakc 0.11)
             echo (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
             echo (__tmux_lives_key tmux_lives_theme_arrangement deep)
-            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))' 2>/dev/null)
+            echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
+            echo (__tmux_lives_key tmux_lives_theme_order catalog)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
         test (count $init) -ge 3; and test -n "$init[3]"; and set tlspan $init[3]
@@ -2536,6 +2538,10 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         test (count $init) -ge 6; and test -n "$init[6]"; and set tarr $init[6]
         set legacy ''
         test (count $init) -ge 7; and set legacy (string replace -rf '.*bg=([^,]+).*' '$1' -- "$init[7]")
+        set -l initorder ''
+        test (count $init) -ge 8; and set initorder $init[8]
+        set order catalog
+        test "$initorder" = colour; and set order colour
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
         # Freeze the anchor from the values just read, then reverse-look-up its
         # catalog name. A recipe matching no row leaves anch_name empty.
@@ -2607,6 +2613,26 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -a fgs "$f[3]"
             set -a tabsfgs "$f[4]"
             set -a recipes "$f[5]"
+        end
+        if test "$order" = colour
+            # All five arrays are index-parallel; they must be permuted
+            # together or a row renders one scheme's name over another's
+            # colours.
+            set -l perm (__tcz_thp_order "$seed" $pals)
+            # Apply the permutation ONLY if it is a complete one. A short or
+            # empty perm would silently truncate the catalog to nothing and
+            # the frame would still render, just empty — this file has already
+            # shipped one defect of exactly that shape (a zero-output command
+            # substitution collapsing an enclosing list), and a picker that
+            # shows no schemes has no other symptom to notice it by.
+            if test (count $perm) -eq (count $pals)
+                set -l t2; set -l p2; set -l f2; set -l b2; set -l r2
+                for i in $perm
+                    set -a t2 $toks[$i]; set -a p2 $pals[$i]; set -a f2 $fgs[$i]
+                    set -a b2 $tabsfgs[$i]; set -a r2 $recipes[$i]
+                end
+                set toks $t2; set pals $p2; set fgs $f2; set tabsfgs $b2; set recipes $r2
+            end
         end
         # The strips now reflect $seed, whoever asked for the reload — init, m,
         # z, a hexentry commit, or `a`. Recording it here rather than at the
@@ -3532,6 +3558,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 test $lastrow -lt 0; and set lastrow 0
                 test $sel -gt $lastrow; and set sel $lastrow
                 set flashfield ''
+            case o
+                if test "$order" = colour
+                    set order catalog
+                else
+                    set order colour
+                end
+                __tcz_thp_reload
+                set sel 0
+                set WIN (math "$rows - $STATIC_IDLE")
+                fish -c 'set -U tmux_lives_theme_order $argv[1]' "$order" >/dev/null 2>&1
+                set note "● order: $order"
             case b
                 # Toggles the seedzone between readouts and its R/G/B sliders —
                 # ignored while focus is on the second list, which has no seed

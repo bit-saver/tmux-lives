@@ -3811,8 +3811,13 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # what a rolled theme, Task 8, produces), there is no name for the CLI, so
 # that branch writes the five universals directly through its own config-
 # loaded child rather than through `tmux-lives setup theme <name>`. 4 -> 5.
-t "guard: exactly 5 action-site subprocesses remain directly in the picker body" 5 (count (string match -ar 'fish -c' -- "$pbody"))
-# 5 = init + seed-commit-on-save + 2 named saves (off/scheme) + 1 unnamed-save
+# legibility-floors-and-scheme-ordering Task 7: the o toggle adds ONE new
+# site — persisting tmux_lives_theme_order — configuration, not adoption, so
+# it gets its own direct write rather than sharing apply_and_recolor (which
+# is for writes that also need a live recolor). 5 -> 6.
+t "guard: exactly 6 action-site subprocesses remain directly in the picker body" 6 (count (string match -ar 'fish -c' -- "$pbody"))
+# 6 = init + seed-commit-on-save + 2 named saves (off/scheme) + 1 unnamed-save
+# + 1 order-toggle
 set -l aarbody (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
 t "guard: apply_and_recolor body extraction is non-empty" 1 (test -n "$aarbody"; and echo 1; or echo 0)
 t "guard: apply_and_recolor is exactly one action-site subprocess (the 4 old sites share it)" 1 (count (string match -ar 'fish -c' -- "$aarbody"))
@@ -4055,7 +4060,10 @@ t "no place-cycle-reverse key" 0 (string match -qr 'case P\b' -- "$pbody"; and e
 t "no mode-toggle key"         0 (string match -qr 'case m M\b' -- "$pbody"; and echo 1; or echo 0)
 t "no reset key"               0 (string match -qr 'case r\b' -- "$pbody"; and echo 1; or echo 0)
 t "no vividness key"           0 (string match -qr 'case v\b' -- "$pbody"; and echo 1; or echo 0)
-t "no rotate key"              0 (string match -qr 'case o\b' -- "$pbody"; and echo 1; or echo 0)
+# "no rotate key" (retired the old hue-rotate `o`) is GONE, not merely relaxed:
+# legibility-floors-and-scheme-ordering Task 7 gives `o` a new, unrelated job
+# (toggle catalog/colour ordering), so asserting its absence would now assert
+# against this task's own intentional feature. See "T7: o is dispatched" above.
 t "m is expand"                1 (string match -q '*expanded*' -- "$pbody"; and string match -qr 'case m\b' -- "$pbody"; and echo 1; or echo 0)
 t "expand toggles the flag"    1 (string match -q '*test "$expanded" = 1; and set expanded 0; or set expanded 1*' -- "$pbody"; and echo 1; or echo 0)
 # picker-second-list Task 5: off/current left the linear sel range entirely
@@ -8469,6 +8477,29 @@ t "T6: order is deterministic across repeated calls" (string join ' ' (__tcz_thp
 set -g T6E '#20d020 #404040 #d02020 #505050 #606060 #707070 #808080'
 set -g T6F '#d02020 #404040 #20d020 #505050 #606060 #707070 #808080'
 t "T6: tabs (the FIRST swatch-strip block), not bar, decides when two blocks disagree" "2 1" (string join ' ' (__tcz_thp_order '#20d020' "$T6E" "$T6F"))
+
+
+# --- Task 7: the order toggle -------------------------------------------------
+# Carries state forward TWICE — reorder, read, reorder back, read — because a
+# stateful defect that survives one transition often fails on the second.
+set -g T7SRC (functions __tcz_theme_picker)
+t "T7: picker source is non-empty" 1 (test (string length -- "$T7SRC") -gt 1000; and echo 1; or echo 0)
+t "T7: o is dispatched" 1 (printf '%s\n' $T7SRC | grep -cE '^\s+case o$')
+# `/^ +case o$/,/^ +case /` looks tempting but is unsatisfiable: GNU awk closes
+# a range on the SAME line when it matches both the start and end pattern, and
+# "case o" itself always matches the generic end pattern `^ +case ` — so that
+# range can never capture anything past its own first line (verified: it
+# prints exactly one line, "            case o", for ANY body). Scoped instead
+# with this suite's own established exit/flag idiom (see the case-tab/case-z
+# pairs elsewhere in this file) against the concrete next arm, and checking
+# for the actual call this arm makes — __tcz_thp_reload, not
+# __tcz_thp_cacheclear directly, since reload is what the design routes
+# through and cacheclear's own name never appears in this arm's own text.
+t "T7: the toggle clears the row caches" 1 (printf '%s\n' $T7SRC | awk '/^            case b$/{exit} /^            case o$/{f=1} f{print}' | grep -c '__tcz_thp_reload')
+# Read (init) and write (toggle) each spell the universal name once, on their
+# own line -- a correct, ordinary shape for a universal, not a defect to
+# collapse to one occurrence via indirection.
+t "T7: the order universal is read at init" 2 (printf '%s\n' $T7SRC | grep -c 'tmux_lives_theme_order')
 
 
 # --- hygiene: this suite's own shim dir ------------------------------------
