@@ -789,6 +789,46 @@ function __tmux_lives_theme_floor_role --description 'v6: force ONE foreground r
                 end
             end
         end
+        # Task 3 investigated a donor-side guard here: before committing,
+        # reject any donor that could not itself clear ITS OWN (lower) floor
+        # with the colour this role is about to reject onto it -- a swap is
+        # an EXCHANGE, so $best receives $out[$role]'s current, too-close
+        # value. Investigated and NOT added: it would be dead code, because
+        # the invariant it would protect is already guaranteed structurally
+        # by two properties this loop and stage two already have:
+        #   1. $best is drawn only from $cands, which excludes every LOCKED
+        #      role -- i.e. only roles that have not yet had their OWN turn
+        #      in this fixed, descending-floor loop (call order 7,4,5,2).
+        #      Every unlocked candidate WILL get its own turn later, and once
+        #      locked a role's value is never touched again -- so whatever a
+        #      donor is left holding here is necessarily re-examined on its
+        #      own terms before this function returns for the last time.
+        #   2. That later turn's stage-two nudge computes its target
+        #      lightness as bar's L +/- THAT ROLE'S OWN floor (see `$up`/`$dn`
+        #      below) -- a formula that depends on bar and the role's own
+        #      floor ONLY, never on whatever lightness the role currently
+        #      holds. A donor left holding a rejected, too-close colour is
+        #      therefore a transient state: its own turn pushes it to a
+        #      floor-clearing lightness exactly as it would if no swap had
+        #      ever touched it.
+        # Verified, not just argued: a fixture built to chain this
+        # donor-poisoning across all four floors (bar plus text, active,
+        # windows and sep each within 0.001-0.03 of bar, so every role but
+        # one lone far donor needs its own floor turn) still cleared every
+        # floor when swept across bar L 0.10-0.695, five near-bar offsets,
+        # all six arrangement patterns and the float fallback (~2,000 direct
+        # `__tmux_lives_theme_constrain` checks): zero floor breaches, worst
+        # margin 0.000001 (the nudge loop stops the instant it clears, so a
+        # razor-thin margin is expected and is not itself a defect -- see the
+        # "razor-thin sliver" note in stage two below). The same sweep run
+        # with every role sharing one hue DID turn up a repeated hex between
+        # two roles; traced to two INDEPENDENT no-white-ceiling clamps (both
+        # this function's stage two and the earlier no-white pass in
+        # __tmux_lives_theme_constrain push toward L 0.88 / C 0.055) landing
+        # on the identical value by coincidence of sharing a hue, not a swap
+        # copying instead of exchanging -- it vanished the moment each role
+        # used a distinct hue. T3 in tests/test-tmux-install.fish pins the
+        # adversarial fixture as permanent regression cover.
         if test $best -ne $role
             set -l tmp $out[$role]
             set out[$role] $out[$best]

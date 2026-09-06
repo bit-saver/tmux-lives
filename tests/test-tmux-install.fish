@@ -3158,6 +3158,39 @@ for seed in '#485b3c' '#63abab' '#87cb48' '#7a00ff' '#b03a48' '#0088ff'
 end
 t "T2 ratchet: zero floor breaches across 252 renders x 4 roles" 0 $T2BREACH
 
+# --- Task 3: the donor side --------------------------------------------------
+# A donor receives the colour the floored role rejected. Because floors run
+# in descending order, a donor's own floor is always LOWER, so it usually
+# still passes -- but "usually" is not a guarantee, and the ratchet in Task 2
+# would only catch it if a real catalog recipe happened to trigger it.
+# This drives the case directly with a fixture built to trip it: a ramp whose
+# only far colour sits on a role that is itself about to be floored.
+#
+# Investigated (not just asserted): this exact fixture, and a wider hand-swept
+# adversarial construction of the same shape (bar plus every one of text,
+# active, windows and sep sitting within 0.001-0.03 of bar, so the swap has to
+# chain the rejected colour through more than one not-yet-locked role) never
+# breaches a floor or duplicates a colour, across bar L 0.10-0.695, five
+# near-bar offsets and all six arrangement patterns plus the float fallback
+# (~2,000 direct `__tmux_lives_theme_constrain` checks, worst margin
+# 0.000001) -- see the comment above the swap commit in
+# `__tmux_lives_theme_floor_role` for why that is structurally guaranteed
+# rather than coincidental, and why no donor-side guard was added. These two
+# assertions are permanent regression cover for that guarantee, not proof
+# that it needed fixing here.
+set -g T3IN '#3a3a3a' '#404040' '#454545' '#4a4a4a' '#505050' '#555555' '#f0e8d8'
+set -g T3OUT (__tmux_lives_theme_constrain $T3IN deep)
+set -g T3BL (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T3OUT[1]))
+set -g T3OK 1
+for r in (__tmux_lives_theme_floors)
+    set -l f (string split ':' -- $r)
+    set -l rl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $T3OUT[$f[1]]))
+    test (math "abs($rl[1] - $T3BL[1])") -ge $f[2]; or set T3OK 0
+end
+t "T3: all four floors hold simultaneously on an adversarial fixture" 1 $T3OK
+# No colour may be duplicated by a swap — a swap is an exchange, not a copy.
+t "T3: no foreground colour is duplicated" 4 (count (printf '%s\n' $T3OUT[2] $T3OUT[4] $T3OUT[5] $T3OUT[7] | sort -u))
+
 t "arrange: an unknown pattern returns nothing" 0 (count (__tmux_lives_theme_arrange nonsense '#111111' '#222222' '#333333' '#444444' '#555555' '#666666' '#777777'))
 
 # the patterns must actually differ — six names mapping to one order would be
