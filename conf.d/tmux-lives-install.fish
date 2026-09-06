@@ -1313,12 +1313,23 @@ function __tmux_lives_theme_mark --argument-names barhex seedhex --description '
     end
     set -l lb (__tmux_lives_rgb_to_oklch $sb[1] $sb[2] $sb[3])
     set -l ls (__tmux_lives_rgb_to_oklch $ss[1] $ss[2] $ss[3])
-    if test (math "abs($ls[1] - $lb[1])") -ge 0.15
+    # Important 5 (final-fix-report): the mark's floor is the OTHER HALF of
+    # the "text > active > windows > sep = mark" staircase the spec asserts —
+    # __tmux_lives_theme_floors already owns sep's own floor (its "2:0.15"
+    # row, role 2). Read it from there instead of hardcoding a second,
+    # unlinked 0.15 literal: this was two independent numbers that happened
+    # to agree, so changing sep's floor alone would have silently broken the
+    # "sep = mark" half of the invariant with a green suite. The call is one
+    # printf against a fixed 4-line table, not a hot path (theme_mark itself
+    # runs once per render, never inside the picker's per-frame redraw loop).
+    set -l floor (string match -rg '^2:([0-9.]+)$' -- (__tmux_lives_theme_floors))
+    test -n "$floor"; or set floor 0.15
+    if test (math "abs($ls[1] - $lb[1])") -ge $floor
         echo "$seedhex"
         return
     end
-    set -l up (math "$lb[1] + 0.15")
-    set -l dn (math "$lb[1] - 0.15")
+    set -l up (math "$lb[1] + $floor")
+    set -l dn (math "$lb[1] - $floor")
     set -l newL $up
     set -l dir 1
     # Same ceiling as the floors: 0.88, never near-white.
@@ -1327,12 +1338,98 @@ function __tmux_lives_theme_mark --argument-names barhex seedhex --description '
     set -l tries 0
     while test $tries -lt 10
         set -l back (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
-        test (math "abs($back[1] - $lb[1])") -ge 0.15; and break
+        test (math "abs($back[1] - $lb[1])") -ge $floor; and break
         set newL (math "$newL + $dir * 0.01")
         test "$newL" -gt 0.88; and set newL 0.88
         test "$newL" -lt 0.05; and set newL 0.05
         set cand (__tmux_lives_oklch_hex $newL $ls[2] $ls[3])
         set tries (math "$tries + 1")
+    end
+    # C3 re-check (Critical 2, final-fix-report/whole-branch review). Copied
+    # in shape, not re-invented, from __tmux_lives_theme_floor_role's own C3
+    # arm (see that function's "C3 re-check" comment for the full mechanism)
+    # so the two stay recognisably the same fix: this nudge loop SYNTHESISES
+    # a brand new lightness exactly like floor_role's stage two, and the same
+    # 8-bit round trip can push it past the no-white ceiling (L>0.72 with
+    # C<0.055) in EITHER direction — nothing here was re-checking that, so a
+    # muted/near-neutral seed could ride the floor push straight into a
+    # near-white mark. Measured: seed #9ca3af (L 0.7137, C 0.0192 — itself
+    # fully no-white-compliant) against a bar 0.58 OKLCH-L away lands the
+    # un-rechecked loop above at L 0.7397 / C 0.0203, a clear breach the
+    # branch invented rather than inherited from the seed.
+    set -l fo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $cand))
+    set -l fL $fo[1]
+    set -l fC $fo[2]
+    set -l fH $fo[3]
+    set -l fchanged 0
+    if test "$fL" -gt 0.88
+        set fL 0.88
+        set fchanged 1
+    end
+    if test "$fL" -gt 0.72; and test "$fC" -lt 0.055
+        set fC 0.055
+        set fchanged 1
+    end
+    if test $fchanged -eq 1
+        set -l lcand (__tmux_lives_oklch_hex $fL $fC $fH)
+        set -l ftries 0
+        set -l lok3 0
+        while test $ftries -lt 20
+            set -l fback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
+            set -l flok 1
+            test "$fback[1]" -gt 0.88; and set flok 0
+            set -l fcok 1
+            test "$fback[1]" -gt 0.72; and test "$fback[2]" -lt 0.055; and set fcok 0
+            set -l fgapok 1
+            test (math "abs($fback[1] - $lb[1])") -lt $floor; and set fgapok 0
+            if test $flok -eq 1; and test $fcok -eq 1; and test $fgapok -eq 1
+                set lok3 1
+                break
+            end
+            test $flok -eq 0; and set fL 0.88
+            test $fcok -eq 0; and set fC (math "$fC + 0.005")
+            if test $fgapok -eq 0; and test "$fL" -lt 0.88
+                set fL (math "$fL + 0.01")
+                test "$fL" -gt 0.88; and set fL 0.88
+            end
+            set lcand (__tmux_lives_oklch_hex $fL $fC $fH)
+            set ftries (math "$ftries + 1")
+        end
+        if test $lok3 -eq 1
+            set cand $lcand
+        else
+            set -l dn2 (math "$lb[1] - $floor")
+            test "$dn2" -lt 0.05; and set dn2 0.05
+            set -l dcand (__tmux_lives_oklch_hex $dn2 $ls[2] $ls[3])
+            set -l dtries 0
+            while test $dtries -lt 10
+                set -l dback (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+                test (math "abs($dback[1] - $lb[1])") -ge $floor; and break
+                set dn2 (math "$dn2 - 0.01")
+                test "$dn2" -lt 0.05; and set dn2 0.05
+                set dcand (__tmux_lives_oklch_hex $dn2 $ls[2] $ls[3])
+                set dtries (math "$dtries + 1")
+            end
+            set -l dback2 (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $dcand))
+            set -l dgapok 1
+            test (math "abs($dback2[1] - $lb[1])") -lt $floor; and set dgapok 0
+            set -l dlok 1
+            test "$dback2[1]" -gt 0.88; and set dlok 0
+            set -l dcok 1
+            test "$dback2[1]" -gt 0.72; and test "$dback2[2]" -lt 0.055; and set dcok 0
+            if test $dgapok -eq 1; and test $dlok -eq 1; and test $dcok -eq 1
+                set cand $dcand
+            else
+                set -l fbacklast (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $lcand))
+                set -l lgap (math "abs($fbacklast[1] - $lb[1])")
+                set -l dgap (math "abs($dback2[1] - $lb[1])")
+                if test "$dgap" -gt "$lgap"
+                    set cand $dcand
+                else
+                    set cand $lcand
+                end
+            end
+        end
     end
     echo $cand
 end
@@ -1775,7 +1872,16 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
         __tmux_lives_theme_push @tmux_lives_active_fg $tpal[4]
         __tmux_lives_theme_push @tmux_lives_cap_bg $tpal[6]
         __tmux_lives_theme_push @tmux_lives_cap_fg (__tmux_lives_contrast_fg $tpal[6])
-        __tmux_lives_theme_push @tmux_lives_mark_fg $seed
+        # Critical 1 (final-fix-report, whole-branch review): this used to push the
+        # bare seed, undoing __tmux_lives_theme_mark's floor one line after
+        # write_fragment's source-file had just set the CORRECT (floored) value —
+        # apply_live runs immediately after write_fragment at both save sites, so
+        # the floor was inert on every live-apply path (setup theme <name>, the
+        # picker's Enter save, every `a` preview) and only survived a cold server
+        # start. Route through the same helper the fragment renderer uses, against
+        # the SAME bar this palette just resolved ($tpal[1]) rather than the raw
+        # seed.
+        __tmux_lives_theme_push @tmux_lives_mark_fg (__tmux_lives_theme_mark $tpal[1] $seed)
         __tmux_lives_theme_push @tmux_lives_text_fg $tpal[7]
         return 0
     end

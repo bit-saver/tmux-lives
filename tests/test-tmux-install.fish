@@ -4297,6 +4297,70 @@ t "bounds: every arrangement satisfies the engine bounds and no-white at every p
 # Surface WHICH combinations failed - a bare count sends the next reader hunting.
 test (count $A6FAILS) -eq 0; or echo "  bounds failures: $A6FAILS"
 
+# --- Important 4 (final-fix-report, whole-branch review): the floor's nudge
+# must actually exercise BOTH directions -- spec Testing item 4 required this
+# ("assert that at least one fixture nudges downward and at least one
+# upward -- an upward-only implementation passes every floor assertion and is
+# unsatisfiable for a light bar") and it was never built.
+#
+# The gap is real, not theoretical: deleting
+#   test "$up" -gt 0.88; and set newL $dn; and set dir -1
+# from __tmux_lives_theme_floor_role still gives 0 breaches on the bounds
+# ratchet directly above -- confirmed by actually deleting it and re-running
+# that ratchet, not asserted on faith -- because floor_role's own "verify the
+# loop's own result" fallback picks whichever of {0.88, 0.05} sits FARTHER
+# from bar whenever the (now direction-blind) nudge loop stalls, and for any
+# bar past the midpoint that is ALWAYS 0.05 -- the SAME sign a working
+# downward nudge would also land on. A bare up/down SIGN tally cannot tell
+# the two apart (confirmed: both mutated and correct code split 8 up / 4
+# down across the identical sweep below); what differs is MAGNITUDE -- the
+# working nudge lands within ~0.01 of the floor it was asked for, the broken
+# one overshoots to the gamut extreme, which is the actual mechanism behind
+# the reports "destroys the exact chroma property under review" (measured
+# here: requested chroma 0.10 survives intact under a correct nudge, and
+# collapses to ~0.02 at the extreme). So this asserts both halves the spec
+# asked for: (1) both directions are genuinely exercised (tallied by sign,
+# each asserted non-zero), AND (2) every nudge lands close to its OWN
+# requested floor rather than the far extreme -- (2) is what actually goes
+# red under the mutation above; (1) alone would not.
+#
+# floor=0.15 (not text's usual 0.40): floor_role takes it as a plain
+# argument with no idea which role called it, so this exercises the exact
+# same mechanism T1 already pins at 0.40, just at a floor whose
+# ceiling-crossing point (0.88 - 0.15 = 0.73) falls in the middle of a plain
+# 0-1 lightness sweep, giving room for both directions AND for the
+# ceiling-stall band (measured empirically at bar L 0.83/0.86 for this
+# floor/chroma/hue) to show up in one small sweep. Every fixture locks all
+# three swap donors (2,4,5) so stage two must carry the floor alone, exactly
+# like T1's own '2,4,5' lock above -- otherwise a swap could satisfy the
+# floor before stage two (the code under test here) ever runs.
+set -g I4FLOOR 0.15
+set -g I4UP 0
+set -g I4DOWN 0
+set -g I4FAILS
+for barL in 0.10 0.20 0.30 0.40 0.50 0.60 0.65 0.70 0.75 0.80 0.83 0.86
+    set -l bar (__tmux_lives_oklch_hex $barL 0.05 200)
+    set -l txt (__tmux_lives_oklch_hex $barL 0.10 30)
+    set -l out (__tmux_lives_theme_floor_role $I4FLOOR 7 '' 2,4,5 $bar '#333333' '#444444' '#555555' '#666666' '#777777' $txt)
+    set -l lb (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $bar))
+    set -l lo (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $out[7]))
+    set -l gap (math "abs($lo[1] - $lb[1])")
+    if test "$lo[1]" -gt "$lb[1]"
+        set I4UP (math "$I4UP + 1")
+    else
+        set I4DOWN (math "$I4DOWN + 1")
+    end
+    test "$gap" -lt (math "$I4FLOOR + 0.05"); or set -a I4FAILS "barL=$barL gap=$gap"
+end
+t "I4: at least one fixture nudges upward" 1 (test "$I4UP" -gt 0; and echo 1; or echo 0)
+t "I4: at least one fixture nudges downward" 1 (test "$I4DOWN" -gt 0; and echo 1; or echo 0)
+t "I4: every nudge lands close to its OWN floor (none overshoot to the gamut extreme)" 0 (count $I4FAILS)
+test (count $I4FAILS) -eq 0; or echo "  I4 overshoots: $I4FAILS"
+set -e I4FLOOR
+set -e I4UP
+set -e I4DOWN
+set -e I4FAILS
+
 # --- Task 2: the v6 catalog ---------------------------------------------------
 t "catalog v6: 42 rows" 42 (count (__tmux_lives_theme_catalog_v6))
 t "catalog v6: 14 curated" 14 (count (__tmux_lives_theme_catalog_v6_default))
@@ -4499,5 +4563,81 @@ set -g T5FRAG (__tmux_lives_render_fragment /X/cat.fish S M-s '#485b3c' 0 M-m M-
 t "T5: fragment renders a non-empty body" 1 (test (count $T5FRAG) -gt 20; and echo 1; or echo 0)
 t "T5: fragment sets mark_fg exactly once" 1 (printf '%s\n' $T5FRAG | grep -c '@tmux_lives_mark_fg')
 t "T5: mark_fg is not the bare seed" 0 (printf '%s\n' $T5FRAG | grep -c "@tmux_lives_mark_fg '#485b3c'")
+
+# --- Critical 1 (final-fix-report, whole-branch review): apply_live must route
+# mark_fg through __tmux_lives_theme_mark too, exactly like the fragment
+# renderer does above -- write_fragment's source-file sets the correct,
+# floored value and __tmux_lives_theme_apply_live runs immediately after it at
+# BOTH save sites (conf.d/tmux-lives-install.fish and the categorizer), so a
+# push of the bare seed one line later silently undid the floor on every path
+# a user actually takes (setup theme <name>, the picker's Enter save, every
+# `a` preview) -- it only survived a cold server start, where write_fragment's
+# own source-file is the last writer. Reuses T5FRAG's OWN fixture (seed
+# #485b3c, square 0.30 0.13 0.75 centre) rather than a fresh one: this is the
+# exact recipe already proven above to need flooring, so the live path is held
+# to the SAME bar this proof already trusts, not a different one that might
+# happen to already comply.
+#
+# T5FRAG's own floored mark is extracted with a regex, not restated as a
+# literal -- if the floor's output for this fixture ever legitimately changes,
+# this expectation moves with it instead of independently going stale.
+set -g C1FRAGMARK (string match -rg "@tmux_lives_mark_fg '(#[0-9a-f]{6})'" -- $T5FRAG)
+t "C1: fragment mark extraction is non-empty" 1 (test -n "$C1FRAGMARK"; and echo 1; or echo 0)
+set -g tmux_lives_bar_color '#485b3c'
+set -g C1SOCK "tl-c1-$fish_pid"
+command tmux -f /dev/null -L $C1SOCK new-session -d -s probe -c $HOME 'sleep 60' 2>/dev/null
+set -gx tmux_lives_tmux_socket $C1SOCK
+__tmux_lives_theme_apply_live square 0.30 0.13 0.75 centre
+set -g C1MARK (command tmux -L $C1SOCK show -gv @tmux_lives_mark_fg 2>/dev/null)
+t "C1: apply_live's mark_fg is not the bare seed" 0 (test "$C1MARK" = '#485b3c'; and echo 1; or echo 0)
+t "C1: apply_live's mark_fg matches the fragment's floored mark exactly" "$C1FRAGMARK" "$C1MARK"
+command tmux -L $C1SOCK kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
+set -e tmux_lives_bar_color
+
+# --- Critical 2 (final-fix-report, whole-branch review): __tmux_lives_theme_mark's
+# own nudge loop had no C3 (no-white) re-check of its own -- it could
+# synthesise a lightness push that round-trips past L>0.72/C<0.055 exactly
+# like __tmux_lives_theme_floor_role's stage two, but nothing here was
+# re-checking it. Fixture: seed #9ca3af (one of the report's own named
+# seeds, itself fully no-white-compliant: L 0.7137, C 0.0192) against a bar
+# 0.58 OKLCH-L away -- measured pre-fix at __tmux_lives_theme_mark('#747b86',
+# '#9ca3af') => '#a4abb8', L 0.739743 / C 0.020317, a clear breach the
+# flooring nudge invented rather than inherited from the seed.
+set -g C2BAR '#747b86'
+set -g C2SEED '#9ca3af'
+set -g C2MARK (__tmux_lives_theme_mark $C2BAR $C2SEED)
+set -g C2O (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $C2MARK))
+t "C2: the floored mark still needed flooring (not a vacuous already-verbatim fixture)" 0 (test "$C2MARK" = "$C2SEED"; and echo 1; or echo 0)
+t "C2: the floored mark does not breach no-white (L<=0.72 or C>=0.055)" 1 (test "$C2O[1]" -le 0.72; or test "$C2O[2]" -ge 0.055; and echo 1; or echo 0)
+set -e C2BAR
+set -e C2SEED
+set -e C2MARK
+set -e C2O
+
+# --- Important 5 (final-fix-report, whole-branch review): the spec's staircase
+# invariant is "text > active > windows > sep = mark" -- __tmux_lives_theme_mark
+# now READS sep's own floor out of __tmux_lives_theme_floors (role 2) instead
+# of hardcoding a second, unlinked "0.15" literal, so the two cannot drift
+# apart the way two independent literals silently could. Proven by actually
+# moving the table's sep floor (stubbed to 0.20) and confirming
+# __tmux_lives_theme_mark's own threshold moves with it -- a static "read
+# the same source" check cannot tell a real coupling from a coincidence, but
+# a fixture whose gap (0.1676) sits BETWEEN the two floors can: under the
+# real 0.15 floor the seed already clears it and comes back verbatim; under
+# the stubbed 0.20 floor the same gap no longer clears, so the mark must be
+# nudged.
+set -g I5BAR (__tmux_lives_oklch_hex 0.40 0.0 0)
+set -g I5SEED (__tmux_lives_oklch_hex 0.57 0.0 0)
+t "I5: fixture gap sits strictly between 0.15 and 0.20 (0.15 < gap < 0.20)" 1 (set -l g (math "abs("(__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $I5SEED))[1]" - "(__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $I5BAR))[1]")"); test "$g" -gt 0.15; and test "$g" -lt 0.20; and echo 1; or echo 0)
+t "I5: under the real 0.15 sep floor, the fixture already clears it (verbatim)" "$I5SEED" (__tmux_lives_theme_mark $I5BAR $I5SEED)
+functions -c __tmux_lives_theme_floors __i5_floors_bak
+function __tmux_lives_theme_floors
+    printf '%s\n' 7:0.40 4:0.32 5:0.26 2:0.20
+end
+t "I5: moving sep's floor to 0.20 moves theme_mark's threshold with it (no longer verbatim)" 0 (test (__tmux_lives_theme_mark $I5BAR $I5SEED) = "$I5SEED"; and echo 1; or echo 0)
+functions -e __tmux_lives_theme_floors; functions -c __i5_floors_bak __tmux_lives_theme_floors; functions -e __i5_floors_bak
+set -e I5BAR
+set -e I5SEED
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

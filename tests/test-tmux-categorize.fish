@@ -8592,6 +8592,77 @@ t "T7 live: fgs permuted in lockstep with toks" yes (test (string join \x1e -- (
 t "T7 live: tabsfgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_tabsfgs_base)) = (string join \x1e -- $T7ORD_tabsfgs_ord); and echo yes; or echo no)
 t "T7 live: recipes permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_recipes_base)) = (string join \x1e -- $T7ORD_recipes_ord); and echo yes; or echo no)
 
+# --- Important 3 (final-fix-report, whole-branch review): o overflows the popup
+# frame when pressed while editing -----------------------------------------
+# `o` sits in the shared dispatch switch with no `editing` guard and used to
+# unconditionally reset WIN to the IDLE budget (rows - STATIC_IDLE) regardless
+# of mode. Press b (the seed editor, which correctly recomputes WIN against
+# the wider STATIC_EDIT), then o, and every redraw after is oversized by
+# STATIC_EDIT - STATIC_IDLE rows -- a real overflow, not a cosmetic one.
+#
+# Extracted VERBATIM from the live source, same technique as CASEB9/CASEB9WRAP
+# above: case o ends where case b begins, so that is the extraction boundary.
+set -g CASEO9 (awk '/^            case b$/{exit} /^            case o$/{f=1} f{print}' $catfile | string collect)
+t "case-o body extraction is non-empty" 1 (test -n "$CASEO9"; and echo 1; or echo 0)
+set -g CASEO9WRAP "switch \$tok
+$CASEO9
+end"
+function __t9_caseo_overflow --description 'eval the REAL o-toggle body immediately followed by the REAL draw block, BOTH in EDITING mode, to prove pressing o while already editing cannot grow the frame past the popup that opened it. WIN starts at editings OWN correct value (rows - STATIC_EDIT -- exactly what entering edit mode via case b already leaves it at, per __t9_caseb_win above), so a correct o arm must leave it alone; the pre-fix arm unconditionally resets it to the IDLE value instead, growing the frame by STATIC_EDIT - STATIC_IDLE rows on the very next redraw. __tcz_thp_reload is stubbed to a no-op -- this pins the WIN corruption, not whether reload permutes correctly (T7 above already covers that live) -- so the catalog fixture is seeded by hand exactly like __t9_frame_rows own loop, giving the draw block real data to render regardless. Fixture matches the already-proven "26 rows, n=14" case elsewhere in this file. Prints the drawn line count.'
+    __tcz_thp_cacheclear
+    set -l BORDER (__tcz_theme border)
+    set -l BRAND (__tcz_theme brand)
+    set -l KEY (__tcz_theme key)
+    set -l MUTED (__tcz_theme muted)
+    set -l SELBG (__tcz_theme sel-bg)
+    set -l RST (__tcz_theme reset)
+    set -l IW 50
+    set -l rows 26
+    set -l editing 1
+    set -l chan 1
+    set -l STATIC_IDLE $STATIC9I
+    set -l STATIC_EDIT $STATIC9E
+    set -l WIN (math "$rows - $STATIC_EDIT")
+    set -l host somehost
+    set -l chiptitle ''
+    set -l note 'a note'
+    set -l seed '#5f772b'
+    set -l seedfg '#f5f5f5'
+    set -l legacy '#444444'
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    set -l focus list
+    set -l sel2 0
+    set -l n 14
+    set -l sel 0
+    set -l previewed 0
+    set -l anch_theme mono
+    set -l anchpal '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+    set -l flashfield ''
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    for i in (seq $n)
+        set -a toks "scheme$i"
+        set -a pals '#44502f #798c7e #98b3a0 #c9decf #98b3a0 #1caf80 #e0f5e6'
+        set -a fgs '#f5f5f5'
+        set -a tabsfgs '#f5f5f5'
+        set -a recipes 'mono|0.55|0.11|0.50|deep'
+    end
+    set -l tok o
+    set -l order catalog
+    function __tcz_thp_reload; end
+    eval $CASEO9WRAP
+    functions -e __tcz_thp_reload
+    eval $DRAWTEXT9
+    count $lines
+end
+t "I3: pressing o while already editing does not grow the frame past the popup (26 rows)" 26 (__t9_caseo_overflow)
 
 # --- Task 8: no group header -------------------------------------------------
 set -g T8SRC (functions __tcz_theme_picker)

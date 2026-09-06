@@ -3551,7 +3551,17 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 end
                 __tcz_thp_reload
                 set sel 0
-                set WIN (math "$rows - $STATIC_IDLE")
+                # Important 3 (final-fix-report, whole-branch review): o has no
+                # editing guard and used to unconditionally reset WIN to the
+                # IDLE budget -- pressing b (entering the seed editor, which
+                # DOES recompute WIN against the wider STATIC_EDIT) then o
+                # left WIN oversized by STATIC_EDIT - STATIC_IDLE rows for
+                # every redraw after, overflowing the popup by exactly that
+                # many rows. o does not change the static row count at all
+                # (it only reorders the catalog and reloads it), so unlike
+                # every other WIN-recomputing site in this file (b, esc,
+                # enter-while-editing), it has nothing to recompute -- the
+                # fix is deleting the write, not guarding it.
                 fish -c 'set -U tmux_lives_theme_order $argv[1]' "$order" >/dev/null 2>&1
                 set note "● order: $order"
             case b
