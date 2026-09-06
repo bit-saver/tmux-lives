@@ -1857,6 +1857,54 @@ function __tcz_thp_bg --argument-names hex --description 'hex -> truecolor backg
     test (count $m) -eq 3; and printf '\e[48;2;%d;%d;%dm' (math "0x$m[1]") (math "0x$m[2]") (math "0x$m[3]")
 end
 
+# DEPENDS ON ENGINE FUNCTIONS (__tmux_lives_hex_to_rgb01, __tmux_lives_rgb_to_oklch),
+# which live in conf.d/tmux-lives-install.fish and are only sourced by the picker
+# itself (functions/tmux-categorize.fish:2446, inside __tcz_theme_picker). These two
+# stay top-level like every other __tcz_thp_* helper -- that is what makes them
+# testable -- but do not call them from anywhere the engine file is not already
+# sourced: fish aborts the whole calling statement silently rather than erroring.
+function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette. Walks the swatch strips OWN block order (tabs 3, bar 1, cap 6, windows 5, sep 2, text 7, active 4 — see __tcz_thp_cells_uncached at :1873) so the sort is legible off the strip the user is already looking at. Each block contributes clockwise hue distance from the seed hue, then lightness: hue alone interleaves lights and darks, so a hue group would read as a jumble rather than a ramp. Fixed width (%07.3f + %05.3f per block, 7 blocks = 84 chars) so a plain `sort` is a correct numeric sort with no multi-key parsing.'
+    set -l pal (string split ' ' -- "$hexes")
+    set -l key ''
+    for idx in 3 1 6 5 2 7 4
+        set -l h ''
+        test (count $pal) -ge $idx; and set h "$pal[$idx]"
+        # Validate the SHAPE before converting. __tmux_lives_hex_to_rgb01 has no
+        # shape check of its own — a non-hex string reaches `math "0xno/255"` and
+        # fish's math diagnostics go straight to STDERR, which they do bypassing
+        # in-process redirection. This helper runs inside a display-popup that is
+        # painting a frame to the tty, so stray stderr lands in the middle of the
+        # drawing and corrupts it. Checking first costs one `string match`.
+        if not string match -qr '^#[0-9a-fA-F]{6}$' -- "$h"
+            # Non-hex degrades to the far end so it sorts last rather than
+            # collapsing the whole key (a zero-output substitution would empty
+            # the enclosing argument entirely).
+            set key "$key"(printf '%07.3f%05.3f' 999.999 9.999)
+            continue
+        end
+        set -l rgb (__tmux_lives_hex_to_rgb01 "$h")
+        set -l o (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+        set -l d (math "($o[3] - $seedhue + 360) % 360")
+        set key "$key"(printf '%07.3f%05.3f' $d $o[1])
+    end
+    printf '%s\n' "$key"
+end
+function __tcz_thp_order --description 'pure: 1-based palette indices in colour order. argv[1] is the seed hex; argv[2..] are space-joined 7-hex palettes. Ties break on the original index so the total order is STABLE — the row caches are keyed by position, and a wobbling order would silently mis-key them.'
+    set -l seedhex $argv[1]
+    set -l shue 0
+    if string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedhex"
+        set -l srgb (__tmux_lives_hex_to_rgb01 "$seedhex")
+        set shue (__tmux_lives_rgb_to_oklch $srgb[1] $srgb[2] $srgb[3])[3]
+    end
+    set -l lines
+    set -l i 0
+    for p in $argv[2..]
+        set i (math $i + 1)
+        set -a lines (printf '%s|%05d' (__tcz_thp_sortkey $shue "$p") $i)
+    end
+    printf '%s\n' $lines | sort | string replace -r '^.*\|0*' ''
+end
+
 function __tcz_thp_cells_uncached --argument-names hexes --description 'pure: the scheme swatch strip, 16 visible cols. Input is the engine palette order (bar sep tabs active windows cap text); OUTPUT is ordered by measured on-screen area — tabs(5) bar(4) cap(2), a blank tier column, then the trim roles windows(1) sep(1) text(1), then active(1) as a fourth trim cell (picker-legibility-autoapply Task 6: window-status-current-format now reads @tmux_lives_active_fg, so it finally paints somewhere and earns a cell). tabs leads because it covers ~1.8x the area of bar on a real ShellFish client. Each cell is ▇ (U+2587, lower seven-eighths) in the role colour rather than a filled cell, so one eighth stays clear at the TOP and vertically adjacent strips stop merging. Non-hex roles degrade to blanks of the same width so the strip stays aligned. Memoized by __tcz_thp_cells below — this is the ~17-command-substitution pure engine, 96% of an uncached scheme row.'
     set -l pal (string split ' ' -- "$hexes")
     set -l RST (printf '\e[0m')

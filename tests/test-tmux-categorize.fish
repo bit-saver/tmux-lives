@@ -8432,6 +8432,24 @@ t "v5: theme_palette has no callers left in the install file" 0 (count (string m
 t "v5: theme_palette is still defined" 1 (count (string match -r '^function __tmux_lives_theme_palette' -- $A6PLINES))
 
 
+# --- Task 6: colour ordering --------------------------------------------------
+# Fixed-width keys so a plain lexicographic sort is a correct numeric sort.
+# Blocks are walked in the swatch strip's own order (tabs bar cap windows sep
+# text active, functions/tmux-categorize.fish:1873), each contributing
+# hue-from-seed then lightness.
+set -g T6K (__tcz_thp_sortkey 120 '#101010 #2a2a2a #444444 #5e5e5e #787878 #929292 #acacac')
+t "T6: key is fixed width" 84 (string length -- "$T6K")
+# Two palettes differing only in the TABS hue must order by that hue, and the
+# one nearer the seed hue clockwise must come first.
+set -g T6A '#202020 #303030 #d02020 #404040 #505050 #606060 #707070'
+set -g T6B '#202020 #303030 #20d020 #404040 #505050 #606060 #707070'
+t "T6: green seed puts the green-tabs palette first" "2 1" (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B"))
+t "T6: red seed puts the red-tabs palette first" "1 2" (string join ' ' (__tcz_thp_order '#d02020' "$T6A" "$T6B"))
+# Determinism: the row caches are keyed by position, so a wobbling order
+# would silently mis-key them.
+t "T6: order is deterministic across repeated calls" (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B")) (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B"))
+
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak
