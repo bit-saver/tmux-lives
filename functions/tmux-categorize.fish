@@ -1863,7 +1863,7 @@ end
 # stay top-level like every other __tcz_thp_* helper -- that is what makes them
 # testable -- but do not call them from anywhere the engine file is not already
 # sourced: fish aborts the whole calling statement silently rather than erroring.
-function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette. Walks the swatch strips OWN block order (tabs 3, bar 1, cap 6, windows 5, sep 2, text 7, active 4 — see __tcz_thp_cells_uncached at :1873) so the sort is legible off the strip the user is already looking at. Each block contributes clockwise hue distance from the seed hue, then lightness: hue alone interleaves lights and darks, so a hue group would read as a jumble rather than a ramp. Fixed width (%07.3f + %05.3f per block, 7 blocks = 84 chars) so a plain `sort` is a correct numeric sort with no multi-key parsing.'
+function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette. Walks the swatch strips OWN block order (tabs 3, bar 1, cap 6, windows 5, sep 2, text 7, active 4 — see __tcz_thp_cells_uncached, whose for-loop defines this same order) so the sort is legible off the strip the user is already looking at. Each block contributes clockwise hue distance from the seed hue, then lightness: hue alone interleaves lights and darks, so a hue group would read as a jumble rather than a ramp. Fixed width (%07.3f + %05.3f per block, 7 blocks = 84 chars) so a plain `sort` is a correct numeric sort with no multi-key parsing.'
     set -l pal (string split ' ' -- "$hexes")
     set -l key ''
     for idx in 3 1 6 5 2 7 4

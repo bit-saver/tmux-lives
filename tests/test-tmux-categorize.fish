@@ -8435,8 +8435,8 @@ t "v5: theme_palette is still defined" 1 (count (string match -r '^function __tm
 # --- Task 6: colour ordering --------------------------------------------------
 # Fixed-width keys so a plain lexicographic sort is a correct numeric sort.
 # Blocks are walked in the swatch strip's own order (tabs bar cap windows sep
-# text active, functions/tmux-categorize.fish:1873), each contributing
-# hue-from-seed then lightness.
+# text active — see __tcz_thp_cells_uncached, whose for-loop defines this
+# same order), each contributing hue-from-seed then lightness.
 set -g T6K (__tcz_thp_sortkey 120 '#101010 #2a2a2a #444444 #5e5e5e #787878 #929292 #acacac')
 t "T6: key is fixed width" 84 (string length -- "$T6K")
 # Two palettes differing only in the TABS hue must order by that hue, and the
@@ -8448,6 +8448,27 @@ t "T6: red seed puts the red-tabs palette first" "1 2" (string join ' ' (__tcz_t
 # Determinism: the row caches are keyed by position, so a wobbling order
 # would silently mis-key them.
 t "T6: order is deterministic across repeated calls" (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B")) (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B"))
+# Review finding: T6A/T6B differ in exactly ONE block (tabs), so every other
+# block ties exactly and the comparison is decided by the one differing block
+# regardless of where it sits in the concatenation — that pair cannot tell
+# the swatch-strip walk order (tabs bar cap windows sep text active) apart
+# from, say, canonical palette order (bar sep tabs active windows cap text).
+# This pair differs in TWO blocks — tabs and bar — with OPPOSITE ordering
+# implications, so which palette sorts first depends on which of the two
+# blocks is compared FIRST:
+#   T6E: bar=green(seed, d=0)  tabs=red(d>0)   -> bar says "T6E first"
+#   T6F: bar=red(d>0)          tabs=green(seed, d=0) -> tabs says "T6F first"
+# Under the real (tabs-first) walk, tabs is the first, most-significant
+# block, so T6F's exact hue match wins there and T6F sorts first: "2 1".
+# Under canonical order (bar first), T6E's exact match would win instead and
+# the result would flip to "1 2" — confirmed by temporarily permuting the
+# `for idx in 3 1 6 5 2 7 4` loop in __tcz_thp_sortkey to `1 2 3 4 5 6 7`,
+# rerunning this suite, and observing this exact assertion turn red before
+# restoring the source file (proven byte-identical via diff, not git
+# checkout — other unrelated work sits in this tree).
+set -g T6E '#20d020 #404040 #d02020 #505050 #606060 #707070 #808080'
+set -g T6F '#d02020 #404040 #20d020 #505050 #606060 #707070 #808080'
+t "T6: tabs (the FIRST swatch-strip block), not bar, decides when two blocks disagree" "2 1" (string join ' ' (__tcz_thp_order '#20d020' "$T6E" "$T6F"))
 
 
 # --- hygiene: this suite's own shim dir ------------------------------------
