@@ -7084,7 +7084,12 @@ t "case tab: editing=1 cannot change focus away from roll either" roll (__t9_cas
 # stty stubs elsewhere in this file already follow.
 set -g __t8z_real_roll (functions __tmux_lives_theme_roll | string collect)
 set -g __t8z_real_apply_and_recolor (functions __tcz_thp_apply_and_recolor | string collect)
+# mono-only picker toggle (Task 2): the stub also RECORDS what it was
+# actually called with, in $__t8z_roll_argv -- $__t8z_calls (below) already
+# proves a call happened at all; this is what proves WHAT it was called
+# WITH, which is the only way to pin the pinMode argument case z computes.
 function __tmux_lives_theme_roll
+    set -g __t8z_roll_argv $argv
     printf '%s\n' triadic 0.60 0.15 0.45 accent
 end
 set -g __t8z_calls 0
@@ -7094,7 +7099,7 @@ end
 set -g CZ8WRAP "switch \$tok
 $cz8
 end"
-function __t9_casez --argument-names rollhistn --description 'eval the REAL case-z arm (roll) against a throwaway scope with a synthetic rollhist of <rollhistn> placeholder entries, each distinct (placeholder1..placeholderN) so the OLDEST-dropped assertions below can tell which one survived the cap. Prints "<rollhist, ;-joined>\trollat\tfocus\tprevieweD\t<apply_and_recolor call count>\t<1 if note mentions roll, else 0>".'
+function __t9_casez --argument-names rollhistn monoonly --description 'eval the REAL case-z arm (roll) against a throwaway scope with a synthetic rollhist of <rollhistn> placeholder entries, each distinct (placeholder1..placeholderN) so the OLDEST-dropped assertions below can tell which one survived the cap, and mono_only=<monoonly> (omitted/empty behaves as 0 -- every pre-existing caller predates this parameter and still gets the unpinned path). Prints "<rollhist, ;-joined>\trollat\tfocus\tprevieweD\t<apply_and_recolor call count>\t<1 if note mentions roll, else 0>\t<argv count __tmux_lives_theme_roll was actually called with>\t<its 2nd positional, or the literal ABSENT if fewer than 2 args were passed>".'
     set -l tok z
     set -l seed '#5f772b'
     set -l focus list
@@ -7102,15 +7107,19 @@ function __t9_casez --argument-names rollhistn --description 'eval the REAL case
     set -l previewed 0
     set -l note ''
     set -l flashfield START
+    set -l mono_only $monoonly
     set -l rollhist
     for i in (seq $rollhistn)
         set -a rollhist "placeholder$i|0.50|0.12|0.40|deep"
     end
     set -g __t8z_calls 0
+    set -g __t8z_roll_argv
     eval $CZ8WRAP
     set -l notehas 0
     string match -q '*roll*' -- "$note"; and set notehas 1
-    printf '%s\t%s\t%s\t%s\t%s\t%s\n' (string join ';' -- $rollhist) $rollat $focus $previewed $__t8z_calls $notehas
+    set -l pinval ABSENT
+    test (count $__t8z_roll_argv) -ge 2; and set pinval "$__t8z_roll_argv[2]"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' (string join ';' -- $rollhist) $rollat $focus $previewed $__t8z_calls $notehas (count $__t8z_roll_argv) "$pinval"
 end
 set -g R8Z0 (string split \t -- (__t9_casez 0))
 t "case z (empty history): appends exactly one entry" 1 (count (string split ';' -- $R8Z0[1]))
@@ -7126,6 +7135,18 @@ t "case z: history caps at 12, not 13" 12 (count $R8Z12HIST)
 t "case z: the oldest entry was dropped, not the newest" no (string match -q 'placeholder1|*' -- $R8Z12HIST[1]; and echo yes; or echo no)
 t "case z: the newest entry is the just-rolled recipe" "triadic|0.60|0.15|0.45|accent" $R8Z12HIST[-1]
 t "case z: rollat lands on 12 (the newest), not past the cap" 12 $R8Z12[2]
+
+# mono-only picker toggle (Task 2): z pins the roll to mono while the toggle
+# is on. Both directions matter -- ON must pin, but OFF must NOT pin, which
+# is what stops a fix that pins unconditionally regardless of the toggle
+# (a mutation this file's own review specifically asked to be provable).
+set -g R2ZPIN_ON (string split \t -- (__t9_casez 1 1))
+t "case z, mono-only ON: roll is called with exactly 2 args (seed + pin)" 2 $R2ZPIN_ON[7]
+t "case z, mono-only ON: roll is pinned to mono" mono $R2ZPIN_ON[8]
+set -g R2ZPIN_OFF (string split \t -- (__t9_casez 1 0))
+t "case z, mono-only OFF: roll is called with exactly 2 args (seed + empty pin)" 2 $R2ZPIN_OFF[7]
+t "case z, mono-only OFF: roll is NOT pinned to mono" '' $R2ZPIN_OFF[8]
+
 eval $__t8z_real_roll
 eval $__t8z_real_apply_and_recolor
 
