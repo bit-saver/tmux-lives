@@ -4645,4 +4645,177 @@ functions -e __tmux_lives_theme_floors; functions -c __i5_floors_bak __tmux_live
 set -e I5BAR
 set -e I5SEED
 
+# --- mono-only, Piece 1: __tmux_lives_theme_mono_grid ------------------------
+# The six mono catalog rows' own (lspan, peakc, peakpos) triples crossed with
+# all six arrangements -> 36 rows, one per (triple, arrangement) pair.
+# Captured into a variable FIRST, not called inline inside each `t` — an
+# undefined function inside a nested command substitution aborts the WHOLE
+# enclosing statement silently in this fish (verified empirically: the `t`
+# call itself never runs, no PASS or FAIL line), which is exactly the
+# vacuous-assertion trap this repo's own notes warn about. Routing every read
+# through $MGROWS means a not-yet-defined function leaves it unset (a real,
+# comparable value — count 0) instead of silently skipping every assertion
+# below.
+set -g MGROWS (__tmux_lives_theme_mono_grid)
+t "mono grid: 36 rows" 36 (count $MGROWS)
+
+set -g MGMODES (printf '%s\n' $MGROWS | string split -f2 '|' | sort -u)
+t "mono grid: every row's mode field is the single value mono" "mono" (string join ' ' $MGMODES)
+
+# No duplicated parameter combination — a real cross product has 36 distinct
+# (mode, lspan, peakc, peakpos, arrangement) tuples, one per cell.
+set -g MGRECIPES
+for l in $MGROWS
+    set -l f (string split '|' -- $l)
+    set -a MGRECIPES "$f[2]|$f[3]|$f[4]|$f[5]|$f[6]"
+end
+t "mono grid: 36 rows captured for the recipe-uniqueness check" 36 (count $MGRECIPES)
+t "mono grid: all 36 parameter combinations are distinct" 36 (count (printf '%s\n' $MGRECIPES | sort -u))
+
+# Rendered at a fixed seed, all 36 must be distinct palettes (a real cross
+# product varies more than one dimension; a broken triple-lookup that always
+# read the same row would collapse most of these).
+set -g MGPALN 0
+set -g MGPALS
+for l in $MGROWS
+    set -l f (string split '|' -- $l)
+    set -l p (__tmux_lives_theme_render '#5fab40' $f[2] $f[3] $f[4] $f[5] $f[6])
+    if test (count $p) -eq 7
+        set MGPALN (math $MGPALN + 1)
+        set -a MGPALS (string join ' ' $p)
+    end
+end
+t "mono grid: all 36 rows render a full 7-hex palette at a fixed seed" 36 $MGPALN
+t "mono grid: all 36 rendered palettes are distinct" 36 (count (printf '%s\n' $MGPALS | sort -u))
+
+# Naming: the six diagonal cells (arrangement == the triple's own style) keep
+# the plain catalog name; every other cell gets "mono <style>·<arrangement>".
+set -g MGNAMES (printf '%s\n' $MGROWS | string split -f1 '|')
+t "mono grid: names are unique" 36 (count (printf '%s\n' $MGNAMES | sort -u))
+for nm in 'mono deep' 'mono bright' 'mono centre' 'mono split' 'mono stack' 'mono accent'
+    t "mono grid: diagonal cell '$nm' is present, unmarked" 1 (contains -- "$nm" $MGNAMES; and echo 1; or echo 0)
+end
+for nm in 'mono deep·bright' 'mono bright·deep' 'mono centre·accent'
+    t "mono grid: off-diagonal cell '$nm' is present" 1 (contains -- "$nm" $MGNAMES; and echo 1; or echo 0)
+end
+
+# A named diagonal row's recipe must be IDENTICAL to the catalog's own row —
+# proving this really derives from the catalog rather than restating it.
+set -g MGDEEPROW ''
+for l in $MGROWS
+    set -l f (string split '|' -- $l)
+    test "$f[1]" = "mono deep"; and set -g MGDEEPROW $l
+end
+t "mono grid: 'mono deep' diagonal row found" 1 (test -n "$MGDEEPROW"; and echo 1; or echo 0)
+set -g MGDEEPFIELDS (string split '|' -- $MGDEEPROW)
+set -g CATDEEPRECIPE (__tmux_lives_theme_recipe 'mono deep')
+t "mono grid: 'mono deep' recipe matches the catalog's own row exactly" (string join ' ' $CATDEEPRECIPE) "$MGDEEPFIELDS[2] $MGDEEPFIELDS[3] $MGDEEPFIELDS[4] $MGDEEPFIELDS[5] $MGDEEPFIELDS[6]"
+
+# The coupling is LIVE: stub the catalog's own 'mono deep' peakC and prove the
+# grid's six 'mono deep*' rows move with it. Mirrors Important 5's pattern
+# above (stub __tmux_lives_theme_floors, prove __tmux_lives_theme_mark
+# tracks it) — a static "reads the same source" check cannot tell a real
+# coupling from a coincidence; actually moving the source and re-measuring
+# can. A grid that hardcoded a second copy of the six triples would still
+# show the OLD peakC (0.11) here and fail this assertion.
+functions -c __tmux_lives_theme_catalog_v6 __mg_catalog_bak
+function __tmux_lives_theme_catalog_v6
+    __mg_catalog_bak | string replace -- 'mono deep|mono|0.55|0.11|0.50|deep|1' 'mono deep|mono|0.55|0.16|0.50|deep|1'
+end
+set -g MGSTUBROWS (printf '%s\n' (__tmux_lives_theme_mono_grid) | string match -- 'mono deep*')
+t "mono grid coupling: stubbing the catalog still yields 6 'mono deep*' rows" 6 (count $MGSTUBROWS)
+# Gated on the count first, same shape as T2's descending-floors check above:
+# an unexpected row count must read as NOT-coupled (0) rather than vacuously
+# leaving a pre-seeded "true" standing when the for loop below never runs.
+set -g MGSTUBOK 0
+if test (count $MGSTUBROWS) -eq 6
+    set MGSTUBOK 1
+    for l in $MGSTUBROWS
+        set -l f (string split '|' -- $l)
+        test "$f[4]" = "0.16"; or set MGSTUBOK 0
+    end
+end
+t "mono grid coupling: all 6 rows carry the stubbed peakC 0.16, proving live derivation" 1 $MGSTUBOK
+functions -e __tmux_lives_theme_catalog_v6
+functions -c __mg_catalog_bak __tmux_lives_theme_catalog_v6
+functions -e __mg_catalog_bak
+
+# Every grid row must clear the foreground legibility staircase — the branch
+# just merged built it and the grid must not route around it. Swept, not
+# sampled, mirroring the T2 ratchet above: a guard that samples can be green
+# while real rows breach.
+set -g MGFLOORN 0
+set -g MGFLOORBREACH 0
+for seed in '#485b3c' '#63abab' '#87cb48'
+    for row in $MGROWS
+        set -l cf (string split '|' -- $row)
+        set -l p (__tmux_lives_theme_render $seed $cf[2] $cf[3] $cf[4] $cf[5] $cf[6])
+        test (count $p) -eq 7; or continue
+        set -l bl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[1]))
+        for r in (__tmux_lives_theme_floors)
+            set MGFLOORN (math $MGFLOORN + 1)
+            set -l f (string split ':' -- $r)
+            set -l rl (__tmux_lives_rgb_to_oklch (__tmux_lives_hex_to_rgb01 $p[$f[1]]))
+            test (math "abs($rl[1] - $bl[1])") -ge $f[2]; or set MGFLOORBREACH (math $MGFLOORBREACH + 1)
+        end
+    end
+end
+t "mono grid: floor checks all ran (3 seeds x 36 rows x 4 roles)" 432 $MGFLOORN
+t "mono grid: zero floor breaches across the sweep" 0 $MGFLOORBREACH
+
+# --- mono-only, Piece 2: __tmux_lives_theme_roll gains an optional mode pin --
+t "roll: still defined after adding the optional mode-pin argument" 1 (functions -q __tmux_lives_theme_roll; and echo 1; or echo 0)
+
+set -g MRN 40
+set -g MRPINBAD 0
+for i in (seq $MRN)
+    set -l r (__tmux_lives_theme_roll '#5fab40' mono)
+    if test (count $r) -eq 5
+        test "$r[1]" = mono; or set MRPINBAD (math $MRPINBAD + 1)
+    else
+        set MRPINBAD (math $MRPINBAD + 1)
+    end
+end
+t "roll: pinned to mono, $MRN of $MRN draws all returned mono (never another mode)" 0 $MRPINBAD
+
+# Unpinned behaviour is unchanged — still samples across the whole mode
+# space. (P(all 40 draws land on one of 7 modes by chance) is astronomically
+# small, so this is not a flaky test.)
+set -g MRUNPINNED
+for i in (seq $MRN)
+    set -l r (__tmux_lives_theme_roll '#5fab40')
+    set -a MRUNPINNED $r[1]
+end
+t "roll: with no pin argument, still samples more than one distinct mode across $MRN draws" 1 (test (count (printf '%s\n' $MRUNPINNED | sort -u)) -gt 1; and echo 1; or echo 0)
+
+# An unrecognised pin value must never leak through as the mode.
+t "roll: an unrecognised pin value is ignored, never returned as the mode" 1 (contains -- (__tmux_lives_theme_roll '#5fab40' bogus)[1] mono analogous complementary split triadic tetradic square; and echo 1; or echo 0)
+
+t "roll: the arrangement is still a real arrangement when pinned" 1 (contains -- (__tmux_lives_theme_roll '#5fab40' mono)[5] (__tmux_lives_theme_arrangements); and echo 1; or echo 0)
+
+# The exhaustion fallback (every attempt misses bound 1) must also respect
+# the pin — stub render exactly as the earlier "roll: the fallback still
+# returns five fields" test does, forcing every attempt to miss bound 1.
+set -g __mgr_realrender (functions __tmux_lives_theme_render | string collect)
+function __tmux_lives_theme_render
+    printf '%s\n' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080' '#808080'
+end
+# Ten draws, not one: an unpinned roll would still land on "mono" by chance
+# 1 in 7 times, so a single-shot check has a real chance of a lucky pre-fix
+# pass. Ten draws all landing on mono by chance alone is (1/7)^10 -- not a
+# realistic false pass.
+set -g MREXHN 10
+set -g MREXHBAD 0
+for i in (seq $MREXHN)
+    set -l r (__tmux_lives_theme_roll '#4a4a4a' mono)
+    if test (count $r) -eq 5
+        test "$r[1]" = mono; or set MREXHBAD (math $MREXHBAD + 1)
+    else
+        set MREXHBAD (math $MREXHBAD + 1)
+    end
+end
+t "roll: the exhaustion fallback still honours the pin across $MREXHN draws" 0 $MREXHBAD
+functions -e __tmux_lives_theme_render
+eval $__mgr_realrender
+
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

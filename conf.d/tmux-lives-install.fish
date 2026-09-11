@@ -1434,12 +1434,13 @@ function __tmux_lives_theme_mark --argument-names barhex seedhex --description '
     echo $cand
 end
 
-function __tmux_lives_theme_roll --argument-names seedHex --description 'v6: sample a recipe from the MEASURED acceptable ridge and return its five fields. Sampling the v6 core spec s documented envelope (peakC 0.01-0.26 uniform) satisfies bound 1 only 34.6% of the time; the region is a diagonal ridge that INVERTS — below peakC ~0.10 nothing passes at any position, and above ~0.20 the middle fails while the ends pass, because a mid-ramp peak sits where the gamut has headroom and overshoots the ceiling while an end peak is clipped back into range. peakC 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so this costs about one render. Rejects and resamples on a bound-1 miss, capped; on exhaustion returns the last candidate rather than nothing, because refusing to render is a worse outcome than one slightly-off palette.'
+function __tmux_lives_theme_roll --argument-names seedHex pinMode --description 'v6: sample a recipe from the MEASURED acceptable ridge and return its five fields. Sampling the v6 core spec s documented envelope (peakC 0.01-0.26 uniform) satisfies bound 1 only 34.6% of the time; the region is a diagonal ridge that INVERTS — below peakC ~0.10 nothing passes at any position, and above ~0.20 the middle fails while the ends pass, because a mid-ramp peak sits where the gamut has headroom and overshoots the ceiling while an end peak is clipped back into range. peakC 0.13-0.18 x peakPos 0.3-0.85 measures ~95%, so this costs about one render. Rejects and resamples on a bound-1 miss, capped; on exhaustion returns the last candidate rather than nothing, because refusing to render is a worse outcome than one slightly-off palette. <pinMode> is optional (mono-only mode): when it names a real harmony mode, every attempt uses that mode instead of sampling one, and the fallback candidate carries it too since $r is seeded from the same $m each attempt — the accept/reject loop and the exhaustion path are otherwise untouched. An unrecognised value is ignored and the mode is sampled as before. Omitted, this samples $m exactly as before (same random draw, same call count) and is byte-identical to the unpinned roll.'
     set -l modes mono analogous complementary split triadic tetradic square
     set -l arrs (__tmux_lives_theme_arrangements)
     set -l r
     for attempt in (seq 8)
         set -l m $modes[(random 1 (count $modes))]
+        test -n "$pinMode"; and contains -- "$pinMode" $modes; and set m "$pinMode"
         set -l a $arrs[(random 1 (count $arrs))]
         # Capture random into a var FIRST: fish performs NO command substitution
         # inside double-quoted math, so an inline roll would hand math the
@@ -1695,6 +1696,23 @@ function __tmux_lives_theme_recipe --argument-names name --description 'v6: a ca
         end
     end
     return 1
+end
+
+function __tmux_lives_theme_mono_grid --description 'mono-only: the six mono catalog rows own (lspan, peakc, peakpos) triples crossed with all six arrangements -> 36 rows in the SAME name|mode|lspan|peakc|peakpos|arrangement|default shape __tmux_lives_theme_catalog_v6 uses, so anything that already walks the catalog needs no special-casing to walk this too. Triples are READ off __tmux_lives_theme_catalog_v6, never restated -- two unlinked copies of the same six numbers is a defect shape this project has already been bitten by twice, and it means a change to a mono catalog row moves this grid with it. A cell whose arrangement equals its triples own style (the diagonal) keeps the plain catalog name ("mono deep"); every other cell is named "mono <style>·<arrangement>" (U+00B7 MIDDLE DOT, the same separator __tcz_display_name already uses for "project · task"). Order is deterministic: triples in catalog order (the six mono rows, top to bottom), arrangements in __tmux_lives_theme_arrangements order. default is always 0 -- this grid sits outside the curated-14 mechanism entirely; it is a mode-scoped alternative to the catalog, not an addition to it.'
+    set -l arrs (__tmux_lives_theme_arrangements)
+    for e in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $e)
+        test "$f[2]" = mono; or continue
+        set -l style (string replace -r '^mono ' '' -- "$f[1]")
+        set -l lspan $f[3]
+        set -l peakc $f[4]
+        set -l peakpos $f[5]
+        for a in $arrs
+            set -l name "mono $style"
+            test "$a" = "$style"; or set name "mono $style·$a"
+            printf '%s\n' "$name|mono|$lspan|$peakc|$peakpos|$a|0"
+        end
+    end
 end
 
 function __tmux_lives_theme_catalog_name --argument-names mode lspan peakc peakpos arrangement --description 'v6: the reverse of __tmux_lives_theme_recipe — five recipe fields -> the catalog NAME that resolves to them, or nothing (status 1) when no catalog row matches exactly. Because the catalog is the complete 7-mode x 6-arrangement grid, a <mode> <arrangement> pair is ALWAYS some valid catalog name — which is exactly why a caller cannot fall back to printing that pair unconditionally: for a stored recipe that does not match ANY row (a saved roll, functions/tmux-categorize.fish case z, is a real valid recipe built to deliberately match no catalog row) that pair names a real, different, wrong scheme. Callers must treat empty as a real outcome, not an error. Mirrors __tcz_thp_init'"'"'s own reverse lookup in the picker (functions/tmux-categorize.fish) — keep both in sync.'
