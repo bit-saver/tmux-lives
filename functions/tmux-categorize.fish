@@ -2502,6 +2502,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l legacy ''
     set -l previewed 0
     set -l order catalog
+    set -l mono_only 0
     function __tcz_thp_init --no-scope-shadowing
         # Universal reads MUST go through a config-loaded child: this process
         # runs --no-config, which neither READS nor WRITES universal variables
@@ -2515,7 +2516,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             echo (__tmux_lives_key tmux_lives_theme_peakpos 0.50)
             echo (__tmux_lives_key tmux_lives_theme_arrangement deep)
             echo (__tmux_lives_derive_status (__tmux_lives_key tmux_lives_bar_color "") (__tmux_lives_key tmux_lives_status_invert 0))
-            echo (__tmux_lives_key tmux_lives_theme_order catalog)' 2>/dev/null)
+            echo (__tmux_lives_key tmux_lives_theme_order catalog)
+            echo (__tmux_lives_key tmux_lives_theme_mono_only 0)' 2>/dev/null)
         test (count $init) -ge 1; and set seed $init[1]
         test (count $init) -ge 2; and test -n "$init[2]"; and set theme $init[2]
         test (count $init) -ge 3; and test -n "$init[3]"; and set tlspan $init[3]
@@ -2527,6 +2529,13 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set -l initorder ''
         test (count $init) -ge 8; and set initorder $init[8]
         set order catalog
+        # mono-only toggle (Task 2): read like order above -- a field that is
+        # absent (an install that predates this universal) or anything but
+        # "1" defaults OFF, matching a fresh install with nothing persisted.
+        set -l initmono ''
+        test (count $init) -ge 9; and set initmono $init[9]
+        set mono_only 0
+        test "$initmono" = 1; and set mono_only 1
         test "$initorder" = colour; and set order colour
         test -n "$seed"; or set seed '#3a3a3a'   # no seed yet: neutral, so the picker still teaches
         # Freeze the anchor from the values just read, then reverse-look-up its
@@ -2550,14 +2559,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l recipes
     set -l cachekeys
     set -l cacheblobs
-    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 42 all) + fgs, in-process; v6 engine results cached by knob-state key (seed/expanded)'
+    function __tcz_thp_reload --no-scope-shadowing --description 'batch: catalog entries (14 default / 42 all; or the 36-row mono grid while mono_only is on) + fgs, in-process; v6 engine results cached by knob-state key (seed/expanded/mono_only)'
         # Rows are keyed by index; expanding or collapsing shifts what each
         # index means, and a new seed changes every palette. This is the ONE
         # invalidation point, which is what lets the row key stay a bare
         # integer instead of a sanitised palette string.
         __tcz_thp_cacheclear
         set toks; set pals; set fgs; set tabsfgs; set recipes
-        set -l key "$seed|$expanded"
+        # mono-only (Task 2) is a third knob alongside seed/expanded: it swaps
+        # the row SOURCE entirely (catalog vs grid), so a blob cached under the
+        # old two-part key would silently serve the wrong list's colours the
+        # instant the toggle flips back to a seed/expanded pair it had already
+        # visited under the other mode.
+        set -l key "$seed|$expanded|$mono_only"
         set -l blob ''
         set -l ci (contains -i -- "$key" $cachekeys)
         if test -n "$ci"
@@ -2566,9 +2580,19 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             set -l lines
             # Expanding APPENDS the rest rather than swapping the row source: the
             # full catalog is in tier order, so a wholesale swap scatters the
-            # curated rows and you lose track of what you have seen.
-            set -l rows (__tmux_lives_theme_catalog_v6_default)
-            test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_v6_rest)
+            # curated rows and you lose track of what you have seen. mono-only
+            # is a SEPARATE row source, never mixed with the catalog: the
+            # 36-row grid (__tmux_lives_theme_mono_grid) replaces the catalog
+            # outright rather than joining it, and $expanded is simply not
+            # consulted while it is active (restored, untouched, on the way
+            # back out).
+            set -l rows
+            if test "$mono_only" = 1
+                set rows (__tmux_lives_theme_mono_grid)
+            else
+                set rows (__tmux_lives_theme_catalog_v6_default)
+                test "$expanded" = 1; and set -a rows (__tmux_lives_theme_catalog_v6_rest)
+            end
             for e in $rows
                 set -l f (string split '|' -- $e)
                 set -l p (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
@@ -3279,11 +3303,18 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # STATIC_IDLE/STATIC_EDIT and editing's own pad stay untouched. The
         # editing legend below is a separate call with its own pair count and
         # width — deliberately NOT touched by this.
+        # mono-only picker toggle (Task 2): `M`/`mono` is an ELEVENTH browsing
+        # pair, appended the same way `o`/`order` was — measured (not assumed)
+        # to still fit at cols=4: 11 pairs render 3 rows (ceil(11/4)), max row
+        # width 49 of 50 visible columns, so STATIC_IDLE/STATIC_EDIT again stay
+        # untouched. The pair is static text advertising the KEY, not the
+        # current mono_only VALUE, so the existing "--cachekey=$editing" is
+        # still the whole cache identity — nothing here is seed/state-derived.
         if test "$editing" = 1
             set leglines (__tcz_thp_leg 3 '↑↓' channel '←→' adjust t 'type hex' a schemes '⏎' apply esc revert "--cachekey=$editing")
             set -a leglines ''
         else
-            set leglines (__tcz_thp_leg 4 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close  o order "--cachekey=$editing")
+            set leglines (__tcz_thp_leg 4 '↑↓' move '⇞⇟' page b seed  m curated z roll '⇥' current/off  a apply '⏎' save esc close  o order  M mono "--cachekey=$editing")
         end
         for lline in $leglines
             set -a lines (__tcz_thp_ln "$lline" $IW $BORDER $RST)
@@ -3511,38 +3542,65 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     set flashfield seed
                 end
             case m
-                # expand/collapse the catalog: 14 curated rows <-> all 42.
-                # Reload FIRST so $n reflects the NEW list length before the
-                # sel clamp below runs (an un-reloaded $n would clamp against
-                # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
-                # this m is a different key (expand), not the old mode toggle.
-                # Remember WHICH scheme the cursor is on, not its index: expanding
-                # interleaves the hidden rows between the curated ones, so a kept
-                # index lands on an unrelated scheme and you lose your place while
-                # browsing. Re-find the same row by name in the new list instead.
-                set -l keep ''
-                if test $sel -lt $n
-                    # Compute the index into a VAR first. Inlining an arithmetic
-                    # expression inside a quoted list subscript makes fish reject it
-                    # with "Invalid index value" and spray a stack trace into the
-                    # popup; a guard test greps for that shape, and it matches
-                    # comments too — so do not spell the shape out even in prose.
-                    set -l ki (math "$sel + 1")
-                    set keep "$toks[$ki]"
+                if test "$mono_only" = 1
+                    # m collapses/expands the CATALOG's curated-14 subset — a
+                    # distinction the mono grid does not have (it is a flat
+                    # 36-row list outside the curated-14 mechanism entirely,
+                    # per __tmux_lives_theme_mono_grid's own contract). Say so
+                    # rather than silently doing nothing, or the key reads as
+                    # broken instead of inapplicable.
+                    set note "● m is inert in mono-only — press M to leave"
+                else
+                    # expand/collapse the catalog: 14 curated rows <-> all 42.
+                    # Reload FIRST so $n reflects the NEW list length before the
+                    # sel clamp below runs (an un-reloaded $n would clamp against
+                    # the stale count). Place/mode/reset (p/P/m-M/r) are RETIRED —
+                    # this m is a different key (expand), not the old mode toggle.
+                    # Remember WHICH scheme the cursor is on, not its index: expanding
+                    # interleaves the hidden rows between the curated ones, so a kept
+                    # index lands on an unrelated scheme and you lose your place while
+                    # browsing. Re-find the same row by name in the new list instead.
+                    set -l keep ''
+                    if test $sel -lt $n
+                        # Compute the index into a VAR first. Inlining an arithmetic
+                        # expression inside a quoted list subscript makes fish reject it
+                        # with "Invalid index value" and spray a stack trace into the
+                        # popup; a guard test greps for that shape, and it matches
+                        # comments too — so do not spell the shape out even in prose.
+                        set -l ki (math "$sel + 1")
+                        set keep "$toks[$ki]"
+                    end
+                    test "$expanded" = 1; and set expanded 0; or set expanded 1
+                    __tcz_thp_reload
+                    set n (count $toks)
+                    if test -n "$keep"
+                        set -l found (contains -i -- "$keep" $toks)
+                        # collapsing can drop the row entirely (it was a hidden one) —
+                        # fall back to the clamp below rather than guessing a neighbour.
+                        test -n "$found"; and set sel (math $found - 1)
+                    end
+                    set -l lastrow (math $n - 1)
+                    test $lastrow -lt 0; and set lastrow 0
+                    test $sel -gt $lastrow; and set sel $lastrow
+                    set flashfield ''
                 end
-                test "$expanded" = 1; and set expanded 0; or set expanded 1
+            case M
+                # mono-only toggle (Task 2 of the picker feature): restrict the
+                # scheme list to __tmux_lives_theme_mono_grid's 36 rows instead
+                # of the v6 catalog. Reload FIRST (same discipline as m/o) so
+                # $n reflects the new list length before $sel is reset. Unlike
+                # m's expand/collapse, there is no "same scheme, new position"
+                # to preserve here — mono-only swaps to an entirely different
+                # row source, so the cursor resets to the top exactly as o's
+                # colour-ordering toggle already does, for the same reason.
+                test "$mono_only" = 1; and set mono_only 0; or set mono_only 1
                 __tcz_thp_reload
                 set n (count $toks)
-                if test -n "$keep"
-                    set -l found (contains -i -- "$keep" $toks)
-                    # collapsing can drop the row entirely (it was a hidden one) —
-                    # fall back to the clamp below rather than guessing a neighbour.
-                    test -n "$found"; and set sel (math $found - 1)
-                end
-                set -l lastrow (math $n - 1)
-                test $lastrow -lt 0; and set lastrow 0
-                test $sel -gt $lastrow; and set sel $lastrow
-                set flashfield ''
+                set sel 0
+                fish -c 'set -U tmux_lives_theme_mono_only $argv[1]' "$mono_only" >/dev/null 2>&1
+                set -l monolabel off
+                test "$mono_only" = 1; and set monolabel on
+                set note "● mono-only: $monolabel"
             case o
                 if test "$order" = colour
                     set order catalog
@@ -3618,7 +3676,14 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                 # costs about one render, not several. The result becomes a
                 # new selectable STATE (like current/off), not a cursor move —
                 # ⇥ reaches it once it exists (see case tab below).
-                set -l r (__tmux_lives_theme_roll "$seed")
+                # mono-only (Task 2): pin the sampled mode so a roll while
+                # browsing the mono grid stays a mono recipe -- __tmux_lives_
+                # theme_roll's own pinMode argument is a no-op (ignored, same
+                # unpinned sample as before) whenever it is empty, so this is
+                # the SAME call either way, not a branch.
+                set -l pinmode ''
+                test "$mono_only" = 1; and set pinmode mono
+                set -l r (__tmux_lives_theme_roll "$seed" $pinmode)
                 if test (count $r) -eq 5
                     # Review fix: render ONCE here -- a discrete action, not
                     # the per-keypress hot path -- and cache the result
@@ -3806,7 +3871,36 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                         end
                     else
                         set -l pi (math $sel + 1)
-                        set apply $toks[$pi]
+                        # mono-only (Task 2): most of the 36 grid rows (every
+                        # off-diagonal cell — see __tmux_lives_theme_mono_grid)
+                        # match no row in the v6 catalog by construction, so
+                        # toks[$pi] is then a grid-only compound name ("mono
+                        # deep·bright") the CLI cannot resolve — see
+                        # __tmux_lives_theme_catalog_name's own docstring for
+                        # why a caller cannot just print <mode> <arrangement>
+                        # and assume it names itself. Reverse-look up the
+                        # recipe (the same lookup the CLI itself already does)
+                        # to find a real catalog name when one exists (the six
+                        # diagonal rows); when it does not, reuse the anchor
+                        # snapshot as the carrier for the unnamed-save path —
+                        # exactly what a rolled recipe (case z, above) already
+                        # does. Outside mono-only, toks[$pi] IS always a real
+                        # catalog name (every catalog row's own name), so nothing
+                        # here changes for that path.
+                        if test "$mono_only" = 1
+                            set -l rc (string split '|' -- $recipes[$pi])
+                            set -l cname ''
+                            test (count $rc) -eq 5; and set cname (__tmux_lives_theme_catalog_name $rc[1] $rc[2] $rc[3] $rc[4] $rc[5])
+                            if test -n "$cname"
+                                set apply $cname
+                            else if test (count $rc) -eq 5
+                                set anch_theme $rc[1]; set anch_lspan $rc[2]; set anch_peakc $rc[3]
+                                set anch_peakpos $rc[4]; set anch_arr $rc[5]
+                                set apply_unnamed 1
+                            end
+                        else
+                            set apply $toks[$pi]
+                        end
                     end
                     break
                 end

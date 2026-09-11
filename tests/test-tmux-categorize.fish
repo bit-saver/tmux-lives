@@ -3815,9 +3815,12 @@ t "guard: reload has no universal reads" 0 (string match -q '*__tmux_lives_key*'
 # site — persisting tmux_lives_theme_order — configuration, not adoption, so
 # it gets its own direct write rather than sharing apply_and_recolor (which
 # is for writes that also need a live recolor). 5 -> 6.
-t "guard: exactly 6 action-site subprocesses remain directly in the picker body" 6 (count (string match -ar 'fish -c' -- "$pbody"))
-# 6 = init + seed-commit-on-save + 2 named saves (off/scheme) + 1 unnamed-save
-# + 1 order-toggle
+# mono-only picker toggle (Task 2): M adds a SEVENTH — persisting
+# tmux_lives_theme_mono_only — the same configuration-not-adoption reasoning
+# as o's own site right above it. 6 -> 7.
+t "guard: exactly 7 action-site subprocesses remain directly in the picker body" 7 (count (string match -ar 'fish -c' -- "$pbody"))
+# 7 = init + seed-commit-on-save + 2 named saves (off/scheme) + 1 unnamed-save
+# + 1 order-toggle + 1 mono-only-toggle
 set -l aarbody (awk '/^function __tcz_thp_apply_and_recolor/,/^end$/' $catfile | string collect)
 t "guard: apply_and_recolor body extraction is non-empty" 1 (test -n "$aarbody"; and echo 1; or echo 0)
 t "guard: apply_and_recolor is exactly one action-site subprocess (the 4 old sites share it)" 1 (count (string match -ar 'fish -c' -- "$aarbody"))
@@ -4131,8 +4134,24 @@ t "pbody_nohex dropped hexentry's own seed-preview note (body content, not just 
 # the comment mention never is (it has a `#` and other text on the same
 # line) — (?ms) with ^...$ line anchors excludes it structurally rather than
 # hoping no future comment mentions the phrase.
-t "save no longer reads recipes directly (past hexentry)" 0 (string match -qr '(?ms)^            case enter$.*?recipes\[' -- "$pbody_nohex"; and echo 1; or echo 0)
 t "save derives the name from toks (past hexentry)" 1 (string match -qr '(?ms)^            case enter$.*?toks\[' -- "$pbody_nohex"; and echo 1; or echo 0)
+# SUPERSEDED (mono-only picker toggle, Task 2 of the picker feature): the
+# absolute "save never reads recipes[" guard that used to sit here encoded a
+# real v6-rewrite contract — every catalog row's OWN NAME is always a name
+# the CLI can resolve, so the list-focus save arm never needed to look past
+# it. The mono grid breaks that premise on purpose: most of its 36 rows
+# (every off-diagonal cell — see __tmux_lives_theme_mono_grid) are real
+# five-field recipes that match NO row in the v6 catalog, so toks[$pi] is
+# then a grid-only compound name ("mono deep·bright") the CLI cannot
+# resolve, and the save arm must consult recipes[$pi] to tell the two cases
+# apart. A source-grep cannot honestly express "reads recipes[] ONLY inside
+# the mono_only branch" — the whole point of the SDD lesson this project
+# already carries (composition bugs hide behind checks that pin each link
+# but never the wiring) — so the real contract is pinned by EXECUTING the
+# save arm below (T2 "case enter, list focus" block), not by a static regex.
+# This coarse presence check just proves the resolution mechanism the CLI
+# itself uses is actually reachable from the save arm at all.
+t "save arm can reach the catalog-name reverse lookup (mono-only's escape hatch)" 1 (string match -qr '(?ms)^            case enter$.*?__tmux_lives_theme_catalog_name' -- "$pbody_nohex"; and echo 1; or echo 0)
 # The CLI call shape itself: the name, and only the name — no --place/--mode/
 # --phase flags reintroduced (those error on the v6 CLI; see the whole-body
 # "save no longer passes --place/--mode" guards a few lines down for the
@@ -4236,6 +4255,26 @@ t "anchor lookup resolves a non-catalog recipe to empty" '' (__t7_anchlookup mon
 # lspan+peakc+peakpos+arrangement). Checked against the full $pbody since
 # this exact call text is unique to __tcz_thp_reanchor.
 t "anchor render call is 6-arg (lspan+peakc+peakpos+arrangement, drops phase)" 1 (string match -q '*__tmux_lives_theme_render $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)*' -- "$pbody"; and echo 1; or echo 0)
+
+# --- mono-only picker toggle (Task 2): the universal defaults OFF when unset
+# ---------------------------------------------------------------------------
+# Exercise the REAL parsing block from __tcz_thp_init, the same way
+# __t7_anchlookup exercises the real anchor reverse-lookup right above: no
+# universal-store or subprocess dependency, so this is fast and hermetic —
+# a synthetic $init array stands in for what the fish -c universal read
+# above this block would have left there.
+set -g INITMONO2 (awk '/# mono-only toggle \(Task 2\): read like order above/,/test "\$initmono" = 1; and set mono_only 1/' $catfile | string collect)
+t "init-mono extraction is non-empty" 1 (test -n "$INITMONO2"; and echo 1; or echo 0)
+function __t2_initmono --argument-names field9 --description 'eval the REAL mono-only parsing block from __tcz_thp_init against a synthetic $init array of 8 fields plus <field9> (the tmux_lives_theme_mono_only read). An empty <field9> leaves $init at 8 elements -- simulating a pre-Task-2 install with no universal to read at all, not merely an empty one -- exactly the "count $init -ge 9" guard exists to handle. Returns the resolved $mono_only.'
+    set -l init a b c d e f g catalog
+    test -n "$field9"; and set -a init $field9
+    eval $INITMONO2
+    echo $mono_only
+end
+t "init-mono: field absent (pre-Task-2 install) defaults OFF" 0 (__t2_initmono '')
+t "init-mono: field present, value 1, turns ON" 1 (__t2_initmono 1)
+t "init-mono: field present, value 0, stays OFF" 0 (__t2_initmono 0)
+t "init-mono: field present, garbage value, stays OFF (unrecognised defaults off, same as order)" 0 (__t2_initmono garbage)
 
 # picker current-zone + legend-grid refinement, Task 1: the two fixed-pitch
 # __tcz_legend_row calls (was 2, itself "was 3" before the gallery rewrite)
@@ -5631,6 +5670,22 @@ t "browsing legend is still 3 rows with o/order added" 3 (count $LEGIROWS)
 t "browsing legend advertises o / order" yes (string match -q '*order*' -- "$LEGI"; and echo yes; or echo no)
 t "editing legend is padded to the same 3 rows" 3 (count $LEGEROWS)
 
+# mono-only picker toggle (Task 2): M/mono is an ELEVENTH browsing pair,
+# appended the same way o/order was — measured (not assumed) to still fit at
+# cols=4: ceil(11/4) = 3 rows, max row width 49 of 50 visible columns. Bound
+# to the SAME $LEGIROWS the assertion right above already rebinds to (not a
+# second hardcoded call-site copy — the exact drift that assertion's own
+# comment already warns against), so this is the real, current 11-pair
+# legend, not a stand-in for it.
+t "browsing legend is still 3 rows with M/mono added" 3 (count $LEGIROWS)
+t "browsing legend advertises M / mono" yes (string match -q '*mono*' -- "$LEGI"; and echo yes; or echo no)
+set -l LEGIMAXW 0
+for lrow in $LEGIROWS
+    set -l w (string length --visible -- (__tcz_strip_sgr "$lrow"))
+    test $w -gt $LEGIMAXW; and set LEGIMAXW $w
+end
+t "browsing legend with M/mono added still fits within IW=50" yes (test $LEGIMAXW -le 50; and echo yes; or echo no)
+
 # --- review I-1: the six draw-block cache keys, unguarded --------------------
 # The reviewer proved all six call-site key EXPRESSIONS (not just the
 # wrapper mechanics Task 1/2's own staticcache: tests already cover) are
@@ -6225,7 +6280,16 @@ t "staticcache: leg --cachekey= sentinel is convention not construction (known l
 # (same technique as $RB7 above) and eval it for real, starting EXPANDED with
 # the cursor on a hidden row (sel=30 is index 31 of 42 — inside the 28
 # appended "rest" rows, since ndefault=14), then pressing m once.
-set -g CASEM9 (awk '/case m$/,/set flashfield/' $catfile | string collect)
+# mono-only picker toggle (Task 2 of the picker feature) wrapped case m's
+# whole body in an "if mono_only ... else ... end" (the mono grid has no
+# curated-14 subset to expand/collapse, so m goes quiet there instead) — the
+# body no longer ends at a bare "set flashfield ''" with nothing further to
+# close, so the old content-marker end pattern would stop one line short of
+# the if's own closing "end" and leave $CASEM9 syntactically unclosed. Bound
+# by the NEXT case label instead (same "start/exit on adjacent case labels"
+# idiom $cz8/CASEZ6/CASET5 already use below) — case M is the very next
+# label after case m, so this captures the complete arm, if/else included.
+set -g CASEM9 (awk '/^            case M$/{exit} /^            case m$/{f=1} f{print}' $catfile | string collect)
 t "case-m body extraction is non-empty" 1 (test -n "$CASEM9"; and echo 1; or echo 0)
 # `case` is a switch-only builtin: eval'ing the extracted body alone is a
 # RUNTIME error ("'case' builtin not inside of switch block"), because eval
@@ -6257,6 +6321,78 @@ end
 set -g CASEMRES9 (__t9_case_m)
 t "case m collapse from a hidden row: sel lands in range, not stale" 13 $CASEMRES9[1]
 t "case m collapse from a hidden row: n reflects the collapsed catalog" 14 $CASEMRES9[2]
+
+# --- mono-only picker toggle (Task 2 of the picker feature): m goes quiet --
+# m filters curated-vs-all, which is meaningless against the flat 36-row mono
+# grid (it sits outside the curated-14 mechanism entirely — see
+# __tmux_lives_theme_mono_grid's own docstring). Reusing $CASEM9WRAP (fixed
+# above to bound on the next case label, not a content marker) drives the
+# SAME real body this file already proved collapses/expands the catalog when
+# mono_only is off — this proves the OTHER branch of that same if/else: with
+# mono_only=1, __tcz_thp_reload is stubbed as a call counter, since a
+# source-grep cannot see whether an if-gated call actually fires at runtime —
+# exactly the class of bug this project's own SDD lessons warn never survives
+# a link-by-link-only review.
+set -g __t2mq_real_reload (functions __tcz_thp_reload | string collect)
+set -g __t2mq_reloads 0
+function __tcz_thp_reload; set -g __t2mq_reloads (math $__t2mq_reloads + 1); end
+function __t2_case_m_mono_quiet --description 'run the REAL case-m handler (via $CASEM9WRAP) against a throwaway scope with mono_only=1. Prints "<sel>\t<n>\t<reload calls>\t<note>".'
+    set -l seed '#5f772b'
+    set -l expanded 1
+    set -l mono_only 1
+    set -l toks scheme1 scheme2 scheme3
+    set -l pals 'p1' 'p2' 'p3'
+    set -l fgs '#111111' '#111111' '#111111'
+    set -l tabsfgs '#111111' '#111111' '#111111'
+    set -l recipes 'mono|0.55|0.11|0.50|deep' 'mono|0.50|0.17|0.55|bright' 'mono|0.30|0.15|0.75|centre'
+    set -l n 3
+    set -l sel 1
+    set -l note ''
+    set -g __t2mq_reloads 0
+    eval $CASEM9WRAP
+    printf '%s\t%s\t%s\t%s\n' $sel $n $__t2mq_reloads "$note"
+end
+set -g T2MQ (string split \t -- (__t2_case_m_mono_quiet))
+t "m while mono-only: sel unchanged" 1 $T2MQ[1]
+t "m while mono-only: n unchanged (list not reloaded/swapped)" 3 $T2MQ[2]
+t "m while mono-only: genuinely inert, never reaches reload" 0 $T2MQ[3]
+t "m while mono-only: note says so" yes (string match -q '*mono-only*' -- $T2MQ[4]; and echo yes; or echo no)
+functions -e __tcz_thp_reload
+eval $__t2mq_real_reload
+
+# --- mono-only picker toggle (Task 2): M is dispatched and reaches reload --
+# (the one path to __tcz_thp_cacheclear — see __tcz_thp_reload's own
+# docstring). M sits immediately after m and before o in the switch, so the
+# same "start/exit on the next case label" idiom CASEM9 was just fixed to use
+# bounds it precisely.
+set -g CASEMONO9 (awk '/^            case o$/{exit} /^            case M$/{f=1} f{print}' $catfile | string collect)
+t "case-M body extraction is non-empty" 1 (test -n "$CASEMONO9"; and echo 1; or echo 0)
+set -g CASEMONO9WRAP "switch M
+$CASEMONO9
+end"
+function __t2_case_M --description 'run the REAL case-M handler (via $CASEMONO9WRAP) against a throwaway scope, with __tcz_thp_reload stubbed as a call counter that also mutates $toks (so $n, set for real by case Ms own body right after the stubbed call, is observably derived from ITS output, not left stale). Prints "<mono_only>\t<sel>\t<n>\t<reload calls>\t<note>".'
+    set -l mono_only 0
+    set -l toks scheme1 scheme2 scheme3
+    set -l n 3
+    set -l sel 2
+    set -l note ''
+    set -g __t2M_reloads 0
+    eval $CASEMONO9WRAP
+    printf '%s\t%s\t%s\t%s\t%s\n' $mono_only $sel $n $__t2M_reloads "$note"
+end
+set -g __t2M_real_reload (functions __tcz_thp_reload | string collect)
+function __tcz_thp_reload --no-scope-shadowing
+    set -g __t2M_reloads (math $__t2M_reloads + 1)
+    set toks w x y z
+end
+set -g T2M (string split \t -- (__t2_case_M))
+t "case M: flips mono_only on" 1 $T2M[1]
+t "case M: resets the cursor to the top" 0 $T2M[2]
+t "case M: n reflects the reload's own output (4), not left stale at 3" 4 $T2M[3]
+t "case M: reaches the reload (the one path to cacheclear)" 1 $T2M[4]
+t "case M: note mentions mono-only" yes (string match -q '*mono-only*' -- $T2M[5]; and echo yes; or echo no)
+functions -e __tcz_thp_reload
+eval $__t2M_real_reload
 
 # ---------------------------------------------------------------------
 # review finding 3: `islive` ignored a previewed-but-uncommitted seed change,
@@ -7119,6 +7255,48 @@ t "case enter (roll): apply_unnamed is set (routes through the five-universal sa
 # history entry saves, not always the latest roll, which is the whole point
 # of "↑↓ step back" being recoverable.
 t "case enter (roll): the anchor carries the SELECTED history entry, not the newest" "placeholder2|0.50|0.12|0.40|deep" $R8E[3]
+
+# --- mono-only picker toggle (Task 2): case enter (save) for focus=list ----
+# Reuses the SAME $CE8WRAP the roll tests right above just drove for real —
+# the exact real save arm, mono_only added to the throwaway scope. Outside
+# mono-only, toks[$pi] is always a real catalog name (every catalog row IS
+# its own name), so nothing here should change; inside it, most of the
+# 36-row grid (every off-diagonal cell) matches no catalog row by
+# construction, so the arm must fall back to the same unnamed-save path a
+# rolled recipe already uses. "mono deep" (recipe mono|0.55|0.11|0.50|deep)
+# and "mono deep·bright" (mono|0.55|0.11|0.50|bright) are read verbatim off
+# the shipped __tmux_lives_theme_mono_grid, not hand-picked — the diagonal
+# cell resolves to a real catalog name (it IS the catalog's own "mono deep"
+# row); the off-diagonal one, by the grid's own construction, does not.
+function __t9_caseenter_list --argument-names monoonly tokname reciperecipe --description 'eval the REAL case-enter arm (not-editing / save branch, via $CE8WRAP) against a throwaway scope with focus=list, mono_only=<monoonly>, a single-entry toks/recipes pair (<tokname>/<reciperecipe>) and sel=0. Prints "<apply>\t<apply_unnamed>\t<anch_theme>|<anch_lspan>|<anch_peakc>|<anch_peakpos>|<anch_arr>".'
+    set -l tok enter
+    set -l editing 0
+    set -l focus list
+    set -l sel2 0
+    set -l sel 0
+    set -l apply ''
+    set -l apply_unnamed 0
+    set -l mono_only $monoonly
+    set -l anch_theme mono
+    set -l anch_lspan 0.55
+    set -l anch_peakc 0.11
+    set -l anch_peakpos 0.50
+    set -l anch_arr deep
+    set -l toks $tokname
+    set -l recipes $reciperecipe
+    eval $CE8WRAP
+    printf '%s\t%s\t%s\n' "$apply" $apply_unnamed "$anch_theme|$anch_lspan|$anch_peakc|$anch_peakpos|$anch_arr"
+end
+set -g R2LIST_OFF (string split \t -- (__t9_caseenter_list 0 'analogous centre' 'analogous|0.50|0.15|0.75|centre'))
+t "case enter (list, mono_only=0): apply is toks[\$pi] verbatim (unchanged regression)" 'analogous centre' $R2LIST_OFF[1]
+t "case enter (list, mono_only=0): apply_unnamed stays 0" 0 $R2LIST_OFF[2]
+set -g R2LIST_DIAG (string split \t -- (__t9_caseenter_list 1 'mono deep' 'mono|0.55|0.11|0.50|deep'))
+t "case enter (list, mono-only, diagonal grid row): apply resolves to the real catalog name" 'mono deep' $R2LIST_DIAG[1]
+t "case enter (list, mono-only, diagonal grid row): apply_unnamed stays 0 (a real name was found)" 0 $R2LIST_DIAG[2]
+set -g R2LIST_OD (string split \t -- (__t9_caseenter_list 1 'mono deep·bright' 'mono|0.55|0.11|0.50|bright'))
+t "case enter (list, mono-only, off-diagonal grid row): apply stays empty — no catalog name matches" '' $R2LIST_OD[1]
+t "case enter (list, mono-only, off-diagonal grid row): apply_unnamed is set (routes through the five-universal save path)" 1 $R2LIST_OD[2]
+t "case enter (list, mono-only, off-diagonal grid row): the anchor carries the GRID's own recipe fields" "mono|0.55|0.11|0.50|bright" $R2LIST_OD[3]
 
 # --- Task 8: case a (apply-preview) for focus=roll, via __tcz_thp_apply_now -
 # __tcz_thp_apply_now is a NESTED function (defined inside __tcz_theme_picker
@@ -8530,6 +8708,9 @@ t "T7: the toggle clears the row caches" 1 (printf '%s\n' $T7SRC | awk '/^      
 # collapse to one occurrence via indirection. Renamed (review fix): this
 # counts BOTH legitimate sites, not just the read.
 t "T7: the order universal is spelled at both its read and write sites" 2 (printf '%s\n' $T7SRC | grep -c 'tmux_lives_theme_order')
+# mono-only picker toggle (Task 2): same shape, its own universal — read
+# (init) once, write (M toggle) once.
+t "T2: the mono_only universal is spelled at both its read and write sites" 2 (printf '%s\n' $T7SRC | grep -c 'tmux_lives_theme_mono_only')
 
 # Review fix (promoted from Minor): everything above is a static grep/awk
 # check against source text -- it proves `case o` NAMES __tcz_thp_reload and
@@ -8591,6 +8772,132 @@ t "T7 live: pals permuted in lockstep with toks" yes (test (string join \x1e -- 
 t "T7 live: fgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_fgs_base)) = (string join \x1e -- $T7ORD_fgs_ord); and echo yes; or echo no)
 t "T7 live: tabsfgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_tabsfgs_base)) = (string join \x1e -- $T7ORD_tabsfgs_ord); and echo yes; or echo no)
 t "T7 live: recipes permuted in lockstep with toks" yes (test (string join \x1e -- (__t7ord_apply_perm $T7ORD_recipes_base)) = (string join \x1e -- $T7ORD_recipes_ord); and echo yes; or echo no)
+
+# --- mono-only picker toggle (Task 2): the reload composes the mono grid,
+# lockstep, live -----------------------------------------------------------
+# Same discipline the T7 block right above this one already established for
+# the colour-order permutation: a static grep proves the SHAPE of the wiring
+# (T2/T7SRC checks above), a live eval'd run proves it actually PRODUCES the
+# right thing when driven for real. "Coverage that tested each link but
+# never the composition" is exactly the shape that let a Critical through
+# nine clean reviews on this project's last cycle (theme_clobber_during_dev
+# migration chain) — this is the composition test.
+eval $RB7
+function __t2mono_reload_into --argument-names suffix mono orderval --description 'call the REAL __tcz_thp_reload against a throwaway scope with $mono_only=<mono> and $order=<orderval>, then publish all five resulting index-parallel arrays into globals named <array>_<suffix>.'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l seed '#5f772b'
+    set -l expanded 1
+    set -l order $orderval
+    set -l mono_only $mono
+    __tcz_thp_reload
+    set -g "T2MONO_toks_$suffix" $toks
+    set -g "T2MONO_pals_$suffix" $pals
+    set -g "T2MONO_fgs_$suffix" $fgs
+    set -g "T2MONO_tabsfgs_$suffix" $tabsfgs
+    set -g "T2MONO_recipes_$suffix" $recipes
+end
+__t2mono_reload_into mono 1 catalog
+t "T2 live: mono-only reload composes exactly the 36-row grid" 36 (count $T2MONO_toks_mono)
+# Ground truth read directly off the shipped grid builder — never restated by
+# hand (the same "read off the engine, don't restate" discipline the mono
+# grid's own docstring insists on for its (lspan, peakc, peakpos) triples).
+set -g T2MONO_GRID (__tmux_lives_theme_mono_grid)
+set -g T2MONO_GRID_NAMES
+set -g T2MONO_GRID_RECIPES
+for e in $T2MONO_GRID
+    set -l f (string split '|' -- $e)
+    set -a T2MONO_GRID_NAMES $f[1]
+    set -a T2MONO_GRID_RECIPES "$f[2]|$f[3]|$f[4]|$f[5]|$f[6]"
+end
+t "T2 live: composed names are exactly the grid's, in the grid's own order" yes (test (string join \x1e -- $T2MONO_toks_mono) = (string join \x1e -- $T2MONO_GRID_NAMES); and echo yes; or echo no)
+t "T2 live: composed recipes match the grid's own fields, index for index" yes (test (string join \x1e -- $T2MONO_recipes_mono) = (string join \x1e -- $T2MONO_GRID_RECIPES); and echo yes; or echo no)
+# Lockstep proof: a scheme's name must still line up with its OWN colours.
+# Re-derive the expected palette/fgs INDEPENDENTLY from the grid's own
+# recipe fields (not by trusting __tcz_thp_reload's internal bookkeeping),
+# so a desync between toks/recipes and pals/fgs/tabsfgs cannot hide behind
+# both sides reading from the same (possibly wrong) internal state.
+set -g T2MONO_EXPECT_PALS
+set -g T2MONO_EXPECT_FGS
+set -g T2MONO_EXPECT_TABSFGS
+for e in $T2MONO_GRID
+    set -l f (string split '|' -- $e)
+    set -l p (__tmux_lives_theme_render '#5f772b' $f[2] $f[3] $f[4] $f[5] $f[6])
+    set -a T2MONO_EXPECT_PALS (string join ' ' $p)
+    set -a T2MONO_EXPECT_FGS (__tmux_lives_contrast_fg $p[6])
+    set -a T2MONO_EXPECT_TABSFGS (__tmux_lives_contrast_fg $p[3])
+end
+t "T2 live: pals match an independently-rendered palette, index for index" yes (test (string join \x1e -- $T2MONO_pals_mono) = (string join \x1e -- $T2MONO_EXPECT_PALS); and echo yes; or echo no)
+t "T2 live: fgs match an independently-computed contrast fg, index for index" yes (test (string join \x1e -- $T2MONO_fgs_mono) = (string join \x1e -- $T2MONO_EXPECT_FGS); and echo yes; or echo no)
+t "T2 live: tabsfgs match an independently-computed contrast fg, index for index" yes (test (string join \x1e -- $T2MONO_tabsfgs_mono) = (string join \x1e -- $T2MONO_EXPECT_TABSFGS); and echo yes; or echo no)
+# order=colour on top of mono-only: prove the permutation still carries all
+# five arrays together — the exact hazard __tcz_thp_order's own docstring
+# warns a bare index-shift defect would produce (a name next to the WRONG
+# scheme's colours), now against the grid instead of the catalog.
+__t2mono_reload_into monocol 1 colour
+t "T2 live: mono-only + order=colour still composes all 36 rows" 36 (count $T2MONO_toks_monocol)
+set -g T2MONO_PERM (__tcz_thp_order '#5f772b' $T2MONO_pals_mono)
+t "T2 live: mono-only + order=colour permutation is not the identity" no (test (string join ' ' -- $T2MONO_PERM) = (string join ' ' -- (seq 1 (count $T2MONO_PERM))); and echo yes; or echo no)
+function __t2mono_apply_perm --description 'apply $T2MONO_PERM to a given list, printing the permuted result one per line.'
+    set -l src $argv
+    for i in $T2MONO_PERM
+        printf '%s\n' $src[$i]
+    end
+end
+t "T2 live: mono+colour toks permuted to match __tcz_thp_order" yes (test (string join \x1e -- (__t2mono_apply_perm $T2MONO_toks_mono)) = (string join \x1e -- $T2MONO_toks_monocol); and echo yes; or echo no)
+t "T2 live: mono+colour pals permuted in lockstep with toks" yes (test (string join \x1e -- (__t2mono_apply_perm $T2MONO_pals_mono)) = (string join \x1e -- $T2MONO_pals_monocol); and echo yes; or echo no)
+t "T2 live: mono+colour fgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t2mono_apply_perm $T2MONO_fgs_mono)) = (string join \x1e -- $T2MONO_fgs_monocol); and echo yes; or echo no)
+t "T2 live: mono+colour tabsfgs permuted in lockstep with toks" yes (test (string join \x1e -- (__t2mono_apply_perm $T2MONO_tabsfgs_mono)) = (string join \x1e -- $T2MONO_tabsfgs_monocol); and echo yes; or echo no)
+t "T2 live: mono+colour recipes permuted in lockstep with toks" yes (test (string join \x1e -- (__t2mono_apply_perm $T2MONO_recipes_mono)) = (string join \x1e -- $T2MONO_recipes_monocol); and echo yes; or echo no)
+
+# --- mono-only picker toggle (Task 2): the blob cache key distinguishes
+# mono-only --------------------------------------------------------------
+# __tcz_thp_reload's blob cache is keyed by "$seed|$expanded|$mono_only" —
+# drive it through ONE persistent cachekeys/cacheblobs pair (never reset
+# between calls, unlike __t2mono_reload_into above, which is deliberately
+# fresh per call and so could never observe a stale hit) across four toggles
+# at the SAME seed/expanded, proving a flip back to a previously-visited
+# mono_only value re-serves the CORRECT cached blob, not the other mode's.
+function __t2mono_cache_toggle --description 'call the REAL __tcz_thp_reload four times against one persistent cachekeys/cacheblobs pair (seed/expanded held fixed throughout), toggling mono_only 0,1,0,1. Prints "<n after each call, tab-separated>\t<are the two mono-only passes byte-identical>".'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l seed '#5f772b'
+    set -l expanded 1
+    set -l order catalog
+    set -l mono_only 0
+    __tcz_thp_reload
+    set -l n0 (count $toks)
+    set mono_only 1
+    __tcz_thp_reload
+    set -l n1 (count $toks)
+    set -l names1 (string join \x1e -- $toks)
+    set mono_only 0
+    __tcz_thp_reload
+    set -l n2 (count $toks)
+    set mono_only 1
+    __tcz_thp_reload
+    set -l n3 (count $toks)
+    set -l names3 (string join \x1e -- $toks)
+    set -l samematch no
+    test "$names1" = "$names3"; and set samematch yes
+    printf '%s\t%s\t%s\t%s\t%s\n' $n0 $n1 $n2 $n3 $samematch
+end
+set -g T2CACHE (string split \t -- (__t2mono_cache_toggle))
+t "cache toggle: mono_only=0 gives the full 42-row catalog" 42 $T2CACHE[1]
+t "cache toggle: mono_only=1 gives the 36-row grid, not a stale catalog blob" 36 $T2CACHE[2]
+t "cache toggle: back to mono_only=0 gives 42 again, not a stale grid blob" 42 $T2CACHE[3]
+t "cache toggle: mono_only=1 again gives 36 again, not stale from the catalog pass" 36 $T2CACHE[4]
+t "cache toggle: the two mono-only passes produced the identical, correct list both times" yes $T2CACHE[5]
 
 # --- Important 3 (final-fix-report, whole-branch review): o overflows the popup
 # frame when pressed while editing -----------------------------------------
