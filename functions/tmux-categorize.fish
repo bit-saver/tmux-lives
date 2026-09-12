@@ -4251,7 +4251,27 @@ function __tcz_session_title --argument-names session --description 'session -> 
     __tcz_format_title (__tcz_hostname) "$name" $claude
 end
 
-function __tcz_retitle --argument-names mode --description 'emit each attached ShellFish/iTerm2 client its own OSC 2 title (title emission is identical for both terminal kinds — only the color-emit call differs, in __tcz_recolor/__tcz_on_attach). mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit.'
+function __tcz_emit_prune --description 'drop @tmux_lives_emit_<key>_{title,color} cache globals for a tty no longer among currently attached clients (client departure). /dev/ttysNNN paths are OS-recycled, so a leaked entry left behind could later collide with an unrelated new client landing on the same path. Reads the per-pass @option memo __tcz_tmux_load already populated (set --names -- no live tmux read needed to DISCOVER staleness) and the already-fetched __tcz_tmux_clients rows; issues a tmux WRITE only for a key it actually removes, so a clean pass (the common case) costs zero tmux calls beyond what its caller already paid.'
+    __tcz_tmux_load
+    set -l TAB (printf '\t')
+    set -l live
+    for line in (__tcz_tmux_clients)
+        set -l parts (string split $TAB -- $line)
+        set -l tty $parts[2]
+        test -n "$tty"; and set -a live (__tcz_emit_key $tty)
+    end
+    for name in (set --names | string match '__tcz_tmux_g_emit_*')
+        set -l m (string match -r '^__tcz_tmux_g_emit_([a-zA-Z0-9]+)_(title|color)$' -- $name)
+        test (count $m) -eq 3; or continue
+        set -l key $m[2]
+        set -l field $m[3]
+        contains -- $key $live; and continue
+        tmux set -gu @tmux_lives_emit_"$key"_"$field" 2>/dev/null
+        set -e $name
+    end
+end
+
+function __tcz_retitle --argument-names mode --description 'emit each attached client its own OSC 2 title. Title emission is a plain escape every terminal either understands or silently ignores, so — unlike __tcz_recolor/__tcz_on_attach, whose colour escapes really are terminal-specific — this no longer gates on __tcz_client_terminal. A client whose environment lacks LC_TERMINAL (e.g. one spawned by this project'"'"'s own session picker, which re-execs without carrying it through) used to be silently skipped here forever, freezing its tab title on whatever it showed before. mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit, then prunes cache entries (__tcz_emit_prune) for any tty no longer among attached clients.'
     set -l TAB (printf '\t')
     # tick-call-batching task 5: served from the shared per-pass client memo
     # (__tcz_tmux_clients) instead of its own list-clients call -- the SAME
@@ -4259,22 +4279,17 @@ function __tcz_retitle --argument-names mode --description 'emit each attached S
     # list-clients reads into one.
     for line in (__tcz_tmux_clients)
         set -l parts (string split $TAB -- $line)
-        set -l pid $parts[1]
         set -l tty $parts[2]
         set -l session $parts[3]
         test -n "$tty"; or continue
-        switch (__tcz_client_terminal $pid)
-            case shellfish iterm2
-                set -l title (__tcz_session_title $session)
-                test -n "$title"; or continue
-                set -l cached (__tcz_emit_get $tty title)
-                test "$mode" = dedup; and test "$title" = "$cached"; and continue
-                __tcz_emit_title $tty $title
-                __tcz_emit_set $tty title $title
-            case '*'
-                continue
-        end
+        set -l title (__tcz_session_title $session)
+        test -n "$title"; or continue
+        set -l cached (__tcz_emit_get $tty title)
+        test "$mode" = dedup; and test "$title" = "$cached"; and continue
+        __tcz_emit_title $tty $title
+        __tcz_emit_set $tty title $title
     end
+    __tcz_emit_prune
 end
 
 function __tcz_scratch_pane --description 'echo the marked scratch pane id in the current window (empty if none)'

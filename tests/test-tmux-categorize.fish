@@ -2587,7 +2587,10 @@ command tmux -L $mtsock kill-server 2>/dev/null
 set -e mtsock
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
-# retitle: per-client loop, ShellFish-gated. Stub session_title + list-clients.
+# retitle: per-client loop, terminal-agnostic (Fix 1, 2026-09) -- title
+# emission no longer gates on __tcz_client_terminal; only __tcz_recolor and
+# __tcz_on_attach's colour escapes stay terminal-specific. Stub session_title
+# + list-clients.
 set -g rt1 /tmp/tcz-rt1-$fish_pid; set -g rt2 /tmp/tcz-rt2-$fish_pid
 rm -f $rt1 $rt2; touch $rt1 $rt2
 functions -c __tcz_session_title __tcz_st_bak
@@ -2596,16 +2599,143 @@ function tmux
     test "$argv[1]" = list-clients; and printf '111\t%s\tsA\n222\t%s\tsB\n' "$rt1" "$rt2"
 end
 set -gx tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_retitle
 t "retitle titles shellfish client 1" yes (string match -q '*t-sA*' -- (cat $rt1 | string collect); and echo yes; or echo no)
 t "retitle titles shellfish client 2" yes (string match -q '*t-sB*' -- (cat $rt2 | string collect); and echo yes; or echo no)
 rm -f $rt1; touch $rt1
 set -gx tmux_lives_fake_environ "TERM=xterm"
 __tcz_retitle
-t "retitle skips non-shellfish client" no (test -s $rt1; and echo yes; or echo no)
+# Inverted 2026-09: this used to assert the client was SKIPPED -- that was
+# the bug itself (a client whose environment lacks LC_TERMINAL, e.g. one
+# spawned by this project's own session picker via a re-exec that does not
+# carry it through, stayed frozen on its old tab title forever). Now every
+# attached client gets a title regardless of what __tcz_client_terminal
+# reports. This IS the regression test for the diagnosed bug.
+t "retitle titles a client with an unidentifiable terminal too (regression test)" yes (string match -q '*t-sA*' -- (cat $rt1 | string collect); and echo yes; or echo no)
 functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak __tcz_session_title; functions -e __tcz_st_bak
 set -e tmux_lives_fake_environ
 rm -f $rt1 $rt2
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# ---------------------------------------------------------------------
+# retitle dedup/force (independent of Fix 1's terminal-gate removal): a
+# client with an unidentifiable terminal now gets a title at all, but the
+# per-tty dedup contract from tick-call-batching task 5 must still hold --
+# mode=dedup emits only on change, anything else (force) always emits.
+# ---------------------------------------------------------------------
+set -g rt3 /tmp/tcz-rt3-$fish_pid
+rm -f $rt3; touch $rt3
+functions -c __tcz_session_title __tcz_st_bak
+function __tcz_session_title; echo "dt-$argv[1]"; end
+function tmux
+    test "$argv[1]" = list-clients; and printf '333\t%s\tsD\n' "$rt3"
+end
+set -gx tmux_lives_fake_environ "TERM=xterm"
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_retitle dedup
+set -l rt3_1 (cat $rt3 | string collect)
+t "retitle dedup: first pass emits (no prior cache)" yes (string match -q '*dt-sD*' -- "$rt3_1"; and echo yes; or echo no)
+rm -f $rt3; touch $rt3
+__tcz_retitle dedup
+set -l rt3_2 (cat $rt3 | string collect)
+t "retitle dedup: unchanged title is suppressed on the next pass" '' "$rt3_2"
+__tcz_retitle
+set -l rt3_3 (cat $rt3 | string collect)
+t "retitle force: emits even though the title has not changed" yes (string match -q '*dt-sD*' -- "$rt3_3"; and echo yes; or echo no)
+functions -e tmux; functions -e __tcz_session_title; functions -c __tcz_st_bak __tcz_session_title; functions -e __tcz_st_bak
+set -e tmux_lives_fake_environ
+rm -f $rt3; set -e rt3
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# ---------------------------------------------------------------------
+# colour paths stay terminal-gated (the assertion that stops a future edit
+# from over-applying Fix 1): a client with an unidentifiable terminal gets
+# a title (above) but must still get NO colour escape from __tcz_recolor.
+# ---------------------------------------------------------------------
+set -g CG_LOG
+functions -c __tcz_emit_barcolor __tcz_ebc_bak
+function __tcz_emit_barcolor; set -g CG_LOG $CG_LOG "c:$argv[2]"; end
+functions -c __tcz_emit_title __tcz_et_bak
+function __tcz_emit_title; set -g CG_LOG $CG_LOG "t:$argv[2]"; end
+functions -c __tcz_session_title __tcz_st_bak
+function __tcz_session_title; echo "cg-$argv[1]"; end
+function tmux
+    test "$argv[1]" = list-clients; and printf '555\t/dev/pts/cg-%s\tsE\n' $fish_pid
+end
+set -gx tmux_lives_fake_environ "TERM=xterm"
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_recolor '#654321'
+__tcz_retitle
+set -l cg_log "$CG_LOG"
+t "colour gate: unidentifiable client still gets a title" yes (string match -q '*t:cg-sE*' -- "$cg_log"; and echo yes; or echo no)
+t "colour gate: unidentifiable client gets NO colour escape" yes (string match -q '*c:*' -- "$cg_log"; and echo no; or echo yes)
+functions -e tmux __tcz_emit_barcolor __tcz_emit_title __tcz_session_title
+functions -c __tcz_ebc_bak __tcz_emit_barcolor; functions -e __tcz_ebc_bak
+functions -c __tcz_et_bak __tcz_emit_title; functions -e __tcz_et_bak
+functions -c __tcz_st_bak __tcz_session_title; functions -e __tcz_st_bak
+set -e tmux_lives_fake_environ CG_LOG
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+
+# ---------------------------------------------------------------------
+# emit-cache pruning (Fix 2): a departed client's title/color entries are
+# dropped; a still-attached client's are kept. /dev/ttysNNN paths are
+# OS-recycled, so a leaked entry could later collide with an unrelated new
+# client on the same path. Run the transition TWICE, as two independent
+# tick-shaped passes (flush + reseed between them) -- a stateful defect
+# that survives one transition often fails on the second.
+# ---------------------------------------------------------------------
+set -g PRUNE_UNSET
+function tmux
+    switch "$argv[1]"
+        case list-clients
+            printf '%s\n' $PRUNE_ROWS
+        case set
+            contains -- -gu $argv; and set -ga PRUNE_UNSET "$argv[-1]"
+        case '*'
+    end
+end
+
+# Pass 1: A attached, B departed (B's cache is a leftover from an earlier tick).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+set -g __tcz_tmux_loaded 1
+set -g __tcz_tmux_g_emit_devptsAA_title 'old-A-title'
+set -g __tcz_tmux_g_emit_devptsAA_color '#111111'
+set -g __tcz_tmux_g_emit_devptsBB_title 'old-B-title'
+set -g __tcz_tmux_g_emit_devptsBB_color '#222222'
+set -g PRUNE_ROWS (printf '111\t/dev/pts/AA\tsA')
+__tcz_emit_prune
+t "prune 1: B's departed title entry is unset via tmux" 0 (contains -- '@tmux_lives_emit_devptsBB_title' $PRUNE_UNSET; echo $status)
+t "prune 1: B's departed color entry is unset via tmux" 0 (contains -- '@tmux_lives_emit_devptsBB_color' $PRUNE_UNSET; echo $status)
+set -l bb1 (__tcz_tmux_global emit_devptsBB_title)
+t "prune 1: B's memo entry is actually gone" '' "$bb1"
+set -l aa1 (__tcz_tmux_global emit_devptsAA_title)
+t "prune 1: A's live entry is untouched" 'old-A-title' "$aa1"
+t "prune 1: A was never targeted by an unset" 1 (contains -- '@tmux_lives_emit_devptsAA_title' $PRUNE_UNSET; echo $status)
+
+# Pass 2 (a later tick): A has now departed; B's tty path was reused by a
+# brand-new client that just got a fresh title cached (mirrors the ordering
+# __tcz_retitle itself produces: __tcz_emit_set writes a NEW value for a
+# reused tty before this same pass's own __tcz_emit_prune runs).
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+set -g __tcz_tmux_loaded 1
+set -g __tcz_tmux_g_emit_devptsAA_title 'old-A-title'
+set -g __tcz_tmux_g_emit_devptsAA_color '#111111'
+set -g __tcz_tmux_g_emit_devptsBB_title 'new-B-title'
+set -g __tcz_tmux_g_emit_devptsBB_color '#333333'
+set -g PRUNE_ROWS (printf '222\t/dev/pts/BB\tsB')
+set -g PRUNE_UNSET
+__tcz_emit_prune
+t "prune 2: A's now-departed title entry is unset via tmux" 0 (contains -- '@tmux_lives_emit_devptsAA_title' $PRUNE_UNSET; echo $status)
+t "prune 2: A's now-departed color entry is unset via tmux" 0 (contains -- '@tmux_lives_emit_devptsAA_color' $PRUNE_UNSET; echo $status)
+set -l aa2 (__tcz_tmux_global emit_devptsAA_title)
+t "prune 2: A's memo entry is actually gone" '' "$aa2"
+set -l bb2 (__tcz_tmux_global emit_devptsBB_title)
+t "prune 2: B's freshly-reattached entry survives, not treated as stale" 'new-B-title' "$bb2"
+
+functions -e tmux
+set -e PRUNE_UNSET PRUNE_ROWS
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
 # ---------------------------------------------------------------------
 # per-tty emit dedup: the tick must emit only when the value changed
@@ -4607,7 +4737,12 @@ set -l onattach_body (awk '/^function __tcz_on_attach/,/^end$/' $catfile | strin
 set -l retitle_body (awk '/^function __tcz_retitle/,/^end$/' $catfile | string collect)
 t "recolor handles iterm2" 1 (string match -q '*iterm2*' -- "$recolor_body"; and echo 1; or echo 0)
 t "on-attach handles iterm2" 1 (string match -q '*iterm2*' -- "$onattach_body"; and echo 1; or echo 0)
-t "retitle handles iterm2" 1 (string match -q '*iterm2*' -- "$retitle_body"; and echo 1; or echo 0)
+# retitle DROPPED its iterm2 branch on purpose (Fix 1, 2026-09): title
+# emission is a generic OSC 2 escape and no longer gates on
+# __tcz_client_terminal -- only the colour escapes in __tcz_recolor and
+# __tcz_on_attach above stay terminal-specific. Inverted from expecting a
+# branch (1) to expecting none (0).
+t "retitle no longer terminal-gates (no iterm2 branch)" 0 (string match -q '*iterm2*' -- "$retitle_body"; and echo 1; or echo 0)
 
 # --- picker current-zone + legend-grid refinement, Task 1: __tcz_thp_leg
 # aligned legend grid (cross-row column widths). The bug this replaces: the
