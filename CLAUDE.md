@@ -583,27 +583,80 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
 
 ---
 
-## Next work
+## Current state — 2026-09-11
 
-**The theme surface plan shipped this cycle** (`feat/theme-v6-surface`) — v6 is wired, the tie-instability
-finding is fixed, and the two specs this section used to point at are both fully built. See the theme
-engine section above for what actually changed; `git log` on that branch for the ordered commits.
+**Three cycles shipped since the v6 surface**, all merged to `main` and pushed. **The live install still
+predates them**; the user runs `fisher update` themselves.
 
-**Two things left open, both noted above, neither blocking:** `text` always sits at a ramp end (see
-"Still open" under Theme engine); and the v5 cluster is a candidate for deletion.
+### Legibility floors (`feat/legibility-floors`)
+
+Four foregrounds are painted on `bar` and only `text` was constrained. Measured across 5 seeds x 42
+schemes: `windows` reached ΔL **0.012** / WCAG 1.05, and the ✦ mark reached ΔL **0.000** — literally the
+bar colour. Now a **descending staircase**, `__tmux_lives_theme_floors`: text 0.40 · active 0.32 ·
+windows 0.26 · sep 0.15 · ✦ 0.15. Enforced by `__tmux_lives_theme_floor_role` — swap first, nudge second,
+each role **locked** once satisfied so a later swap cannot undo an earlier guarantee. Zero breaches in 252
+renders; bounds 2/3 and no-white unaffected.
+
+⚠ **Do NOT "fix" the nudge to prefer the DARK direction.** The spec asked for it twice and it is
+measurably backwards: prefer-up (what shipped) gives 13.3% / 13.8% severe chroma loss on sep/active,
+worst 91.6%; prefer-down gives 15.2% / 23.3%, worst **100%**. `bar` is dark (median L 0.441), so "down"
+lands near black where chroma collapses. The spec has been corrected; the shipped code is the best of the
+three variants measured.
+
+**Chroma cost — measured and ACCEPTED, do not re-litigate.** 13.3% of `sep` and 13.8% of `active` renders
+lose >50% of the requested chroma; every severe loss comes from the nudge, none from the swap. Three
+mitigations were built and all three refuted. Decisive for acceptance: **`mono deep` at the user's seed is
+byte-identical before and after**, keeping the 0.110 `sep` chroma peak the cohesion finding was about.
+Full per-role numbers, the three refutations and why each failed: `[[three_bounds_palette_rule]]`.
+
+### Mono-only (`feat/mono-only`)
+
+`M` in the picker swaps the list for `__tmux_lives_theme_mono_grid` — **36 rows**: the six mono catalog
+rows' parameter triples × all six arrangements. The six diagonal cells keep their plain catalog names;
+the other 30 read `mono <style>·<arrangement>` (U+00B7 middle dot). **The grid READS its triples out of
+`__tmux_lives_theme_catalog_v6`**, never restating them — two unlinked copies of the same constants is a
+defect shape this repo has been bitten by, and a test proves the coupling by mutating a catalog row.
+`z` pins to mono while the toggle is on; `m` goes inert and says so; persisted in a universal.
+2-7 of the 36 sit slightly UNDER bound 1's soft floor (worst 2.6%, always under, never over) — left
+deliberately: muted is a style the user likes, and the defect was ever only fixedness.
+
+### Retitle fix (`fix/retitle-all-clients`)
+
+`__tcz_retitle` gated **title** emission on `__tcz_client_terminal`, which reads `LC_TERMINAL` from the
+client PROCESS's environ. A client without it was silently skipped and its terminal tab kept a stale
+title **forever** — showing a different session's name than the status bar.
+
+⚠ **The session picker is the trigger.** Switching sessions spawns a new client *from inside tmux*, which
+inherits the pane's environ — and the pane carries no `LC_TERMINAL`. Diagnosed live on macwork: 8
+attached clients, perfect correlation — the 5 with the variable had per-tty cache entries, the 3 without
+had **none, ever**.
+
+Titles are now emitted for **every** client (OSC 2 is generic; the function's own docstring already said
+only the colour differs). `__tcz_recolor` / `__tcz_on_attach` stay terminal-gated — that is load-bearing
+and a test pins it. Added `__tcz_emit_prune`: departed clients leaked per-tty cache entries forever, and
+`/dev/ttysNNN` paths are OS-recycled, so a stale entry can collide with an unrelated future client.
+
+**The general lesson:** a correct status bar proves nothing about the tab title. The bar is a pure tmux
+format that re-renders itself; the tab only changes when the tick actively emits an escape.
+
+### Gate
+
+**9/9 `ALL PASS` both modes. `test-tmux-install.fish` 983 plain / 982 `--no-config`** — the 1-count delta
+is BY DESIGN and has been for many cycles.
+
+### Open, none blocking
+
+- `__tcz_on_attach`'s `case '*'` never calls `__tcz_retitle`, so an unidentifiable client waits up to one
+  `status-interval` (≤15 s) for its first title. Bounded staleness, not permanent — optional to fix.
+- `text` still sits at a ramp end (see "Still open" under Theme engine).
+- The v5 cluster is still a deletion candidate, with the caveat below.
 
 ⚠ **The v5 deletion is NOT simply "remove everything v5" — verified 2026-09-04, because the obvious
 reading is wrong.** `__tmux_lives_theme_palette` and `__tmux_lives_theme_valid` each have **zero**
-callers and go cleanly. `__tmux_lives_theme_accents` is **not** directly dead — it is called at `:1260`,
-inside `_palette` itself, so it is only *transitively* dead and becomes removable when `_palette` does.
-And `__tmux_lives_theme_relationships` has **two** callers: `:1592` (inside `_valid`) and `:2167` (inside
-`__tmux_lives_migrate_v4`'s reset branch, which old installs still need). **It survives the cleanup.**
-
-**Deployment status:** merged to `main` and pushed; the live install on rocket and macwork still predates
-this cycle. The user runs `fisher update` themselves — doing so will visibly change their bar: the stored
-`amber / cap / derived` has no v6 equivalent and migrates to `mono deep` (their seed survives). **Pending
-their live smoke:** the picker's roll (`z`) and its history, the reworded preview notes, `setup theme`
-with a two-word name, and whether 42 schemes is navigable in practice.
+callers and go cleanly. `__tmux_lives_theme_accents` is **not** directly dead — it is called inside
+`_palette` itself, so it is only *transitively* dead and becomes removable when `_palette` does. And
+`__tmux_lives_theme_relationships` has **two** callers, one inside `__tmux_lives_migrate_v4`'s reset
+branch which old installs still need. **It survives the cleanup.**
 
 ---
 
