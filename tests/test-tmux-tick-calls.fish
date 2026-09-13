@@ -518,11 +518,11 @@ claimed-app	general	0	0	My App CLI"
 
 set -l EXPECT_WRITES "rename-session -t =0 -- alpha
 rename-session -t =1 -- beta
-set-option -t \$0 @tmux_lives_claude Task Alpha
-set-option -t alpha @tmux_auto_name alpha
-set-option -t alpha @tmux_lives_display alpha · Task Alpha
-set-option -t beta @tmux_auto_name beta
-set-option -t beta @tmux_lives_display beta"
+set-option -t =0: @tmux_lives_claude Task Alpha
+set-option -t =alpha: @tmux_auto_name alpha
+set-option -t =alpha: @tmux_lives_display alpha · Task Alpha
+set-option -t =beta: @tmux_auto_name beta
+set-option -t =beta: @tmux_lives_display beta"
 
 t "equivalence baseline: __tcz_snapshot is byte-identical to today's pinned output" "$EXPECT_SNAPSHOT" "$eq_snapshot"
 t "equivalence baseline: __tcz_overview is byte-identical to today's pinned output" "$EXPECT_OVERVIEW" "$eq_overview"

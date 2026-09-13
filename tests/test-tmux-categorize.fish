@@ -1340,22 +1340,91 @@ t "set_claude_opt: the neighbour is untouched" "" \
 set -e sid0
 cleanup
 
-# PANE/CAPTURE targets need a different shape than option targets: they want exact-match
-# "=name", which options reject. But for a NUMERIC name even "=0" mis-resolves (it returned
-# a neighbour's panes), so those callers need the $id too. __tcz_pane_target encodes that.
-tmux new-session -d -s 0 'sleep 1000'
-tmux new-session -d -s other-idle
-sleep 0.3
-set -g pt0 (__tcz_pane_target 0)
-t "pane_target: numeric name resolves to a session id" "yes" (string match -qr '^\$[0-9]+$' -- "$pt0"; and echo yes; or echo no)
-t "pane_target: ordinary name keeps exact-match =" "=other-idle" (__tcz_pane_target other-idle)
-# The decision keys off the ORIGINAL name, not the shape of the resolved string — the
-# sniff this replaced ('does the result start with $?') misfired on a session NAMED "$1".
-# NB this only pins the shape we emit. tmux itself still resolves a $<digits>-shaped
-# target as an ID even with the "=" prefix, so a session literally named "$1" cannot be
-# addressed reliably by ANY target form. Out of reach here; documented, not claimed fixed.
-t "pane_target: keys off the original name, not the resolved shape" '=$1' (__tcz_pane_target '$1')
-set -e pt0
+# __tcz_session_target: ONE exact-session form for every -t that names a session.
+# tmux 3.3a reads a bare "claude" -- and even "=claude" -- as a WINDOW target first,
+# searched in whichever session it treats as current, so a session NAMED claude can
+# resolve to another session's WINDOW named claude (every Claude window is). The
+# trailing ":" makes the whole string the SESSION part; "=" makes it exact. Numeric
+# names need no special case in this form ("=0:" is the session named 0).
+set -g __tsc_called 0
+function tmux; set -g __tsc_called 1; end
+set -l st_word (__tcz_session_target claude)
+set -l st_num (__tcz_session_target 0)
+set -l st_space (__tcz_session_target 'my proj')
+set -l st_dollar (__tcz_session_target '$1')
+functions -e tmux
+t "session_target: an ordinary name becomes an exact SESSION target" "=claude:" "$st_word"
+t "session_target: a numeric name uses the same form, no id lookup" "=0:" "$st_num"
+t "session_target: a name with a space survives whole" "=my proj:" "$st_space"
+t "session_target: keys off the original name, not a resolved shape" '=$1:' "$st_dollar"
+t "session_target: makes no tmux call" 0 "$__tsc_called"
+set -e __tsc_called
+
+# ...and end to end: a session named "claude" next to a session whose WINDOW is named
+# "claude". Built in both creation orders with TMUX/TMUX_PANE erased, because which
+# session tmux treats as current decides whether a bare target misresolves.
+function __tsc_build --argument-names order --description 'collision fixture: session claude (window main, no display, pane prints MARK-TARGET) + session other (WINDOW named claude, display OTHER-DISPLAY, pane prints MARK-OTHER). order = target-first|target-last'
+    command tmux -L $sock kill-server 2>/dev/null
+    for i in (seq 50)
+        command tmux -L $sock list-sessions >/dev/null 2>&1; or break
+    end
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    if test "$order" = target-first
+        command tmux -L $sock -f /dev/null new-session -d -x 120 -y 40 -s claude -n main 'echo MARK-TARGET; exec sleep 600'
+        command tmux -L $sock new-session -d -x 120 -y 40 -s other -n claude 'echo MARK-OTHER; exec sleep 600'
+    else
+        command tmux -L $sock -f /dev/null new-session -d -x 120 -y 40 -s other -n claude 'echo MARK-OTHER; exec sleep 600'
+        command tmux -L $sock new-session -d -x 120 -y 40 -s claude -n main 'echo MARK-TARGET; exec sleep 600'
+    end
+    sleep 0.3
+    set -l ids (command tmux -L $sock list-sessions -F '#{session_id} #{session_name}')
+    set -g __tsc_tid (string match -r '^\S+(?= claude$)' -- $ids)
+    set -g __tsc_oid (string match -r '^\S+(?= other$)' -- $ids)
+    command tmux -L $sock set-option -t "$__tsc_oid" @tmux_lives_display OTHER-DISPLAY
+end
+
+set -q TMUX; and set -g __tsc_saved_tmux $TMUX
+set -q TMUX_PANE; and set -g __tsc_saved_pane $TMUX_PANE
+set -e TMUX; set -e TMUX_PANE
+set -g __tsc_collides 0
+for order in target-first target-last
+    __tsc_build $order
+    set -l built (test -n "$__tsc_tid" -a -n "$__tsc_oid"; and echo yes; or echo no)
+    t "collision[$order]: fixture built both sessions" yes "$built"
+    # Independent of the helper: does THIS order reproduce tmux's ambiguity at all?
+    set -l bare (command tmux -L $sock show-option -qv -t claude @tmux_lives_display)
+    test "$bare" = OTHER-DISPLAY; and set -g __tsc_collides 1
+
+    set -l got (tmux show-option -qv -t (__tcz_session_target claude) @tmux_lives_display)
+    t "collision[$order]: a read through the target reaches session claude, not other" "" "$got"
+
+    tmux set-option -t (__tcz_session_target claude) @tsc_probe W 2>/dev/null
+    set -l landed (command tmux -L $sock list-sessions -F '#{session_name}=#{@tsc_probe}' | string match '*=W' | string join ,)
+    t "collision[$order]: a write through the target lands on session claude only" "claude=W" "$landed"
+
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    set -l snaprow (__tcz_snapshot claude)
+    set -l snapname (string split -f1 \t -- "$snaprow[1]")
+    t "collision[$order]: a narrowed snapshot walks session claude's own panes" claude "$snapname"
+
+    set -l cap (__tcz_popup_preview claude 80 10 | string match -r 'MARK-[A-Z]+')
+    t "collision[$order]: the picker preview captures session claude's pane" MARK-TARGET "$cap[1]"
+
+    # categorize's claimed branch must clear a stale display on claude ITSELF. other's
+    # display is emptied first, so a mis-aimed unset is a silent no-op there and the
+    # stale value on claude is what survives.
+    command tmux -L $sock set-option -t "$__tsc_tid" @tmux_lives_name Ext
+    command tmux -L $sock set-option -t "$__tsc_tid" @tmux_lives_display STALE
+    command tmux -L $sock set-option -u -t "$__tsc_oid" @tmux_lives_display
+    __tcz_categorize >/dev/null 2>&1
+    set -l after (command tmux -L $sock show-option -qv -t "$__tsc_tid" @tmux_lives_display)
+    t "collision[$order]: categorize clears the stale display on session claude itself" "" "$after"
+end
+t "collision: the fixture reproduced tmux's session/window ambiguity in at least one order" 1 "$__tsc_collides"
+set -q __tsc_saved_tmux; and set -gx TMUX $__tsc_saved_tmux
+set -q __tsc_saved_pane; and set -gx TMUX_PANE $__tsc_saved_pane
+set -e __tsc_saved_tmux __tsc_saved_pane __tsc_collides __tsc_tid __tsc_oid
+functions -e __tsc_build
 cleanup
 
 # ...and the pane lookups themselves must read the RIGHT session's panes.
@@ -1405,11 +1474,10 @@ t "has_claude: fresh_server round B, same auto-numbered name 0, claude-free -- m
     (__tcz_session_has_claude 0; and echo yes; or echo no)
 cleanup
 
-# capture-pane does NOT accept the "=name" form that list-panes tolerates — it errors
-# "can't find pane: =name" — so the preview needs the bare-name/id shape instead. Routing
-# it through the pane-target helper blanked the picker preview for EVERY non-numeric
-# session (i.e. almost all of them). End-to-end, because the pre-existing guard only
-# greps the source for a literal '-t "=' and passed vacuously through the helper.
+# capture-pane needs the same exact-session "=name:" form as every other command
+# family here — a bare "=name" with no colon errors ("can't find pane: =name").
+# Regression-tested end-to-end, because a source grep for a literal '-t "=' would
+# pass vacuously through whichever helper is in use.
 tmux new-session -d -s preview-me 'echo PREVIEW_MARKER; sleep 500'
 sleep 0.5
 set -g prev (__tcz_popup_preview preview-me 40 6 | string collect)
@@ -1714,8 +1782,8 @@ cleanup
 mkdir -p $HOME/tcz-claim-dup-$fish_pid
 tmux new-session -d -s 0 -c $HOME/tcz-claim-dup-$fish_pid
 tmux new-session -d -s 1 -c $HOME/tcz-claim-dup-$fish_pid
-set -l pane0 (tmux list-panes -t (__tcz_pane_target 0) -F '#{pane_id}')
-set -l pane1 (tmux list-panes -t (__tcz_pane_target 1) -F '#{pane_id}')
+set -l pane0 (tmux list-panes -t (__tcz_session_target 0) -F '#{pane_id}')
+set -l pane1 (tmux list-panes -t (__tcz_session_target 1) -F '#{pane_id}')
 __tcz_claim $pane0 "First"
 __tcz_claim $pane1 "Second"
 t "claim: collision suffixed" "tcz-claim-dup-$fish_pid,tcz-claim-dup-$fish_pid-2" \
@@ -2486,8 +2554,8 @@ set -e idsock; set -e IDFMT
 # directory instead of a stale/generic one. `display-message -p -t <tgt>
 # '#{pane_current_path}'` resolves to the CURRENTLY SELECTED window's active
 # pane (verified empirically -- see conf.d/tmux.fish's own probe history),
-# targeted via __tcz_session_target (bare name / $id) for the same "=name"
-# rejection reason the neighbouring show-option call already documents.
+# targeted via __tcz_session_target's "=name:" form for the same window-name
+# collision reason the neighbouring show-option call already documents.
 # The stub tests above can't catch a real-tmux targeting quirk, so drive a
 # private -L socket, following the suite's existing pattern.
 set -g tsock tcz-title-$fish_pid

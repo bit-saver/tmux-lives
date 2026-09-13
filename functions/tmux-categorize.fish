@@ -241,7 +241,7 @@ function __tcz_tmux_global --argument-names key --description 'read the memoized
     set -q $v; and printf '%s\n' $$v
 end
 
-function __tcz_tmux_sess_index --argument-names session --description 'index of <session> in the per-pass session table (loads __tcz_tmux_load on first use this pass), or nothing if not found / no server. Keyed by the RAW session name (matching #{session_name}) -- never a __tcz_session_target-resolved id, which for a numeric session is a completely different string ($id) that would never match. This is also why callers below need no numeric-target handling at all: a local array lookup by name has no -t misresolution to sidestep in the first place.'
+function __tcz_tmux_sess_index --argument-names session --description 'index of <session> in the per-pass session table (loads __tcz_tmux_load on first use this pass), or nothing if not found / no server. Keyed by the RAW session name (matching #{session_name}) -- never a __tcz_session_target-resolved target, which is a differently-shaped string ("=name:") that would never match. This is also why callers below need no target-resolution handling at all: a local array lookup by name has no -t misresolution to sidestep in the first place.'
     __tcz_tmux_load
     contains -i -- "$session" $__tcz_tmux_sess_names
 end
@@ -300,7 +300,7 @@ end
 # one session actually being asked for.
 function __tcz_tmux_pane_fetch --argument-names session --description 'internal: one live -s -t list-panes call for <session> (cmd/pid/title), appended into the shared per-pass pane memo and marking <session> loaded. Called only by __tcz_tmux_panes on a cache miss.'
     set -l TAB (printf '\t')
-    for line in (tmux list-panes -s -t (__tcz_pane_target "$session") -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
+    for line in (tmux list-panes -s -t (__tcz_session_target "$session") -F "#{pane_current_command}$TAB#{pane_pid}$TAB#{pane_title}" 2>/dev/null)
         set -l f (string split -m 2 $TAB -- $line)   # title last, greedy
         test (count $f) -ge 2; or continue
         set -ga __tcz_tmux_pane_sess $session
@@ -636,9 +636,10 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{?#{&&:#{pane_active},#{window_active}},1,0}\t#{pane_title}')
     set -l panes
     if test -n "$only"
-        # __tcz_pane_target: list-panes wants "=name" for exactness, but a purely
-        # numeric name mis-resolves even with "=", so numerics fall back to $id.
-        set panes (tmux list-panes -s -t (__tcz_pane_target "$only") -F $pane_fmt 2>/dev/null)
+        # __tcz_session_target: list-panes wants an exact SESSION target, and a
+        # bare name (even "=name") can resolve to another session's WINDOW of
+        # the same name -- "=name:" pins it to the session part, exactly.
+        set panes (tmux list-panes -s -t (__tcz_session_target "$only") -F $pane_fmt 2>/dev/null)
     else
         set panes (tmux list-panes -a -F $pane_fmt 2>/dev/null)
     end
@@ -763,29 +764,8 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     end
 end
 
-function __tcz_session_target --argument-names session --description 'a -t target that is SAFE for set-option/show-option. tmux 3.3a resolves a BARE NUMBER as the CURRENT session, not the session NAMED that number (verified: with alpha=$0, "0"=$1, zulu=$2, a write aimed at -t 0 landed on zulu), so map a numeric name to its unambiguous $id. Non-numeric names pass straight through WITHOUT a tmux call — this runs per session per tick.'
-    if not string match -qr '^[0-9]+$' -- "$session"
-        echo $session
-        return
-    end
-    set -l TAB (printf '\t')
-    for line in (tmux list-sessions -F "#{session_name}$TAB#{session_id}" 2>/dev/null)
-        set -l p (string split $TAB -- $line)
-        if test "$p[1]" = "$session"
-            echo $p[2]
-            return
-        end
-    end
-    # Unresolvable (no server / raced away): fall back to the name — no worse than before.
-    echo $session
-end
-
-function __tcz_pane_target --argument-names session --description 'a -t target for PANE/CAPTURE commands (list-panes, capture-pane). Those need exact-match "=name", which option commands reject — but for a NUMERIC name even "=0" mis-resolves (it returns another session panes), so those fall back to the unambiguous $id. Keyed off the ORIGINAL name, never the shape of the resolved string (that sniff misfired on a session NAMED "$1"). Caveat: tmux resolves a $<digits>-shaped target as an ID even with "=", so a session literally named "$1" is unaddressable by any form — out of reach here.'
-    if string match -qr '^[0-9]+$' -- "$session"
-        __tcz_session_target "$session"
-    else
-        echo "=$session"
-    end
+function __tcz_session_target --argument-names session --description 'the -t target for any option (set-option/show-option), window/pane (list-panes, display-message) or capture-pane command that names a session BY NAME: "=<name>:". tmux 3.3a reads a bare name -- and even "=name" -- as a WINDOW target first, searched in whichever session it treats as current, so a session NAMED claude resolved to another session'"'"'s WINDOW named claude (every Claude window is) and categorize wrote displays onto the wrong session. The trailing ":" makes the whole string the SESSION part of the target and "=" makes that match exact; the same form resolves a purely numeric name correctly (bare "0" and "=0" do not), and a missing session fails cleanly instead of falling through. Pure: no tmux call. Session-typed commands (has-session, rename-session, kill-session, switch-client, list-clients) take "=name" and do not need this. Residual: tmux still reads a $<digits>-shaped string as a session ID, so a session literally named "$1" is unaddressable by any form.'
+    printf '=%s:\n' "$session"
 end
 
 function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here — unlike `-t "=session"`, which returns empty for EVERY format, not just pane-scoped ones (display-message rejects "=name" altogether; see __tcz_session_title, which was corrected the same way).'
@@ -1191,7 +1171,7 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
         test "$f[3]" != "$exclude"; or continue
         # general = at least one pane, every pane a bare shell (fail-safe: an
         # un-inspectable session is never picked)
-        set -l cmds (tmux list-panes -s -t (__tcz_pane_target "$f[3]") -F '#{pane_current_command}' 2>/dev/null)
+        set -l cmds (tmux list-panes -s -t (__tcz_session_target "$f[3]") -F '#{pane_current_command}' 2>/dev/null)
         test -n "$cmds[1]"; or continue
         set -l idle 1
         for cmd in $cmds
@@ -1220,7 +1200,7 @@ function __tcz_commandeer --argument-names client session --description 'command
     # the MRU detached general session (plain-login parity) and dispose of the
     # springboard. Only ever touches FRESH, BARE shellfish-N sessions.
     string match -qr '^shellfish-[0-9]+$' -- "$session"; or return 0
-    set -l cmds (tmux list-panes -t "=$session" -F '#{pane_current_command}' 2>/dev/null)
+    set -l cmds (tmux list-panes -t (__tcz_session_target "$session") -F '#{pane_current_command}' 2>/dev/null)
     test (count $cmds) -eq 1; or return 0
     contains -- $cmds[1] $__tcz_shells; or return 0
     set -l created 0
@@ -1438,9 +1418,9 @@ end
 
 function __tcz_popup_preview --argument-names session w h --description 'colored capture-pane (-e) of session active pane, clipped to w×h'
     test -n "$session"; or return 0
-    # __tcz_session_target, NOT __tcz_pane_target: capture-pane REJECTS the "=name" form
-    # that list-panes tolerates ("can't find pane: =name"), so it needs the bare-name/id
-    # shape. Using the pane shape here blanked the preview for every non-numeric session.
+    # capture-pane needs the same exact-session form as list-panes: a bare or
+    # "=name" (no colon) target can resolve against another session's WINDOW
+    # of the same name, so "=name:" pins it to the session part, exactly.
     tmux capture-pane -e -p -t (__tcz_session_target "$session") 2>/dev/null | __tcz_popup_clip $w $h
 end
 
@@ -4155,13 +4135,13 @@ function __tcz_session_has_claude --argument-names session --description 'true i
     return 1
 end
 
-function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). Options are targeted via __tcz_session_target (a bare-number -t would hit the CURRENT session). tick-call-batching task 4: the pane walk below is served from the shared per-pass pane memo (__tcz_tmux_panes) instead of its own list-panes call -- see that function'"'"'s docstring for the fetch-or-reuse contract (which already handles the numeric-session pane-target trap internally, via __tcz_pane_target).'
+function __tcz_set_claude_opt --argument-names session --description 'set @tmux_lives_claude on <session> = its claude --name, else the pane title via __tcz_title_name (empty if no claude pane / unparseable title). Options are targeted via __tcz_session_target (a bare -t, or even "=name" with no colon, can hit the wrong session -- see that function'"'"'s docstring). tick-call-batching task 4: the pane walk below is served from the shared per-pass pane memo (__tcz_tmux_panes) instead of its own list-panes call -- see that function'"'"'s docstring for the fetch-or-reuse contract (which already targets via __tcz_session_target internally).'
     test -n "$session"; or return
     set -l TAB (printf '\t')
     set -l name ''
-    # Options (the set-option write below) reject "=name"; a purely numeric session
-    # name is unreliable in EVERY -t there too (a bare-number -t hits the CURRENT
-    # session), so resolve once via __tcz_session_target for the write.
+    # A bare -t (even "=name" with no colon) can resolve to another session's
+    # WINDOW of the same name -- not just for numeric names -- so resolve once
+    # via __tcz_session_target for the write.
     set -l tgt (__tcz_session_target "$session")
     for line in (__tcz_tmux_panes "$session")
         # -m 2: the title is last and may contain tabs.
@@ -4184,8 +4164,8 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     # tmux re-emit the cursor style → ShellFish cursor flicker (see [[shellfish-cursor-flicker]]).
     # Capture+quote the current value (empty -> zero-word subst would throw; the empty-cache gotcha).
     # tick-call-batching task 3: served from the per-pass session memo, keyed by the RAW
-    # $session (never $tgt -- for a numeric session $tgt is a $id, a different string that
-    # would never match the memo's #{session_name}-keyed rows). This is the memo's ONE
+    # $session (never $tgt -- $tgt is always the differently-shaped "=name:" string,
+    # which would never match the memo's #{session_name}-keyed rows). This is the memo's ONE
     # deliberately pre-write read: it must see the value from BEFORE this same call's own
     # write below, which is exactly what the dedup wants, so it is correct to leave
     # unflushed -- see __tcz_tmux_sess_claude's own docstring.
@@ -4196,13 +4176,12 @@ end
 
 function __tcz_session_title --argument-names session --description 'session -> "[<h>] <dir>[ (C)]" (<h> = the first character of the short hostname; the active pane'"'"'s live cwd, not the session'"'"'s fixed creation dir; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads the active pane'"'"'s cwd on purpose, not #{session_path} (project-from-pane-cwd design, 2026-08-19/20, reversing the prior #{session_path} choice): this is what makes an unowned, hand-named session (e.g. myems-web-con) show its REAL directory instead of a stale/generic one, and it means a `cd` in the pane, or switching to a different window, now DOES move the tab -- intended, not a regression (session names in this system already track live state). display-message -p -t <tgt> #{pane_current_path} resolves to the CURRENTLY SELECTED window'"'"'s active pane (verified empirically), the same pane __tcz_categorize'"'"'s own pane walk targets, so both surfaces agree.'
     test -n "$session"; or return 0
-    # __tcz_session_target still needed below, for the @tmux_lives_display show-option
-    # call (and the live path fallback'"'"'s display-message call) only: verified
-    # empirically that `display-message -p -t "=name"` and `show-option -qv -t
-    # "=name"` both return EMPTY (tmux -v: "format ... not found" / an
-    # unset-option read) — this rejects "=name" altogether, same family as
-    # set-option/capture-pane. The "=name" form stays reliable for list-panes
-    # only (used elsewhere, e.g. __tcz_tmux_pane_fetch).
+    # __tcz_session_target's "=name:" form is needed below for both the
+    # @tmux_lives_display show-option call and the live path fallback'"'"'s
+    # display-message call: a bare -t, or "=name" with no colon, can resolve
+    # either of these against a WINDOW of the same name in a different session
+    # (see __tcz_session_target'"'"'s own docstring) -- "=name:" pins the whole
+    # string to the session part and stays exact for every command family here.
     set -l tgt (__tcz_session_target "$session")
     set -l claude 0
     __tcz_session_has_claude $session; and set claude 1
