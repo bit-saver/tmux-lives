@@ -21,6 +21,11 @@ if not set -q TMUX_LIVES_TEST_UVARS; or test "$TMUX_LIVES_TEST_UVARS" != "$XDG_C
     rm -rf $d
     exit $rc
 end
+# Which session tmux treats as "current" decides whether a bare or colon-less target
+# misresolves, and an inherited TMUX/TMUX_PANE (the gate usually runs inside tmux)
+# can make a wrong target land correctly by luck. Run the whole suite with neither.
+set -e TMUX
+set -e TMUX_PANE
 set -g FAIL 0
 set -g sock test-tcz-$fish_pid
 set -g shimdir /tmp/tcz-shim-$fish_pid
@@ -1381,6 +1386,11 @@ function __tsc_build --argument-names order --description 'collision fixture: se
     set -g __tsc_tid (string match -r '^\S+(?= claude$)' -- $ids)
     set -g __tsc_oid (string match -r '^\S+(?= other$)' -- $ids)
     command tmux -L $sock set-option -t "$__tsc_oid" @tmux_lives_display OTHER-DISPLAY
+    # A distinct sentinel per session (unlike the read assertion's old "" expectation,
+    # which a tmux ERROR also produces) so the read assertion below can tell "reached
+    # claude" from "reached other" from "errored" -- all three are distinguishable outcomes.
+    command tmux -L $sock set-option -t "$__tsc_tid" @tsc_read TARGET-READ
+    command tmux -L $sock set-option -t "$__tsc_oid" @tsc_read OTHER-READ
 end
 
 set -q TMUX; and set -g __tsc_saved_tmux $TMUX
@@ -1395,8 +1405,8 @@ for order in target-first target-last
     set -l bare (command tmux -L $sock show-option -qv -t claude @tmux_lives_display)
     test "$bare" = OTHER-DISPLAY; and set -g __tsc_collides 1
 
-    set -l got (tmux show-option -qv -t (__tcz_session_target claude) @tmux_lives_display)
-    t "collision[$order]: a read through the target reaches session claude, not other" "" "$got"
+    set -l got (tmux show-option -qv -t (__tcz_session_target claude) @tsc_read)
+    t "collision[$order]: a read through the target reaches session claude, not other" "TARGET-READ" "$got"
 
     tmux set-option -t (__tcz_session_target claude) @tsc_probe W 2>/dev/null
     set -l landed (command tmux -L $sock list-sessions -F '#{session_name}=#{@tsc_probe}' | string match '*=W' | string join ,)
@@ -1409,6 +1419,13 @@ for order in target-first target-last
 
     set -l cap (__tcz_popup_preview claude 80 10 | string match -r 'MARK-[A-Z]+')
     t "collision[$order]: the picker preview captures session claude's pane" MARK-TARGET "$cap[1]"
+
+    functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+    set -l ttl (__tcz_session_title claude)
+    set -l ttlhit (string match -q '*OTHER-DISPLAY*' -- "$ttl"; and echo yes; or echo no)
+    t "collision[$order]: session claude's tab title never carries other's display" no "$ttlhit"
+    set -l ttlnonempty (test -n "$ttl"; and echo yes; or echo no)
+    t "collision[$order]: session claude has a tab title at all" yes "$ttlnonempty"
 
     # categorize's claimed branch must clear a stale display on claude ITSELF. other's
     # display is emptied first, so a mis-aimed unset is a silent no-op there and the

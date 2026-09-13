@@ -134,6 +134,16 @@ for order in target-first target-last
     set -l stamps (command tmux -L $sock list-sessions -F '#{session_name}=#{@tmux_auto_name}' | sort | string join ,)
     t "collision[$order]: dispose stamps each busy session with its own name" "claude=claude,other=other" "$stamps"
 
+    # a claude BREADCRUMB (saved pane ran claude) named claude, next to other whose window is claude
+    __tac_build $order '' 'sleep 1000'
+    printf 'pane\tclaude\t0\t1\t:*\t0\tmain\t:/tmp\t1\tclaude\t:\n' > $__tac_rdir/last
+    set -gx tmux_resurrect_dir $__tac_rdir
+    __tmux_dispose_restored
+    set -e tmux_resurrect_dir
+    rm -f $__tac_rdir/last
+    set -l cstamps (command tmux -L $sock list-sessions -F '#{session_name}=#{@tmux_auto_name}' | sort | string join ,)
+    t "collision[$order]: dispose stamps a breadcrumb named claude on itself" "claude=claude,other=other" "$cstamps"
+
     # close aimed at "claude" must set detach-on-destroy on claude, never on other
     __tac_build $order 'sleep 1000' 'sleep 1000'
     set -gx TMUX fake
@@ -171,6 +181,35 @@ set -gx tmux_auto_now 0
 __tmux_prune
 t "prune: fresh sessions untouched" "idleB,progA" (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
 set -e tmux_auto_now
+cleanup
+
+# Scenario C: a same-pass race -- the session vanishes between the idle check
+# and prune's own kill. An unquoted kill-session -t target then PREFIX-matches,
+# so "claude" disappearing must not also take "claude-2" down with it. Stub the
+# idle check so checking "claude" performs the race itself (kills =claude via
+# an exact target, simulating another actor winning the race) and reports
+# idle; checking anything else (claude-2) reports NOT idle, so claude-2 is
+# never a legitimate prune target on its own -- only the prefix-match hazard
+# can kill it.
+cleanup
+tmux new-session -d -s claude
+tmux new-session -d -s claude-2
+set -gx tmux_auto_now (math (date +%s) + 8640000)   # +100 days: both stale
+functions -c __tmux_session_is_idle __tac_idle_bak
+function __tmux_session_is_idle --argument-names session
+    if test "$session" = claude
+        tmux kill-session -t "=claude" 2>/dev/null
+        return 0
+    end
+    return 1
+end
+__tmux_prune
+functions -e __tmux_session_is_idle
+functions -c __tac_idle_bak __tmux_session_is_idle
+functions -e __tac_idle_bak
+set -e tmux_auto_now
+t "prune: a same-pass race removing claude does not prefix-kill claude-2" yes \
+    (tmux has-session -t "=claude-2" 2>/dev/null; and echo yes; or echo no)
 cleanup
 
 # ---------------------------------------------------------------------

@@ -160,9 +160,14 @@ t "clip top row blank when short" ""     "$CS[1]"
 # width truncation still applies, measured in COLUMNS (wide-char aware)
 set -g CW (printf 'aaaaa✅bbbbb\n' | __tcz_popup_clip 7 1)
 t "clip truncates to w columns"   ok     (test (string length --visible "$CW[1]") -le 7; and echo ok; or echo OVER)
-# __tcz_popup_preview must target plainly (no '=' prefix) and use clip
+# __tcz_popup_preview must target through __tcz_session_target's exact "=name:"
+# form, not plainly -- a bare or unslashed "=name" target can resolve against
+# another session's WINDOW of the same name (see __tcz_session_target's own
+# docstring). Non-empty-extraction check first so the body assertion below
+# cannot pass vacuously against an empty $PV.
 set -g PV (functions __tcz_popup_preview | string collect)
-t "preview has no '=' target"   no  (string match -q '*-t "=*' -- "$PV"; and echo yes; or echo no)
+t "preview extraction is non-empty" yes (test -n "$PV"; and echo yes; or echo no)
+t "preview targets through __tcz_session_target" yes (string match -q '*-t (__tcz_session_target*' -- "$PV"; and echo yes; or echo no)
 t "preview pipes through clip"  yes (string match -q '*__tcz_popup_clip*' -- "$PV"; and echo yes; or echo no)
 
 # clip: an SGR-only trailing line counts as blank, so real content is bottom-anchored
