@@ -94,7 +94,7 @@ function __tmux_saved_claude_sessions --argument-names save --description 'Echo 
     awk -F '\t' '$1 == "pane" && $10 == "claude" { print $2 }' "$save" 2>/dev/null | sort -u
 end
 
-function __tmux_dispose_restored --description 'Post-restore: keep claude breadcrumbs (unstamped) + live work (stamped); kill the idle rest'
+function __tmux_dispose_restored --description 'Post-restore: keep and stamp claude breadcrumbs + live work; kill the idle rest'
     # Login restore is HEADLESS: resurrect never relaunches programs (verified
     # 2026-06-12 post-incident), so every session returns as bare shells and the
     # SAVE FILE decides what was worth keeping.

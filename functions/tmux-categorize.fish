@@ -768,7 +768,7 @@ function __tcz_session_target --argument-names session --description 'the -t tar
     printf '=%s:\n' "$session"
 end
 
-function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here — unlike `-t "=session"`, which returns empty for EVERY format, not just pane-scoped ones (display-message rejects "=name" altogether; see __tcz_session_title, which was corrected the same way).'
+function __tcz_session_of_pane --argument-names pane --description 'pane id -> its session name; empty when no pane is given. A pane target establishes pane context, so a session-scoped format resolves correctly here — unlike `-t "=session"`, which returns empty for EVERY format, not just pane-scoped ones (display-message rejects "=name" altogether; __tcz_session_title instead targets through __tcz_session_target'"'"'s "=name:" form, not a pane target).'
     test -n "$pane"; or return
     tmux display-message -p -t "$pane" '#{session_name}' 2>/dev/null
 end

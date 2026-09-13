@@ -530,12 +530,14 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
 - `string match -r` with a prefix pattern returns the **matched substring**, not a boolean.
 
 **tmux 3.3a** (see memory `[[tmux_target_quirks]]`)
-- A **purely numeric session name** — which every fresh session has — resolves in `-t` as the **current**
-  session, and **`=` does not rescue it**; only `-t '$id'` is right. Hence two helpers:
-  `__tcz_session_target` (bare-or-id, for `set-option`/`show-option`/`capture-pane`) and
-  `__tcz_pane_target` (`=name`-or-id, for `list-panes`). Both cost zero tmux calls for non-numeric names.
-- `set-option`/`show-option` **reject** `=name`; so does `capture-pane`.
-- ⚠ **A bare NON-numeric name is ambiguous too — with WINDOW names.** Every Claude window is named `claude`, so `show-option -t claude` on a session *named* `claude` read another session's option. **OPEN BUG, fix not yet built:** `__tcz_session_target` must return `$id` for every name, not just numeric ones. Brief: `[[tmux-target-quirks]]` and the 2026-09-13 handoff.
+- **A colon-less `-t` is read as a WINDOW target first** (searched in whichever session tmux treats as
+  current), so a bare name collides with window names — every Claude window is `claude` — and with
+  numbers, and `=name` misroutes too (for `list-panes` it means an exact WINDOW name). The exact session
+  form for option / window / pane / capture commands is `=name:`; `__tcz_session_target` returns it
+  (pure, no tmux call) and `conf.d/tmux.fish` spells it inline. Measured on 3.3a and macwork's 3.7b.
+  Session-typed commands (`has-session`, `rename-session`, `kill-session`, `switch-client`,
+  `list-clients`) keep `=name`. A collision test must erase `TMUX`/`TMUX_PANE` and build in both
+  creation orders, or it can pass by luck. Pointer: memory `[[tmux-target-quirks]]`.
 - An **unquoted `#hex`** option value is a tmux **comment** — the option silently goes empty and
   `source-file` still returns rc0.
 - tmux **silently accepts an unknown `terminal-features` name**.
@@ -640,16 +642,25 @@ and a test pins it. Added `__tcz_emit_prune`: departed clients leaked per-tty ca
 **The general lesson:** a correct status bar proves nothing about the tab title. The bar is a pure tmux
 format that re-renders itself; the tab only changes when the tick actively emits an escape.
 
+### Exact session targets (fix/session-target-exact, 2026-09-13)
+
+A session named `claude` sat next to another session's *window* named `claude` (every Claude window is):
+a colon-less `-t claude` read/wrote the wrong session's display, `__tmux_session_is_idle` could judge a
+busy session idle by another session's idle window, and restore disposal killed a busy session in the
+RED test that proved it. Fixed by targeting every option/window/pane/capture command through
+`__tcz_session_target`'s exact `=name:` form (`conf.d/tmux.fish` spells it inline too);
+`__tcz_pane_target` is deleted. Session-typed commands (`has-session`, `kill-session`, `switch-client`,
+...) are unaffected. The live install still needs `fisher update`.
+
 ### Gate
 
 **9/9 `ALL PASS` both modes. `test-tmux-install.fish` 983 plain / 982 `--no-config`** — the 1-count delta
 is BY DESIGN and has been for many cycles.
 
-### Open — one bug (⛔ below), the rest non-blocking
+### Open — none blocking
 
 - `__tcz_on_attach`'s `case '*'` never calls `__tcz_retitle`, so an unidentifiable client waits up to one
   `status-interval` (≤15 s) for its first title. Bounded staleness, not permanent — optional to fix.
-- ⛔ **OPEN BUG (2026-09-13): the session named `claude` gets another session's tab title, and categorize can WRITE display names onto the wrong session.** `__tcz_session_target` returns bare non-numeric names, which tmux resolves against window names. See the tmux 3.3a traps below. Not yet fixed.
 - `text` still sits at a ramp end (see "Still open" under Theme engine).
 - The v5 cluster is still a deletion candidate, with the caveat below.
 
