@@ -77,6 +77,84 @@ t "is_idle: program session not idle"     "1" (__tmux_session_is_idle progX; ech
 cleanup
 
 # ---------------------------------------------------------------------
+# Session-vs-window name collision (2026-09-13). Every Claude window is named
+# "claude", so a bare -t claude can resolve to ANOTHER session's window of that
+# name -- and the idle check decides what prune/dispose KILL. Built in both
+# creation orders with TMUX/TMUX_PANE erased, because which session tmux treats
+# as current decides whether the bare form misresolves.
+# ---------------------------------------------------------------------
+function __tac_build --argument-names order target_cmd other_cmd --description 'session claude (window main) + session other (WINDOW named claude); an empty cmd means an idle shell pane'
+    cleanup
+    for i in (seq 50)
+        command tmux -L $sock list-sessions >/dev/null 2>&1; or break
+    end
+    set -l tc; test -n "$target_cmd"; and set tc $target_cmd
+    set -l oc; test -n "$other_cmd"; and set oc $other_cmd
+    if test "$order" = target-first
+        command tmux -L $sock -f /dev/null new-session -d -s claude -n main $tc
+        command tmux -L $sock new-session -d -s other -n claude $oc
+    else
+        command tmux -L $sock -f /dev/null new-session -d -s other -n claude $oc
+        command tmux -L $sock new-session -d -s claude -n main $tc
+    end
+    sleep 0.3
+end
+
+set -q TMUX; and set -g __tac_saved_tmux $TMUX
+set -q TMUX_PANE; and set -g __tac_saved_pane $TMUX_PANE
+set -e TMUX; set -e TMUX_PANE
+set -g __tac_collides 0
+set -g __tac_rdir /tmp/test-tac-rdir-$fish_pid
+mkdir -p $__tac_rdir
+for order in target-first target-last
+    # busy "claude", idle-shell "other"
+    __tac_build $order 'sleep 1000' ''
+    set -l bare (command tmux -L $sock list-panes -s -t claude -F '#{session_name}' 2>/dev/null)
+    test "$bare[1]" = other; and set -g __tac_collides 1
+    set -l busy (__tmux_session_is_idle claude; echo $status)
+    t "collision[$order]: a busy session named claude is not idle" 1 "$busy"
+
+    # dispose (nothing saved -> no breadcrumbs) must keep and stamp the busy one
+    set -gx tmux_resurrect_dir $__tac_rdir
+    __tmux_dispose_restored
+    set -e tmux_resurrect_dir
+    set -l kept (command tmux -L $sock has-session -t =claude 2>/dev/null; and echo yes; or echo no)
+    t "collision[$order]: dispose keeps the busy session named claude" yes "$kept"
+
+    # idle "claude", busy "other": the idle one must still read as idle
+    __tac_build $order '' 'sleep 1000'
+    set -l idle (__tmux_session_is_idle claude; echo $status)
+    t "collision[$order]: an idle session named claude is idle" 0 "$idle"
+
+    # both busy: dispose stamps each session with its OWN name
+    __tac_build $order 'sleep 1000' 'sleep 1000'
+    set -gx tmux_resurrect_dir $__tac_rdir
+    __tmux_dispose_restored
+    set -e tmux_resurrect_dir
+    set -l stamps (command tmux -L $sock list-sessions -F '#{session_name}=#{@tmux_auto_name}' | sort | string join ,)
+    t "collision[$order]: dispose stamps each busy session with its own name" "claude=claude,other=other" "$stamps"
+
+    # close aimed at "claude" must set detach-on-destroy on claude, never on other
+    __tac_build $order 'sleep 1000' 'sleep 1000'
+    set -gx TMUX fake
+    function __tmux_lives_current_session; echo claude; end
+    __tmux_lives_close 2>/dev/null
+    functions -e __tmux_lives_current_session
+    set -e TMUX
+    set -l gone (command tmux -L $sock has-session -t =claude 2>/dev/null; and echo yes; or echo no)
+    t "collision[$order]: close kills session claude" no "$gone"
+    set -l dod (command tmux -L $sock show-options -v -t other detach-on-destroy 2>/dev/null)
+    t "collision[$order]: close leaves other's detach-on-destroy untouched" "" "$dod"
+end
+t "collision: the fixture reproduced tmux's session/window ambiguity in at least one order" 1 "$__tac_collides"
+set -q __tac_saved_tmux; and set -gx TMUX $__tac_saved_tmux
+set -q __tac_saved_pane; and set -gx TMUX_PANE $__tac_saved_pane
+rm -rf $__tac_rdir
+set -e __tac_saved_tmux __tac_saved_pane __tac_collides __tac_rdir
+functions -e __tac_build
+cleanup
+
+# ---------------------------------------------------------------------
 # Prune: detached + idle-shell + stale-by-age, protecting programs
 # ---------------------------------------------------------------------
 # Scenario A: now far in the future => every session is past the 48h cutoff.

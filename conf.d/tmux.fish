@@ -35,7 +35,10 @@ end
 
 # ---- prune ----
 function __tmux_session_is_idle --argument-names session --description 'True if every pane in the session runs only a shell'
-    set -l panes (tmux list-panes -s -t $session -F '#{pane_current_command}' 2>/dev/null)
+    # "=name:" is the exact-SESSION target. A bare name is read as a WINDOW
+    # target first, so a session named claude was judged by ANOTHER session's
+    # window named claude -- and this verdict decides what prune/dispose kill.
+    set -l panes (tmux list-panes -s -t "=$session:" -F '#{pane_current_command}' 2>/dev/null)
     # No panes reported (query failed or session vanished mid-prune): treat as
     # NOT idle so prune never kills a session it could not actually inspect.
     test -n "$panes[1]"; or return 1
@@ -114,13 +117,13 @@ function __tmux_dispose_restored --description 'Post-restore: keep claude breadc
             # so the session's name freezes at whatever it was at save time while
             # its pane moves on -- observed live, a session still called
             # `tmux-lives` whose pane had been in ~/workspace/neuro for days.
-            tmux set-option -t "$s" @tmux_auto_name "$s" 2>/dev/null
+            tmux set-option -t "=$s:" @tmux_auto_name "$s" 2>/dev/null
             continue
         end
         if __tmux_session_is_idle "$s"
             tmux kill-session -t "=$s" 2>/dev/null
         else
-            tmux set-option -t "$s" @tmux_auto_name "$s" 2>/dev/null
+            tmux set-option -t "=$s:" @tmux_auto_name "$s" 2>/dev/null
         end
     end
 end
@@ -384,7 +387,7 @@ function __tmux_lives_close --description 'Kill the current session and return t
     end
     set -l cur (__tmux_lives_current_session)
     test -n "$cur"; or return 1
-    tmux set-option -t "$cur" detach-on-destroy on 2>/dev/null
+    tmux set-option -t "=$cur:" detach-on-destroy on 2>/dev/null
     tmux kill-session -t "=$cur" 2>/dev/null
 end
 
