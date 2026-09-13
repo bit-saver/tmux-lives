@@ -58,7 +58,7 @@ function __tmux_prune --description 'Kill detached, idle-shell sessions older th
         string match -qr '^[0-9]+$' -- "$f[2]"; or continue
         test "$f[2]" -lt "$cutoff"; or continue       # stale
         __tmux_session_is_idle "$f[3]"; or continue   # idle shell only
-        tmux kill-session -t "$f[3]" 2>/dev/null
+        tmux kill-session -t "=$f[3]" 2>/dev/null
     end
 end
 
