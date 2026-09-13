@@ -535,6 +535,7 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
   `__tcz_session_target` (bare-or-id, for `set-option`/`show-option`/`capture-pane`) and
   `__tcz_pane_target` (`=name`-or-id, for `list-panes`). Both cost zero tmux calls for non-numeric names.
 - `set-option`/`show-option` **reject** `=name`; so does `capture-pane`.
+- ⚠ **A bare NON-numeric name is ambiguous too — with WINDOW names.** Every Claude window is named `claude`, so `show-option -t claude` on a session *named* `claude` read another session's option. **OPEN BUG, fix not yet built:** `__tcz_session_target` must return `$id` for every name, not just numeric ones. Brief: `[[tmux-target-quirks]]` and the 2026-09-13 handoff.
 - An **unquoted `#hex`** option value is a tmux **comment** — the option silently goes empty and
   `source-file` still returns rc0.
 - tmux **silently accepts an unknown `terminal-features` name**.
@@ -644,10 +645,11 @@ format that re-renders itself; the tab only changes when the tick actively emits
 **9/9 `ALL PASS` both modes. `test-tmux-install.fish` 983 plain / 982 `--no-config`** — the 1-count delta
 is BY DESIGN and has been for many cycles.
 
-### Open, none blocking
+### Open — one bug (⛔ below), the rest non-blocking
 
 - `__tcz_on_attach`'s `case '*'` never calls `__tcz_retitle`, so an unidentifiable client waits up to one
   `status-interval` (≤15 s) for its first title. Bounded staleness, not permanent — optional to fix.
+- ⛔ **OPEN BUG (2026-09-13): the session named `claude` gets another session's tab title, and categorize can WRITE display names onto the wrong session.** `__tcz_session_target` returns bare non-numeric names, which tmux resolves against window names. See the tmux 3.3a traps below. Not yet fixed.
 - `text` still sits at a ramp end (see "Still open" under Theme engine).
 - The v5 cluster is still a deletion candidate, with the caveat below.
 
