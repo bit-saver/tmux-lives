@@ -27,14 +27,14 @@ belongs in a memory file or a spec, with a pointer from here.
 **A Claude session NEVER deploys.** Finished changes reach the live `~/.config/fish/` only via the
 **user's own `fisher update`**, run by them in their interactive fish.
 
-- Never `cp` a change into `~/.config/fish/{conf.d,functions}/` to make it "live".
-- Never edit `~/.tmux.conf` or set universal variables to ship something.
-- `fisher install`/`update` also *hang* in the Claude bash sandbox (parallel fetch needs job control) —
-  but the rule stands regardless of that.
-- If a change "needs to be live to verify": push it and ask the user to `fisher update`.
+- Never `cp` a change into `~/.config/fish/{conf.d,functions}/`, and never edit `~/.tmux.conf` or set
+  universal variables to ship something.
+- `fisher install`/`update` also *hang* in the Claude bash sandbox (parallel fetch needs job control),
+  regardless.
+- If a change needs live verification, push it and ask for a `fisher update`.
 - ✅ **Temporary test edits to a live file are allowed** for observation, on one strict condition:
-  restore it **byte-identical** afterwards and prove it with a `diff`.
-  Clean restore: `git show <installed-commit>:<path> > <live-path>`, then `diff`.
+  restore it **byte-identical** afterwards and prove it with a `diff` — clean restore via
+  `git show <installed-commit>:<path> > <live-path>`.
 
 See memory `[[deploy_via_fisher_update_only]]`.
 
@@ -45,15 +45,15 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | Path | What |
 |---|---|
 | `conf.d/tmux.fish` | Shell-side: autostart, session creation, `tmux-lives <verb>` dispatcher, the `--on-variable` reload handler, the Alt+S shell keybind |
-| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the managed-fragment renderer/writer, the theme engine (v5 live + v6 core), post-update note |
-| `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never as an autoloaded function. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
+| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6 live in production, v5 pending deletion), post-update note |
+| `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
 | `tests/test-*.fish` | The gate — 9 suites |
-| `tests/tick-rate-ab.fish` | Hand-run only; deliberately NOT named `test-*` so it stays out of the gate (it samples a live window with real pty clients) |
-| `docs/superpowers/specs/` | Design docs for shipped features that still describe how the thing works |
+| `tests/tick-rate-ab.fish` | Hand-run only; not named `test-*` so it stays out of the gate (samples a live window with real pty clients) |
+| `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
 `docs/superpowers/plans/` does not exist by design — **plans are deleted once their work ships**; git is
-their archive. Specs for shipped features stay.
+the archive. Specs for shipped features stay.
 
 ---
 
@@ -68,18 +68,18 @@ tick, key binds, ShellFish commandeer + `client-attached` hooks, `LC_TERMINAL` p
 resurrect/continuum declarations, theme `@options`, the status-format) lives in that **rendered
 fragment** and is `tmux-lives setup`-managed — not hand-edited, not hardcoded in `~/.tmux.conf`.
 
-Getting new fragment wiring live = `fisher update` then any `setup` action (or just `fisher update`:
-`_tmux_lives_post_update` re-renders the fragment when one exists). `tmux-lives setup install` is the
-from-scratch path.
+Getting new fragment wiring live = `fisher update` then any `setup` action, or just `fisher update`
+alone (`_tmux_lives_post_update` re-renders the fragment when one exists); `tmux-lives setup install` is
+the from-scratch path.
 
 **Two user-owned config surfaces** the fragment respects: `~/.tmux-lives.conf` (general user config,
 sourced at fragment load and re-applied on non-ShellFish attach; `setup conf edit|add|reset`) and
-`~/.config/tmux/tmux-lives-state.conf` (machine-owned, holds the persisted status position/visibility
-toggles; sourced *after* the style setup so it wins).
+`~/.config/tmux/tmux-lives-state.conf` (machine-owned status position/visibility toggles, sourced
+*after* the style setup so it wins).
 
-**TPM loads plugins AFTER our fragment**, so a plugin silently wins every conflict with it. That is why
-`tmux-sensible` was dropped (2026-08-05) rather than fought — the three settings worth keeping were
-ported into the fragment: `set -s escape-time 0`, `focus-events on`, `display-time 4000`.
+**TPM loads plugins AFTER our fragment**, so a plugin silently wins every conflict with it — why
+`tmux-sensible` was dropped rather than fought; its three settings worth keeping were ported into the
+fragment: `set -s escape-time 0`, `focus-events on`, `display-time 4000`.
 
 ---
 
@@ -89,32 +89,27 @@ Everything is `tmux-lives <verb>`. Help-page order: meta cluster `help` · `setu
 session cluster `new/attach/picker/fix/categorize/clear/close` (aliases `u`, `n/a/p/f/c/x|q`).
 
 - `setup install | verify | teardown | keys | auto | color | conf | cap | theme` — the setup
-  subcommands also work at top level as a **hidden** shortcut (`tmux-lives auto on`), deliberately kept
-  out of the help.
+  subcommands also work top-level as a **hidden**, undocumented shortcut (`tmux-lives auto on`).
 - `update`/`u` wraps `fisher update bit-saver/tmux-lives` and reports whether anything actually changed
-  (cksum digest before/after), diverting fisher's noisy output to a temp file via a `>file` redirect —
-  **not** a `(…)` capture, which breaks fisher's background-job fetch.
+  (cksum digest before/after), diverting fisher's noisy output to a temp file via `>file` — **not** a
+  `(…)` capture, which breaks fisher's background-job fetch.
 - Help pages are framed by `__tmux_lives_box` with content from `__tmux_lives_help_lines` /
   `__tmux_lives_setup_help_lines` (frame and content kept separate so ordering is testable unframed).
-  ⚠ `__tmux_lives_box` measures with `string length --visible` and pads via a **quoted** variable — an
-  inline `(string repeat -n 0 …)` expands to **zero args** and silently shifts the trailing printf
-  fields.
+  ⚠ It measures with `string length --visible` and pads via a **quoted** variable — an inline
+  `(string repeat -n 0 …)` expands to **zero args** and silently shifts the trailing printf fields.
 
-⚠ **Every catalog scheme name is two words** (`mono deep`, `complementary bright`). `__tmux_lives_theme_cmd`'s
-`case '*'` now **accumulates** positionals into one name, so both `setup theme 'mono deep'` and the
-unquoted form work — it used to *overwrite* per word, which made every scheme in the product unusable
-unquoted and, worse, made the `off` message print a command that failed. `list` and `off` are matched by
-earlier `case` arms and are unaffected.
+⚠ **Every catalog scheme name is two words** (`mono deep`, `complementary bright`) —
+`__tmux_lives_theme_cmd`'s `case '*'` **accumulates** positionals into one name so both quoted and
+unquoted forms work; `list`/`off` are matched by earlier arms and unaffected.
 
 Keys (all configurable via `setup keys`, `''` disables, baked into the fragment):
 `prefix S` / `M-s` picker · `M-m` single-shot launcher · `M-t` scratch split · `M-r` resize key-table ·
 `M-k` theme picker · `C-M-a` status position · `C-M-s` status visibility.
 
-**Alt+S also works at a bare prompt outside tmux.** fish binds `alt-s` itself to a sudo-prepend that
-recalls the *previous* command line when the current one is empty; ours overrides it in `conf.d`
-(a plain conf.d bind is a user binding and outranks fish's preset). **`bind -M insert` is required and
-is not redundant** — a vi prompt starts in insert mode, so a default-mode-only bind is listed but never
-reachable.
+**Alt+S also works at a bare prompt outside tmux.** fish binds `alt-s` to a sudo-prepend recalling the
+*previous* command line when empty; a plain `conf.d` bind overrides it (a user binding outranks fish's
+preset). **`bind -M insert` is required** — a vi prompt starts in insert mode, so a default-mode-only
+bind is never reachable.
 
 ---
 
@@ -134,23 +129,22 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **917 plain / 916
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **983 plain / 982
   `--no-config`**. **The 1-count delta is BY DESIGN** (one isolation assertion is gated on plain fish)
   and has been for many cycles. Do not "fix" it.
-- `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — they have
-  no pass counter, so judge them by the absence of `FAIL` lines. Only `test-tmux-install.fish`,
-  `test-generic.fish` (2) and `test-tmux-status.fish` (4) report numbers.
+- `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge them
+  by the absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
+  `test-tmux-status.fish` (4) report numbers.
 - Sweep leaked `-L` sockets from `/tmp/tmux-1000/` after heavy runs. **Never touch `default`**; leave
-  `neurotest*` alone, it belongs to another project. Killing a tmux server does **not** unlink its
-  socket file.
+  `neurotest*` alone (another project's). Killing a tmux server does **not** unlink its socket file.
 
 ### Test isolation
 
 Every `tests/test-*.fish` opens with an identical **self-re-exec guard** (md5
 `0538ed9cc17766afa9e515812d66f091`): it mints a throwaway dir, points `XDG_CONFIG_HOME` at it, and
 relaunches the suite under it. **Fish binds its universal store at process startup, so the redirect
-cannot be applied from inside a running test** — re-exec is the only mechanism. It **fails closed**
-(mktemp failure → refuse to run).
+cannot be applied from inside a running test** — re-exec is the only mechanism, and it **fails closed**
+on mktemp failure.
 
 Load-bearing details, each of which was a bug once:
 - Mode is preserved across the re-exec via `test (count $fish_function_path) -gt 0`.
@@ -162,10 +156,9 @@ Load-bearing details, each of which was a bug once:
   not the bare variable name (a comment mentioning the name defeated the first version).
 
 **Known isolation holes, unfixed:** the `tmux_lives_funcs_file` seam is a *variable*, so redirecting
-`XDG_CONFIG_HOME` does not cover it; and `test-tmux-auto.fish`'s `tmux` shim is a fish **function** and
-does not reach subprocesses — a subprocess under it returns the user's **real** sessions. The one site
-that shells out is saved only by `TMUX=fake` failing to connect. Coincidence, not isolation: stub
-directly, don't lean on it. See memory `[[tmux_test_isolation]]`.
+`XDG_CONFIG_HOME` doesn't cover it; `test-tmux-auto.fish`'s `tmux` shim is a fish **function** and
+doesn't reach subprocesses — one call site returns the user's **real** sessions, saved only by
+`TMUX=fake` failing to connect. Coincidence, not isolation: stub directly. See `[[tmux_test_isolation]]`.
 
 ---
 
@@ -182,89 +175,78 @@ Two layers, since 2026-08-18 (spec `docs/superpowers/specs/2026-08-18-session-na
 **The project name comes from the ACTIVE PANE's cwd** (2026-08-29), not `#{session_path}`: a git-root
 walk via `__tcz_git_root`, then that root's basename, else the path's own basename.
 
-- `test -e`, **not `-d`** — in a linked worktree or a submodule `.git` is a regular *file*. This project
-  uses `git worktree` for isolated builds, so `-d` misses its own case.
-- **Never** a `git rev-parse` subprocess. Per-session forks are what burned four cores on macOS.
+- `test -e`, **not `-d`** — in a linked worktree or a submodule `.git` is a regular *file*, and this
+  project uses `git worktree` for isolated builds.
+- **Never** a `git rev-parse` subprocess — per-session forks are what burned four cores on macOS.
 - A generic walk result (`$HOME`, `/`, `/tmp`, `/var/tmp`) is treated as "no repo found" and falls back
   to the path's own basename — otherwise a dotfiles repo at `$HOME/.git` would collide every
   non-project directory into `name` / `name-2` / `name-3`.
 - `session_path` is **strictly dominated**: it equals the pane path until a `cd` and is stale after one.
-  Measured, seven of eight sessions sat at `$HOME`.
 
-Sessions are born in the **invoking shell's cwd**. The one exception is `__tcz_commandeer`, which pins
-`$HOME` **at its call site** (not inside `__tcz_new_general`, which has a second caller with a real cwd)
-— it is reached via `client-attached` → `run-shell`, and `run-shell` executes at the tmux **server's**
-cwd, an artifact of wherever the server was started.
+Sessions are born in the **invoking shell's cwd**, except `__tcz_commandeer`, which pins `$HOME` at its
+call site (not inside `__tcz_new_general`'s other, real-cwd caller) — reached via `client-attached` →
+`run-shell`, which executes at the tmux **server's** cwd, wherever the server was started.
 
-Restored claude breadcrumbs **are stamped** (`@tmux_auto_name`). They used to be left unstamped so the
-ownership guard would preserve their name; under pane-cwd naming that rationale died and the side
-effect became the bug — unowned blocks both the rename and the display write, so a name froze at save
-time while its pane moved on. The breadcrumb branch still `continue`s past the idle-kill; that half is
-load-bearing.
+Restored claude breadcrumbs **are stamped** (`@tmux_auto_name`) — leaving them unstamped, as before,
+let a name freeze at save time while its pane moved on, since unowned blocks both the rename and the
+display write under pane-cwd naming. The breadcrumb branch still `continue`s past the idle-kill; that
+half is load-bearing.
 
-Duplicate displays get a **bracketed ordinal** — `Sonos [1]` / `Sonos [2]`, brackets specifically
-(a bare trailing number reads as an iteration count). Every member of a duplicate set is numbered
-including the first. Ordered by **sorted session name** so it is stable across passes.
+Duplicate displays get a **bracketed ordinal** — `Sonos [1]` / `Sonos [2]` (a bare trailing number reads
+as an iteration count) — every member of the set is numbered including the first, ordered by **sorted
+session name** for stability across passes.
 
-**Known, deliberately not fixed:** `__tcz_snapshot`/`__tcz_overview` recompose displays consulting only
-the `@tmux_lives_name` claim, never ownership — so a genuinely hand-named session still renders its
-*project* in the picker while every other surface shows its own name.
+**Known, deliberately not fixed:** `__tcz_snapshot`/`__tcz_overview` consult only the `@tmux_lives_name`
+claim, never ownership — a hand-named session still renders its *project* in the picker while every
+other surface shows its own name.
 
 ---
 
 ## The status tick and its cost
 
-The status bar's `#(…)` job **is** the scheduler — there is no daemon. It runs the categorizer's `tick`
-verb every `status-interval` (15).
+The status bar's `#(…)` job **is** the scheduler (no daemon) — it runs the categorizer's `tick` verb
+every `status-interval` (15).
 
 **`status-right` is MERGED, not assigned.** tmux-continuum schedules its autosave by *prepending*
 `#(continuum_save.sh)` to `status-right`; a bare `set -g status-right` discarded it and silently killed
-snapshotting (macwork lost 52 hours of it). `__tcz_status_right_merge` keeps a foreign prefix and
-replaces only our own part. The prefix is kept **only** if it is nothing but `#(…)` groups and
-whitespace — a looser "contains `#(`" test would weld a user's decorated `#(uptime) %H:%M` on forever,
-and tmux's *default* status-right must be dropped or we paint two clocks. Driven by a plain `run-shell`,
-which is **synchronous** in tmux 3.3a (only `-b` backgrounds).
+snapshotting. `__tcz_status_right_merge` keeps a foreign prefix and replaces only our own part. The
+prefix is kept **only** if it is nothing but `#(…)` groups and whitespace — a looser "contains `#(`"
+test would weld a user's decorated `#(uptime) %H:%M` on forever, and tmux's *default* status-right must
+be dropped or we paint two clocks. Driven by a plain `run-shell`, which is **synchronous** in tmux 3.3a
+(only `-b` backgrounds).
 
-`set -ga update-environment` is guarded per name with `show -gv` + `grep -qx`. **`show -gv` prints one
+`set -ga update-environment` is guarded per name with `show -gv` + `grep -qx` — **`show -gv` prints one
 name per line**, so `-x` is exact and load-bearing (a substring match lets `LC_TERMINAL_VERSION` satisfy
-the `LC_TERMINAL` check). The `&&` makes it **fail closed** — a bare `! tmux … | grep` reads "absent"
-whenever tmux is unreachable, which brought back 54 duplicate copies.
+the `LC_TERMINAL` check), and `&&` makes it **fail closed** (a bare `! tmux … | grep` misreads "absent"
+whenever tmux is unreachable).
 
-**Two batching layers, both one snapshot per pass, both flushed at the top of `__tcz_main`:**
+**Two batching layers, both one snapshot per pass, flushed at the top of `__tcz_main`:**
 
-- `__tcz_tmux_load` — four tmux calls per pass total: `show -g`, `list-sessions -F`, `list-panes -a -F`,
-  and a lazily-loaded `list-clients -F`. Took the tick from **44 client spawns to 9** steady-state.
+- `__tcz_tmux_load` — four tmux calls per pass (`show -g`, `list-sessions -F`, `list-panes -a -F`, a
+  lazily-loaded `list-clients -F`), taking the tick from **44 client spawns to 9** steady-state.
 - `__tcz_ps_load` — one `ps` snapshot pair per pass, feeding all pid helpers.
 
 ⚠ **Both flush functions must use a GLOB, never a regex.** `string match -r` with a *prefix pattern*
 returns the matched **substring**, so `string match -r '^__tcz_tmux_'` erases a variable literally named
-`__tcz_tmux_` while every real entry silently survives. That bug shipped once in `__tcz_ps_flush`
-(symptom: duplicate pids quietly accumulating).
+`__tcz_tmux_` while every real entry silently survives — shipped once in `__tcz_ps_flush`.
 
 **Staleness rule:** a memoized read is stale the moment something in the same pass writes what it reads.
-Reading the pre-write snapshot is *correct* for a dedup comparison, wrong everywhere else. Flush
-**after the write**, not before each read — otherwise every new read site must remember to add its own
-flush, which is a required call that is easy to omit and impossible to notice missing.
-
-`@tmux_lives_display` deliberately stays a **live** per-client `show-option` (not memoized): categorize
-writes it earlier in the same pass, and `__tcz_tmux_flush` is a coarse glob whose blast radius would
-evict the pane and client memos and undo the batching win in the same pass.
+Flush **after the write**, not before each read — a flush-per-read-site rule is easy to omit and
+impossible to notice missing. `@tmux_lives_display` deliberately stays **live** (not memoized):
+`__tcz_tmux_flush` is a coarse glob whose blast radius would evict the pane/client memos too.
 
 **Emission is deduped.** The tick emits OSC title/colour only when the value changed for that tty
-(per-tty cache in `@tmux_lives_emit_<tty>_{title,color}`); discrete events force-emit. This killed a
-ShellFish cursor flicker — the old tick wrote OSC 2 + OSC 6 every cycle unconditionally.
-`__tcz_set_claude_opt` dedups for the same reason: **any** bar redraw re-emits the cursor.
+(per-tty cache in `@tmux_lives_emit_<tty>_{title,color}`); discrete events force-emit — this is what
+killed a ShellFish cursor flicker from unconditional OSC writes every cycle. `__tcz_set_claude_opt`
+dedups for the same reason: **any** bar redraw re-emits the cursor.
 
-⚠ **The empty-cache dedup gotcha:** `test "$x" = (__tcz_emit_get …)` **throws** when nothing is cached
-(fish zero-word command substitution). Capture into a var and quote:
-`set -l cached (…); test "$x" = "$cached"`.
+⚠ **Empty-cache gotcha:** `test "$x" = (__tcz_emit_get …)` **throws** when nothing is cached (fish
+zero-word command substitution) — capture into a var first: `set -l cached (…); test "$x" = "$cached"`.
 
-**Verified in production 2026-08-20:** 0.33 ticks/sec with 5 clients against an implied `5÷15 = 0.33` —
-the old 17× overshoot is gone and tmux-lives no longer appears in the host's top-5 CPU. An isolated
-harness once showed a rate *inversion* at 16 clients; **it did not reproduce at real client counts** —
-do not treat it as real behaviour. The self-rate-limit design
-(`docs/superpowers/specs/2026-08-20-tick-self-rate-limit-design.md`) is APPROVED, NOT BUILT, and
-**demoted to optional**.
+**Verified in production:** tick rate matches the implied `clients ÷ status-interval` exactly, the old
+17× overshoot is gone, and tmux-lives no longer appears in the host's top-5 CPU — `[[tick_tmux_call_batching]]`.
+The self-rate-limit design (`docs/superpowers/specs/2026-08-20-tick-self-rate-limit-design.md`) is
+APPROVED, NOT BUILT, and **demoted to optional** — `[[tick_self_rate_limit]]`.
 
 ---
 
@@ -274,12 +256,12 @@ Detection reads the attaching client's process environ (`/proc/<pid>/environ` on
 macOS) via `__tcz_pid_environ`; `__tcz_client_terminal` maps a pid to `shellfish` / `iterm2` / `other`
 from `LC_TERMINAL`.
 
-- **ShellFish** gets the bar colour as an OSC written directly to `#{client_tty}` — only that tab sees
-  it. **iTerm2** mirrors it via an OSC 6 tab-colour triplet.
+- **ShellFish** gets the bar colour as an OSC written directly to `#{client_tty}` (only that tab sees
+  it); **iTerm2** mirrors it via an OSC 6 tab-colour triplet.
 - **Everything else** triggers `tmux source-file ~/.tmux-lives.conf` to re-apply the user's own settings
   so ShellFish's forced options don't leak.
-- Tab title is `[<h>] <dir> [(C)]`, where `<h>` is the **first character** of the short hostname — the
-  tab strip is the scarcest space in the UI. `(C)` when any pane runs claude.
+- Tab title is `[<h>] <dir> [(C)]`, `<h>` the **first character** of the short hostname (the tab strip is
+  the scarcest space in the UI); `(C)` when any pane runs claude.
 - A tab that silently drops its colour with no re-attach (iOS suspend/resume, mosh reconnect) is caught
   by a **colour-only backstop** re-emit every `@tmux_lives_heal_interval` seconds (default 120).
 
@@ -290,31 +272,27 @@ from `LC_TERMINAL`.
 | #1 | **Any** redraw, so an idle pane strobes too | `set -g cursor-style block` — a steady style is invisible when re-emitted. tmux's `cstyle` feature re-emits the style on every redraw and ShellFish resets the cursor each time |
 | #2 | **Only** inside an actively-working Claude pane | `terminal-features xterm*:sync` |
 
-#2's mechanism: `tmux info` reports `Sync: [missing]` for every ShellFish client and present for every
-Ghostty client — **same server, same session, same `TERM`**. tmux picks synchronized-output support
-**per client, at attach, from its own terminal identification, and never asks the client.** So ShellFish
-implementing DECSET 2026 was necessary but never sufficient. Gated to **tmux ≥3.7** (3.3a emits the
-older iTerm2 DCS form, and older tmux never answers the DECRQM query so Claude never enables sync —
-immune by construction). The version probe uses `sort -V`, because a numeric compare gets 3.10 > 3.7
-wrong. Universal `tmux_lives_sync_terminals`, fragment argv[17].
+#2's mechanism: tmux picks synchronized-output support **per client, at attach, from its own terminal
+identification, and never asks the client** — `tmux info` shows `Sync: [missing]` for ShellFish and
+present for Ghostty on the **same server/session/TERM**, so ShellFish implementing DECSET 2026 was
+necessary but never sufficient. Gated to **tmux ≥3.7** (3.3a emits the older iTerm2 DCS form and never
+answers DECRQM, so it's immune by construction); version probe uses `sort -V` (a numeric compare gets
+3.10 > 3.7 wrong). Universal `tmux_lives_sync_terminals`, fragment argv[18]; both it and
+`tmux_lives_cursor_style` are **`set -U`-only** — neither has a `setup` CLI setter (known wart).
 
-⚠ **Three testing traps here:** tmux **silently accepts an unknown feature name**; `source-file` returns
-rc0 with **zero stderr** on a malformed line, so a parse test is vacuous; and a broken-looking quote
-mutation still worked (tmux concatenates adjacent quoted strings), so validating the test needed a
-commented-out inner command. See memory `[[shellfish_cursor_flicker]]`.
-
-`tmux_lives_cursor_style` and `tmux_lives_sync_terminals` are **`set -U`-only** — neither has a `setup`
-CLI setter. Known wart.
+⚠ **Three testing traps here** (unknown feature names accepted silently, vacuous parse tests on a
+malformed `source-file` line, and a quote-mutation that still worked because tmux concatenates adjacent
+quoted strings) — see `[[shellfish_cursor_flicker]]` for what to check.
 
 ---
 
 ## Theme engine — where it actually stands
 
-**v6 is wired and live in production code.** All three v5 call sites are gone — the fragment render,
-`theme_apply_live`, and `setup theme list` all call `__tmux_lives_theme_render`
-(`conf.d/tmux-lives-install.fish:116`, `:1606`, `:1640`). `__tmux_lives_theme_palette` (v5) stays
-**defined** but has zero callers left in production; deleting it is a separate, trivially revertible
-commit, not yet done.
+**v6 is wired and live in production code.** Every v5 call site is gone — the fragment renderer
+(`__tmux_lives_render_fragment`), `__tmux_lives_theme_roll`, `__tmux_lives_theme_apply_live`,
+`__tmux_lives_theme_list`, and the picker (`__tcz_theme_picker`) all call `__tmux_lives_theme_render`
+(line numbers rot; grep the name for exact sites). The v5 cluster stays **defined** but uncalled in
+production — see the verified deletion list under "Open" in Current state.
 
 A theme is now a **catalog scheme NAME resolving to a five-field recipe** (`mode Lspan peakC peakPos
 arrangement`) via `__tmux_lives_theme_recipe`. **The recipe is the stored identity** — the name is a
@@ -329,88 +307,68 @@ by name; see 'tmux-lives setup theme list'".
 
 **Catalog: 42 rows, 14 curated.** `__tmux_lives_theme_catalog_v6` is the complete 7-mode × 6-arrangement
 grid — one tuned recipe per cell, curation only *removes*. `_v6_default` flags the 14 curated rows (two
-arrangements per mode, all seven modes and all six arrangements reachable cold); `_v6_rest` is the other
-28, under the picker's `More Schemes` header. `mono deep` is the one hand-placed row — the user's
-repeatedly-favourite palette, kept for being liked, not for being the most robust (bound-1 margin 0.0050
-against ≥0.0113 everywhere else).
+arrangements per mode, all reachable cold); `_v6_rest` is the other 28, under the picker's `More Schemes`
+header. `mono deep` is the one hand-placed row — kept for being the user's repeatedly-favourite palette,
+not for being the most robust (bound-1 margin 0.0050 against ≥0.0113 everywhere else).
 
 **Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed** — v5's
-relationship/place/mode/phase have no v6 mapping, so nothing else survives. Idempotent, runs on
-`fisher update`.
+relationship/place/mode/phase have no v6 mapping. Idempotent, runs on `fisher update`.
 
 **The picker is retargeted**: `__tcz_theme_picker` sources the v6 catalog and renders through
-`__tmux_lives_theme_render`; `z` now **rolls the real recipe space** with a session-local 12-entry roll
-history, replacing the old geometric-scheme randomizer.
+`__tmux_lives_theme_render`; `z` **rolls the real recipe space** with a session-local 12-entry history,
+replacing the old geometric-scheme randomizer.
 
-### The tie-break is now structural
+### The tie-break is structural, not a float comparison
 
-The instability this file used to flag — the text-floor swap's strict-inequality float argmax flipping on
-sub-0.005 engine perturbations and silently exchanging two roles' colours in a stored recipe — is
-**fixed** (`febb67e`). `__tmux_lives_theme_rampidx` gives every role an **integer** ramp index;
-`constrain`'s swap compares ramp-index distance, not lightness distance, whenever the arrangement pattern
-is known (production always passes it). Integers are distinct by construction — no float tie to sit on. A
-synthetic fixture with no pattern still falls back to the old float rule, deliberately.
+`__tmux_lives_theme_rampidx` gives every role an **integer** ramp index; `constrain`'s swap compares
+ramp-index distance, not lightness distance, when the arrangement pattern is known (production always
+passes it) — so two roles' colours can no longer silently exchange on a sub-0.005 perturbation. See
+`[[theme_engine_v6]]`.
 
 ### The v6 pipeline
 
 Four pure stages, composed by `__tmux_lives_theme_render`:
 
-1. **`__tmux_lives_theme_anchors`** — seed hue + harmony mode → 1–4 hue angles (the classical set). The
-   seed is anchor one in every mode, which is why `analogous` uses offsets `0 -30 30`.
-2. **`__tmux_lives_theme_ramp`** — seven `(L,C)` pairs. Lightness span, peak chroma and peak position
-   are **independent** dimensions, and the window is positioned so the seed's own L falls inside it.
-3. **`__tmux_lives_theme_arrange`** — six named permutations of ramp position onto role. **It is a PURE
-   PERMUTATION.** Anything that substitutes a colour belongs in `constrain`, not here — several tests
-   recover the role→ramp mapping by feeding it a fixture and seeing where each colour lands.
-4. **`__tmux_lives_theme_constrain`** — four stages in a **fixed, load-bearing order**:
-   big-role lightness clamp → big-role chroma clamp → no-white → **text-contrast floor LAST**
-   (legibility is correctness, and every earlier stage can move `bar` or `text`).
+1. **`__tmux_lives_theme_anchors`** — seed hue + harmony mode → 1–4 hue angles (the classical set); the
+   seed is anchor one in every mode, why `analogous` uses offsets `0 -30 30`.
+2. **`__tmux_lives_theme_ramp`** — seven `(L,C)` pairs, with lightness span/peak chroma/peak position as
+   **independent** dimensions; the window is positioned so the seed's own L falls inside it.
+3. **`__tmux_lives_theme_arrange`** — six named permutations of ramp position onto role, a **PURE
+   PERMUTATION**. Anything that substitutes a colour belongs in `constrain`, not here.
+4. **`__tmux_lives_theme_constrain`** — four stages in a **fixed, load-bearing order**: big-role lightness
+   clamp → big-role chroma clamp → no-white → **text-contrast floor LAST** (legibility is correctness,
+   and every earlier stage can move `bar` or `text`).
 
 Roles: `bar sep tabs active windows cap text`. "Big three" = `bar`/`tabs`/`cap`.
 
 ### The three bounds
 
-Reverse-engineered from palettes the user had already praised, then falsified with seven one-property
-perturbations — **predictions written down before they looked, all seven correct.**
+Reverse-engineered from palettes the user had already praised, then confirmed 7/7 by blind prediction.
+**Hue placement is not a factor** — see `[[three_bounds_palette_rule]]` for the falsification and why.
 
 | | Bound | Enforced? |
 |---|---|---|
-| 1 | Peak chroma **0.105–0.180** | **No, and no clamp can.** At a dark seed the sRGB gamut caps peak chroma near 0.082 however much a recipe requests. It belongs to whoever curates recipes — the 42-row catalog above |
+| 1 | Peak chroma **0.105–0.180** | **No, and no clamp can** — a dark seed's gamut caps peak chroma near 0.082 regardless of the recipe; it's the catalog's job (above) |
 | 2 | Big-three **mean** chroma ≤ **0.095** | Yes — scaled down together so the three keep their relative structure rather than flattening to one value |
-| 3 | Big-three max lightness ≤ **0.70** | Yes — **but the clamp targets 0.695** |
-
-⚠ **Do not tidy 0.695 to 0.70.** The extra 0.005 is quantisation headroom: the chroma clamp that runs
-next re-encodes those roles, and an 8-bit round trip pushes lightness back over a 0.70 target. 46
-renders breached before this, 13 at the design's own seed `#87cb48`. **The obvious alternative fix was
-tried and proven wrong** — a sequential bound-3 re-check after the chroma clamp clears those breaches
-but introduces bound-2 breaches, because re-encoding at lower lightness can round-trip to *higher*
-chroma below the gamut cusp. The two clamps genuinely fight at the quantisation floor.
-
-**Hue is not one of the bounds.** The decisive experiment put the exact hue the user called "just awful"
-on `tabs` twice — L 0.51 (fine) and L 0.88 (not). Same hue, same role. Nothing was ever counting hues;
-bound 3 was checking whether a large surface had gone pale.
+| 3 | Big-three max lightness ≤ **0.70** | Yes — **but the clamp targets 0.695** (quantisation headroom against the chroma clamp that runs next). Do not tidy to 0.70 — `[[three_bounds_palette_rule]]` |
 
 ### The headline result
 
 Across 3,024 renders (12 seeds × 7 modes × 6 arrangements × 6 recipes) the engine produces **3,024
-distinct palettes**, peak chroma **0.055–0.250** (median 0.114) against v5's pinned ~0.063, and **the
-clamps bind in only ~14% of renders** — they trim outliers rather than defining the output. v5's 35
-catalog rows were one palette shape with the hue nudged; this is the opposite, which is the whole reason
-the rewrite existed.
+distinct palettes**, peak chroma **0.055–0.250** (median 0.114) against v5's pinned ~0.063 — the clamps
+bind in only ~14% of renders, trimming outliers rather than defining the output.
 
 ### Still open
 
 **All six arrangements place `text` at ramp index 1 or 7** (both ends of the chroma curve), so at
-`peakPos ≈ 0.5`, `text` renders at C 0.011–0.013 — *below* v5's pinned 0.030. Not resolved this cycle and
-not blocking; a curated recipe can avoid a mid-ramp `peakPos` if it matters in practice.
+`peakPos ≈ 0.5`, `text` renders at C 0.011–0.013, below v5's pinned 0.030. Not blocking — a curated
+recipe can avoid a mid-ramp `peakPos` if it matters in practice.
 
 ### OKLCH facts that make an assertion unsatisfiable if guessed
 
-Four of them — `peakC` is gamut-capped **hue-dependently** (0.26 at purple, 0.15 at green); hue families
-must be counted with a 25° tolerance **circularly**; the text floor needs **two** stages; and stage two
-does **not** preserve chroma. Each was learned by writing an assertion that could not pass. Full numbers
-and the measurements behind them: `[[theme_engine_v6]]`.
-
+`peakC` is gamut-capped **hue-dependently** (0.26 at purple, 0.15 at green); hue families need a 25°
+tolerance counted **circularly**; the text floor needs **two** stages; stage two does **not** preserve
+chroma. Full numbers: `[[theme_engine_v6]]`.
 
 ## The picker (theme + session)
 
@@ -419,42 +377,38 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
 **Geometry facts, measured — not guessed:**
 - A popup **taller than the client does not clamp: it refuses to open** (`height too large`). That is
   why the theme picker uses `-w 52 -h 85%` and not a constant.
-- **No tmux command resizes an open popup.**
-- `stty size` **does** report a popup's own size (`$LINES`/`$COLUMNS` are not exported into it).
-- `-w/-h` percentages work and are exact; `-w '#{client_width}'` is rejected.
-- `WIN = rows - STATIC`, with `STATIC_IDLE 17` / `STATIC_EDIT 22`. The admission floor gates on the
-  **stricter** `STATIC_EDIT` (25 popup rows = 30 client rows) — an idle-only floor admitted a 20-row
-  popup that overflowed the instant `b` was pressed.
+- **No tmux command resizes an open popup**; `stty size` **does** report a popup's own size
+  (`$LINES`/`$COLUMNS` not exported); `-w/-h` percentages work and are exact, `-w '#{client_width}'`
+  is rejected.
+- `WIN = rows - STATIC` (`STATIC_IDLE 17` / `STATIC_EDIT 22`), gated on the **stricter** `STATIC_EDIT`
+  (25 popup rows = 30 client rows) — an idle-only floor once admitted a 20-row popup that overflowed
+  the instant `b` was pressed.
 
-**Performance — three layers, all measured:**
-1. **Construction.** The cost is the **number of fish command substitutions**, not any one builder — a
-   call inside `(…)` is **19×** a plain call. Fixed by memoizing the row/static/swatch builders behind
-   **one** clear helper called from **one** place (`__tcz_thp_reload`); that single invalidation point is
-   what makes a bare-integer row key legal. 167 ms → 35 ms whole-frame. Numbers: `[[popup_geometry_and_perf]]`.
-2. **Emission.** `__tcz_popup_emit` diffs against `__tcz_pe_prev` and emits only changed rows inside a
-   sync wrapper, full-painting when forced or when the row **count** differs. A burst of 40 arrows costs
-   47 KB vs 458 KB; **isolated keypresses are 11.7% worse** (break-even ≈ 1.07 keys per 0.7 s window).
-   The session switcher is deliberately **out of scope** — its cursor move changes nearly every row.
-3. **Input.** One rule on every held-key path: **discard, one step per frame.**
-   ⚠ `stty min 0 time 0` **must be re-asserted INSIDE every drain loop**, because readkey's CSI branch
-   leaves the tty blocking. ⚠ The arrow poll must **never** escalate its timeout — the loop breaks only
-   on a poll *timeout*, so a ~100 ms gap never times out while autorepeat outpaces it, and the picker
-   stalls completely.
+**Performance — three layers, all measured (`[[popup_geometry_and_perf]]`):**
+1. **Construction** cost is the **number of fish command substitutions**, not any one builder (a call
+   inside `(…)` is 19× a plain call) — fixed by memoizing the row/static/swatch builders behind **one**
+   helper (`__tcz_thp_reload`), which also makes a bare-integer row cache key legal.
+2. **Emission.** `__tcz_popup_emit` diffs against `__tcz_pe_prev` and emits only changed rows in a sync
+   wrapper, full-painting only when forced or the row **count** differs — a big win in a keypress burst,
+   a small loss on isolated ones (break-even ≈ 1 key/0.7s). The session switcher is deliberately **out
+   of scope** — its cursor move changes nearly every row.
+3. **Input.** One rule on every held-key path: **discard, one step per frame.** ⚠ `stty min 0 time 0`
+   must be re-asserted **inside** every drain loop (readkey's CSI branch leaves the tty blocking), and
+   the arrow poll must never escalate its timeout or autorepeat outpaces it and the picker stalls.
 
 **tmux 3.3a DROPS app-sent DECSET 2026** (a bogus `?9999` behaves identically — tmux does not forward
-private modes it does not implement). So the sync wrapper never reaches ShellFish there and it paints
-progressively: the symptom is *stuttering*, not a frozen screen.
+private modes it doesn't implement), so the sync wrapper never reaches ShellFish there — it paints
+progressively, the symptom is *stuttering*, not a frozen screen.
 
-**Seed editor:** `a` = "show me what this seed does" (rebuild strips, stay in the editor). `⏎` = "this
-is the seed — apply it and let me out". Both are **local** — no tmux option, no tab OSC. Applying the
-seed to the schemes is not adopting a scheme. Staleness is **derived** from `$stripseed` (the seed the
-strips were actually built from), not tracked as a flag — a flag cannot answer "edit, press `a`, then
-`esc`", where the seed reverts but the strips still show the abandoned edit. Stale strips render faint,
-and **the dim state is part of the row cache key**.
+**Seed editor:** `a` = "show me what this seed does" (rebuild strips, stay in editor); `⏎` = "this is
+the seed — apply it and let me out" — both **local**, no tmux option, no tab OSC; applying the seed is
+not adopting a scheme. Staleness is **derived** from `$stripseed`, not tracked as a flag (a flag can't
+answer "edit, `a`, then `esc`", where the seed reverts but strips still show the abandoned edit) — stale
+strips render faint, and the dim state is part of the row cache key.
 
 **Auto-apply was built, tried live and REJECTED** ("wayyyy too much… everything is so lacking in
-responsivity"). Do not re-propose it; a toggle does not rescue a feature whose cost is felt unasked.
-See memory `[[config_vs_adoption]]`.
+responsivity") — do not re-propose it; a toggle doesn't rescue a feature whose cost is felt unasked.
+See `[[config_vs_adoption]]`.
 
 ---
 
@@ -465,41 +419,38 @@ detection, bare cold-start on first attach. Install: `fisher install bit-saver/t
 `tmux-lives setup install`.
 
 **`pgrep` is the expensive primitive on macOS and `ps` is the cheap one — the Linux intuition inverts.**
-`/usr/bin/pgrep` links `libsysmon.dylib` and delegates to the `sysmond` **root daemon**, which walks
-every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 14 cores, 0.4% idle, fan
-63%, on an idle desktop. The cost is also **invisible from inside** — a tick reporting 0.23 s user +
-0.25 s system takes 1.280 s wall, because the missing time is billed to another process's ledger.
-`pgrep` is now **absent from the file entirely**. See memory `[[macos_pgrep_sysmond]]`.
+`/usr/bin/pgrep` links `libsysmon.dylib` and delegates to the `sysmond` **root daemon**, walking every
+process *and thread* per call (`/bin/ps` does not), with the cost **invisible from inside** (billed to
+another process's ledger). `pgrep` is now **absent from the file entirely** — `[[macos_pgrep_sysmond]]`.
 
 **Two settled dead ends — do not re-chase:**
-- **`reattach-to-user-namespace` as `default-command` is a proven no-op** on macOS 26.5.2. GUI
+- **`reattach-to-user-namespace` as `default-command` is a proven no-op** on macOS 26.5.2 — GUI
   window/menu-bar placement is governed by the Aqua **audit session** `asid`, not the bootstrap domain.
-  `pbcopy`/`pbpaste` and `open -a` already work. Findings: `docs/macos-gui-namespace-findings.md`.
-- The `-ww` rationale for `ps` **did not survive Mac verification** — no truncation was measured with or
-  without it. `-ww` stays because it is free and correct on any BSD `ps` that *does* truncate, but read
-  it as cheap insurance, not as the fix for a demonstrated failure.
-  Details: `docs/2026-08-18-verification-pgrep-sysmond-fix-on-macos.md`.
+  Findings: `docs/macos-gui-namespace-findings.md`.
+- The `-ww` rationale for `ps` **did not survive Mac verification** — no truncation was measured. It
+  stays because it's free and correct on any BSD `ps` that does truncate — cheap insurance, not a
+  demonstrated fix. Details: `docs/2026-08-18-verification-pgrep-sysmond-fix-on-macos.md`.
 
 ---
 
 ## Standing decisions — do not reopen
 
-- **NO WHITE is a hard exclusion** (settled 2026-08-25). The ruling went ban → prior → **ban**; the user
-  named the bias themselves and chose it anyway. Do not re-offer white "where it fits".
-- **Muted is a style the user LIKES.** The defect was ever only **fixedness**, not dimness. Raising the
+- **NO WHITE is a hard exclusion** (settled 2026-08-25, ban → prior → **ban**) — the user named the bias
+  themselves and chose it anyway. Do not re-offer white "where it fits".
+- **Muted is a style the user LIKES.** The defect was ever only **fixedness**, not dimness — raising the
   ceiling relocates the single destination and costs a style they want.
-- **Hue placement is NOT what makes a palette work.** Refuted three ways. Do not build another
+- **Hue placement is NOT what makes a palette work**, refuted three ways. Do not build another
   hue-placement rule.
 - **Cohesion is a curve, not uniformity.** Forcing one hue family produced a palette judged *less*
-  cohesive: in the liked palette the tiny `sep` separators carry the **highest chroma in the whole
-  palette**, and flattening crushed it. **Never hand-assign a role colour** — always sample the ramp.
-- **`arrange` stays a pure permutation.** Substitution belongs in `constrain` only.
-- **The constrain order is fixed** and each stage's placement is load-bearing.
+  cohesive — the liked palette's tiny `sep` separators carry the **highest chroma in the whole palette**,
+  and flattening crushed it. **Never hand-assign a role colour** — always sample the ramp.
+- **`arrange` stays a pure permutation** — substitution belongs in `constrain` only, whose order is fixed
+  with each stage's placement load-bearing.
 - **Bound 1 is the catalog's problem, not the engine's.**
-- **The user runs `fisher update`.** A Claude session never deploys.
+- **The user runs `fisher update`** — a Claude session never deploys.
 - **Plans are deleted once their work ships;** specs for shipped features stay.
 - **ShellFish's tab bar is the optimization target**, not the tmux status bar (`tabs` ≈ 1.8× `bar` by
-  area on the real screen). Every colour mockup renders both a ShellFish and a cmux view; ShellFish
+  area on the real screen) — every colour mockup renders both a ShellFish and a cmux view; ShellFish
   decides, cmux gets a veto for "actively bad".
 - **Colour/UI mockups must be a faithful facsimile of the real widget**, not abstract swatches.
 
@@ -508,168 +459,127 @@ every process *and every thread* per call; `/bin/ps` does not. It sat at ~4 of 1
 ## Traps that cost real time
 
 **Environment**
-- **The agent Bash tool runs zsh.** A non-matching glob **aborts the whole command** — an `rm -rf a/* b/*`
-  silently did nothing because the second glob had no matches. Use `find … -delete`. MULTIOS also makes
-  `cmd 2>&1 >/dev/null | wc -c` leak stdout into the pipe; wrap stderr counts in `bash -c '…'`.
-- **Never `find /` on this host** — two CIFS mounts park a whole-fs scan in uninterruptible D state
-  where even SIGKILL sits pending. One orphan took load to 76.
-- **The code-review-graph MCP indexes 0 files here** — no fish parser exists. The global "use the graph
+- **The agent Bash tool runs zsh.** A non-matching glob **aborts the whole command** (`rm -rf a/* b/*` can
+  silently no-op) — use `find … -delete`. MULTIOS also leaks stdout into a stderr-only pipe count; wrap
+  in `bash -c '…'`.
+- **Never `find /` on this host** — two CIFS mounts park a whole-fs scan in uninterruptible D state where
+  even SIGKILL sits pending.
+- **The code-review-graph MCP indexes 0 files here** — no fish parser exists; the global "use the graph
   before Grep" rule does not apply in this repo.
-- **When a subagent is editing a file, measure from `git show`, not the worktree.** A stderr measurement
-  taken mid-edit was wrong by 141 bytes and led to deferring a real defect.
+- **When a subagent is editing a file, measure from `git show`, not the worktree** — a mid-edit
+  measurement can be off by well over 100 bytes and lead to deferring a real defect.
 
 **fish** (see memory `[[fish_gotchas_that_lie]]` — these return a confidently *wrong* answer, not an error)
 - `eval` returns status **0** on a parse error, and its `math` diagnostics **bypass in-process `2>`**.
 - A variable is never word-split into command + args; a keyword arriving via expansion is rejected. There
   is **no** variable form of a seamed command — spell it out in both branches.
 - **`printf --` is not an option terminator** — fish takes `--` as the format string and discards the
-  rest. It wrote a 2-byte history seed and left a shipped guard permanently vacuous.
-- Autoloaded functions **never reload** when their file changes; redefinition is **silent**.
-- A **double-quoted** `"$x[(math …)]"` list index is an *error*, not an index. Grep-guarded.
-- A zero-output command substitution collapses the whole enclosing argument to an empty list.
-- `string match -r` with a prefix pattern returns the **matched substring**, not a boolean.
+  rest, silently. See `[[fish_printf_dashdash]]`.
+- Autoloaded functions **never reload** when their file changes (redefinition is **silent**); a
+  **double-quoted** `"$x[(math …)]"` list index is an *error*, not an index (grep-guarded).
+- A zero-output command substitution collapses the whole enclosing argument to an empty list, and
+  `string match -r` with a prefix pattern returns the **matched substring**, not a boolean.
 
 **tmux 3.3a** (see memory `[[tmux_target_quirks]]`)
 - **A colon-less `-t` is read as a WINDOW target first** (searched in whichever session tmux treats as
   current), so a bare name collides with window names — every Claude window is `claude` — and with
-  numbers, and `=name` misroutes too (for `list-panes` it means an exact WINDOW name). The exact session
-  form for option / window / pane / capture commands is `=name:`; `__tcz_session_target` returns it
-  (pure, no tmux call) and `conf.d/tmux.fish` spells it inline. Measured on 3.3a and macwork's 3.7b.
-  Session-typed commands (`has-session`, `rename-session`, `kill-session`, `switch-client`,
-  `list-clients`) keep `=name`. A collision test must erase `TMUX`/`TMUX_PANE` and build in both
-  creation orders, or it can pass by luck. Pointer: memory `[[tmux-target-quirks]]`.
+  numbers; `=name` (no colon) misroutes too. The exact session form for option/window/pane/capture
+  commands is `=name:`; `__tcz_session_target` returns it (pure, no tmux call) and `conf.d/tmux.fish`
+  spells it inline. Session-typed commands (`has-session`, `rename-session`, `kill-session`,
+  `switch-client`, `list-clients`) keep `=name`. A collision test must erase `TMUX`/`TMUX_PANE` and build
+  in both creation orders, or it can pass by luck.
 - An **unquoted `#hex`** option value is a tmux **comment** — the option silently goes empty and
   `source-file` still returns rc0.
-- tmux **silently accepts an unknown `terminal-features` name**.
-- A `-L` test socket still loads `~/.tmux.conf` unless started `-f /dev/null`.
+- tmux **silently accepts an unknown `terminal-features` name**, and a `-L` test socket still loads
+  `~/.tmux.conf` unless started `-f /dev/null`.
 
-**Migrations** (2026-09-04, the Critical a whole-branch review caught after nine clean task reviews)
-- **A migration that validates against its OWN version's vocabulary poisons every later version.**
-  `__tmux_lives_migrate_v4` still checked `tmux_lives_theme` against the **v5** relationship list and runs
-  BEFORE `_v6` in `_tmux_lives_post_update`. Only `mono` exists in both vocabularies, so 36 of 42 v6
-  schemes hit its reset branch — forcing `theme=mono` and *resurrecting* the retired `place`/`mode` — after
-  which `_v6` early-returned because `_arrangement` was set. Result: a hybrid recipe matching no catalog
-  row, on **every** `fisher update`, permanently. Fixed with a forward guard
-  (`set -q tmux_lives_theme_arrangement; and return 0`) as `_v4`'s first line.
-- ⚠ **It was clean on day one and would have broken later** — the user's stored `amber` happened to be a
-  valid v5 name, so the first update migrated correctly. Damage began the first time they picked a
-  non-`mono` scheme and updated again. A migration bug that is latent at ship time is the worst shape.
-- ⚠ **Every migration test called its function in ISOLATION; nothing ran the chain.** That is why nine
-  reviews missed it. Task 6's strongest assertion even used `coral` — itself a v5 relationship — so a
-  chain-level version of that same fixture would still have passed. **A chain-level test is now the
-  required shape**: store a non-`mono` recipe, run the migrations in `_tmux_lives_post_update`'s order,
-  assert all five universals unchanged and nothing printed.
-- **The standing rule that removes this class: a version migration RESETS, it never preserves.** Keep the
-  seed, erase the retired universals, write the new default. No mapping logic. See
-  `[[theme_clobber_during_dev_is_fine]]`.
+**Migrations** (see `[[theme_clobber_during_dev_is_fine]]`)
+- **A migration that validates against its OWN version's vocabulary poisons every later version.** Guard
+  each migration against later versions' state (`set -q <later-version-marker>; and return 0`) as its
+  first line — `__tmux_lives_migrate_v4` once ran unguarded before `_v6` and reset 36 of 42 v6 schemes on
+  every `fisher update`. ⚠ A migration test that calls its function in isolation does not prove the chain
+  is safe — nine per-task reviews missed this bug because nothing ran the full chain; the required shape
+  stores a non-default recipe and runs the migrations in `_tmux_lives_post_update`'s real order.
+- **Standing rule: a version migration RESETS, it never preserves.** Keep the seed, erase retired
+  universals, write the new default. No mapping logic.
 
 **Testing** (see memory `[[sdd_assertion_discipline]]`)
 - **A test whose command substitution calls an undefined function does not fail** — fish aborts the whole
-  statement, nothing prints, and a suite with no pass counter still reports `ALL PASS`.
-- **A guard can be green by sampling luck.** The bounds ratchet passed while 46 renders breached; moving
-  `peakC` one step (0.13 → 0.14) turned it red. Perturb a sampling grid before trusting it.
-- **Grep guards match COMMENTS.** Describing a banned shape in prose has tripped its own guard twice.
-- **A vacuous assertion is the default failure mode here** — the `$src`-expands-to-empty class has bitten
-  seven times. Bound every body-grep to a variable defined *above* it, and pair it with a positive count.
-- **Modifying a pre-existing guard is the highest-risk edit in the file.** One retarget silently reduced a
-  capture to 8 bytes so its guard printed `no` unconditionally, suite green.
-- **You cannot pin the "no big role on a light ramp index" invariant with a rendered-output fixture.**
-  Tried twice — the stage-1 swap hunts for exactly the colour a violation places, so it relocates the
-  offender before the check sees it. Assert the table directly by `awk`-extracting the `switch` block
-  from source, **with a vacuity guard** (an empty extraction otherwise passes by matching nothing).
-- **`__t6_inbounds` is blind below ~5e-7** because fish's `math` rounds the mean chroma it compares.
+  statement, nothing prints, and a suite with no pass counter still reports `ALL PASS`. **A guard can
+  also be green by sampling luck** — perturb the sampling grid before trusting a bounds ratchet.
+- **A vacuous assertion is the default failure mode here** — grep guards match COMMENTS too (describing a
+  banned shape in prose has tripped its own guard twice), so bound every body-grep to a variable defined
+  *above* it and pair it with a positive count. **Modifying a pre-existing guard is the highest-risk edit
+  in the file** — a retarget can silently shrink its capture and print a false pass unconditionally.
+- **A rendered-output fixture can't pin an invariant the engine itself hunts for and relocates** — assert
+  the table directly from source (`awk`-extracting the relevant block), with a vacuity guard.
 - **Never `git checkout` to revert a mutation** while work is uncommitted — it reverts to HEAD. Restore
   from a file copy taken immediately beforehand and prove byte-identity with `diff`.
-- **A mutation battery proves the mutations you chose were caught, not that your assertions are awake.**
-- The recurring shape, confirmed ten times: **an invariant one stage establishes is not one a later stage
-  is obliged to preserve.** A fixed order is necessary, not sufficient.
+- **A mutation battery proves the mutations you chose were caught, not that your assertions are awake** —
+  and the recurring shape, confirmed ten times, is that **an invariant one stage establishes is not one a
+  later stage is obliged to preserve.** A fixed order is necessary, not sufficient.
 
 ---
 
-## Current state — 2026-09-11
+## Current state — 2026-09-13
 
-**Three cycles shipped since the v6 surface**, all merged to `main` and pushed. **The live install still
+**Four cycles shipped since the v6 surface**, merged to `main` and pushed — **the live install still
 predates them**; the user runs `fisher update` themselves.
 
-### Legibility floors (`feat/legibility-floors`)
+### Legibility floors (`feat/legibility-floors`, shipped)
 
-Four foregrounds are painted on `bar` and only `text` was constrained. Measured across 5 seeds x 42
-schemes: `windows` reached ΔL **0.012** / WCAG 1.05, and the ✦ mark reached ΔL **0.000** — literally the
-bar colour. Now a **descending staircase**, `__tmux_lives_theme_floors`: text 0.40 · active 0.32 ·
-windows 0.26 · sep 0.15 · ✦ 0.15. Enforced by `__tmux_lives_theme_floor_role` — swap first, nudge second,
-each role **locked** once satisfied so a later swap cannot undo an earlier guarantee. Zero breaches in 252
-renders; bounds 2/3 and no-white unaffected.
+All big foregrounds on `bar` are now constrained, not just `text` — a **descending staircase**,
+`__tmux_lives_theme_floors`: text 0.40 · active 0.32 · windows 0.26 · sep 0.15 · ✦ 0.15, enforced by
+`__tmux_lives_theme_floor_role` (swap first, nudge second, each role **locked** once satisfied so a
+later swap cannot undo an earlier guarantee).
 
-⚠ **Do NOT "fix" the nudge to prefer the DARK direction.** The spec asked for it twice and it is
-measurably backwards: prefer-up (what shipped) gives 13.3% / 13.8% severe chroma loss on sep/active,
-worst 91.6%; prefer-down gives 15.2% / 23.3%, worst **100%**. `bar` is dark (median L 0.441), so "down"
-lands near black where chroma collapses. The spec has been corrected; the shipped code is the best of the
-three variants measured.
+⚠ **Do NOT "fix" the nudge to prefer the DARK direction** — measured backwards (worst case 100% severe
+chroma loss vs the shipped 91.6%, since `bar` is dark and "down" lands near black). Chroma cost was
+measured and **ACCEPTED, do not re-litigate** — three mitigations were tried and refuted:
+`[[three_bounds_palette_rule]]`.
 
-**Chroma cost — measured and ACCEPTED, do not re-litigate.** 13.3% of `sep` and 13.8% of `active` renders
-lose >50% of the requested chroma; every severe loss comes from the nudge, none from the swap. Three
-mitigations were built and all three refuted. Decisive for acceptance: **`mono deep` at the user's seed is
-byte-identical before and after**, keeping the 0.110 `sep` chroma peak the cohesion finding was about.
-Full per-role numbers, the three refutations and why each failed: `[[three_bounds_palette_rule]]`.
-
-### Mono-only (`feat/mono-only`)
+### Mono-only (`feat/mono-only`, shipped)
 
 `M` in the picker swaps the list for `__tmux_lives_theme_mono_grid` — **36 rows**: the six mono catalog
-rows' parameter triples × all six arrangements. The six diagonal cells keep their plain catalog names;
-the other 30 read `mono <style>·<arrangement>` (U+00B7 middle dot). **The grid READS its triples out of
-`__tmux_lives_theme_catalog_v6`**, never restating them — two unlinked copies of the same constants is a
-defect shape this repo has been bitten by, and a test proves the coupling by mutating a catalog row.
-`z` pins to mono while the toggle is on; `m` goes inert and says so; persisted in a universal.
-2-7 of the 36 sit slightly UNDER bound 1's soft floor (worst 2.6%, always under, never over) — left
-deliberately: muted is a style the user likes, and the defect was ever only fixedness.
+rows' parameter triples × all six arrangements, named `mono <style>·<arrangement>` (U+00B7 middle dot;
+the six diagonal cells keep their plain catalog name instead). The grid **reads its triples out of**
+`__tmux_lives_theme_catalog_v6`, never restating them (test-proven coupling). `z` pins to mono while the
+toggle is on; `m` goes inert and says so; persisted in a universal. A handful sit slightly under bound
+1's soft floor, left deliberately — see "Muted is a style the user LIKES" under Standing decisions.
 
-### Retitle fix (`fix/retitle-all-clients`)
+### Retitle fix (`fix/retitle-all-clients`, shipped)
 
-`__tcz_retitle` gated **title** emission on `__tcz_client_terminal`, which reads `LC_TERMINAL` from the
-client PROCESS's environ. A client without it was silently skipped and its terminal tab kept a stale
-title **forever** — showing a different session's name than the status bar.
+Title emission (OSC 2) now goes to **every** attached client, not gated on `__tcz_client_terminal`
+identifying `LC_TERMINAL` — a client spawned from inside tmux (e.g. via the session picker) inherits the
+pane's environ, which never carries `LC_TERMINAL`, and used to keep a stale title forever.
+`__tcz_recolor`/`__tcz_on_attach` stay terminal-gated (load-bearing, test-pinned); only title emission is
+universal. `__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths
+are OS-recycled and can collide with a future client.
 
-⚠ **The session picker is the trigger.** Switching sessions spawns a new client *from inside tmux*, which
-inherits the pane's environ — and the pane carries no `LC_TERMINAL`. Diagnosed live on macwork: 8
-attached clients, perfect correlation — the 5 with the variable had per-tty cache entries, the 3 without
-had **none, ever**.
+**Lesson:** a correct status bar proves nothing about the tab title — it only changes when the tick
+actively emits an escape.
 
-Titles are now emitted for **every** client (OSC 2 is generic; the function's own docstring already said
-only the colour differs). `__tcz_recolor` / `__tcz_on_attach` stay terminal-gated — that is load-bearing
-and a test pins it. Added `__tcz_emit_prune`: departed clients leaked per-tty cache entries forever, and
-`/dev/ttysNNN` paths are OS-recycled, so a stale entry can collide with an unrelated future client.
+### Exact session targets (`fix/session-target-exact`, 2026-09-13, shipped)
 
-**The general lesson:** a correct status bar proves nothing about the tab title. The bar is a pure tmux
-format that re-renders itself; the tab only changes when the tick actively emits an escape.
-
-### Exact session targets (fix/session-target-exact, 2026-09-13)
-
-A session named `claude` sat next to another session's *window* named `claude` (every Claude window is):
-a colon-less `-t claude` read/wrote the wrong session's display, `__tmux_session_is_idle` could judge a
-busy session idle by another session's idle window, and restore disposal killed a busy session in the
-RED test that proved it. Fixed by targeting every option/window/pane/capture command through
-`__tcz_session_target`'s exact `=name:` form (`conf.d/tmux.fish` spells it inline too);
-`__tcz_pane_target` is deleted. Session-typed commands (`has-session`, `kill-session`, `switch-client`,
-...) are unaffected. The live install still needs `fisher update`.
-
-### Gate
-
-**9/9 `ALL PASS` both modes. `test-tmux-install.fish` 983 plain / 982 `--no-config`** — the 1-count delta
-is BY DESIGN and has been for many cycles.
+Every option/window/pane/capture command now targets sessions via `__tcz_session_target`'s exact `=name:`
+form — see "tmux 3.3a" under Traps for the collision this fixes. `__tcz_pane_target` is deleted;
+session-typed commands were unaffected. The live install still needs `fisher update`.
 
 ### Open — none blocking
 
 - `__tcz_on_attach`'s `case '*'` never calls `__tcz_retitle`, so an unidentifiable client waits up to one
-  `status-interval` (≤15 s) for its first title. Bounded staleness, not permanent — optional to fix.
+  `status-interval` (≤15 s) for its first title — bounded staleness, optional to fix.
 - `text` still sits at a ramp end (see "Still open" under Theme engine).
 - The v5 cluster is still a deletion candidate, with the caveat below.
 
-⚠ **The v5 deletion is NOT simply "remove everything v5" — verified 2026-09-04, because the obvious
-reading is wrong.** `__tmux_lives_theme_palette` and `__tmux_lives_theme_valid` each have **zero**
-callers and go cleanly. `__tmux_lives_theme_accents` is **not** directly dead — it is called inside
-`_palette` itself, so it is only *transitively* dead and becomes removable when `_palette` does. And
-`__tmux_lives_theme_relationships` has **two** callers, one inside `__tmux_lives_migrate_v4`'s reset
-branch which old installs still need. **It survives the cleanup.**
+⚠ **The v5 deletion is NOT simply "remove everything v5"** — verified 2026-09-14 by grepping every
+production call site. **Zero-caller, safe to delete outright:** `__tmux_lives_theme_palette`,
+`__tmux_lives_theme_valid`, `__tmux_lives_theme_catalog_default`, `__tmux_lives_theme_catalog_rest` (last
+two called only from tests). **Transitively dead**, removable in the same pass since reachable only from
+those: `__tmux_lives_theme_accents`/`__tmux_lives_theme_curve` (called only inside `_palette`),
+`__tmux_lives_theme_reldef` (called only inside `_curve`), bare `__tmux_lives_theme_catalog` (called only
+inside `_catalog_default`/`_catalog_rest`). `__tmux_lives_theme_relationships` **survives** — still
+called from `__tmux_lives_migrate_v4`'s reset branch, which old installs still need.
 
 ---
 
@@ -678,13 +588,8 @@ branch which old installs still need. **It survives the cleanup.**
 - **`docs/history/2026-09-02-claude-md-full-archive.md`** — the verbatim 231 KB `CLAUDE.md` as it stood
   before this prune. History, not guidance.
 - **git** — `git log --diff-filter=D -- <path>` finds the commit that removed any deleted doc.
-- **The memory store** (`~/.claude/projects/-home-bitsaver-workspace-tmux-lives/memory/`) — the deep war
-  stories, indexed by `MEMORY.md`. This is the durable knowledge layer; **prefer adding depth there over
-  growing this file.**
-
-### claude-mem
-
-This project was extracted from `~/.config/fish`; its development history through **2026-06-17** is
-labelled **`fish`** in claude-mem, not `tmux-lives`. When searching prior work, query
-`project: "fish"` as well (terms: tmux, auto-tmux, categorize, shellfish, resurrect). New observations
-from this repo are tagged `tmux-lives`.
+- **The memory store** (`~/.claude/projects/-home-bitsaver-workspace-tmux-lives/memory/`), indexed by
+  `MEMORY.md` — the durable knowledge layer; **prefer adding depth there over growing this file.**
+- **claude-mem:** this project was extracted from `~/.config/fish`; history through **2026-06-17** is
+  labelled `fish`, not `tmux-lives` — query `project: "fish"` too (terms: tmux, auto-tmux, categorize,
+  shellfish, resurrect). New observations from this repo are tagged `tmux-lives`.
