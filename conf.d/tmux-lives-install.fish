@@ -1476,42 +1476,6 @@ function __tmux_lives_contrast_fg --argument-names hex --description 'bg hex -> 
     if test $Lrel -gt 0.179; echo "#111111"; else; echo "#f5f5f5"; end
 end
 
-# --- theme engine v5: relationship-curve palette assembly ---------------------
-# bar/tabs/cap come from __tmux_lives_theme_curve (relationship travel, seed
-# placement, mode, the bridged endcap); sep/active/windows/text are lightness
-# tints/contrast off the bar, built here.
-function __tmux_lives_theme_accents --argument-names barHex capHex --description 'v5 accents: sep active windows text as lightness tints/contrast off the bar (uncalibrated, live-tunable via @options). -> sep active windows text (4 hexes).'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$barHex"; or return
-    set -l brgb (__tmux_lives_hex_to_rgb01 $barHex)
-    set -l bo (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
-    set -l bH $bo[3]
-    # tints sit on the contrast side of the bar (light on a dark bar)
-    set -l active  (__tmux_lives_oklch_hex 0.88 0.03 $bH)
-    set -l windows (__tmux_lives_oklch_hex 0.74 0.04 $bH)
-    set -l sep     (__tmux_lives_oklch_hex 0.62 0.03 $bH)
-    if test $bo[1] -ge 0.55
-        set active  (__tmux_lives_oklch_hex 0.16 0.03 $bH)
-        set windows (__tmux_lives_oklch_hex 0.30 0.04 $bH)
-        set sep     (__tmux_lives_oklch_hex 0.42 0.03 $bH)
-    end
-    set -l tdir 1
-    test $bo[1] -ge 0.55; and set tdir -1
-    set -l Lt (math "$bo[1] + $tdir * 0.45")
-    test $Lt -lt 0.05; and set Lt 0.05
-    test $Lt -gt 0.97; and set Lt 0.97
-    set -l text (__tmux_lives_oklch_hex $Lt 0.03 $bH)
-    printf '%s\n' $sep $active $windows $text
-end
-
-function __tmux_lives_theme_palette --argument-names seedHex relationship place mode phase --description 'v5: seed + relationship/place/mode/phase -> 7 role hexes (bar sep tabs active windows cap text). bar/tabs/cap = the curve (relationship travel, seed placement, mode, the bridged endcap); sep/active/windows/text = tints/contrast off the bar. Non-hex seed / unknown relationship -> nothing.'
-    set -l tri (__tmux_lives_theme_curve "$seedHex" "$relationship" "$place" "$mode" "$phase")
-    test (count $tri) -eq 3; or return
-    set -l acc (__tmux_lives_theme_accents $tri[1] $tri[3])
-    test (count $acc) -eq 4; or return
-    # order: bar sep tabs active windows cap text
-    printf '%s\n' $tri[1] $acc[1] $tri[2] $acc[2] $acc[3] $tri[3] $acc[4]
-end
-
 function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-color>] [-i|--invert] [-a|--apply]: ShellFish tab color + derived status bar; --apply reapplies the stored color live'
     set -l invert 0
     set -l color
@@ -1590,42 +1554,8 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line — the ONE home of the list (CLI validation, list, picker all consume it)'
+function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line. SURVIVES the v5 engine deletion: __tmux_lives_migrate_v4'"'"'s reset branch still calls it to validate an old installs stored theme name. The CLI/list/picker consumers this docstring used to name are gone.'
     printf '%s\n' mono wheat amber ember coral mint sage teal
-end
-
-function __tmux_lives_theme_catalog --description 'v5 gallery catalog: 35 schemes as name|relationship|place|mode|default (1 = in the curated default 14). Tiers glow/chip/core/soft/slate/deep — LITERAL rows first (bar, then tabs, then cap), then DERIVED rows (bar, then tabs, then cap): 18 literal followed by 17 derived, so the two groups sit contiguous and comparable, per the user request to see seed-literal and seed-figurative schemes as trends rather than interleaved. bar and tabs are SYMMETRIC (all 8 relationships x both modes) except mono, which has no tabs|derived row — mono still appears at tabs via mono|tabs|literal (chip); mono|tabs|derived is omitted because at zero travel, anchoring the bar and anchoring the tabs are the same operation, so that row could only duplicate mono|bar|derived. cap survives as a 4-row accent-led minority, split across the two groups (core in the literal half, deep in the derived half) — there neither large area is anchored, which is the inversion the big-area model exists to remove. Rows within a tier run safe -> wild by |travel|. Shared source of truth for the picker + setup theme list.'
-    printf '%s\n' \
-        'mono glow|mono|bar|literal|0'    'wheat glow|wheat|bar|literal|0' \
-        'mint glow|mint|bar|literal|0'    'amber glow|amber|bar|literal|0' \
-        'sage glow|sage|bar|literal|1'    'ember glow|ember|bar|literal|0' \
-        'teal glow|teal|bar|literal|1'    'coral glow|coral|bar|literal|0' \
-        'mono chip|mono|tabs|literal|0'   'wheat chip|wheat|tabs|literal|0' \
-        'mint chip|mint|tabs|literal|1'   'amber chip|amber|tabs|literal|0' \
-        'sage chip|sage|tabs|literal|1'   'ember chip|ember|tabs|literal|0' \
-        'teal chip|teal|tabs|literal|0'   'coral chip|coral|tabs|literal|1' \
-        'sage core|sage|cap|literal|1'    'teal core|teal|cap|literal|0' \
-        'mono soft|mono|bar|derived|1'    'wheat soft|wheat|bar|derived|1' \
-        'mint soft|mint|bar|derived|0'    'amber soft|amber|bar|derived|1' \
-        'sage soft|sage|bar|derived|0'    'ember soft|ember|bar|derived|0' \
-        'teal soft|teal|bar|derived|0'    'coral soft|coral|bar|derived|0' \
-        'wheat slate|wheat|tabs|derived|1' 'mint slate|mint|tabs|derived|0' \
-        'amber slate|amber|tabs|derived|1' 'sage slate|sage|tabs|derived|0' \
-        'ember slate|ember|tabs|derived|1' 'teal slate|teal|tabs|derived|1' \
-        'coral slate|coral|tabs|derived|0' \
-        'amber deep|amber|cap|derived|1'  'coral deep|coral|cap|derived|0'
-end
-
-function __tmux_lives_theme_catalog_default --description 'the curated default set (14): catalog rows flagged default=1'
-    # -e/--entire: plain `-r '\|1$'` outputs only the matched substring ("|1"),
-    # not the whole line, since the pattern isn't anchored at the start — a real
-    # fish landmine (verified empirically). --entire emits the full matching line.
-    __tmux_lives_theme_catalog | string match -re '\|1$'
-end
-
-function __tmux_lives_theme_catalog_rest --description 'the non-curated catalog rows (21): everything NOT flagged default=1, in catalog order. The picker appends these under the More Schemes header when expanded, so the curated 14 keep their positions instead of being reshuffled into tier order.'
-    # -v inverts; --entire is not needed with -v (it emits whole non-matching lines).
-    __tmux_lives_theme_catalog | string match -rv '\|1$'
 end
 
 # --- theme engine v6: catalog --------------------------------------------------
@@ -1678,7 +1608,7 @@ end
 function __tmux_lives_theme_catalog_v6_default --description 'v6: the curated 14 — catalog rows flagged default=1. Two arrangements per mode, chosen so all seven modes AND all six arrangements are reachable from a cold open.'
     # -e/--entire: a bare `-r '\|1$'` outputs only the matched substring ("|1"),
     # not the whole line, since the pattern isn't anchored at the start — the
-    # same fish landmine __tmux_lives_theme_catalog_default (v5, above) hits.
+    # same fish landmine the deleted v5 catalog_default function used to hit.
     __tmux_lives_theme_catalog_v6 | string match -re '\|1$'
 end
 
@@ -1724,138 +1654,6 @@ function __tmux_lives_theme_catalog_name --argument-names mode lspan peakc peakp
         end
     end
     return 1
-end
-
-function __tmux_lives_theme_reldef --argument-names name --description 'v5 relationship -> signed hue travel in degrees (warm negative, cool positive); unknown -> nothing'
-    switch "$name"
-        case mono;  echo 0
-        case wheat; echo -20
-        case amber; echo -40
-        case ember; echo -72
-        case coral; echo -100
-        case mint;  echo 20
-        case sage;  echo 40
-        case teal;  echo 72
-    end
-end
-
-function __tmux_lives_theme_family --argument-names hue --description 'v5 kin-cap family table: an OKLCH hue -> the minimum hue separation, in degrees, that the endcap keeps from the bar. Usually called at the BAR hue (place=bar|tabs); at place=cap the bar is what is being solved for, so the call site passes the SEED hue instead — a deliberate single-pass approximation, not an iteration (see the call site comment). Fitted in the 2026-07-20 calibration study (4 rounds, blind numbered tiles; ~84% of judgments explained, and the rule-generated validation batch scored 9/10 vs 5/10 pre-rule). Restored from the v3.3 kincap rule the v4 rewrite deleted, in the role it was actually fitted for: bar and endcap judged as a PAIR. Blue and red/pink are untested extrapolations — first suspects if a future seed misbehaves.'
-    set -l h (__tmux_lives_norm360 $hue)
-    if test $h -ge 40; and test $h -lt 90
-        echo 40
-    else if test $h -ge 90; and test $h -lt 160
-        echo 20
-    else if test $h -ge 160; and test $h -lt 210
-        echo 30
-    else if test $h -ge 210; and test $h -lt 280
-        echo 25
-    else if test $h -ge 280; and test $h -lt 330
-        echo 18
-    else
-        echo 15
-    end
-end
-
-function __tmux_lives_theme_curve --argument-names seedHex relationship place mode phase --description 'v5 core: TWO LARGE AREAS AND A BRIDGE. The seed anchors one large area (place = bar|tabs anchors a LARGE area; place = cap anchors the endcap instead (the accent-led minority) and solves the bar backwards); the relationship signed travel separates the OTHER large area from it; the endcap bridges at half that travel, floored at the calibrated family separation so it never collapses into the bar. Depth is FIXED per role — hue differentiates, lightness coheres. Derived: seed L/C damped into the ramp; literal: the placed role renders the seed verbatim. -> bar tabs cap (3 hexes). Non-hex seed / unknown relationship -> nothing.'
-    string match -qr '^#[0-9a-fA-F]{6}$' -- "$seedHex"; or return
-    set -l sd (__tmux_lives_theme_reldef "$relationship")
-    test -n "$sd"; or return
-    test -n "$phase"; or set phase 0
-    set -l rgb (__tmux_lives_hex_to_rgb01 $seedHex)
-    set -l ok (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-    set -l sL $ok[1]; set -l sC $ok[2]; set -l sH $ok[3]
-    # damped seed influence on the derived ramp
-    # (fish `test` compares floats with -lt/-gt; `math` has NO comparison ops)
-    set -l Ldamp (math "0.5 * ($sL - 0.51)")
-    test $Ldamp -lt -0.10; and set Ldamp -0.10
-    test $Ldamp -gt 0.10; and set Ldamp 0.10
-    set -l Cscale (math "0.5 * ($sC / 0.078 - 1) + 1")
-    test $Cscale -lt 0.6; and set Cscale 0.6
-    test $Cscale -gt 1.4; and set Cscale 1.4
-    # depth is FIXED per role: the bar is the dark ground, the tab bar one step lighter.
-    # 0.0713 is exactly what the deleted taper produced at zero travel (0.115 * 0.62),
-    # so mono's two large areas are byte-identical to the pre-rewrite engine.
-    set -l Lbar (math "0.40 + $Ldamp")
-    set -l Ltabs (math "0.51 + $Ldamp")
-    set -l Cbar (math "0.045 * $Cscale")
-    set -l Ctabs (math "0.0713 * $Cscale")
-    # signed bridge offset, measured FROM THE BAR: half the tab bar's travel. At
-    # place=tabs the bar is the one that travelled, so the tabs sit at -sd from it and
-    # the cap comes back toward them. Direction is the travel's, + when travel is zero.
-    set -l half (math "$sd / 2")
-    test "$place" = tabs; and set half (math "0 - $sd / 2")
-    set -l dir 1
-    test $half -lt 0; and set dir -1
-    # the seed anchors one large area; the OTHER travels by sd.
-    set -l capseed 0
-    set -l Hbar $sH
-    set -l Htabs $sH
-    switch "$place"
-        case tabs
-            set Hbar (math "$sH + $sd")
-        case cap
-            # the seed lands on the ENDCAP; solve the bar backwards. The bridge offset
-            # depends on the BAR's hue, which is what we are solving for, so the family
-            # separation is evaluated at the SEED's hue — a deliberate single pass, not
-            # an iteration. Deterministic and testable.
-            set capseed 1
-            set -l m0 (math "abs($sd / 2)")
-            set -l f0 (__tmux_lives_theme_family $sH)
-            test $m0 -lt $f0; and set m0 $f0
-            set Hbar (math "$sH - $dir * $m0")
-            set Htabs (math "$Hbar + $sd")
-        case '*'
-            set Htabs (math "$sH + $sd")
-    end
-    set Hbar (__tmux_lives_norm360 (math "$Hbar + $phase"))
-    set Htabs (__tmux_lives_norm360 (math "$Htabs + $phase"))
-    # clamp the L values (unrolled — avoids the $$var-indirection gotcha)
-    test $Lbar -lt 0.05; and set Lbar 0.05
-    test $Lbar -gt 0.95; and set Lbar 0.95
-    test $Ltabs -lt 0.05; and set Ltabs 0.05
-    test $Ltabs -gt 0.95; and set Ltabs 0.95
-    set -l bar (__tmux_lives_oklch_hex $Lbar $Cbar $Hbar)
-    set -l tabs (__tmux_lives_oklch_hex $Ltabs $Ctabs $Htabs)
-    # literal: the placed role renders the seed's EXACT hex (verbatim, not a recompute —
-    # an OKLCH round-trip can drift a channel). The anchor already lands that role's
-    # derived hue on the seed hue; this pins its L and C to the seed too.
-    if test "$mode" = literal
-        set -l s (string lower -- $seedHex)
-        switch "$place"
-            case tabs; set tabs $s
-            case cap;  # the cap is the seed — pinned below, where the cap is built
-            case '*';  set bar $s
-        end
-    end
-    # endcap = quiet BRIDGE off the RENDERED bar (so `literal` is honoured): half the
-    # travel, floored at the calibrated family separation.
-    set -l brgb (__tmux_lives_hex_to_rgb01 $bar)
-    set -l bok (__tmux_lives_rgb_to_oklch $brgb[1] $brgb[2] $brgb[3])
-    set -l Lcap (math "$bok[1] + 0.10")
-    test $bok[1] -ge 0.55; and set Lcap (math "$bok[1] - 0.10")
-    test $Lcap -lt 0.05; and set Lcap 0.05
-    test $Lcap -gt 0.95; and set Lcap 0.95
-    set -l cap
-    if test $capseed -eq 1
-        # the seed is placed HERE: verbatim in literal, at cap depth on the seed's hue
-        # in derived. Either way the cap is the anchor and does not move by relationship.
-        if test "$mode" = literal
-            set cap (string lower -- $seedHex)
-        else
-            set cap (__tmux_lives_oklch_hex $Lcap $bok[2] (__tmux_lives_norm360 (math "$sH + $phase")))
-        end
-    else
-        set -l mag (math "abs($half)")
-        set -l minsep (__tmux_lives_theme_family $bok[3])
-        test $mag -lt $minsep; and set mag $minsep
-        set -l Hcap (__tmux_lives_norm360 (math "$bok[3] + $dir * $mag"))
-        set cap (__tmux_lives_oklch_hex $Lcap $bok[2] $Hcap)
-    end
-    printf '%s\n' $bar $tabs $cap
-end
-
-function __tmux_lives_theme_valid --argument-names token --description 'true if token is a v5 relationship name'
-    contains -- "$token" (__tmux_lives_theme_relationships)
 end
 
 function __tmux_lives_theme_push --description 'internal: tmux set -g <option> <value> honoring the tmux_lives_tmux_socket test seam'

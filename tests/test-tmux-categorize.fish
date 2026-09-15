@@ -3780,7 +3780,7 @@ t "main routes theme-picker" yes (string match -q '*case theme-picker*' -- (func
 # Gallery picker rewrite, Task 2: _reload batches via the catalog now, not
 # the v4 relationship list directly (superseded — see the "Gallery picker
 # rewrite, Task 2" section further down for the catalog-wiring guards).
-t "picker batches palettes via the catalog" yes (string match -q '*__tmux_lives_theme_catalog*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
+t "picker batches palettes via the catalog" yes (string match -q '*__tmux_lives_theme_catalog_v6*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 t "picker applies through the CLI, silenced" yes (string match -q '*tmux-lives setup theme*>/dev/null 2>&1*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # The phase arrows retired with the phase field; the SAME drain now serves ↑↓
 # (and pgup/pgdn), which is what a held arrow needed all along — it used to
@@ -4123,7 +4123,7 @@ t "reload composed: exactly 14 curated names in catalog_v6_default" 14 (count $D
 t "reload composed: curated 14 come first, in catalog-default order" (string join \x1e -- $DEFNAMES7) (string join \x1e -- $TOKS7[1..14])
 
 # --- Theme v4 picker rewrite (Phase 2), Task 1: engine wiring in _reload/_init ---
-# _reload/_init must consume the v4 engine (__tmux_lives_theme_palette — 9-arg
+# _reload/_init must consume the v4 engine (the v5 palette function — 9-arg
 # when this task shipped; theme-surface-cleanup Task 3 later dropped the four
 # inert vividness/shape/ease/contrast trailers, so it's 5-arg now, see the Task 5
 # arity guard below) instead of the deleted v3 machinery (theme_schemes/theme_ring/rotpal/the
@@ -4158,7 +4158,7 @@ t "rotpal function fully removed" 0 (functions -q __tcz_thp_rotpal; and echo 1; 
 # install.fish, --place/--mode flags) — this guard is scoped to $pbody only.
 t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*' -- "$pbody"; and echo 1; or echo 0)
 
-# Task 5: every __tmux_lives_theme_palette call in the picker body must carry
+# Task 5: every v5 palette-function call in the picker body must carry
 # the full v4 signature (seed relationship place mode phase) — a regression
 # to a shorter call would silently drop a param and desync the preview from
 # what the engine actually renders. theme-surface-cleanup Task 3 (2026-08-06)
@@ -4171,7 +4171,7 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # direct per-keystroke recompute in case left/right); drop-autoapply-
 # debounce-seed Task 2 removed it outright — a channel keypress now costs
 # zero palette calls — so the count below is back to 2.
-# Task 7 (v6 recipes): __tmux_lives_theme_palette (v5, seed+relationship+
+# Task 7 (v6 recipes): the v5 palette function (seed+relationship+
 # place+mode+phase, 5-arg) is replaced by __tmux_lives_theme_render (v6,
 # seed+mode+lspan+peakc+peakpos+arrangement, 6-arg) — same TWO call sites
 # (reload + reanchor), one more argument each since the recipe grew a field.
@@ -4196,15 +4196,15 @@ end
 # --- Gallery picker rewrite, Task 2: _reload/_init consume the catalog ------
 # Supersedes the "Task 1" engine-wiring section above (relationship-axis v4
 # picker): the picker no longer treats place/mode as top-level knobs — they
-# are now per-catalog-entry fields, read out of __tmux_lives_theme_catalog /
-# __tmux_lives_theme_catalog_default rows in _reload. The palette signature
+# are now per-catalog-entry fields, read out of the v5 catalog /
+# catalog-default rows in _reload. The palette signature
 # itself is unchanged in shape (still relationship/place/mode positionally,
 # just sourced from a catalog row instead of picker vars) — theme-surface-
 # cleanup Task 3 shortened it 9->5 args, dropping the inert trailers.
 # Task 7 (v6 recipes): catalog_default -> catalog_v6_default (14 rows, same
 # count, new name); the palette signature grew 5->6 args (mode/lspan/peakc/
 # peakpos/arrangement replacing relationship/place/mode/phase).
-t "picker uses catalog"             1 (string match -q '*__tmux_lives_theme_catalog*' -- "$pbody"; and echo 1; or echo 0)
+t "picker uses catalog"             1 (string match -q '*__tmux_lives_theme_catalog_v6*' -- "$pbody"; and echo 1; or echo 0)
 t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_catalog_v6_default*' -- "$pbody"; and echo 1; or echo 0)
 t "picker drops relationships iter" 0 (string match -q '*for tok in (__tmux_lives_theme_relationships)*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; and echo 1; or echo 0)
@@ -4706,7 +4706,7 @@ t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | co
 # cannot be satisfied by deleting the calls outright. picker-seed-section
 # Task 6's third (case left/right's direct per-keystroke recompute) is gone
 # again — drop-autoapply-debounce-seed Task 2 removed it, back to 2. Task 7
-# (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render,
+# (v6 recipes): the v5 palette function was replaced by __tmux_lives_theme_render,
 # same two call sites (reload + reanchor). Task 8 review fix: a third site
 # (case z, rendering the rolled recipe once per roll) — 2 -> 3.
 # Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
@@ -5210,7 +5210,7 @@ t "consolidated guard: no --rotate flag"     0 (string match -q '*--rotate*' -- 
 t "consolidated guard: titled current zsep retired" 0 (string match -q "*__tcz_thp_zsep \$IW 'current'*" -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: uses __tcz_thp_leg"   1 (string match -q '*__tcz_thp_leg 3*' -- "$pk2"; and echo 1; or echo 0)
 t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz_thp_vismap 10 10 down) -eq 9; and test (__tcz_thp_vismap 11 10 down) -eq 9; and echo 1; or echo 0)
-# Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
+# Task 7 (v6 recipes): the v5 palette function -> __tmux_lives_theme_render.
 # Task 8 review fix: case z's new once-per-roll render joins reload+reanchor. 2 -> 3.
 # Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
 # FOURTH, legitimate site — rebuilding rollpals/rollfgs/rolltabsfgs for a
@@ -7828,7 +7828,7 @@ set -g EB6 (awk '/^function __tcz_theme_picker/,/^end$/' $catfile | string colle
 t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0)
 # Count call sites rather than pattern-matching across lines. A multiline regex over
 # a 700-line body is fragile and hard to prove non-vacuous; a count is neither.
-# Task 7 (v6 recipes): __tmux_lives_theme_palette -> __tmux_lives_theme_render.
+# Task 7 (v6 recipes): the v5 palette function -> __tmux_lives_theme_render.
 # Task 8 review fix: a genuinely NEW third site (case z, once per roll) — not
 # a regression of the per-keystroke recompute this section verifies is gone;
 # case left/right still contributes zero. 2 -> 3.
@@ -7841,7 +7841,7 @@ t "picker back to exactly 4 render call sites" 4 (string match -ra '__tmux_lives
 # Perf fence retained: one palette call must stay well under a redraw budget —
 # still relevant to the batch's own cost, just no longer paid per keystroke.
 # Task 7 (v6 recipes): times the picker's actual engine call now,
-# __tmux_lives_theme_render, not the retired __tmux_lives_theme_palette.
+# __tmux_lives_theme_render, not the retired (now-deleted) v5 palette function.
 set -g T6A (date +%s%N)
 __tmux_lives_theme_render '#5f772b' mono 0.55 0.11 0.50 deep >/dev/null
 set -g T6B (date +%s%N)
@@ -7944,7 +7944,7 @@ function __tcz_thp_reload --description 'test stub (picker-seed-section Task 6):
     set -g __t6_reload_calls (math $__t6_reload_calls + 1)
 end
 
-# __tmux_lives_theme_render (Task 7 renamed from __tmux_lives_theme_palette)
+# __tmux_lives_theme_render (Task 7 renamed from the v5 palette function)
 # ALSO stubbed as a call counter here — this IS the Task 2 discriminator: a
 # channel keypress must cost ZERO engine calls, not merely skip the batch
 # reload. A mistaken implementation that still recomputed the cursor row
@@ -8860,60 +8860,11 @@ t "I-1: anchpal writes are confined to __tcz_thp_reanchor" yes (test "$RWPANCHCO
 # assertion passes.
 set -g A6PICK (functions __tcz_theme_picker | string collect)
 t "picker: sources the v6 catalog" 1 (string match -q '*__tmux_lives_theme_catalog_v6_default*' -- "$A6PICK"; and echo 1; or echo 0)
-t "picker: no v5 catalog call remains" 0 (string match -q '*__tmux_lives_theme_catalog_default*' -- (string replace -a '__tmux_lives_theme_catalog_v6_default' 'X' -- "$A6PICK"); and echo 1; or echo 0)
-t "picker: no v5 palette call remains" 0 (string match -q '*__tmux_lives_theme_palette*' -- "$A6PICK"; and echo 1; or echo 0)
 t "picker: renders through the v6 entry point" 1 (string match -q '*__tmux_lives_theme_render*' -- "$A6PICK"; and echo 1; or echo 0)
 t "picker: body was actually captured" 1 (test (string length "$A6PICK") -gt 2000; and echo 1; or echo 0)
 set -g A6APPLY (functions __tcz_thp_apply_and_recolor | string collect)
 t "apply_and_recolor: body was actually captured" 1 (test (string length "$A6APPLY") -gt 200; and echo 1; or echo 0)
 t "apply_and_recolor: no phase argument remains" 0 (string match -q '*anch_phase*' -- "$A6APPLY"; and echo 1; or echo 0)
-
-# --- Task 9: no production code still calls the v5 engine -------------------
-# The picker-scoped checks above (A6PICK/A6APPLY) only cover
-# __tcz_theme_picker and __tcz_thp_apply_and_recolor. This is the
-# whole-file version: the v5 engine (__tmux_lives_theme_palette) must have
-# no CALLERS anywhere in either production file, though it stays DEFINED —
-# deleting it is a separate, trivially revertible commit once v6 has proven
-# itself live in the real world, not this task's job.
-set -g A6SRC (cat $plugindir/conf.d/tmux-lives-install.fish | string collect)
-set -g A6CAT (cat $plugindir/functions/tmux-categorize.fish | string collect)
-t "v5: install source was captured" 1 (test (string length "$A6SRC") -gt 10000; and echo 1; or echo 0)
-t "v5: categorize source was captured" 1 (test (string length "$A6CAT") -gt 10000; and echo 1; or echo 0)
-t "v5: the categorizer no longer calls theme_palette" 0 (string match -q '*__tmux_lives_theme_palette*' -- "$A6CAT"; and echo 1; or echo 0)
-# Count only lines that are neither the definition nor a comment; a plain
-# occurrence count would include the definition line itself and any prose
-# mentioning the name, and would break the moment a comment gets reworded.
-#
-# Two gotchas fixed from the first draft of this guard, both invisible until
-# tested against real data:
-# (1) `\n` as a `string split` separator must be UNQUOTED (or double-quoted).
-#     Single-quoted `'\n'` is the literal two characters backslash+n, which
-#     fish does NOT unescape, so it splits on stray literal "\n" occurrences
-#     inside the file's own printf format strings instead of real newlines —
-#     2,269 real lines collapsed to 56 "lines" here. Every other line-split
-#     call site in this file already uses unquoted \n; this now matches them.
-# (2) `string match -r 'PATTERN'` with no capturing group and no `.*` anchors
-#     returns only the MATCHED SUBSTRING, not the whole line — so a filter
-#     chained after it (`string match -rv '^function '`) is comparing against
-#     "__tmux_lives_theme_palette" itself, which never starts with "function
-#     " or "#", and therefore excludes NOTHING: every line mentioning the
-#     name, including its own definition, would count as a "caller". Proven
-#     by replicating the exact original pipeline against a synthetic
-#     comment/definition/caller fixture: it returned 3, not 1. Fixed by using
-#     GLOB-mode `string match` for the "contains" test (glob mode returns the
-#     whole line on a match) and keeping `-rv` (regex, inverted) for the
-#     exclusions — inverted matches always pass the whole line through
-#     unmodified, which is what makes -v safe here and -r-without-v not.
-#
-# RED proof (manual, not re-run automatically): temporarily adding a real
-# call `__tmux_lives_theme_palette $seedhex mono bar derived 0` inside
-# __tmux_lives_render_fragment moved this assertion's actual count from 0 to
-# 1, confirming the fixed guard discriminates; reverted and diffed
-# byte-identical to the pre-mutation file before committing.
-set -l A6PLINES (string split -- \n -- "$A6SRC")
-t "v5: theme_palette has no callers left in the install file" 0 (count (string match '*__tmux_lives_theme_palette*' -- $A6PLINES | string match -rv '^\s*#' | string match -rv '^function '))
-t "v5: theme_palette is still defined" 1 (count (string match -r '^function __tmux_lives_theme_palette' -- $A6PLINES))
-
 
 # --- Task 6: colour ordering --------------------------------------------------
 # Fixed-width keys so a plain lexicographic sort is a correct numeric sort.

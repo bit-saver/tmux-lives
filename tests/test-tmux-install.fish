@@ -366,12 +366,6 @@ set -g FRAGH (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t M-r C-
 t "theme-picker bind uses a percentage height" yes (string match -q '*-w 52 -h 85%*' -- "$FRAGH"; and echo yes; or echo no)
 t "theme-picker bind no longer pins 26 rows" no (string match -q '*-w 52 -h 26*' -- "$FRAGH"; and echo yes; or echo no)
 
-# The engine must produce the SAME colours as before — this is a refactor, not a
-# derivation change. Pinned as literal hexes so it cannot drift silently.
-set -g P5 (__tmux_lives_theme_palette '#5f772b' amber bar derived 0)
-t "palette still returns 7 roles from 5 args" 7 (count $P5)
-t "palette bar unchanged by the refactor" '#44502f' $P5[1]
-
 # apply_live's explicit form is now exactly 5 args (the v6 recipe).
 t "apply_live explicit form documents 5 args" yes (string match -q '*5 args*' -- (functions __tmux_lives_theme_apply_live | string collect); and echo yes; or echo no)
 
@@ -1212,8 +1206,9 @@ set -gx PATH $rl_path_save
 rm -rf $rlshim $rlconf
 
 # theme_arc/barpos/kincap/kintabs/roles/sample/ring + their v3.1/v3.2/v3.3 unit
-# tests (bar/palette-recipe internals) retired with the v3 gradient-map engine —
-# see __tmux_lives_theme_curve/_accents (v4) and their tests below.
+# tests (bar/palette-recipe internals) retired with the v3 gradient-map engine;
+# their v4 successors (the curve/accents big-area engine) were themselves
+# retired as the v5 engine (2026-09-14) — see git history for both.
 
 # Task 2: seed parsing (css -> #rrggbb; named colors have no derivable hue -> empty)
 t "seed_hex passthrough" "#485b3c" (__tmux_lives_seed_hex "#485b3c")
@@ -1706,167 +1701,9 @@ set -e tmux_lives_theme_peakpos
 set -e tmux_lives_theme_arrangement
 functions -e __tmux_lives_theme_apply_live; functions -c __tal_bak __tmux_lives_theme_apply_live; functions -e __tal_bak
 
-# v4 gallery catalog: 28 curated schemes, 12 flagged default, each a valid engine input
-t "catalog has 35 entries" 35 (count (__tmux_lives_theme_catalog))
-t "catalog default is 14"  14 (count (__tmux_lives_theme_catalog_default))
-t "catalog entries are 5 fields" 5 (count (string split '|' (__tmux_lives_theme_catalog | head -1)))
-t "catalog default subset of all" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|1$')) -eq 14; and echo 1; or echo 0)
-# every recipe is a valid engine input -> 7-hex palette
-set -l bad 0
-for e in (__tmux_lives_theme_catalog)
-    set -l f (string split '|' $e)
-    set -l p (__tmux_lives_theme_palette '#5f772b' $f[2] $f[3] $f[4] 0)
-    test (count $p) -eq 7; or set bad (math $bad + 1)
-end
-t "every catalog recipe yields 7 hexes" 0 $bad
 # theme_list renders the v6 catalog now (Task 4); "ember glow" was a v5 catalog
 # name and no longer appears. "mono deep" is the v6 catalog's one hand-placed row.
 t "theme list names mono deep" 1 (string match -q '*mono deep*' -- (__tmux_lives_theme_list | string collect); and echo 1; or echo 0)
-
-# --- catalog composition (2026-07-28 weeding pass) ------------------------------------
-# The seed was verbatim at bar (glow) and cap (core) but NEVER at tabs — 0 of the 28 rows
-# the catalog held at the time — so the "chip" tier exists to close that. (The ember-at-cap
-# cut this section used to argue from the deleted taper's chroma-clamp behavior; that
-# reasoning no longer applies to this engine. What survives below — "cap placement holds
-# exactly 4" plus the four named cap-row presence assertions — pins the 4 cap-row NAMES
-# exactly, but matches by NAME (`^amber deep\|`, etc.), not by recipe, so it would not by
-# itself catch a row still named e.g. "amber deep" whose underlying relationship field had
-# been changed to ember.)
-t "catalog: tabs+literal tier exists (the chip tier)" 1 (test (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|')) -ge 1; and echo 1; or echo 0)
-t "catalog: amber chip present" 1 (string match -q '*amber chip|amber|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
-t "catalog: sage chip present" 1 (string match -q '*sage chip|sage|tabs|literal*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
-t "catalog: coral chip is a default" 1 (string match -q '*coral chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
-# Tier composition, pinned EXACTLY. bar and tabs are symmetric (8 relationships x
-# derived/literal each) because both are now first-class dominant placements — EXCEPT
-# mono, which has no tabs row (see below); cap survives as a 4-row accent-led minority,
-# split across the literal/derived groups by Task 8's reorder (core in the literal
-# half, deep in the derived half — see the "literal groups first" section below).
-t "catalog: soft is 8 (bar derived)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|derived\|'))
-t "catalog: glow is 8 (bar literal)"   8 (count (__tmux_lives_theme_catalog | string match -r '\|bar\|literal\|'))
-t "catalog: slate is 7 (tabs derived)" 7 (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|derived\|'))
-t "catalog: chip is 8 (tabs literal)"  8 (count (__tmux_lives_theme_catalog | string match -r '\|tabs\|literal\|'))
-t "catalog: cap placement holds exactly 4" 4 (count (__tmux_lives_theme_catalog | string match -r '\|cap\|'))
-# mono is structurally exempt from "both large placements": mono's signed travel is 0,
-# so anchoring the bar and anchoring the tabs are literally the same operation — a
-# mono|tabs|derived row could only ever duplicate mono|bar|derived, which is exactly
-# the byte-identical duplicate ("mono slate") a prior weeding pass removed. No OTHER
-# relationship has zero travel, so no other relationship is exempt.
-t "catalog: every relationship appears at both large placements (mono exempt)" 0 (set -l bad 0; for r in wheat mint amber sage ember teal coral; for pl in bar tabs; test (count (__tmux_lives_theme_catalog | string match -r "\|$r\|$pl\|")) -eq 2; or set bad (math $bad + 1); end; end; echo $bad)
-# the exemption is specifically the tabs|derived (slate) tier — mono keeps its
-# tabs|literal (chip) row, which is NOT a duplicate: literal mode pins the seed's exact
-# L/C to whichever role is placed, so mono chip (seed pinned at tabs) differs from mono
-# glow (seed pinned at bar) even though both share mono's single hue.
-t "catalog: mono absent from tabs-derived (would dup mono soft)" 0 (count (__tmux_lives_theme_catalog | string match -r '\|mono\|tabs\|derived\|'))
-t "catalog: mono still present at tabs-literal (chip; legitimately distinct)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|mono\|tabs\|literal\|'))
-t "catalog: mono slate removed (was a byte-identical dup of mono soft)" 0 (string match -q '*mono slate*' -- (__tmux_lives_theme_catalog | string collect); and echo 1; or echo 0)
-# all four cap rows exist in the catalog, but only 2 of the 4 (amber deep,
-# sage core — see "curated cap rows" below) are curated defaults; coral deep
-# and teal core are catalog-only, reachable via `m`/More Schemes.
-t "catalog: amber deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^amber deep\|'))
-t "catalog: coral deep present" 1 (count (__tmux_lives_theme_catalog | string match -r '^coral deep\|'))
-t "catalog: sage core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^sage core\|'))
-t "catalog: teal core present"  1 (count (__tmux_lives_theme_catalog | string match -r '^teal core\|'))
-t "catalog: cap rows in defaults" 2 (count (__tmux_lives_theme_catalog_default | string match -r '\|cap\|'))
-# Task 8 reordered tiers to group literal-before-derived, so cap is no longer one
-# contiguous block at the tail: core (cap, literal) sorts last within the literal
-# half (right after chip), and deep (cap, derived) sorts last within the derived
-# half (the very end of the catalog). Both fail pre-fix (0, not the pinned 2).
-t "catalog: rows 17-18 are the core tier (cap literal, closing the literal half)" 2 (count (string match -r '\|cap\|literal\|' -- (__tmux_lives_theme_catalog)[17..18]))
-t "catalog: the last 2 rows are the deep tier (cap derived, closing the derived half)" 2 (count (string match -r '\|cap\|derived\|' -- (__tmux_lives_theme_catalog)[-2..-1]))
-# the 14 curated default NAMES after Task 4 rebalance toward tabs — this
-# label used to say "unchanged", which was already wrong when written: it
-# pins the rebalanced set, not a pre-rebalance baseline.
-t "catalog: default names after the tabs rebalance" "amber deep amber slate amber soft coral chip ember slate mint chip mono soft sage chip sage core sage glow teal glow teal slate wheat slate wheat soft" (__tmux_lives_theme_catalog_default | string replace -r '\|.*' '' | sort | string join ' ')
-t "catalog: wheat chip exists (tabs literal kept)" 1 (count (__tmux_lives_theme_catalog | string match -r '\|wheat\|tabs\|literal\|'))
-t "catalog: wheat soft is a default" 1 (string match -q '*wheat soft*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
-t "catalog: mint chip is a default" 1 (string match -q '*mint chip*' -- (__tmux_lives_theme_catalog_default | string collect); and echo 1; or echo 0)
-
-# --- Task 4: curated 14 rebalanced toward tabs ----------------------------------
-# The tab bar is the dominant surface on screen; tabs placement is where a scheme
-# reaches it, and it was 2 of the 14 rows shown on open. Pin the composition
-# EXACTLY — a `>=` bound passed against the pre-cut catalog during the 2026-07-28
-# weeding pass and hid a real composition change.
-set -g CD4 (__tmux_lives_theme_catalog_default)
-t "curated set is still 14" 14 (count $CD4)
-t "curated bar rows"  5 (printf '%s\n' $CD4 | awk -F'|' '$3=="bar"'  | count)
-t "curated tabs rows" 7 (printf '%s\n' $CD4 | awk -F'|' '$3=="tabs"' | count)
-t "curated cap rows"  2 (printf '%s\n' $CD4 | awk -F'|' '$3=="cap"'  | count)
-# Counts alone cannot see a swap — pin the names too.
-set -g CD4N (printf '%s\n' $CD4 | awk -F'|' '{print $1}' | sort | string join ',')
-t "curated names" 'amber deep,amber slate,amber soft,coral chip,ember slate,mint chip,mono soft,sage chip,sage core,sage glow,teal glow,teal slate,wheat slate,wheat soft' "$CD4N"
-# Every relationship must still be reachable from the opening view.
-for r in mono wheat mint amber ember coral sage teal
-    set -l hits (printf '%s\n' $CD4 | awk -F'|' -v r=$r '$2==r' | count)
-    t "curated covers $r" yes (test $hits -ge 1; and echo yes; or echo no)
-end
-
-# --- Task 5: the non-default rows, as their own list ----------------------------
-t "catalog_rest exists" 0 (functions -q __tmux_lives_theme_catalog_rest; echo $status)
-set -g CR5 (__tmux_lives_theme_catalog_rest)
-t "catalog_rest returns the other 21" 21 (count $CR5)
-t "catalog_rest + default = the whole catalog" (__tmux_lives_theme_catalog | count) (math (count $CR5) + (__tmux_lives_theme_catalog_default | count))
-# Non-regression guard: passes vacuously pre-fix (empty set vs 14 curated = 0 common rows,
-# expects 0) and after (21 distinct rows vs 14 curated = still 0 common). Catches future
-# regressions if either set is computed incorrectly. Not a fix-discriminator.
-t "catalog_rest and default do not overlap" 0 (comm -12 (printf '%s\n' $CR5 | sort | psub) (__tmux_lives_theme_catalog_default | sort | psub) | count)
-t "catalog_rest preserves catalog order" yes (test "$CR5[1]" = (__tmux_lives_theme_catalog | string match -rv '\|1$' | head -1); and echo yes; or echo no)
-
-# --- Task 7: expanding APPENDS, it does not reshuffle ----------------------------
-# The full catalog is in TIER order, so the curated rows are scattered through it;
-# swapping the row source wholesale is what made expanding "completely rewrite the
-# entire list". Composing default-then-rest keeps the first 14 exactly where they
-# were, which is the actual fix — preserving the cursor by name treated a symptom.
-set -g ORD7 (__tmux_lives_theme_catalog_default) (__tmux_lives_theme_catalog_rest)
-t "composed list is the whole catalog" 35 (count $ORD7)
-t "composed list has no duplicates" 35 (printf '%s\n' $ORD7 | sort -u | count)
-set -g CDN7 (__tmux_lives_theme_catalog_default | awk -F'|' '{print $1}' | string join ',')
-set -g ORDN7 (printf '%s\n' $ORD7[1..14] | awk -F'|' '{print $1}' | string join ',')
-t "first 14 of the composed list are the curated 14, in order" "$CDN7" "$ORDN7"
-
-# --- Task 8: catalog ordered seed-literal first ----------------------------------
-# The user is comparing seed-literal schemes against seed-derived ones as groups
-# ("I may be noticing trends between the seed-figurative schemes and the
-# seed-literal schemes") and asked, when offered the choice, for "seed literal
-# first". Literal is the PRIMARY sort: all 18 literal rows (glow/chip/core) precede
-# all 17 derived rows (soft/slate/deep), with the bar -> tabs -> cap progression
-# preserved inside each half. Pure reorder — same 35 rows, same 14 curated, only
-# __tmux_lives_theme_catalog's row SEQUENCE changed; _default and _rest are both
-# filters over it, so both inherit the new order for free.
-set -g CAT8 (__tmux_lives_theme_catalog)
-t "catalog is still 35 rows" 35 (count $CAT8)
-t "catalog still has 14 defaults" 14 (count (__tmux_lives_theme_catalog_default))
-t "18 rows are literal, 17 are derived" '18 17' (string join ' ' (count (string match -r '\|literal\|' -- $CAT8)) (count (string match -r '\|derived\|' -- $CAT8)))
-# literal rows all precede derived rows: the LAST literal index must be less than
-# the FIRST derived index (a stronger check than counting — it fails if even one
-# row is out of place, not just if the totals are off).
-set -g __t8_lastlit 0
-set -g __t8_firstder 999
-for i in (seq (count $CAT8))
-    set -l f (string split '|' -- $CAT8[$i])
-    if test "$f[4]" = literal
-        set __t8_lastlit $i
-    else if test $i -lt $__t8_firstder
-        set __t8_firstder $i
-    end
-end
-t "every literal row precedes every derived row" 1 (test $__t8_lastlit -lt $__t8_firstder; and echo 1; or echo 0)
-t "the first catalog row is literal" literal (string split '|' -- $CAT8[1])[4]
-t "the last catalog row is derived" derived (string split '|' -- $CAT8[-1])[4]
-# bar -> tabs -> cap progression preserved inside each half (glow/chip/core, then
-# soft/slate/deep) — spot-check via the placement of the first row of each tier.
-t "row 1 (start of literal half) is bar-placed (glow)" bar (string split '|' -- $CAT8[1])[3]
-t "row 9 (after 8 glow rows) is tabs-placed (chip)" tabs (string split '|' -- $CAT8[9])[3]
-t "row 17 (after 8 chip rows) is cap-placed (core)" cap (string split '|' -- $CAT8[17])[3]
-t "row 19 (start of derived half) is bar-placed (soft)" bar (string split '|' -- $CAT8[19])[3]
-t "row 27 (after 8 soft rows) is tabs-placed (slate)" tabs (string split '|' -- $CAT8[27])[3]
-t "row 34 (after 7 slate rows) is cap-placed (deep)" cap (string split '|' -- $CAT8[34])[3]
-# _default and _rest are filters over the (now reordered) catalog, so the default
-# NAMES and count are unaffected by Task 8 — already pinned exactly by "catalog:
-# default names after the tabs rebalance" above (still passing, sorted so
-# order-independent), which is the discriminator for "did the default SET survive
-# the reorder", not a new assertion here.
-set -e __t8_lastlit
-set -e __t8_firstder
 
 # list renders one row per catalog entry (28), each with a 7-cell truecolor strip
 # v6 catalog is 42 rows (was 35 under v5).
@@ -1925,7 +1762,7 @@ __tmux_lives_theme_apply_live
 # theme-v6-surface Task 4: apply_live's 0-arg path now reads the v6 recipe universals
 # (tmux_lives_theme/_lspan/_peakc/_peakpos/_arrangement), all unset here so it falls
 # to their defaults mono/0.55/0.11/0.50/deep — render THAT with __tmux_lives_theme_render
-# (v6), not the old __tmux_lives_theme_palette (v5); "mono" names the same idea in both
+# (v6), not the old (now-deleted) v5 palette engine; "mono" names the same idea in both
 # engines but the engines produce different hexes for it, so comparing against the v5
 # function would compare two different colours by coincidence of a shared name.
 set -g THMONO (__tmux_lives_theme_render '#485b3c' mono 0.55 0.11 0.50 deep)
@@ -1950,16 +1787,6 @@ set -g __fish_config_dir $_th_fcd
 
 functions -e __tmux_lives_write_fragment; functions -c __wfth_bak __tmux_lives_write_fragment; functions -e __wfth_bak
 
-# coarse perf guard (environment-tolerant, like the truncate guard): one
-# in-process 10-scheme batch must complete well under a second.
-set -l _pt0 (date +%s%N)
-for _tok in (__tmux_lives_theme_relationships)
-    __tmux_lives_theme_palette '#485b3c' $_tok bar derived 0 >/dev/null
-end
-set -l _pt1 (date +%s%N)
-set -l _ptms (math "($_pt1 - $_pt0) / 1000000")
-t "perf: in-process 10-palette batch < 1000ms" 1 (test $_ptms -lt 1000; and echo 1; or echo 0)
-
 # universal-variable semantics that broke the picker save path (2026-07-17):
 # `fish --no-config` neither reads nor writes universal variables — a set -U
 # there is process-local and invisible to every other fish. The picker fix
@@ -1981,17 +1808,6 @@ end
 
 # ---- v4: relationship table ----
 t "relationships list" "mono wheat amber ember coral mint sage teal" (__tmux_lives_theme_relationships | string join ' ')
-t "reldef wheat warm 20"  -20  (__tmux_lives_theme_reldef wheat)
-t "reldef mint cool 20"   20   (__tmux_lives_theme_reldef mint)
-t "reldef mono is flat"   0    (__tmux_lives_theme_reldef mono)
-t "reldef amber warm 40"  -40  (__tmux_lives_theme_reldef amber)
-t "reldef ember warm 72"  -72  (__tmux_lives_theme_reldef ember)
-t "reldef coral warm 100" -100 (__tmux_lives_theme_reldef coral)
-t "reldef sage cool 40"   40   (__tmux_lives_theme_reldef sage)
-t "reldef teal cool 72"   72   (__tmux_lives_theme_reldef teal)
-t "reldef unknown empty"  ""   (__tmux_lives_theme_reldef nope)
-t "valid ember" 0 (__tmux_lives_theme_valid ember; echo $status)
-t "valid junk"  1 (__tmux_lives_theme_valid junk; echo $status)
 
 # ---- update staleness: which shells actually need `exec fish` ----
 # fisher sources the plugin's files into the shell that ran the update, so THAT shell is
@@ -2055,269 +1871,6 @@ t "note: keeps the exec fish advice when NOT autoreloaded" 1 (string match -q '*
 # unset one in the other shells either, so auto-reload does not rescue this case.
 t "note: still advises exec fish elsewhere when a function was removed, even autoreloaded" 1 (string match -q '*in each*' -- (__tmux_lives_update_note 1 "__gone" "Alpha" 1 | string collect); and echo 1; or echo 0)
 
-# ---- v5: kin-cap family table ----
-# Fitted in the 2026-07-20 calibration study (4 rounds, user as blind subject, ~84% of
-# judgments explained; the rule-generated validation batch scored 9/10 vs 5/10 pre-rule).
-# Restored from the v3.3 kincap rule the v4 rewrite deleted.
-# The function must EXIST. Without this, every assertion below is invisible: when a
-# command substitution calls an undefined function fish aborts the whole statement, so
-# `t` never runs, nothing prints, and — because the aborted `t` call also skips the
-# fail counter — this suite still says ALL PASS. This suite DOES count ($pass/$fail,
-# reported at the bottom of the file); the count only catches this class of bug if
-# someone diffs it against a prior run, since a silently-skipped `t` still reports
-# ALL PASS on its own.
-t "family fn exists" 1 (functions -q __tmux_lives_theme_family; and echo 1; or echo 0)
-set -l f60 (__tmux_lives_theme_family 60)
-t "family warm/earth 40"           40 "$f60"
-set -l f125 (__tmux_lives_theme_family 125)
-t "family olive/green 20"          20 "$f125"
-set -l f185 (__tmux_lives_theme_family 185)
-t "family teal 30"                 30 "$f185"
-set -l f240 (__tmux_lives_theme_family 240)
-t "family blue 25"                 25 "$f240"
-set -l f300 (__tmux_lives_theme_family 300)
-t "family purple 18"               18 "$f300"
-set -l f10 (__tmux_lives_theme_family 10)
-t "family red low 15"              15 "$f10"
-set -l f350 (__tmux_lives_theme_family 350)
-t "family red high 15"             15 "$f350"
-set -l f40 (__tmux_lives_theme_family 40)
-t "family lower bound 40 is warm"  40 "$f40"
-set -l f90 (__tmux_lives_theme_family 90)
-t "family upper bound 90 is olive" 20 "$f90"
-set -l f485 (__tmux_lives_theme_family 485)
-t "family wraps past 360"          20 "$f485"
-
-# ---- the ink is NOT part of the big-area rewrite: pin it byte-identical ----
-# __tmux_lives_theme_accents is deliberately untouched (the user's instruction: "the ink
-# isn't what needs changing currently"). These four hexes are its output at a fixed bar,
-# captured from the pre-rewrite engine. If a later refactor drifts the ink, this fails.
-set -l ink (__tmux_lives_theme_accents '#405733' '#6cb040')
-t "ink returns 4"  4         (count $ink)
-t "ink sep"        '#7f8a78' $ink[1]
-t "ink active"     '#cfdcc9' $ink[2]
-t "ink windows"    '#a0b198' $ink[3]
-t "ink text"       '#cfdcc8' $ink[4]
-# the cap argument is declared and unused — documented as intentional for now, not a bug
-# to fix in this cycle. Changing the cap must not change the ink.
-set -l ink2 (__tmux_lives_theme_accents '#405733' '#ff0000')
-t "ink is independent of the cap argument" "$ink" "$ink2"
-
-# ---- v5: curve — two large areas and a bridge ----
-function _oklch_of --argument-names hex   # -> "L C H"
-    set -l r (__tmux_lives_hex_to_rgb01 $hex)
-    __tmux_lives_rgb_to_oklch $r[1] $r[2] $r[3]
-end
-function _dhue --argument-names a b       # circular |a-b| in degrees
-    set -l d (math "abs($a - $b)")
-    test $d -gt 180; and set d (math "360 - $d")
-    echo $d
-end
-set -l seed '#5f772b'          # L .533  C .106  H 124.7 -> family 20
-set -l so (_oklch_of $seed)
-set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
-t "curve returns 3" 3 (count $tri)
-for i in 1 2 3
-    t "curve role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $tri[$i]; and echo 1; or echo 0)
-end
-
-# ANCHOR INVARIANCE — the placed large area never moves between relationships.
-# This is the whole point of the rewrite: there is always something to defer to.
-set -l anchor_bar
-set -l anchor_tabs
-for r in mono wheat mint amber sage ember teal coral
-    set -l pb (__tmux_lives_theme_curve $seed $r bar derived 0)
-    set -l pt (__tmux_lives_theme_curve $seed $r tabs derived 0)
-    set -a anchor_bar $pb[1]
-    set -a anchor_tabs $pt[2]
-end
-t "anchor: the bar is invariant at place=bar"   1 (test (count (printf '%s\n' $anchor_bar | sort -u)) -eq 1; and echo 1; or echo 0)
-t "anchor: the tabs are invariant at place=tabs" 1 (test (count (printf '%s\n' $anchor_tabs | sort -u)) -eq 1; and echo 1; or echo 0)
-set -l abo (_oklch_of $anchor_bar[1])
-set -l dseed (_dhue $abo[3] $so[3])
-t "anchor: the bar holds the seed hue" 1 (test $dseed -lt 2; and echo 1; or echo 0)
-
-# TRAVEL — the OTHER large area sits |sd| away from the anchor.
-# Tolerance 2 deg: assertions run on RENDERED hexes, which quantise to 8-bit sRGB and
-# gamut-clamp. This loop only exercises place=bar; measured worst error there at this
-# seed is 0.732351 deg. For the record (not asserted by this loop): place=tabs worst is
-# 0.994518 deg, place=cap worst is 1.069721 deg — over half the 2 deg tolerance, a
-# thinner margin than the old "0.99 deg" comment here implied.
-set -l travbad 0
-for r in mono wheat mint amber sage ember teal coral
-    set -l sd (__tmux_lives_theme_reldef $r)
-    set -l p (__tmux_lives_theme_curve $seed $r bar derived 0)
-    set -l hb (_oklch_of $p[1])
-    set -l ht (_oklch_of $p[2])
-    set -l got (_dhue $ht[3] $hb[3])
-    set -l want (math "abs($sd)")
-    set -l err (math "abs($got - $want)")
-    test $err -lt 2; or set travbad (math $travbad + 1)
-end
-t "travel: the tab bar sits |sd| from the bar" 0 $travbad
-
-# BRIDGE — |Hcap - Hbar| == max(|sd|/2, family(Hbar)).
-# Deliberately NOT "the cap lies between the bar and the tabs": at low travel the family
-# floor dominates, so at mono the tabs sit at the bar's hue while the cap sits `family`
-# away from it. The floor is the guarantee the endcap never collapses into the bar.
-# Measured worst error at this seed is 0.93 deg.
-set -l bridgebad 0
-for pl in bar tabs
-    for r in mono wheat mint amber sage ember teal coral
-        set -l sd (__tmux_lives_theme_reldef $r)
-        set -l p (__tmux_lives_theme_curve $seed $r $pl derived 0)
-        set -l hb (_oklch_of $p[1])
-        set -l hc (_oklch_of $p[3])
-        set -l fam (__tmux_lives_theme_family $hb[3])
-        set -l want (math "max(abs($sd) / 2, $fam)")
-        set -l got (_dhue $hc[3] $hb[3])
-        set -l err (math "abs($got - $want)")
-        test $err -lt 2; or set bridgebad (math $bridgebad + 1)
-    end
-end
-t "bridge: the cap sits max(|sd|/2, family) from the bar" 0 $bridgebad
-set -l mp (__tmux_lives_theme_curve $seed mono bar derived 0)
-set -l mhb (_oklch_of $mp[1])
-set -l mhc (_oklch_of $mp[3])
-set -l mfloor (_dhue $mhc[3] $mhb[3])
-t "bridge: the cap never collapses into the bar at mono" 1 (test $mfloor -gt 15; and echo 1; or echo 0)
-
-# BRIDGE DIRECTION — the assertions above measure an UNSIGNED circular distance, so an
-# inverted `dir` sign would pass all of them. Pin the actual side: the cap sits on the
-# side of the bar TOWARD the tabs. At place=bar the signed Hcap-Hbar matches sd's sign;
-# at place=tabs it is the OPPOSITE sign, because there the tabs sit at -sd from the bar
-# (the bar is the role that travelled), so "toward the tabs" flips too.
-function _sdhue --argument-names a b   # signed a-b folded to (-180, 180]
-    set -l d (math "$a - $b")
-    while test $d -gt 180
-        set d (math "$d - 360")
-    end
-    while test $d -le -180
-        set d (math "$d + 360")
-    end
-    echo $d
-end
-t "_sdhue helper exists" 1 (functions -q _sdhue; and echo 1; or echo 0)
-set -l cb (__tmux_lives_theme_curve $seed coral bar derived 0)
-set -l cbb (_oklch_of $cb[1]); set -l cbc (_oklch_of $cb[3])
-t "bridge dir: coral bar sits toward the tabs (negative, sd<0)" 1 (test (_sdhue $cbc[3] $cbb[3]) -lt 0; and echo 1; or echo 0)
-set -l ct (__tmux_lives_theme_curve $seed coral tabs derived 0)
-set -l ctb (_oklch_of $ct[1]); set -l ctc (_oklch_of $ct[3])
-t "bridge dir: coral tabs is the opposite sign (positive)" 1 (test (_sdhue $ctc[3] $ctb[3]) -gt 0; and echo 1; or echo 0)
-set -l tb (__tmux_lives_theme_curve $seed teal bar derived 0)
-set -l tbb (_oklch_of $tb[1]); set -l tbc (_oklch_of $tb[3])
-t "bridge dir: teal bar sits toward the tabs (positive, sd>0)" 1 (test (_sdhue $tbc[3] $tbb[3]) -gt 0; and echo 1; or echo 0)
-set -l tt (__tmux_lives_theme_curve $seed teal tabs derived 0)
-set -l ttb (_oklch_of $tt[1]); set -l ttc (_oklch_of $tt[3])
-t "bridge dir: teal tabs is the opposite sign (negative)" 1 (test (_sdhue $ttc[3] $ttb[3]) -lt 0; and echo 1; or echo 0)
-
-# DEPTH — fixed per role, never moves. Hue differentiates, lightness coheres.
-set -l dp (__tmux_lives_theme_curve $seed teal bar derived 0)
-set -l dLb (_oklch_of $dp[1])
-set -l dLt (_oklch_of $dp[2])
-set -l dLc (_oklch_of $dp[3])
-t "depth: the bar is darker than the tab bar" 1 (test $dLb[1] -lt $dLt[1]; and echo 1; or echo 0)
-set -l capstep (math "abs($dLc[1] - $dLb[1])")
-t "depth: the cap is one 0.10 step off the bar" 1 (test $capstep -gt 0.08; and test $capstep -lt 0.12; and echo 1; or echo 0)
-
-# MONO IS UNCHANGED — the two large areas are byte-identical to the pre-rewrite engine.
-# The tab chroma constant 0.0713 is exactly what the deleted taper produced at zero
-# travel (capC 0.115 * 0.62), so mono's ramp did not move. Verified at three seeds.
-set -l m (__tmux_lives_theme_curve $seed mono bar derived 0)
-t "mono bar unchanged by the rewrite"  '#44502f' $m[1]
-t "mono tabs unchanged by the rewrite" '#5e7239' $m[2]
-
-# LITERAL — the placed role renders the seed's exact hex.
-set -l lb (__tmux_lives_theme_curve $seed coral bar literal 0)
-set -l lt (__tmux_lives_theme_curve $seed coral tabs literal 0)
-t "curve literal bar = seed"  '#5f772b' $lb[1]
-t "curve literal tabs = seed" '#5f772b' $lt[2]
-
-# PHASE — pin the ACTUAL contract, not the spec's earlier (disproven) claim that phase
-# rotates all three hues uniformly. The freeze depends on which role is pinned to the
-# seed, not on `mode` alone: at `place=bar --mode literal` (exercised below) the endcap
-# bridges from the RENDERED bar, which IS the seed hex here, carrying no phase, so the
-# cap is FROZEN — a consequence of honouring `literal`, not a bug to "fix". That freeze
-# does NOT generalize to every `literal` combination: at `place=tabs --mode literal` the
-# tabs carry the seed instead, but the bar the endcap bridges from is still derived, so
-# the endcap follows `phase` normally (the entire `chip` tier); at `place=cap --mode
-# literal` the cap itself is the seed-pinned anchor (not something read off the bar) and
-# freezes the same way `place=bar --mode literal` does. In `derived` mode at any
-# placement the anchor role is computed rather than pinned, so it carries `phase` too,
-# and the family floor (looked up at that phase-rotated hue) can cross a family band, so
-# all three roles move. See docs/superpowers/specs/2026-08-01-theme-big-area-scheme-design.md.
-set -l pl0  (__tmux_lives_theme_curve $seed teal bar literal 0)
-set -l pl60 (__tmux_lives_theme_curve $seed teal bar literal 60)
-t "phase literal: cap is frozen"      $pl0[3] $pl60[3]
-t "phase literal: tabs still rotates" 1 (test "$pl0[2]" != "$pl60[2]"; and echo 1; or echo 0)
-set -l pd0  (__tmux_lives_theme_curve $seed teal bar derived 0)
-set -l pd60 (__tmux_lives_theme_curve $seed teal bar derived 60)
-t "phase derived: bar moves"  1 (test "$pd0[1]" != "$pd60[1]"; and echo 1; or echo 0)
-t "phase derived: tabs moves" 1 (test "$pd0[2]" != "$pd60[2]"; and echo 1; or echo 0)
-t "phase derived: cap moves"  1 (test "$pd0[3]" != "$pd60[3]"; and echo 1; or echo 0)
-
-# bad inputs -> nothing
-t "curve bad seed empty" 0 (count (__tmux_lives_theme_curve 'notahex' ember bar derived 0))
-t "curve bad rel empty"  0 (count (__tmux_lives_theme_curve $seed nope bar derived 0))
-
-# the taper is gone — grep the SOURCE, not the runtime function table (a `functions -q`
-# check would falsely differ between plain fish, which loads the developer's live fisher
-# install, and `fish --no-config`, which does not).
-t "endcap taper gone" 0 (grep -c '__tmux_lives_theme_taper' $plugindir/conf.d/tmux-lives-install.fish)
-
-# ---- v5: cap placement — the seed on the endcap, the bar solved backwards ----
-# The accent-led minority. Neither large area is anchored here; the endcap is.
-set -l cp (__tmux_lives_theme_curve $seed amber cap derived 0)
-t "cap placement returns 3" 3 (count $cp)
-set -l cpo (_oklch_of $cp[3])
-set -l cperr (_dhue $cpo[3] $so[3])
-t "cap placement: the cap carries the seed hue" 1 (test $cperr -lt 2; and echo 1; or echo 0)
-set -l cpl (__tmux_lives_theme_curve $seed coral cap literal 0)
-t "cap placement literal = seed exactly" '#5f772b' $cpl[3]
-# literal at cap must pin ONLY the cap — the bar is still derived
-t "cap placement literal leaves the bar derived" 0 (test "$cpl[1]" = '#5f772b'; and echo 1; or echo 0)
-# the bar is solved BACK from the seed by the family separation, so it is NOT at the seed hue
-set -l cpb (_oklch_of $cp[1])
-set -l cpbd (_dhue $cpb[3] $so[3])
-t "cap placement: the bar steps off the seed hue" 1 (test $cpbd -gt 15; and echo 1; or echo 0)
-# the cap is the anchor here, so it is the invariant one
-set -l capbad 0
-for r in mono wheat mint amber sage ember teal coral
-    set -l p (__tmux_lives_theme_curve $seed $r cap derived 0)
-    set -l o (_oklch_of $p[3])
-    set -l d (_dhue $o[3] $so[3])
-    test $d -lt 2; or set capbad (math $capbad + 1)
-end
-t "cap placement: the cap holds the seed hue in every relationship" 0 $capbad
-# and the two large areas still sit |sd| apart
-set -l cptrav 0
-for r in mono wheat mint amber sage ember teal coral
-    set -l sd (__tmux_lives_theme_reldef $r)
-    set -l p (__tmux_lives_theme_curve $seed $r cap derived 0)
-    set -l hb (_oklch_of $p[1])
-    set -l ht (_oklch_of $p[2])
-    set -l got (_dhue $ht[3] $hb[3])
-    set -l want (math "abs($sd)")
-    set -l err (math "abs($got - $want)")
-    test $err -lt 2; or set cptrav (math $cptrav + 1)
-end
-t "cap placement: the large areas still sit |sd| apart" 0 $cptrav
-
-# ---- v4: accents + palette ----
-set -l pal (__tmux_lives_theme_palette $seed ember bar derived 0)
-t "palette returns 7" 7 (count $pal)
-for i in 1 2 3 4 5 6 7
-    t "palette role $i is hex" 1 (string match -qr '^#[0-9a-f]{6}$' -- $pal[$i]; and echo 1; or echo 0)
-end
-# the trio matches the curve for the same inputs (order: bar[1] tabs[3] cap[6])
-set -l tri (__tmux_lives_theme_curve $seed ember bar derived 0)
-t "palette bar = curve bar"   $tri[1] $pal[1]
-t "palette tabs = curve tabs" $tri[2] $pal[3]
-t "palette cap = curve cap"   $tri[3] $pal[6]
-# windows (status-style fg, on the dark bar) must be light for contrast
-set -l wok (_oklch_of $pal[5])
-t "palette windows is light" 1 (test $wok[1] -gt 0.60; and echo 1; or echo 0)
-t "palette bad seed empty" 0 (count (__tmux_lives_theme_palette nope ember bar derived 0))
 # the retired v3 builders are gone — grep the SOURCE file, not the runtime
 # function table. A `functions -q` check would falsely fail under plain `fish`
 # (which loads the developer's LIVE fisher install of the old code, distinct
