@@ -245,8 +245,8 @@ zero-word command substitution) — capture into a var first: `set -l cached (�
 
 **Verified in production:** tick rate matches the implied `clients ÷ status-interval` exactly, the old
 17× overshoot is gone, and tmux-lives no longer appears in the host's top-5 CPU — `[[tick_tmux_call_batching]]`.
-The self-rate-limit design (`docs/superpowers/specs/2026-08-20-tick-self-rate-limit-design.md`) is
-APPROVED, NOT BUILT, and **demoted to optional** — `[[tick_self_rate_limit]]`.
+A tick self-rate-limit was designed and **DROPPED unbuilt** (2026-09-14, user's call) because production
+never needed it; its spec is deleted and recoverable from git — `[[tick_self_rate_limit]]`.
 
 ---
 
