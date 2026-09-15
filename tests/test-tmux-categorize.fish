@@ -376,7 +376,13 @@ t "slug: trims edge dashes"       "mid-dle"           (__tcz_slugify "  mid dle!
 t "slug: empty -> session"        "session"           (__tcz_slugify "...")
 t "title: glyph stripped"         "TMUX Setup 2"      (__tcz_title_name "✳ TMUX Setup 2")
 t "title: spinner stripped"       "TMUX Setup 2"      (__tcz_title_name "⠂ TMUX Setup 2")
-t "title: task suffix dropped"    "Tasker Editor 14"  (__tcz_title_name "✳ Tasker Editor 14 - Reword task")
+# Claude Code once titled panes "<name> - <current task>" and this stripped the task. Current
+# Claude Code (2.1.26x, measured 2026-09-14) titles a pane with the session name alone, and names
+# themselves contain " - " ("Pingy - Mac 4"), so the strip only ever cut real names.
+set -l tn_dash (__tcz_title_name "✳ Pingy - Mac 4")
+t "title: a dash inside the name is kept" "Pingy - Mac 4" "$tn_dash"
+set -l tn_dash2 (__tcz_title_name "✳ Pingy Android - Part 35")
+t "title: a multi-word name with a dash is kept" "Pingy Android - Part 35" "$tn_dash2"
 t "title: garbage -> empty"       ""                  (__tcz_title_name "Gi=1,a=q;")
 set -g pn1 (__tcz_project_name /home/bitsaver/projects/neurotto)
 set -g pn2 (__tcz_project_name /home/bitsaver/workspace/tmux-lives/)

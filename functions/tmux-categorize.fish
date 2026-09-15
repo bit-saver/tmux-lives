@@ -73,7 +73,6 @@ function __tcz_title_name --description 'claude pane title -> display name, or e
     # If that prefix is absent the title cannot be reliably parsed, so return nothing.
     string match -qr '^\S+\s' -- "$argv[1]"; or return
     set -l t (string replace -r '^\S+\s+' '' -- "$argv[1]")
-    set t (string replace -r ' - .*$' '' -- "$t")
     string match -qr '[A-Za-z0-9]' -- "$t"; and echo $t
 end
 
