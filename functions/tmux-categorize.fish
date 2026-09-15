@@ -4054,23 +4054,22 @@ function __tcz_tab_color --argument-names fallback --description 'effective Shel
     test -n "$eff"; and echo $eff; or echo $fallback
 end
 
-function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish/iTerm2 -> set bar/tab color + retitle; else re-apply the non-ShellFish baseline (iTerm2 gets the emissions but, like ShellFish, must NOT trigger the baseline re-source).'
+function __tcz_on_attach --argument-names pid tty color --description 'on-attach <client_pid> <client_tty> [color]: ShellFish/iTerm2 -> set bar/tab color; else re-apply the non-ShellFish baseline (iTerm2 gets the emissions but, like ShellFish, must NOT trigger the baseline re-source); every client -> retitle (title emission is terminal-agnostic, see __tcz_retitle — an unidentifiable client used to wait up to one status-interval for its first title).'
     switch (__tcz_client_terminal $pid)
         case shellfish
             set -l eff (__tcz_tab_color "$color")
             __tcz_emit_barcolor $tty $eff
             __tcz_emit_set $tty color $eff
-            __tcz_retitle
         case iterm2
             set -l eff (__tcz_tab_color "$color")
             __tcz_emit_itermtab $tty $eff
             __tcz_emit_set $tty color $eff
-            __tcz_retitle
         case '*'
             # Baseline path default mirrors __tmux_lives_baseline_path in conf.d/tmux-lives-install.fish — keep in sync.
             set -l baseline (set -q tmux_lives_baseline_conf; and echo $tmux_lives_baseline_conf; or echo "$HOME/.tmux-lives.conf")
             test -e $baseline; and tmux source-file $baseline 2>/dev/null
     end
+    __tcz_retitle
     return 0
 end
 
