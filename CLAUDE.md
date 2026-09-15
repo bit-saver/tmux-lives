@@ -130,8 +130,9 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
 - Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **842 plain / 841
-  `--no-config`** (down from 983/982 when the dead v5 tests went, 2026-09-14). **The 1-count delta is BY DESIGN** (one isolation assertion is gated on plain fish)
-  and has been for many cycles. Do not "fix" it.
+  `--no-config`** (down from 983/982 when the dead v5 tests went, 2026-09-14). **The 1-count delta is
+  BY DESIGN** (one isolation assertion is gated on plain fish) and has been for many cycles. Do not
+  "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge them
   by the absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
   `test-tmux-status.fish` (4) report numbers.
@@ -521,7 +522,7 @@ another process's ledger). `pgrep` is now **absent from the file entirely** — 
 
 ---
 
-## Current state — 2026-09-13
+## Current state — 2026-09-14
 
 **Four cycles shipped since the v6 surface**, merged to `main` and pushed — **the live install still
 predates them**; the user runs `fisher update` themselves.
@@ -552,9 +553,12 @@ toggle is on; `m` goes inert and says so; persisted in a universal. A handful si
 Title emission (OSC 2) now goes to **every** attached client, not gated on `__tcz_client_terminal`
 identifying `LC_TERMINAL` — a client spawned from inside tmux (e.g. via the session picker) inherits the
 pane's environ, which never carries `LC_TERMINAL`, and used to keep a stale title forever.
-`__tcz_recolor`/`__tcz_on_attach` colour escapes stay terminal-gated (load-bearing, test-pinned); title
-emission is universal, including `__tcz_on_attach`, which retitles every attaching client (2026-09-14). `__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths
-are OS-recycled and can collide with a future client.
+`__tcz_recolor`/`__tcz_on_attach` colour escapes stay terminal-gated (load-bearing, test-pinned); titles
+reach every client via `__tcz_retitle`, and **on attach it is the fragment's `client-session-changed`
+hook that titles the new client** — it fires before `client-attached` on both 3.3a and 3.7b (measured
+2026-09-14), so `__tcz_on_attach` needs no retitle of its own for an unidentified client.
+`__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths are
+OS-recycled and can collide with a future client.
 
 **Lesson:** a correct status bar proves nothing about the tab title — it only changes when the tick
 actively emits an escape.
@@ -573,6 +577,11 @@ session-typed commands were unaffected. The live install still needs `fisher upd
 - The v5 engine (9 functions, 142 install assertions) is deleted; `__tmux_lives_theme_relationships`
   survives for `__tmux_lives_migrate_v4`.
 - The tick self-rate-limit design was dropped unbuilt (user's call).
+- The premise "an unidentifiable client waits up to 15s (one status-interval) for its first title on
+  attach" was investigated and found **false**: `client-session-changed` already titles an attaching
+  client before `client-attached` fires (see the Retitle fix hook-ordering note above). The attempted
+  fix (`0a8ca3c`, retitling from `__tcz_on_attach` too) was reverted — it only added a redundant second
+  title emission on every attach.
 
 ### Open — none blocking
 

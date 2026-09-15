@@ -1554,7 +1554,7 @@ function __tmux_lives_color_cmd --description 'tmux-lives setup color [<css-colo
 end
 
 # --- theme engine v3: user surface -------------------------------------------
-function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line. SURVIVES the v5 engine deletion: __tmux_lives_migrate_v4'"'"'s reset branch still calls it to validate an old installs stored theme name. The CLI/list/picker consumers this docstring used to name are gone.'
+function __tmux_lives_theme_relationships --description 'v5 relationship names (signed hue travels), one per line. SURVIVES the v5 engine deletion: __tmux_lives_migrate_v4'"'"'s reset branch still calls it to validate an old install'"'"'s stored theme name. The CLI/list/picker consumers this docstring used to name are gone.'
     printf '%s\n' mono wheat amber ember coral mint sage teal
 end
 

@@ -4148,8 +4148,9 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
         test "$parts[1]" = claude; or continue
         set name (__tcz_cmdline_name $parts[2])
         # claude is usually started WITHOUT --name (e.g. `claude -c`), so the cmdline
-        # yields nothing and the readable name lives in the pane title instead —
-        # the same source __tcz_categorize already slugifies for the session name.
+        # yields nothing and the readable name lives in the pane title instead — that
+        # title feeds @tmux_lives_claude and the display's task half only, never the
+        # session name (which comes solely from __tcz_slugify on the active pane's cwd).
         # Without this the option stayed empty and the status-bar centre fell back to
         # session_name: a slug (spaces -> dashes), and a frozen one for unstamped
         # restored breadcrumbs. --name still wins: a flag beats a volatile title.
