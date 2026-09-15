@@ -1880,6 +1880,7 @@ t "v3 arc gone"    0 (grep -c '__tmux_lives_theme_arc' $plugindir/conf.d/tmux-li
 t "v3 kincap gone" 0 (grep -c '__tmux_lives_theme_kincap' $plugindir/conf.d/tmux-lives-install.fish)
 t "v3 ring gone"   0 (grep -c '__tmux_lives_theme_ring' $plugindir/conf.d/tmux-lives-install.fish)
 t "v3 barpos gone" 0 (grep -c '__tmux_lives_theme_barpos' $plugindir/conf.d/tmux-lives-install.fish)
+t "endcap taper gone" 0 (grep -c '__tmux_lives_theme_taper' $plugindir/conf.d/tmux-lives-install.fish)
 # tmux_lives_theme_rotate must not appear anywhere in the install source EXCEPT
 # inside __tmux_lives_migrate_v4's own body (it retires the universal there).
 # awk strips the migrate_v4 and migrate_v31 function bodies (their closing

@@ -144,7 +144,26 @@ for order in target-first target-last
     set -l cstamps (command tmux -L $sock list-sessions -F '#{session_name}=#{@tmux_auto_name}' | sort | string join ,)
     t "collision[$order]: dispose stamps a breadcrumb named claude on itself" "claude=claude,other=other" "$cstamps"
 
-    # close aimed at "claude" must set detach-on-destroy on claude, never on other
+    # close aimed at "claude" must set detach-on-destroy on claude itself, never on other.
+    # Intercept kill-session so claude survives long enough to read the option back.
+    __tac_build $order 'sleep 1000' 'sleep 1000'
+    functions -c tmux __tac_tmux_bak
+    function tmux
+        test "$argv[1]" = kill-session; and return 0
+        command tmux -L $sock $argv
+    end
+    set -gx TMUX fake
+    function __tmux_lives_current_session; echo claude; end
+    __tmux_lives_close 2>/dev/null
+    functions -e __tmux_lives_current_session
+    set -e TMUX
+    functions -e tmux; functions -c __tac_tmux_bak tmux; functions -e __tac_tmux_bak
+    set -l dod_t (command tmux -L $sock show-options -v -t '=claude:' detach-on-destroy 2>/dev/null)
+    t "collision[$order]: close sets detach-on-destroy on session claude itself" on "$dod_t"
+    set -l dod (command tmux -L $sock show-options -v -t other detach-on-destroy 2>/dev/null)
+    t "collision[$order]: close leaves other's detach-on-destroy untouched" "" "$dod"
+
+    # close, uninterrupted: the kill itself must actually happen.
     __tac_build $order 'sleep 1000' 'sleep 1000'
     set -gx TMUX fake
     function __tmux_lives_current_session; echo claude; end
@@ -153,8 +172,6 @@ for order in target-first target-last
     set -e TMUX
     set -l gone (command tmux -L $sock has-session -t =claude 2>/dev/null; and echo yes; or echo no)
     t "collision[$order]: close kills session claude" no "$gone"
-    set -l dod (command tmux -L $sock show-options -v -t other detach-on-destroy 2>/dev/null)
-    t "collision[$order]: close leaves other's detach-on-destroy untouched" "" "$dod"
 end
 t "collision: the fixture reproduced tmux's session/window ambiguity in at least one order" 1 "$__tac_collides"
 set -q __tac_saved_tmux; and set -gx TMUX $__tac_saved_tmux

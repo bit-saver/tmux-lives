@@ -1419,8 +1419,13 @@ function __tsc_build --argument-names order --description 'collision fixture: se
     end
     sleep 0.3
     set -l ids (command tmux -L $sock list-sessions -F '#{session_id} #{session_name}')
-    set -g __tsc_tid (string match -r '^\S+(?= claude$)' -- $ids)
-    set -g __tsc_oid (string match -r '^\S+(?= other$)' -- $ids)
+    set -g __tsc_tid ''
+    set -g __tsc_oid ''
+    for line in $ids
+        set -l p (string split ' ' -- $line)
+        test "$p[2]" = claude; and set -g __tsc_tid $p[1]
+        test "$p[2]" = other; and set -g __tsc_oid $p[1]
+    end
     command tmux -L $sock set-option -t "$__tsc_oid" @tmux_lives_display OTHER-DISPLAY
     # A distinct sentinel per session (unlike the read assertion's old "" expectation,
     # which a tmux ERROR also produces) so the read assertion below can tell "reached
