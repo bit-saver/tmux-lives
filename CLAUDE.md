@@ -45,7 +45,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | Path | What |
 |---|---|
 | `conf.d/tmux.fish` | Shell-side: autostart, session creation, `tmux-lives <verb>` dispatcher, the `--on-variable` reload handler, the Alt+S shell keybind |
-| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6 live in production, v5 pending deletion), post-update note |
+| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6; the v5 engine was deleted 2026-09-14), post-update note |
 | `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
 | `tests/test-*.fish` | The gate — 9 suites |
 | `tests/tick-rate-ab.fish` | Hand-run only; not named `test-*` so it stays out of the gate (samples a live window with real pty clients) |
@@ -129,8 +129,8 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **983 plain / 982
-  `--no-config`**. **The 1-count delta is BY DESIGN** (one isolation assertion is gated on plain fish)
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **842 plain / 841
+  `--no-config`** (down from 983/982 when the dead v5 tests went, 2026-09-14). **The 1-count delta is BY DESIGN** (one isolation assertion is gated on plain fish)
   and has been for many cycles. Do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge them
   by the absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
@@ -291,8 +291,8 @@ quoted strings) — see `[[shellfish_cursor_flicker]]` for what to check.
 **v6 is wired and live in production code.** Every v5 call site is gone — the fragment renderer
 (`__tmux_lives_render_fragment`), `__tmux_lives_theme_roll`, `__tmux_lives_theme_apply_live`,
 `__tmux_lives_theme_list`, and the picker (`__tcz_theme_picker`) all call `__tmux_lives_theme_render`
-(line numbers rot; grep the name for exact sites). The v5 cluster stays **defined** but uncalled in
-production — see the verified deletion list under "Open" in Current state.
+(line numbers rot; grep the name for exact sites). The v5 engine is **deleted** (2026-09-14); only
+`__tmux_lives_theme_relationships` survives, because `__tmux_lives_migrate_v4`'s reset branch still calls it.
 
 A theme is now a **catalog scheme NAME resolving to a five-field recipe** (`mode Lspan peakC peakPos
 arrangement`) via `__tmux_lives_theme_recipe`. **The recipe is the stored identity** — the name is a
@@ -552,8 +552,8 @@ toggle is on; `m` goes inert and says so; persisted in a universal. A handful si
 Title emission (OSC 2) now goes to **every** attached client, not gated on `__tcz_client_terminal`
 identifying `LC_TERMINAL` — a client spawned from inside tmux (e.g. via the session picker) inherits the
 pane's environ, which never carries `LC_TERMINAL`, and used to keep a stale title forever.
-`__tcz_recolor`/`__tcz_on_attach` stay terminal-gated (load-bearing, test-pinned); only title emission is
-universal. `__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths
+`__tcz_recolor`/`__tcz_on_attach` colour escapes stay terminal-gated (load-bearing, test-pinned); title
+emission is universal, including `__tcz_on_attach`, which retitles every attaching client (2026-09-14). `__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths
 are OS-recycled and can collide with a future client.
 
 **Lesson:** a correct status bar proves nothing about the tab title — it only changes when the tick
@@ -565,21 +565,20 @@ Every option/window/pane/capture command now targets sessions via `__tcz_session
 form — see "tmux 3.3a" under Traps for the collision this fixes. `__tcz_pane_target` is deleted;
 session-typed commands were unaffected. The live install still needs `fisher update`.
 
+### Follow-ups (`fix/followups`, 2026-09-14)
+
+- `__tcz_title_name` no longer strips `' - …'`: current Claude Code titles a pane with the session name
+  alone, so the strip only cut real names (`Pingy - Mac 4` showed as `Pingy`). If a future Claude Code
+  re-appends `- <task>` to titles, displays will grow long — restore a strip then.
+- The v5 engine (9 functions, 142 install assertions) is deleted; `__tmux_lives_theme_relationships`
+  survives for `__tmux_lives_migrate_v4`.
+- The tick self-rate-limit design was dropped unbuilt (user's call).
+
 ### Open — none blocking
 
-- `__tcz_on_attach`'s `case '*'` never calls `__tcz_retitle`, so an unidentifiable client waits up to one
-  `status-interval` (≤15 s) for its first title — bounded staleness, optional to fix.
-- `text` still sits at a ramp end (see "Still open" under Theme engine).
-- The v5 cluster is still a deletion candidate, with the caveat below.
-
-⚠ **The v5 deletion is NOT simply "remove everything v5"** — verified 2026-09-14 by grepping every
-production call site. **Zero-caller, safe to delete outright:** `__tmux_lives_theme_palette`,
-`__tmux_lives_theme_valid`, `__tmux_lives_theme_catalog_default`, `__tmux_lives_theme_catalog_rest` (last
-two called only from tests). **Transitively dead**, removable in the same pass since reachable only from
-those: `__tmux_lives_theme_accents`/`__tmux_lives_theme_curve` (called only inside `_palette`),
-`__tmux_lives_theme_reldef` (called only inside `_curve`), bare `__tmux_lives_theme_catalog` (called only
-inside `_catalog_default`/`_catalog_rest`). `__tmux_lives_theme_relationships` **survives** — still
-called from `__tmux_lives_migrate_v4`'s reset branch, which old installs still need.
+- `text` still sits at a ramp end (see "Still open" under Theme engine); the `bright` arrangement renders
+  it near-black on a light bar. Under visual review with the user, along with picker colour ordering.
+- The session picker is reported "generally laggy, occasional big delay" — not yet investigated.
 
 ---
 
