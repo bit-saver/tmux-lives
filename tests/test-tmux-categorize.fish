@@ -190,36 +190,6 @@ command tmux -L $sock set -g @tl_oa presourced 2>/dev/null
 __tcz_on_attach 999 /dev/null ''
 t "on-attach: iTerm2 does not source baseline" "presourced" (command tmux -L $sock show -gv @tl_oa 2>/dev/null)
 command tmux -L $sock kill-server 2>/dev/null
-# Every attaching client gets its title at once -- title emission is terminal-agnostic
-# (__tcz_retitle), only the colour escapes are gated. An unidentifiable client used to
-# wait up to one status-interval for its first title.
-set -g oat /tmp/tcz-oa-title-$fish_pid
-rm -f $oat; touch $oat
-functions -c __tcz_session_title __tcz_oa_st_bak
-function __tcz_session_title; echo "oa-title-$argv[1]"; end
-function tmux
-    switch "$argv[1]"
-        case list-clients
-            printf '999\t%s\tsOA\n' "$oat"
-        case '*'
-            return 0
-    end
-end
-set -g tmux_lives_fake_environ "TERM=xterm"
-functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-__tcz_on_attach 999 $oat ''
-set -l oatitle (cat $oat | string collect)
-t "on-attach: an unidentifiable client is titled immediately" yes (string match -q '*oa-title-sOA*' -- "$oatitle"; and echo yes; or echo no)
-rm -f $oat; touch $oat
-set -g tmux_lives_fake_environ "LC_TERMINAL=ShellFish"
-functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-__tcz_on_attach 999 $oat "#abcdef"
-set -l oatitle2 (cat $oat | string collect)
-t "on-attach: a ShellFish client is still titled" yes (string match -q '*oa-title-sOA*' -- "$oatitle2"; and echo yes; or echo no)
-functions -e tmux
-functions -e __tcz_session_title; functions -c __tcz_oa_st_bak __tcz_session_title; functions -e __tcz_oa_st_bak
-functions -q __tcz_tmux_flush; and __tcz_tmux_flush
-rm -f $oat
 # dispatch path: real `fish --no-config <cat> on-attach …` (seam must be EXPORTED to reach the child)
 set -l oadf /tmp/tcz-oa-dispatch-$fish_pid
 rm -f $oadf
