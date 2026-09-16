@@ -1842,31 +1842,32 @@ end
 # stay top-level like every other __tcz_thp_* helper -- that is what makes them
 # testable -- but do not call them from anywhere the engine file is not already
 # sourced: fish aborts the whole calling statement silently rather than erroring.
-function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette. Walks the swatch strips OWN block order (tabs 3, bar 1, cap 6, windows 5, sep 2, text 7, active 4 — see __tcz_thp_cells_uncached, whose for-loop defines this same order) so the sort is legible off the strip the user is already looking at. Each block contributes clockwise hue distance from the seed hue, then lightness: hue alone interleaves lights and darks, so a hue group would read as a jumble rather than a ramp. Fixed width (%07.3f + %05.3f per block, 7 blocks = 84 chars) so a plain `sort` is a correct numeric sort with no multi-key parsing.'
+function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette, built from the `tabs` role ALONE (the widest block on the swatch strip and the one that covers most of a real ShellFish screen). Three fields: GROUP (0 coloured, 1 near-grey below chroma 0.05 — its hue is not visible so hue ordering would read as noise, 2 unusable/non-hex), then a 30-degree HUE BUCKET measured clockwise from the seed hue and CENTRED on it (bucket 0 is -15..+15 degrees, so the seed own family never splits across the ends of the list), then LIGHTNESS DESCENDING so each family reads light -> dark. The previous key walked all seven roles and compared hue at 0.001 degrees, so its lightness field never broke a tie and families rendered as a jumble; it also cost 349ms per list rebuild against 61ms for this one (42-scheme catalog, measured 2026-09-14).'
     set -l pal (string split ' ' -- "$hexes")
-    set -l key ''
-    for idx in 3 1 6 5 2 7 4
-        set -l h ''
-        test (count $pal) -ge $idx; and set h "$pal[$idx]"
-        # Validate the SHAPE before converting. __tmux_lives_hex_to_rgb01 has no
-        # shape check of its own — a non-hex string reaches `math "0xno/255"` and
-        # fish's math diagnostics go straight to STDERR, which they do bypassing
-        # in-process redirection. This helper runs inside a display-popup that is
-        # painting a frame to the tty, so stray stderr lands in the middle of the
-        # drawing and corrupts it. Checking first costs one `string match`.
-        if not string match -qr '^#[0-9a-fA-F]{6}$' -- "$h"
-            # Non-hex degrades to the far end so it sorts last rather than
-            # collapsing the whole key (a zero-output substitution would empty
-            # the enclosing argument entirely).
-            set key "$key"(printf '%07.3f%05.3f' 999.999 9.999)
-            continue
-        end
-        set -l rgb (__tmux_lives_hex_to_rgb01 "$h")
-        set -l o (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
-        set -l d (math "($o[3] - $seedhue + 360) % 360")
-        set key "$key"(printf '%07.3f%05.3f' $d $o[1])
+    set -l h ''
+    test (count $pal) -ge 3; and set h "$pal[3]"
+    if not string match -qr '^#[0-9a-fA-F]{6}$' -- "$h"
+        # Unusable: sort last. Shape-check BEFORE converting — __tmux_lives_hex_to_rgb01
+        # has no check of its own and fish's math diagnostics go straight to stderr,
+        # which lands in the middle of the popup frame this helper draws inside.
+        printf '2%02d%08.3f\n' 99 999.999
+        return
     end
-    printf '%s\n' "$key"
+    set -l rgb (__tmux_lives_hex_to_rgb01 "$h")
+    set -l o (__tmux_lives_rgb_to_oklch $rgb[1] $rgb[2] $rgb[3])
+    set -l group 0
+    # Brief said `test (math "$o[2] < 0.05") -eq 1`, but fish 4.7.1's math has
+    # no comparison operators at all (verified: it errors "Logical operations
+    # are not supported, use `test` instead" and prints to stderr — exactly
+    # the corruption hazard the comment above is warning about, on every
+    # single call). The file's own established convention (e.g.
+    # __tmux_lives_clip01, __tmux_lives_rgb_to_oklch's `if test $H -lt 0`) is
+    # to compare floats with `test` directly — fish's test builtin handles
+    # decimals natively. Followed that instead.
+    test $o[2] -lt 0.05; and set group 1
+    set -l d (math "($o[3] - $seedhue + 360) % 360")
+    set -l bucket (math "floor((($d + 15) % 360) / 30)")
+    printf '%d%02d%08.3f\n' $group $bucket (math "(1 - $o[1]) * 1000")
 end
 function __tcz_thp_order --description 'pure: 1-based palette indices in colour order. argv[1] is the seed hex; argv[2..] are space-joined 7-hex palettes. Ties break on the original index so the total order is STABLE — the row caches are keyed by position, and a wobbling order would silently mis-key them.'
     set -l seedhex $argv[1]

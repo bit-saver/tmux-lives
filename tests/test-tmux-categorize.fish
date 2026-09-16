@@ -8841,43 +8841,91 @@ set -g A6APPLY (functions __tcz_thp_apply_and_recolor | string collect)
 t "apply_and_recolor: body was actually captured" 1 (test (string length "$A6APPLY") -gt 200; and echo 1; or echo 0)
 t "apply_and_recolor: no phase argument remains" 0 (string match -q '*anch_phase*' -- "$A6APPLY"; and echo 1; or echo 0)
 
-# --- Task 6: colour ordering --------------------------------------------------
-# Fixed-width keys so a plain lexicographic sort is a correct numeric sort.
-# Blocks are walked in the swatch strip's own order (tabs bar cap windows sep
-# text active — see __tcz_thp_cells_uncached, whose for-loop defines this
-# same order), each contributing hue-from-seed then lightness.
+# --- Task 6: colour ordering (Option A, 2026-09-15) --------------------------
+# The key is built from the `tabs` role ALONE — group (coloured / near-grey /
+# unusable), then a 30-degree hue bucket CENTRED on the seed hue, then
+# lightness DESCENDING. Centring is what stops the seed's own family
+# splitting between the top and bottom of the list; bucketing is what lets
+# lightness decide inside a family (the old key compared hue at 0.001
+# degrees across all seven roles, so its lightness tie-breaker never ran).
+# New width: %d (group, always 1 char since group is always 0/1/2) +
+# %02d (bucket) + %08.3f (lightness field) = 11, not the old 84 (7 blocks).
 set -g T6K (__tcz_thp_sortkey 120 '#101010 #2a2a2a #444444 #5e5e5e #787878 #929292 #acacac')
-t "T6: key is fixed width" 84 (string length -- "$T6K")
+t "T6: key is fixed width" 11 (string length -- "$T6K")
 # Two palettes differing only in the TABS hue must order by that hue, and the
-# one nearer the seed hue clockwise must come first.
+# one nearer the seed hue clockwise must come first. Kept from the
+# pre-Option-A block: still holds under the new key — it is not an
+# assertion about the old key's 7-block walk order, just about tabs hue
+# mattering relative to the seed, which the new key still does exclusively.
 set -g T6A '#202020 #303030 #d02020 #404040 #505050 #606060 #707070'
 set -g T6B '#202020 #303030 #20d020 #404040 #505050 #606060 #707070'
 t "T6: green seed puts the green-tabs palette first" "2 1" (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B"))
 t "T6: red seed puts the red-tabs palette first" "1 2" (string join ' ' (__tcz_thp_order '#d02020' "$T6A" "$T6B"))
 # Determinism: the row caches are keyed by position, so a wobbling order
-# would silently mis-key them.
+# would silently mis-key them. Kept unchanged from the pre-Option-A block.
 t "T6: order is deterministic across repeated calls" (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B")) (string join ' ' (__tcz_thp_order '#20d020' "$T6A" "$T6B"))
-# Review finding: T6A/T6B differ in exactly ONE block (tabs), so every other
-# block ties exactly and the comparison is decided by the one differing block
-# regardless of where it sits in the concatenation — that pair cannot tell
-# the swatch-strip walk order (tabs bar cap windows sep text active) apart
-# from, say, canonical palette order (bar sep tabs active windows cap text).
-# This pair differs in TWO blocks — tabs and bar — with OPPOSITE ordering
-# implications, so which palette sorts first depends on which of the two
-# blocks is compared FIRST:
-#   T6E: bar=green(seed, d=0)  tabs=red(d>0)   -> bar says "T6E first"
-#   T6F: bar=red(d>0)          tabs=green(seed, d=0) -> tabs says "T6F first"
-# Under the real (tabs-first) walk, tabs is the first, most-significant
-# block, so T6F's exact hue match wins there and T6F sorts first: "2 1".
-# Under canonical order (bar first), T6E's exact match would win instead and
-# the result would flip to "1 2" — confirmed by temporarily permuting the
-# `for idx in 3 1 6 5 2 7 4` loop in __tcz_thp_sortkey to `1 2 3 4 5 6 7`,
-# rerunning this suite, and observing this exact assertion turn red before
-# restoring the source file (proven byte-identical via diff, not git
-# checkout — other unrelated work sits in this tree).
-set -g T6E '#20d020 #404040 #d02020 #505050 #606060 #707070 #808080'
-set -g T6F '#d02020 #404040 #20d020 #505050 #606060 #707070 #808080'
-t "T6: tabs (the FIRST swatch-strip block), not bar, decides when two blocks disagree" "2 1" (string join ' ' (__tcz_thp_order '#20d020' "$T6E" "$T6F"))
+# Deleted from the pre-Option-A block: "tabs (the FIRST swatch-strip block),
+# not bar, decides when two blocks disagree" (T6E/T6F). That assertion
+# existed only to prove the OLD key's 7-block walk order put tabs ahead of
+# bar; the new key never looks at bar at all, so the question it asked no
+# longer has meaning (the fixtures still happen to sort "2 1" under the new
+# key too, purely because tabs still is the only field examined — checked,
+# not assumed — but that would no longer distinguish this key from any
+# other tabs-only design, so keeping it would assert nothing new).
+
+function __t6a_pal --argument-names tabs --description 'a 7-hex palette whose tabs (role 3) is <tabs>; other roles fixed and irrelevant to the key'
+    echo "#101010 #202020 $tabs #303030 #404040 #505050 #606060"
+end
+# seed hue 133.762 (a green seed, matching the user's #78b34c — measured with
+# __tmux_lives_hex_to_rgb01 + __tmux_lives_rgb_to_oklch, not the brief's
+# rounded "134")
+set -g T6SEED '#78b34c'
+# same family as the seed, one light one dark: light must come first.
+# Measured: the brief's original T6L (#9fd07f, hue-diff 0.067deg) has a
+# SMALLER raw hue-distance-from-seed than its T6D (#3d5b28, diff 0.170deg)
+# -- so the OLD key, which sorts by that raw distance before lightness,
+# already puts the lighter one first BY COINCIDENCE (matching hue tracked
+# lightness for that specific pair), and the assertion could not have gone
+# red against the pre-fix code. Swapped T6L to #93c775 (diff 1.076deg,
+# LARGER than T6D's 0.170deg): the old key now ranks T6D first (smaller raw
+# distance) while Option A ranks T6L first (same bucket, higher L) --
+# a genuine disagreement. Confirmed both changed assertions actually FAIL
+# against the pre-fix code (Step 2 evidence).
+set -g T6L (__t6a_pal '#93c775')
+set -g T6D (__t6a_pal '#3d5b28')
+t "T6A: inside one hue family the lighter tabs sorts first" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6L" "$T6D"))
+t "T6A: and the reverse input order gives the same result" "2 1" (string join ' ' (__tcz_thp_order $T6SEED "$T6D" "$T6L"))
+# a tabs hue a few degrees BELOW the seed hue must stay in the seed's own
+# bucket, not wrap to the end of the list. Measured: the brief's original
+# fixture (#6c9451) is H=133.810, i.e. 0.048deg ABOVE the seed (H=133.762),
+# not "~0.1 deg below" as the brief claimed — too close, and in the wrong
+# direction, to exercise the mod-360 wraparound this test is meant to probe.
+# #6e9450 measures H=132.609, 1.153deg BELOW the seed, so its raw clockwise
+# distance is ~358.85deg (close to the 360 boundary) and only the +15/mod-360
+# centring folds it back into bucket 0. Swapped the fixture, not the
+# assertion. A far family (purple, #9d72b3, H=313.73) must sort after both.
+set -g T6BELOW (__t6a_pal '#6e9450')
+set -g T6FAR (__t6a_pal '#9d72b3')
+t "T6A: a tabs hue just below the seed stays with the seed family" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6BELOW" "$T6FAR"))
+# near-grey tabs (chroma < 0.05) go last whatever their hue. Measured: the
+# brief's original T6GREY (#77876d) has hue 133.454, i.e. slightly BELOW the
+# seed -- its raw (uncentered) hue-distance under the OLD key wraps to
+# ~359.7deg, which coincidentally is ALSO near the far end of the old key's
+# range, so the old key sorted it last too, for the wrong reason (wraparound,
+# not grey detection) -- the assertion could not have gone red against the
+# pre-fix code. Swapped to #7a8276 (hue 135.0, ~1.24deg ABOVE the seed, so
+# its raw distance is small and the OLD key would rank it FIRST, ahead of
+# T6FAR) -- a genuine disagreement with Option A's group field, which always
+# demotes near-grey regardless of hue. Confirmed this changed assertion
+# actually FAILs against the pre-fix code (Step 2 evidence).
+set -g T6GREY (__t6a_pal '#7a8276')
+t "T6A: a near-grey tabs sorts after every coloured one" "2 1" (string join ' ' (__tcz_thp_order $T6SEED "$T6GREY" "$T6FAR"))
+# unusable tabs sorts last of all
+set -g T6BAD (__t6a_pal 'notahex')
+t "T6A: an unusable tabs sorts last" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6FAR" "$T6BAD"))
+# stability: equal keys keep input order
+set -g T6SAME (__t6a_pal '#9d72b3')
+t "T6A: identical palettes keep their input order" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6FAR" "$T6SAME"))
 
 
 # --- Task 7: the order toggle -------------------------------------------------
