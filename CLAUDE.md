@@ -129,10 +129,9 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **842 plain / 841
-  `--no-config`** (down from 983/982 when the dead v5 tests went, 2026-09-14). **The 1-count delta is
-  BY DESIGN** (one isolation assertion is gated on plain fish) and has been for many cycles. Do not
-  "fix" it.
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **888 plain / 887
+  `--no-config`** (up from 842/841). **The 1-count delta is BY DESIGN** (one isolation assertion is
+  gated on plain fish) and has been for many cycles. Do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge them
   by the absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
   `test-tmux-status.fish` (4) report numbers.
@@ -141,11 +140,10 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
 
 ### Test isolation
 
-Every `tests/test-*.fish` opens with an identical **self-re-exec guard** (md5
-`0538ed9cc17766afa9e515812d66f091`): it mints a throwaway dir, points `XDG_CONFIG_HOME` at it, and
-relaunches the suite under it. **Fish binds its universal store at process startup, so the redirect
-cannot be applied from inside a running test** — re-exec is the only mechanism, and it **fails closed**
-on mktemp failure.
+Every `tests/test-*.fish` opens with an identical **self-re-exec guard**: it mints a throwaway dir,
+points `XDG_CONFIG_HOME` at it, and relaunches the suite under it. **Fish binds its universal store at
+process startup, so the redirect cannot be applied from inside a running test** — re-exec is the only
+mechanism, and it **fails closed** on mktemp failure.
 
 Load-bearing details, each of which was a bug once:
 - Mode is preserved across the re-exec via `test (count $fish_function_path) -gt 0`.
@@ -160,6 +158,11 @@ Load-bearing details, each of which was a bug once:
 `XDG_CONFIG_HOME` doesn't cover it; `test-tmux-auto.fish`'s `tmux` shim is a fish **function** and
 doesn't reach subprocesses — one call site returns the user's **real** sessions, saved only by
 `TMUX=fake` failing to connect. Coincidence, not isolation: stub directly. See `[[tmux_test_isolation]]`.
+
+**A third $HOME-resolving seam, now guarded:** `tmux_lives_render_cache_dir` (the render cache, above)
+defaults through `$XDG_CACHE_HOME`/`$HOME` like the two seams above — both suites now set it. ⚠ Its
+prune deletes every `*.tsv` not carrying the current engine key, so it must never point at a shared
+directory.
 
 ---
 
@@ -289,11 +292,14 @@ quoted strings) — see `[[shellfish_cursor_flicker]]` for what to check.
 
 ## Theme engine — where it actually stands
 
-**v6 is wired and live in production code.** Every v5 call site is gone — the fragment renderer
-(`__tmux_lives_render_fragment`), `__tmux_lives_theme_roll`, `__tmux_lives_theme_apply_live`,
-`__tmux_lives_theme_list`, and the picker (`__tcz_theme_picker`) all call `__tmux_lives_theme_render`
-(line numbers rot; grep the name for exact sites). The v5 engine is **deleted** (2026-09-14); only
-`__tmux_lives_theme_relationships` survives, because `__tmux_lives_migrate_v4`'s reset branch still calls it.
+**v6 is wired and live in production code.** Every v5 call site is gone. `__tmux_lives_render_fragment`
+and `__tmux_lives_theme_roll` still call `__tmux_lives_theme_render` directly — the fragment runs at
+setup/update time and must never let a cache miss break a live apply, and `theme_roll` samples a fresh
+recipe per attempt so there is nothing to cache. `__tmux_lives_theme_apply_live`,
+`__tmux_lives_theme_list`, and the picker (`__tcz_theme_picker`) instead call the file-cached front,
+`__tmux_lives_theme_render_cached` (see "The render cache", below). The v5 engine is **deleted**
+(2026-09-14); only `__tmux_lives_theme_relationships` survives, because `__tmux_lives_migrate_v4`'s reset
+branch still calls it.
 
 A theme is now a **catalog scheme NAME resolving to a five-field recipe** (`mode Lspan peakC peakPos
 arrangement`) via `__tmux_lives_theme_recipe`. **The recipe is the stored identity** — the name is a
@@ -315,9 +321,9 @@ not for being the most robust (bound-1 margin 0.0050 against ≥0.0113 everywher
 **Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed** — v5's
 relationship/place/mode/phase have no v6 mapping. Idempotent, runs on `fisher update`.
 
-**The picker is retargeted**: `__tcz_theme_picker` sources the v6 catalog and renders through
-`__tmux_lives_theme_render`; `z` **rolls the real recipe space** with a session-local 12-entry history,
-replacing the old geometric-scheme randomizer.
+**The picker is retargeted**: `__tcz_theme_picker` sources the v6 catalog and renders through the cached
+front, `__tmux_lives_theme_render_cached`; `z` **rolls the real recipe space** with a session-local
+12-entry history, replacing the old geometric-scheme randomizer.
 
 ### The tie-break is structural, not a float comparison
 
@@ -371,6 +377,17 @@ recipe can avoid a mid-ramp `peakPos` if it matters in practice.
 tolerance counted **circularly**; the text floor needs **two** stages; stage two does **not** preserve
 chroma. Full numbers: `[[theme_engine_v6]]`.
 
+### The render cache
+
+`__tmux_lives_theme_render_cached` file-caches `__tmux_lives_theme_render`, keyed on **engine key +
+seed** — one file per pair (`<cache dir>/<engine key>-<seed>.tsv`), one line per five-field recipe. The
+engine key is a **cksum of the install file's own bytes** (`__tmux_lives_engine_key`), so the cache
+self-invalidates the moment the theme engine's code changes — no version constant to bump by hand. Lives
+at `tmux_lives_render_cache_dir` (seam), else `$XDG_CACHE_HOME/tmux-lives`, else `$HOME/.cache/tmux-lives`.
+A miss renders, appends one line, and prunes stale-engine files. **Never fails a render over the cache**
+— an unreadable engine key or an uncreatable directory falls straight back to the raw renderer. Callers:
+see "v6 is wired…", above; warm-vs-cold numbers: "Performance" under the picker, below.
+
 ## The picker (theme + session)
 
 Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
@@ -385,7 +402,7 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
   (25 popup rows = 30 client rows) — an idle-only floor once admitted a 20-row popup that overflowed
   the instant `b` was pressed.
 
-**Performance — three layers, all measured (`[[popup_geometry_and_perf]]`):**
+**Performance — four layers, all measured (`[[popup_geometry_and_perf]]`):**
 1. **Construction** cost is the **number of fish command substitutions**, not any one builder (a call
    inside `(…)` is 19× a plain call) — fixed by memoizing the row/static/swatch builders behind **one**
    helper (`__tcz_thp_reload`), which also makes a bare-integer row cache key legal.
@@ -396,6 +413,9 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
 3. **Input.** One rule on every held-key path: **discard, one step per frame.** ⚠ `stty min 0 time 0`
    must be re-asserted **inside** every drain loop (readkey's CSI branch leaves the tty blocking), and
    the arrow poll must never escalate its timeout or autorepeat outpaces it and the picker stalls.
+4. **Rendering.** Colour-decode is memoized per process and the gamut clamp no longer forks `seq`
+   (**~0.88ms/call, 759 calls/render**); warm, served from the render cache (above), the scheme list
+   build is **17–19ms** vs. seconds cold.
 
 **tmux 3.3a DROPS app-sent DECSET 2026** (a bogus `?9999` behaves identically — tmux does not forward
 private modes it doesn't implement), so the sync wrapper never reaches ShellFish there — it paints
