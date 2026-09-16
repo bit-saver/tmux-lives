@@ -197,3 +197,21 @@ In the categorize suite, with the cache seam set to a temp dir: build the picker
 - Measure the real win: with a temp cache dir, time a cold build of all 42 renders and then a warm one, and report both (cold ≈ Task 1's improved figure, warm should be tens of milliseconds).
 
 - [ ] **Step 5: Commit** — `perf(picker): serve scheme lists from the render cache`
+
+---
+
+### Task 4: stop forking `seq` inside the gamut clamp
+
+**Files:**
+- Modify: `conf.d/tmux-lives-install.fish` — `__tmux_lives_gamut_chroma` (~`:624`).
+- Test: `tests/test-tmux-install.fish`.
+
+**Why:** measured on rocket at HEAD 66bff56 — `__tmux_lives_gamut_chroma` runs **759 times per 42-scheme catalog render**, and its `for i in (seq 1 12)` forks an external `seq` each time at **0.88 ms**, i.e. **~668 ms of a 4,198 ms render (16%)** spent forking. Only 574 of the 759 calls are distinct, so memoizing the function is not worth its lookup cost; the fork is the free win.
+
+**Hard constraint:** the loop must still run exactly 12 iterations with the same arithmetic in the same order. Do NOT change the iteration count, add an early-exit tolerance, or re-group the `math` expressions: this project's clamps are calibrated at the 8-bit quantisation floor, and a re-associated float or one fewer bisection step can move a rendered hex.
+
+- [ ] **Step 1: Write the failing test** — a source-shape guard beside the engine tests: `__tmux_lives_gamut_chroma`'s body must contain no `seq` (extract the function body with the suite's established `awk '/^function __tmux_lives_gamut_chroma/,/^end$/'` idiom, assert the extraction is non-empty first, then assert zero `seq` hits). Also assert the body still contains a 12-iteration bound (grep for `12`), so a future edit cannot silently change the iteration count. Prove both FAIL/pass appropriately against the current code and paste the lines.
+- [ ] **Step 2: Run to verify the `seq` guard fails.**
+- [ ] **Step 3: Implement** — replace `for i in (seq 1 12)` with a counter loop, e.g. `set -l i 0; while test $i -lt 12; set i (math $i + 1); …; end`, leaving every line inside the loop byte-identical.
+- [ ] **Step 4: Verify** — the three pinned render digests from Task 1 unchanged (that is the byte-identity proof); full gate both modes; re-measure the catalog render and report before/after on the same machine and load.
+- [ ] **Step 5: Commit** — `perf(theme): drop the seq fork from the gamut clamp`
