@@ -633,7 +633,9 @@ function __tmux_lives_gamut_chroma --argument L H Ctarget --description 'max in-
     set -l rgb (__tmux_lives_oklch_to_linrgb $L $Ctarget $H)
     if test (__tmux_lives_in_gamut $rgb[1] $rgb[2] $rgb[3]) -eq 1; echo $Ctarget; return; end
     set -l lo 0; set -l hi $Ctarget
-    for i in (seq 1 12)
+    set -l i 0
+    while test $i -lt 12
+        set i (math $i + 1)
         set -l mid (math "($lo + $hi) / 2")
         set -l rgb2 (__tmux_lives_oklch_to_linrgb $L $mid $H)
         if test (__tmux_lives_in_gamut $rgb2[1] $rgb2[2] $rgb2[3]) -eq 1; set lo $mid; else; set hi $mid; end

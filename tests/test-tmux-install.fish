@@ -744,6 +744,18 @@ set -gx tmux_lives_render_cache_dir $__til_rc_dir
 
 # gamut clamp never exceeds target, stays in range
 t "gamut_chroma caps at target" 1 (set -l c (__tmux_lives_gamut_chroma 0.62 30 0.19); test (math -s5 "min($c,0.19)") = (math -s5 "$c"); and echo 1; or echo 0)
+
+# picker-render-cost Task 4: the gamut clamp's bisection loop must not fork an
+# external `seq` (measured 0.88ms/call, 759 calls/catalog render) -- and the
+# bisection itself must stay pinned at 12 steps, since the clamp is calibrated
+# at the 8-bit quantisation floor and one fewer step can move a rendered hex.
+# Extract the SOURCE (not `functions`, which also prints comments/docstring --
+# a grep here could be defeated or falsely tripped by prose).
+set -g __t4_gcbody (awk '/^function __tmux_lives_gamut_chroma /,/^end$/' $plugindir/conf.d/tmux-lives-install.fish | string collect)
+t "gamut_chroma body extraction is non-empty (guards below aren't vacuous)" yes (test -n "$__t4_gcbody"; and echo yes; or echo no)
+t "gamut_chroma body forks no external seq" 0 (string join \n -- $__t4_gcbody | grep -c 'seq ')
+t "gamut_chroma body still bounds the bisection at 12 iterations" yes (string join \n -- $__t4_gcbody | grep -q '12'; and echo yes; or echo no)
+set -e __t4_gcbody
 # WCAG contrast fg (new OKLCH-era helper; crossover 0.179 relative luminance)
 t "contrast_fg dark cap -> light" "#f5f5f5" (__tmux_lives_contrast_fg "#36442d")
 t "contrast_fg vivid mid -> dark" "#111111" (__tmux_lives_contrast_fg "#f66336")
