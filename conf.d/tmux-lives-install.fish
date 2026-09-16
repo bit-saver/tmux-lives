@@ -1715,7 +1715,7 @@ function __tmux_lives_theme_catalog_v6_default --description 'v6: the curated 14
     __tmux_lives_theme_catalog_v6 | string match -re '\|1$'
 end
 
-function __tmux_lives_theme_catalog_v6_rest --description 'v6: the 28 non-curated rows, in catalog order. The picker appends these under the More Schemes header so the curated rows keep their positions.'
+function __tmux_lives_theme_catalog_v6_rest --description 'v6: the 28 non-curated rows, in catalog order. The picker appends these after the curated rows when expanded, with no header — colour ordering can interleave the two tiers, so a header would land between an arbitrary pair (removed by the legibility-floors-and-scheme-ordering plans Task 8).'
     # -v inverts; --entire is not needed with -v (it emits whole non-matching lines).
     __tmux_lives_theme_catalog_v6 | string match -rv '\|1$'
 end

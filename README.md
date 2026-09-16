@@ -128,7 +128,7 @@ Your current theme and the `off` entry live in a second, untitled list at the bo
 
 #### Retired settings
 
-`--vividness`, `--shape`, `--ease` and `--contrast` were accepted, stored and displayed for several versions but never affected the output — verified byte-identical across every catalog row at every value. They now error, and `fisher update` erases the stored values with a one-line notice. `--rotate` went with the v4 engine (`--place` replaced it); `--polarity` and `--range` went before that. Old `cap`-engine settings migrate automatically on update.
+`--vividness`, `--shape`, `--ease` and `--contrast` were accepted, stored and displayed for several versions but never affected the output — verified byte-identical across every catalog row at every value. They now error, and `fisher update` erases the stored values with a one-line notice. `--rotate` went with the v4 engine, replaced by `--place`; v6 then retired `--place` itself along with `--mode` and `--phase` (see the Theming section above) — all four of `--rotate`, `--place`, `--mode` and `--phase` are gone now, and a scheme is chosen by name instead. `--polarity` and `--range` went before `--rotate`. Old `cap`-engine settings migrate automatically on update.
 
 ### In-tmux command surface (launcher + scratch split + resize)
 

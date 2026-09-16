@@ -314,9 +314,9 @@ by name; see 'tmux-lives setup theme list'".
 
 **Catalog: 42 rows, 14 curated.** `__tmux_lives_theme_catalog_v6` is the complete 7-mode × 6-arrangement
 grid — one tuned recipe per cell, curation only *removes*. `_v6_default` flags the 14 curated rows (two
-arrangements per mode, all reachable cold); `_v6_rest` is the other 28, under the picker's `More Schemes`
-header. `mono deep` is the one hand-placed row — kept for being the user's repeatedly-favourite palette,
-not for being the most robust (bound-1 margin 0.0050 against ≥0.0113 everywhere else).
+arrangements per mode, all reachable cold); `_v6_rest` is the other 28, appended when expanded (no
+header). `mono deep` is the one hand-placed row — kept for being the user's repeatedly-favourite palette,
+not for being the most robust (bound-1 margin 0.0050 vs ≥0.0113 elsewhere).
 
 **Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed** — v5's
 relationship/place/mode/phase have no v6 mapping. Idempotent, runs on `fisher update`.
