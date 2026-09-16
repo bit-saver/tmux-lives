@@ -509,6 +509,161 @@ t "hex_to_rgb01: fully non-hex input emits one empty line (pre-existing, no guar
 #    real (unphysical) numbers rather than failing.
 t "rgb_to_oklch: out-of-range numeric input still computes (pre-existing, no clamp)" "1.636757 0.402642 242.812949" (string join ' ' (__tmux_lives_rgb_to_oklch -1 2 3))
 
+# --- picker-render-cost Task 2: a file-backed render cache -------------------
+# Isolation bracket (brief item 9): record the REAL cache directory's
+# existence + mtime BEFORE this block touches anything. Every assertion below
+# that can reach the cache sets tmux_lives_render_cache_dir to a per-run temp
+# directory FIRST -- this bracket proves none of them fell through to the real
+# default anyway. The funcs-file seam already did exactly that once and
+# silently truncated a real user file for weeks (see I-3 above).
+function __ti_dir_mtime --argument-names p --description 'portable mtime (epoch seconds) of an existing path, empty if it does not exist -- GNU stat on Linux, BSD stat on macOS.'
+    test -e "$p"; or return
+    stat -c %Y -- "$p" 2>/dev/null; or stat -f %m -- "$p" 2>/dev/null
+end
+set -l real_rc_dir "$HOME/.cache/tmux-lives"
+set -l real_rc_existed_before (test -d "$real_rc_dir"; and echo yes; or echo no)
+set -l real_rc_mtime_before (__ti_dir_mtime "$real_rc_dir")
+
+# 1. __tmux_lives_render_cache_path: seam, then XDG_CACHE_HOME, then $HOME
+# fallback. The two non-seam checks perform no I/O -- the function only
+# builds a string -- so exercising them with the seam momentarily unset
+# cannot touch the real directory recorded above.
+set -e tmux_lives_render_cache_dir 2>/dev/null
+set -e XDG_CACHE_HOME 2>/dev/null
+set -l trc /tmp/tml-rc-$fish_pid
+set -gx tmux_lives_render_cache_dir $trc
+set -l p1 (__tmux_lives_render_cache_path)
+t "render_cache_path honours the seam" "$trc" "$p1"
+set -e tmux_lives_render_cache_dir
+set -gx XDG_CACHE_HOME /tmp/tml-rc-xdg-$fish_pid
+set -l p2 (__tmux_lives_render_cache_path)
+t "render_cache_path: seam unset, XDG_CACHE_HOME set" "/tmp/tml-rc-xdg-$fish_pid/tmux-lives" "$p2"
+set -e XDG_CACHE_HOME
+set -l p3 (__tmux_lives_render_cache_path)
+t "render_cache_path: both unset -> \$HOME/.cache/tmux-lives" "$HOME/.cache/tmux-lives" "$p3"
+# From this point on the seam is ALWAYS set for the rest of this section.
+set -gx tmux_lives_render_cache_dir $trc
+mkdir -p $trc
+
+# 5. Engine key changes when the engine changes: capture the real key, then
+# point __tmux_lives_install_src at a COPY with one comment line appended and
+# recompute -- proving the key is a function of these bytes, not a constant
+# anyone has to remember to bump. Restores the real source and re-derives the
+# key before any cache file gets created, so every later assertion in this
+# section sees the correct, real key.
+set -l ek1 (__tmux_lives_engine_key)
+set -l ekcopy /tmp/tml-enginekey-copy-$fish_pid
+cp $__tmux_lives_install_src $ekcopy
+echo '# tml-task2-engine-key-probe' >> $ekcopy
+set -l real_src $__tmux_lives_install_src
+set -g __tmux_lives_install_src $ekcopy
+set -e __tml_engine_key_memo
+set -l ek2 (__tmux_lives_engine_key)
+set -g __tmux_lives_install_src $real_src
+set -e __tml_engine_key_memo
+set -l ek3 (__tmux_lives_engine_key)
+rm -f $ekcopy
+t "engine key changes when the source file's bytes change" no (test "$ek1" = "$ek2"; and echo yes; or echo no)
+t "engine key is restored once __tmux_lives_install_src points back at the real file" "$ek1" "$ek3"
+
+# 2 + 3. First call renders and caches; second call serves the cache without
+# rendering again. Wrap __tmux_lives_theme_render with a counter -- same
+# functions -c pattern as Task 1 -- so "did not render" is PROVEN, not
+# inferred from timing.
+set -g __tml_render_probe 0
+functions -c __tmux_lives_theme_render __tml_tr_probe_bak
+functions -e __tmux_lives_theme_render
+function __tmux_lives_theme_render; set -g __tml_render_probe (math $__tml_render_probe + 1); __tml_tr_probe_bak $argv; end
+
+set -l seedA "#78b34c"
+set -l recA mono 0.55 0.11 0.50 deep
+set -l direct1 (string join ' ' (__tml_tr_probe_bak $seedA $recA))
+set -l ek (__tmux_lives_engine_key)
+set -l seedAkey (string replace -r '^#' '' -- $seedA)
+set -l fileA "$trc/$ek-$seedAkey.tsv"
+
+set -l cached1 (string join ' ' (__tmux_lives_theme_render_cached $seedA $recA))
+t "first cached call matches a direct render" "$direct1" "$cached1"
+t "first cached call created the cache file" yes (test -f "$fileA"; and echo yes; or echo no)
+t "first cached call rendered exactly once" 1 $__tml_render_probe
+
+set -l cached2 (string join ' ' (__tmux_lives_theme_render_cached $seedA $recA))
+t "second cached call returns the same hexes" "$direct1" "$cached2"
+t "second cached call did not render again" 1 $__tml_render_probe
+
+# 4. A different seed is a different cache file -- new render, different
+# values, no interference with seed A's entry.
+set -l seedB "#c0703a"
+set -l cachedB (string join ' ' (__tmux_lives_theme_render_cached $seedB $recA))
+t "a different seed rendered again (not served from seed A's entry)" 2 $__tml_render_probe
+t "a different seed produced different hexes" no (test "$cachedB" = "$direct1"; and echo yes; or echo no)
+
+# 6. A cache file written by hand under the WRONG engine key is never read --
+# the filename itself encodes the key, so a stale-key file is simply a
+# different path, and a fresh write prunes it.
+set -l seedC "#3a6fc0"
+set -l recC complementary 0.30 0.17 0.55 bright
+set -l reckC (string join ' ' $recC)
+set -l bogus_ek notarealenginekey
+set -l seedCkey (string replace -r '^#' '' -- $seedC)
+set -l bogusFile "$trc/$bogus_ek-$seedCkey.tsv"
+printf '%s\t%s\n' "$reckC" '#111111 #222222 #333333 #444444 #555555 #666666 #777777' >$bogusFile
+set -l directC (string join ' ' (__tml_tr_probe_bak $seedC $recC))
+set -l cachedC (string join ' ' (__tmux_lives_theme_render_cached $seedC $recC))
+t "a stale-engine-key file is not served" "$directC" "$cachedC"
+t "serving the real recipe rendered (bogus entry ignored, not hit)" 3 $__tml_render_probe
+t "a fresh write pruned the stale-engine-key file" no (test -f "$bogusFile"; and echo yes; or echo no)
+
+# 7. Corrupt/truncated cache lines are ignored, not served. Uses a fresh seed
+# so this process has never loaded its file before -- otherwise the
+# in-process cache from an earlier lookup would mask whatever is on disk and
+# this would pass without ever exercising the parser.
+set -l seedD "#5a5a5a"
+set -l recD triadic 0.50 0.17 0.75 deep
+set -l reckD (string join ' ' $recD)
+set -l seedDkey (string replace -r '^#' '' -- $seedD)
+set -l fileD "$trc/$ek-$seedDkey.tsv"
+printf '%s\t%s\n' "$reckD" '#111111 #222222 #333333 #444444 #555555 #666666' >$fileD
+printf '%s\t%s\n' "$reckD" '#111111 #222222 zzzzzzz #444444 #555555 #666666 #777777' >>$fileD
+set -l directD (string join ' ' (__tml_tr_probe_bak $seedD $recD))
+set -l cachedD (string join ' ' (__tmux_lives_theme_render_cached $seedD $recD))
+t "a truncated cache line (too few hexes) is not served" no (string match -q '*111111*' -- "$cachedD"; and echo yes; or echo no)
+t "a corrupt cache line (non-hex palette) is not served" "$directD" "$cachedD"
+t "a corrupt/truncated cache produced a real render, not a silent miss" 4 $__tml_render_probe
+
+functions -e __tmux_lives_theme_render; functions -c __tml_tr_probe_bak __tmux_lives_theme_render; functions -e __tml_tr_probe_bak
+set -e __tml_render_probe
+
+# 8. Concurrency: an append from "another process" (simulated here as a
+# direct write to the file, bypassing this process's in-memory view) landing
+# BETWEEN two of this process's own renders must not be lost. This holds only
+# because every write is a single `>>` append and nothing ever rewrites the
+# whole file from an in-memory snapshot -- a read-modify-write design would
+# silently drop the interleaved line the moment this process wrote again.
+set -l seedE "#2f8f6a"
+set -l reckH (string join ' ' square 0.70 0.13 0.75 bright)
+set -l seedEkey (string replace -r '^#' '' -- $seedE)
+set -l fileE "$trc/$ek-$seedEkey.tsv"
+__tmux_lives_theme_render_cached $seedE square 0.70 0.17 0.35 deep >/dev/null
+set -l fakeH '#101010 #202020 #303030 #404040 #505050 #606060 #707070'
+printf '%s\t%s\n' "$reckH" "$fakeH" >>$fileE
+__tmux_lives_theme_render_cached $seedE square 0.50 0.15 0.55 centre >/dev/null
+set -l fileElines (cat $fileE)
+t "concurrency: three appends (own write, hand-written, own write) all land in the file" 3 (count $fileElines)
+t "concurrency: the hand-appended entry between two of this process's own writes survives" yes (string match -q "*$reckH*$fakeH*" -- (string join \n $fileElines); and echo yes; or echo no)
+
+rm -rf $trc /tmp/tml-rc-xdg-$fish_pid
+set -e tmux_lives_render_cache_dir
+
+# 9. Isolation bracket, closed. Nothing above should have touched the real
+# default cache directory -- every call was seamed to $trc.
+set -l real_rc_existed_after (test -d "$real_rc_dir"; and echo yes; or echo no)
+t "isolation: real cache dir existence unchanged by this suite" "$real_rc_existed_before" "$real_rc_existed_after"
+if test "$real_rc_existed_before" = yes
+    set -l real_rc_mtime_after (__ti_dir_mtime "$real_rc_dir")
+    t "isolation: real cache dir mtime unchanged by this suite" "$real_rc_mtime_before" "$real_rc_mtime_after"
+end
+
 # gamut clamp never exceeds target, stays in range
 t "gamut_chroma caps at target" 1 (set -l c (__tmux_lives_gamut_chroma 0.62 30 0.19); test (math -s5 "min($c,0.19)") = (math -s5 "$c"); and echo 1; or echo 0)
 # WCAG contrast fg (new OKLCH-era helper; crossover 0.179 relative luminance)

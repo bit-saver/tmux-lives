@@ -5,6 +5,14 @@
 # __tmux_lives_oklch_to_linrgb use it for the atan2/cos/sin hue math).
 set -q __tmux_lives_pi; or set -g __tmux_lives_pi (math "atan2(0, -1)")
 
+# picker-render-cost Task 2: this file's own path, captured once at source time into a
+# plain global rather than called fresh from inside __tmux_lives_engine_key. The two
+# read the same value in the ordinary case, but only the captured-global form lets a
+# test repoint __tmux_lives_install_src at a mutated COPY of this file and force the
+# key to recompute against it -- a bare `status filename` call inside the function
+# would always resolve back to this real file, ignoring any such override.
+set -g __tmux_lives_install_src (status filename)
+
 function __tmux_lives_key --description 'Effective switcher key: VARNAME unset -> DEFAULT; set (even empty) -> its value'
     set -l name $argv[1]
     set -q $name; or begin; echo $argv[2]; return; end
@@ -1306,6 +1314,76 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     __tmux_lives_theme_constrain $pal $arrangement
 end
 
+function __tmux_lives_render_cache_prune --argument-names dir ek --description 'picker-render-cost Task 2: delete stale-engine cache files under <dir> -- any *.tsv whose name does not start with "<ek>-". Called after a fresh write so a bumped engine key sweeps its predecessors instead of the directory growing forever. Guarded on a NON-EMPTY <ek> before touching anything: the only glob used is the fixed "*.tsv" (the variable never appears inside a wildcard), and each candidate is filtered individually via string match against "<ek>-*", so an empty <ek> can only make this return early -- never widen what gets deleted. This repo has shipped exactly the opposite bug before: an empty variable silently turning a narrow glob into a broad one.'
+    if test -z "$dir"; or test -z "$ek"; or not test -d "$dir"
+        return
+    end
+    for f in $dir/*.tsv
+        test -e "$f"; or continue
+        string match -q -- "$ek-*" (path basename -- "$f"); and continue
+        rm -f -- "$f"
+    end
+end
+
+function __tmux_lives_theme_render_cached --argument-names seedHex mode Lspan peakC peakPos arrangement --description 'picker-render-cost Task 2: file-cached front for __tmux_lives_theme_render -- identical output, served from a per-(engine key, seed) cache file when present. Validates the seed SHAPE exactly like render() does, before anything reaches the decoder, for the same reason renders own comment gives: never pass a bad seed onward. One cache file per engine key + seed (<cache dir>/<engine key>-<seed without #>.tsv), one line per distinct recipe: "<mode> <Lspan> <peakC> <peakPos> <arrangement><TAB><7 hexes space-joined>". Reads the file ONCE per process -- skipped again for the same file, which is the pickers real usage: one seed, up to 42 recipe lookups -- into parallel-array globals keyed by the recipe text; a line with the wrong field count or a non-hex hex is dropped rather than served, and among duplicate keys the LAST one read wins, so a torn concurrent append can never surface a half-written entry. A miss renders via __tmux_lives_theme_render, appends ONE line with >> (a single short write -- two writers appending concurrently interleave their lines rather than one clobbering the other, unlike a read-whole-file-modify-write-back design would), prunes stale-engine files, and updates the in-process cache so a repeat lookup this same process never touches disk again. Never fails a render over the cache: an engine key that could not be determined ("nocache"), or a cache directory that cannot be created or written, falls back to calling __tmux_lives_theme_render directly, every time.'
+    string match -qr '^#?[0-9a-fA-F]{6}$' -- "$seedHex"; or return 1
+    set -l ek (__tmux_lives_engine_key)
+    if test "$ek" = nocache
+        __tmux_lives_theme_render "$seedHex" "$mode" "$Lspan" "$peakC" "$peakPos" "$arrangement"
+        return
+    end
+    set -l dir (__tmux_lives_render_cache_path)
+    set -l seedkey (string replace -r '^#' '' -- "$seedHex")
+    set -l file "$dir/$ek-$seedkey.tsv"
+    set -l key "$mode $Lspan $peakC $peakPos $arrangement"
+
+    # Load once per process per file: re-read only when this process has not
+    # seen this exact file yet (first call), or is now asked about a different
+    # seed's file than the one it last loaded.
+    if not set -q __tml_rc_loaded_file; or test "$__tml_rc_loaded_file" != "$file"
+        set -g __tml_rc_keys
+        set -g __tml_rc_vals
+        if test -f "$file"
+            for line in (cat "$file" 2>/dev/null)
+                set -l f (string split \t -- $line)
+                test (count $f) -eq 2; or continue
+                set -l hexes (string split ' ' -- $f[2])
+                test (count $hexes) -eq 7; or continue
+                set -l bad 0
+                for h in $hexes
+                    string match -qr '^#[0-9a-fA-F]{6}$' -- "$h"; or set bad 1
+                end
+                test $bad -eq 0; or continue
+                set -l i (contains -i -- "$f[1]" $__tml_rc_keys)
+                if test -n "$i"
+                    set __tml_rc_vals[$i] "$f[2]"
+                else
+                    set -ga __tml_rc_keys "$f[1]"
+                    set -ga __tml_rc_vals "$f[2]"
+                end
+            end
+        end
+        set -g __tml_rc_loaded_file "$file"
+    end
+
+    set -l i (contains -i -- "$key" $__tml_rc_keys)
+    if test -n "$i"
+        printf '%s\n' (string split ' ' -- $__tml_rc_vals[$i])
+        return
+    end
+
+    set -l hexes (__tmux_lives_theme_render "$seedHex" "$mode" "$Lspan" "$peakC" "$peakPos" "$arrangement")
+    if test (count $hexes) -eq 7
+        if mkdir -p "$dir" 2>/dev/null
+            printf '%s\t%s\n' "$key" (string join ' ' $hexes) >> "$file" 2>/dev/null
+            and __tmux_lives_render_cache_prune "$dir" "$ek"
+            set -ga __tml_rc_keys "$key"
+            set -ga __tml_rc_vals (string join ' ' $hexes)
+        end
+    end
+    printf '%s\n' $hexes
+end
+
 function __tmux_lives_theme_mark --argument-names barhex seedhex --description 'v6: the ✦ presence glyph, which is the SEED rather than a palette role and so is not covered by render(). Returns the seed floored to the glyph threshold (0.15 OKLCH lightness) against bar, keeping hue and chroma. Measured: the shipped engine reaches dL 0.000 / WCAG 1.00 here — the mark is sometimes exactly the bar colour. A seed already clearing the floor is returned VERBATIM: the mark is the seeds home base and must stay the literal seed wherever it legibly can. Non-hex input (a colourNNN fallback, or "default" when the theme is off) is returned unchanged. Lives here, not inside render(), so renders seven-element contract is untouched.'
     # Reject a malformed hex BEFORE it ever reaches __tmux_lives_hex_to_rgb01,
     # same as __tmux_lives_theme_render above: that function has no shape
@@ -1866,6 +1944,29 @@ end
 
 function __tmux_lives_funcs_path --description 'path to the record of shipped function names, used to spot removals across an update (seam: tmux_lives_funcs_file)'
     set -q tmux_lives_funcs_file; and echo $tmux_lives_funcs_file; or echo "$HOME/.config/tmux/tmux-lives-funcs"
+end
+
+function __tmux_lives_render_cache_path --description 'picker-render-cost Task 2: path to the render-cache DIRECTORY for the theme engine (seam: tmux_lives_render_cache_dir). Default $XDG_CACHE_HOME/tmux-lives when XDG_CACHE_HOME is set, else $HOME/.cache/tmux-lives -- same seam idiom as __tmux_lives_state_path / __tmux_lives_funcs_path above. Every test that can reach the cache MUST set the seam: this default resolves through $HOME exactly like the two seams above, and this repo has already truncated a real user file once by forgetting that.'
+    if set -q tmux_lives_render_cache_dir
+        echo $tmux_lives_render_cache_dir
+    else if set -q XDG_CACHE_HOME
+        echo "$XDG_CACHE_HOME/tmux-lives"
+    else
+        echo "$HOME/.cache/tmux-lives"
+    end
+end
+
+function __tmux_lives_engine_key --description 'picker-render-cost Task 2: a short token that changes whenever the theme engine (this sourced file) changes, so a persisted render cache can detect it went stale without a constant that a future change must remember to bump by hand. cksum of the sourced install files own bytes ($__tmux_lives_install_src, captured at load time -- see the top of this file), reduced to cksums first field, memoized per process in __tml_engine_key_memo so it costs at most one subprocess however many recipes get looked up. When status filename was unavailable at load time, or the captured path is no longer readable, returns the literal token "nocache" instead of a wrong key -- __tmux_lives_theme_render_cached reads that token as "never persist, always render".'
+    set -q __tml_engine_key_memo; and echo $__tml_engine_key_memo; and return
+    set -l src "$__tmux_lives_install_src"
+    if test -z "$src"; or not test -r "$src"
+        set -g __tml_engine_key_memo nocache
+        echo nocache
+        return
+    end
+    set -l ck (string split ' ' -- (cksum < "$src"))
+    set -g __tml_engine_key_memo "$ck[1]"
+    echo "$ck[1]"
 end
 
 function __tmux_lives_shipped_functions --argument-names dir --description 'names of the functions this plugin defines, read from its installed files. Defaults to $__fish_config_dir; takes a directory so tests can point it at the repo.'
