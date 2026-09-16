@@ -1779,7 +1779,7 @@ function __tmux_lives_theme_apply_live --description 'internal: push the effecti
     set -l seed (__tmux_lives_seed_hex (__tmux_lives_key tmux_lives_bar_color ''))
     set -l tpal
     if test "$theme" != off; and test -n "$seed"
-        set tpal (__tmux_lives_theme_render $seed "$theme" "$tlspan" "$tpeakc" "$tpeakpos" "$tarr")
+        set tpal (__tmux_lives_theme_render_cached $seed "$theme" "$tlspan" "$tpeakc" "$tpeakpos" "$tarr")
     end
     if test (count $tpal) -eq 7
         __tmux_lives_theme_push status-style "bg=$tpal[1],fg=$tpal[5]"
@@ -1822,7 +1822,7 @@ function __tmux_lives_theme_list --description 'tmux-lives setup theme list: eve
     test -n "$seed"; or set seed '#3a3a3a'   # no seed configured yet -> neutral so strips still render
     for entry in (__tmux_lives_theme_catalog_v6)
         set -l f (string split '|' $entry)
-        set -l pal (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
+        set -l pal (__tmux_lives_theme_render_cached $seed $f[2] $f[3] $f[4] $f[5] $f[6])
         test (count $pal) -eq 7; or continue
         set -l strip
         for hex in $pal

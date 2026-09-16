@@ -17,6 +17,17 @@ if not set -q TMUX_LIVES_TEST_UVARS; or test "$TMUX_LIVES_TEST_UVARS" != "$XDG_C
 end
 set -g plugindir (path resolve (status dirname)/..)
 source $plugindir/conf.d/tmux-lives-install.fish
+# picker-render-cost Task 3: __tmux_lives_theme_list and __tmux_lives_theme_apply_live
+# now run through __tmux_lives_theme_render_cached, which resolves its cache directory
+# via the tmux_lives_render_cache_dir seam (else XDG_CACHE_HOME, else
+# $HOME/.cache/tmux-lives -- see __tmux_lives_render_cache_path). Set a WHOLE-FILE
+# default temp dir before this file's many pre-existing, unstubbed calls to those two
+# functions (e.g. the theme-v6-surface Task 4 block and the CLI theme/color tests
+# further down) can reach the real one. Restored (never fully unset) by the Task 2
+# cache section below after its own local-seam experiments; removed at the very end
+# of this file.
+set -g __til_rc_dir /tmp/til-rc-$fish_pid
+set -gx tmux_lives_render_cache_dir $__til_rc_dir
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
 
@@ -653,7 +664,12 @@ t "concurrency: three appends (own write, hand-written, own write) all land in t
 t "concurrency: the hand-appended entry between two of this process's own writes survives" yes (string match -q "*$reckH*$fakeH*" -- (string join \n $fileElines); and echo yes; or echo no)
 
 rm -rf $trc /tmp/tml-rc-xdg-$fish_pid
-set -e tmux_lives_render_cache_dir
+# picker-render-cost Task 3: restore the WHOLE-FILE default seam (set at the top
+# of this file) rather than fully unsetting -- __tmux_lives_theme_list and
+# __tmux_lives_theme_apply_live are both exercised, unstubbed, by many tests
+# further down this file (CLI theme/color tests, the roll sweep), and an unseamed
+# call from any of them would fall through to the real $HOME/.cache/tmux-lives.
+set -gx tmux_lives_render_cache_dir $__til_rc_dir
 
 # 9. Isolation bracket, closed. Nothing above should have touched the real
 # default cache directory -- every call was seamed to $trc.
@@ -663,6 +679,68 @@ if test "$real_rc_existed_before" = yes
     set -l real_rc_mtime_after (__ti_dir_mtime "$real_rc_dir")
     t "isolation: real cache dir mtime unchanged by this suite" "$real_rc_mtime_before" "$real_rc_mtime_after"
 end
+
+# --- picker-render-cost Task 3: theme_list / theme_apply_live serve from the
+# render cache -----------------------------------------------------------
+# Both are plain top-level functions -- no eval-extraction needed, unlike the
+# picker's own nested reload/reanchor/seedbatch in functions/tmux-categorize.fish
+# (see that suite's own Task 3 section for the bounded-extraction technique
+# those nested functions need instead).
+set -g T3LISTBODY (awk '/^function __tmux_lives_theme_list /,/^end$/' $plugindir/conf.d/tmux-lives-install.fish | string collect)
+t "theme_list body extraction is non-empty" 1 (test -n "$T3LISTBODY"; and echo 1; or echo 0)
+t "theme_list calls the cached renderer" yes (string match -q '*__tmux_lives_theme_render_cached $seed $f[2]*' -- "$T3LISTBODY"; and echo yes; or echo no)
+t "theme_list no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed \$f\[2\]' -- "$T3LISTBODY"; and echo 1; or echo 0)
+
+set -g T3APPLYBODY (awk '/^function __tmux_lives_theme_apply_live /,/^end$/' $plugindir/conf.d/tmux-lives-install.fish | string collect)
+t "theme_apply_live body extraction is non-empty" 1 (test -n "$T3APPLYBODY"; and echo 1; or echo 0)
+t "theme_apply_live calls the cached renderer" yes (string match -q '*__tmux_lives_theme_render_cached $seed "$theme"*' -- "$T3APPLYBODY"; and echo yes; or echo no)
+t "theme_apply_live no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed "\$theme"' -- "$T3APPLYBODY"; and echo 1; or echo 0)
+
+# End-to-end: a second theme_list build of the same seed serves from disk, not
+# the render primitive. Own PRIVATE cache dir (not the whole-file default
+# $__til_rc_dir, which by this point already holds entries this file's own
+# earlier, unstubbed theme-v6-surface Task 4 block warmed for a different
+# seed) -- a fresh dir removes any need to reason about what else in this
+# ~4600-line file might have already touched it.
+set -l t3dir /tmp/til-rc-t3-$fish_pid
+set -gx tmux_lives_render_cache_dir $t3dir
+set -g __t3_render_probe 0
+functions -c __tmux_lives_theme_render __t3_render_bak
+functions -e __tmux_lives_theme_render
+function __tmux_lives_theme_render
+    set -g __t3_render_probe (math $__t3_render_probe + 1)
+    __t3_render_bak $argv
+end
+set -l t3seed '#78b34c'
+set -g tmux_lives_bar_color $t3seed
+set -l t3list1 (__tmux_lives_theme_list)
+t "theme_list (cold): one line per catalog row" 42 (count $t3list1)
+t "theme_list (cold): renders each of the 42 distinct recipes exactly once" 42 $__t3_render_probe
+set -g __t3_render_probe 0
+set -l t3list2 (__tmux_lives_theme_list)
+t "theme_list (warm, same seed): renders NOTHING -- served entirely from the disk cache" 0 $__t3_render_probe
+t "theme_list (warm): output is byte-identical to the cold build" yes (test (string join \x1e -- $t3list1) = (string join \x1e -- $t3list2); and echo yes; or echo no)
+
+# Cross-call-site sharing: apply_live renders a recipe theme_list ALREADY
+# warmed above ("mono deep" = mono 0.55 0.11 0.50 deep, a real catalog row) --
+# proving the cache is keyed by (engine, seed, recipe), not private to
+# whichever function populated it.
+set -g __t3_render_probe 0
+set -g T3SOCK "til-t3-$fish_pid"
+command tmux -f /dev/null -L $T3SOCK new-session -d -s probe -c $HOME 'sleep 60' 2>/dev/null
+set -g tmux_lives_tmux_socket $T3SOCK
+set -l t3direct (__t3_render_bak $t3seed mono 0.55 0.11 0.50 deep)
+__tmux_lives_theme_apply_live mono 0.55 0.11 0.50 deep
+t "apply_live (recipe already warmed by theme_list, above): renders NOTHING -- shares theme_list's disk cache entry" 0 $__t3_render_probe
+t "apply_live's pushed bar colour matches the independently-rendered palette (correct, not just cheap)" "$t3direct[1]" (command tmux -L $T3SOCK show -gv @tmux_lives_bar_bg 2>/dev/null)
+command tmux -L $T3SOCK kill-server 2>/dev/null
+set -e tmux_lives_tmux_socket
+set -e tmux_lives_bar_color
+
+functions -e __tmux_lives_theme_render; functions -c __t3_render_bak __tmux_lives_theme_render; functions -e __t3_render_bak
+set -e __t3_render_probe
+rm -rf $t3dir
+set -gx tmux_lives_render_cache_dir $__til_rc_dir
 
 # gamut clamp never exceeds target, stays in range
 t "gamut_chroma caps at target" 1 (set -l c (__tmux_lives_gamut_chroma 0.62 30 0.19); test (math -s5 "min($c,0.19)") = (math -s5 "$c"); and echo 1; or echo 0)
@@ -4603,5 +4681,10 @@ end
 t "roll: the exhaustion fallback still honours the pin across $MREXHN draws" 0 $MREXHBAD
 functions -e __tmux_lives_theme_render
 eval $__mgr_realrender
+
+# picker-render-cost Task 3: remove the whole-file render-cache seam dir set at
+# the top of this file (mirrors the shim/socket hygiene sweeps other suites end
+# with).
+rm -rf $__til_rc_dir
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end

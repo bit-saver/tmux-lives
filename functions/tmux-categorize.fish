@@ -2584,7 +2584,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             end
             for e in $rows
                 set -l f (string split '|' -- $e)
-                set -l p (__tmux_lives_theme_render $seed $f[2] $f[3] $f[4] $f[5] $f[6])
+                set -l p (__tmux_lives_theme_render_cached $seed $f[2] $f[3] $f[4] $f[5] $f[6])
                 test (count $p) -eq 7; or set p "" "" "" "" "" "" ""
                 # cap/tabs are pinned (fields 6/3 of pal) -> compute their fgs once
                 set -l capfg (__tmux_lives_contrast_fg "$p[6]")
@@ -2805,7 +2805,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         set anchfg '#f5f5f5'
         set anchtabsfg '#f5f5f5'
         if test "$anch_theme" != off
-            set -l ap (__tmux_lives_theme_render $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)
+            set -l ap (__tmux_lives_theme_render_cached $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)
             if test (count $ap) -eq 7
                 set -l apj (string join ' ' $ap)
                 set anchpal "$apj"
@@ -2842,7 +2842,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
             for i in (seq (count $rollhist))
                 set -l rf (string split '|' -- $rollhist[$i])
                 test (count $rf) -eq 5; or continue
-                set -l rp (__tmux_lives_theme_render $seed $rf[1] $rf[2] $rf[3] $rf[4] $rf[5])
+                set -l rp (__tmux_lives_theme_render_cached $seed $rf[1] $rf[2] $rf[3] $rf[4] $rf[5])
                 test (count $rp) -eq 7; or continue
                 set rollpals[$i] (string join ' ' $rp)
                 set rollfgs[$i] (__tmux_lives_contrast_fg "$rp[6]")
@@ -3689,7 +3689,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
                     # blank-but-still-pushed on a render failure (mirrors that
                     # same reload's own fallback) so the four arrays below
                     # never desynchronise from each other.
-                    set -l rp (__tmux_lives_theme_render $seed $r[1] $r[2] $r[3] $r[4] $r[5])
+                    set -l rp (__tmux_lives_theme_render_cached $seed $r[1] $r[2] $r[3] $r[4] $r[5])
                     test (count $rp) -eq 7; or set rp "" "" "" "" "" "" ""
                     set -l capfg (__tmux_lives_contrast_fg "$rp[6]")
                     set -l tabsfg (__tmux_lives_contrast_fg "$rp[3]")

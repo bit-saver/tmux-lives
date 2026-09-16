@@ -32,6 +32,22 @@ set -g shimdir /tmp/tcz-shim-$fish_pid
 set -g plugindir (path resolve (status dirname)/..)
 source $plugindir/conf.d/tmux-lives-install.fish
 
+# picker-render-cost Task 3: every reload/reanchor/roll call site this suite
+# exercises now runs through __tmux_lives_theme_render_cached, which resolves
+# its cache directory via the tmux_lives_render_cache_dir seam (else
+# XDG_CACHE_HOME, else $HOME/.cache/tmux-lives -- see
+# __tmux_lives_render_cache_path). Set a WHOLE-FILE default temp dir before any
+# test can reach it, so no individual assertion in this ~9000-line suite has
+# to remember its own seam -- this repo has already truncated a real user file
+# once by forgetting exactly that (the funcs-file leak test-tmux-install.fish's
+# own I-3 guard exists for). Removed in the hygiene section at the end of this
+# file, which also proves the real default was never touched (before/after
+# bracket, captured here before anything runs).
+set -g __tcg_real_rc_dir "$HOME/.cache/tmux-lives"
+set -g __tcg_real_rc_existed_before (test -d "$__tcg_real_rc_dir"; and echo yes; or echo no)
+set -g __tcg_rc_dir /tmp/tcg-rc-$fish_pid
+set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
+
 mkdir -p $shimdir
 printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $sock > $shimdir/tmux
 chmod +x $shimdir/tmux
@@ -4159,10 +4175,15 @@ t "picker drops rotate universal" 0 (string match -q '*tmux_lives_theme_rotate*'
 # Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
 # FOURTH call, same 6-arg shape (seed + the roll's own 5 recipe fields) — the
 # per-call arg-count loop just below picks it up for free. 3 -> 4.
-set -l palcalls (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pbody"))
+# picker-render-cost Task 3: all 4 sites now call __tmux_lives_theme_render_cached
+# (a byte-identical, disk-cached front for the raw renderer -- see that
+# suite's own Task 3 section further down this file), not the raw render
+# function directly. Same 4 call sites, same 6-arg shape; only the callee name
+# changed, so the pattern below is updated to match it.
+set -l palcalls (string match -ar '.*__tmux_lives_theme_render_cached \$.*' -- (string split \n -- "$pbody"))
 t "picker has exactly 4 render calls" 4 (count $palcalls)
 for pc in $palcalls
-    set -l argtail (string replace -r '.*__tmux_lives_theme_render ' '' -- $pc)
+    set -l argtail (string replace -r '.*__tmux_lives_theme_render_cached ' '' -- $pc)
     set -l argstr (string replace -r '\).*' '' -- $argtail)
     set -l nargs (count (string split ' ' -- $argstr))
     t "render call is 6-arg: $argstr" 6 $nargs
@@ -4184,7 +4205,7 @@ t "picker default-12 accessor"      1 (string match -q '*__tmux_lives_theme_cata
 t "picker drops relationships iter" 0 (string match -q '*for tok in (__tmux_lives_theme_relationships)*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has recipes array"        1 (string match -q '*recipes*' -- "$pbody"; and echo 1; or echo 0)
 t "picker has expanded state"       1 (string match -q '*expanded*' -- "$pbody"; and echo 1; or echo 0)
-t "picker still 6-arg render"       1 (string match -q '*__tmux_lives_theme_render $seed *$f[6])*' -- "$pbody"; and echo 1; or echo 0)
+t "picker still 6-arg render"       1 (string match -q '*__tmux_lives_theme_render_cached $seed *$f[6])*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- Gallery picker rewrite, Task 3: windowed scrolling list + linear nav ---
 # __tcz_thp_window <sel> <total> <winsize> -> "<start> <count>", the 0-based
@@ -4480,7 +4501,7 @@ t "anchor lookup resolves a non-catalog recipe to empty" '' (__t7_anchlookup mon
 # for the main list, now grown from 5 to 6 args (place+mode+phase replaced by
 # lspan+peakc+peakpos+arrangement). Checked against the full $pbody since
 # this exact call text is unique to __tcz_thp_reanchor.
-t "anchor render call is 6-arg (lspan+peakc+peakpos+arrangement, drops phase)" 1 (string match -q '*__tmux_lives_theme_render $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)*' -- "$pbody"; and echo 1; or echo 0)
+t "anchor render call is 6-arg (lspan+peakc+peakpos+arrangement, drops phase)" 1 (string match -q '*__tmux_lives_theme_render_cached $seed $anch_theme $anch_lspan $anch_peakc $anch_peakpos $anch_arr)*' -- "$pbody"; and echo 1; or echo 0)
 
 # --- mono-only picker toggle (Task 2): the universal defaults OFF when unset
 # ---------------------------------------------------------------------------
@@ -4687,7 +4708,7 @@ t "picker: no anch_viv"         0 (string match -ra 'anch_viv' -- "$PBODY3" | co
 # Whole-branch review I2: __tcz_thp_seedbatch's roll-rebuild loop adds a
 # fourth, legitimate site (rebuilding rollpals/rollfgs/rolltabsfgs for a
 # changed seed) — 3 -> 4.
-t "picker: still has exactly 4 render calls" 4 (string match -ra '__tmux_lives_theme_render ' -- "$PBODY3" | count)
+t "picker: still has exactly 4 render calls" 4 (string match -ra '__tmux_lives_theme_render_cached ' -- "$PBODY3" | count)
 
 # --- Task 7: seed screens — big swatch + shared legend ---
 set -l sw (__tcz_thp_swatch '#485b3c' 134 0.45 0.054)
@@ -4708,7 +4729,7 @@ set -l pk (functions __tcz_theme_picker | string collect)
 # anch_theme"), and it saves by catalog NAME ($anch_name), not by the bare
 # scheme ($anch_scheme, retired).
 t "picker snapshots the anchor after init" 1 (string match -q '*set anch_theme $theme*' -- "$pk"; and echo 1; or echo 0)
-t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_render $seed $anch_theme*' -- "$pk"; and echo 1; or echo 0)
+t "picker anchor palette computed once at open" 1 (string match -q '*__tmux_lives_theme_render_cached $seed $anch_theme*' -- "$pk"; and echo 1; or echo 0)
 t "picker cursor starts on the top scheme (sel 0)" 1 (string match -q '*set -l sel 0*' -- "$pk"; and echo 1; or echo 0)
 t "picker anchor enter saves the snapshot" 1 (string match -q '*set apply $anch_name*' -- "$pk"; and echo 1; or echo 0)
 # the apply_live preview form is now mode lspan peakc peakpos arrangement —
@@ -5192,7 +5213,7 @@ t "consolidated guard: vismap never yields n (off left the walk)" 1 (test (__tcz
 # changed seed needs its own render call, same as the scheme strips
 # (__tcz_thp_reload) and the current-row anchor (__tcz_thp_reanchor) each do.
 # 3 -> 4.
-t "consolidated guard: exactly 4 render call sites" 4 (count (string match -ar '.*__tmux_lives_theme_render \$.*' -- (string split \n -- "$pk2")))
+t "consolidated guard: exactly 4 render call sites" 4 (count (string match -ar '.*__tmux_lives_theme_render_cached \$.*' -- (string split \n -- "$pk2")))
 
 # ---------------------------------------------------------------------
 # Esc restores the seed: the seed screens are preview-only, ⏎ commits
@@ -7424,6 +7445,18 @@ function __tmux_lives_theme_render --argument-names __t9sb_seed __t9sb_mode
     # seed (and the roll's own stored mode) or was skipped entirely.
     printf '%s\n' "$__t9sb_seed:$__t9sb_mode" '#dddddd' '#eeeeee' '#cccccc' '#bbbbbb' '#aaaaaa' '#999999'
 end
+# picker-render-cost Task 3: seedbatch's roll-rebuild now calls
+# __tmux_lives_theme_render_cached, not this stub directly. The stub above is
+# still reached on a genuine cache MISS, but a recipe this exact (seed
+# #5f772b, triadic|0.60|0.15|0.45|accent) is also produced by the earlier
+# case-z roll tests further up this file, which render it for REAL (they
+# stub __tmux_lives_theme_roll, not __tmux_lives_theme_render) -- against the
+# whole-file default cache dir, that real entry would silently outrank this
+# stub. A private, fresh cache dir removes the possibility of a hit from
+# anywhere else in this suite, so every lookup below is a guaranteed miss
+# that reaches the stub, exactly as this test intends.
+set -l __t9sb_dir /tmp/tcg-rc-t9sb-$fish_pid
+set -gx tmux_lives_render_cache_dir $__t9sb_dir
 eval $SB9
 function __t9_seedbatch --argument-names newseed dirty --description 'call the REAL __tcz_thp_seedbatch against a throwaway scope with a 2-entry synthetic rollhist and pre-seeded rollpals/rollfgs/rolltabsfgs. seed = <newseed>; stripseed is set equal to <newseed> when <dirty> is 0 (nothing changed) or to a different value when <dirty> is 1 -- mirroring how __tcz_thp_reload itself would have left stripseed after the LAST rebuild. Prints rollpals[1], rollpals[2], rollfgs[1], rolltabsfgs[1], each on its own line.'
     set -l seed $newseed
@@ -7453,6 +7486,8 @@ t "seedbatch: seed changed rebuilds the first roll entry for the NEW seed AND it
 t "seedbatch: seed changed rebuilds the second roll entry too, keeping ITS OWN mode (not the first entry's)" "#5f772b:triadic #dddddd #eeeeee #cccccc #bbbbbb #aaaaaa #999999" $SBDIRTY[2]
 t "seedbatch: rollfgs is recomputed from the rebuilt palette's cap field (field 6), not left stale" (__tmux_lives_contrast_fg '#aaaaaa') $SBDIRTY[3]
 t "seedbatch: rolltabsfgs is recomputed from the rebuilt palette's tabs field (field 3), not left stale" (__tmux_lives_contrast_fg '#eeeeee') $SBDIRTY[4]
+rm -rf $__t9sb_dir
+set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 functions -e __tcz_thp_reload; functions -e __tcz_thp_reanchor
 test -n "$__t9_sb_real_reload"; and eval $__t9_sb_real_reload
 test -n "$__t9_sb_real_reanchor"; and eval $__t9_sb_real_reanchor
@@ -7812,7 +7847,7 @@ t "picker body extraction is non-empty" 1 (test -n "$EB6"; and echo 1; or echo 0
 # changed seed, alongside the same reload+reanchor pair this section is
 # about) — not a regression of the per-keystroke recompute either; that
 # stays gone. 3 -> 4.
-t "picker back to exactly 4 render call sites" 4 (string match -ra '__tmux_lives_theme_render ' -- "$EB6" | count)
+t "picker back to exactly 4 render call sites" 4 (string match -ra '__tmux_lives_theme_render_cached ' -- "$EB6" | count)
 # Perf fence retained: one palette call must stay well under a redraw budget —
 # still relevant to the batch's own cost, just no longer paid per keystroke.
 # Task 7 (v6 recipes): times the picker's actual engine call now,
@@ -9241,6 +9276,104 @@ t "T8: no More Schemes header is emitted" 0 (printf '%s\n' $T8SRC | grep -c 'thp
 # the cursor and the window disagree by one at the boundary.
 t "T8: no ndefault virtual-row offset remains" 0 (printf '%s\n' $T8SRC | grep -cE 'set vsel \(math \$sel \+ 1\)')
 
+# --- picker-render-cost Task 3: reload/reanchor/seedbatch/roll serve from the
+# render cache, not a fresh render every build --------------------------------
+# Four call sites in this file build a scheme's colours from a stored recipe
+# and the current seed: __tcz_thp_reload (the list of 14/42/36 rows),
+# __tcz_thp_reanchor (the frozen `current`-row snapshot), __tcz_thp_seedbatch
+# (its own roll-history rebuild), and case z (the roll preview). Bounded
+# per-function source checks pin the WIRING (each named call site now reads
+# __tmux_lives_theme_render_cached, not the raw renderer); the end-to-end
+# checks below prove the actual behaviour this buys.
+set -l catfile $plugindir/functions/tmux-categorize.fish
+set -l T3RELOAD (awk '/^    function __tcz_thp_reload/,/^    end$/' $catfile | string collect)
+t "reload body extraction is non-empty (task 3)" 1 (test -n "$T3RELOAD"; and echo 1; or echo 0)
+t "reload calls the cached renderer, not the raw one" yes (string match -q '*__tmux_lives_theme_render_cached $seed $f[2]*' -- "$T3RELOAD"; and echo yes; or echo no)
+t "reload no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed \$f\[2\]' -- "$T3RELOAD"; and echo 1; or echo 0)
+
+set -l T3REANCHOR (awk '/^    function __tcz_thp_reanchor/,/^    end$/' $catfile | string collect)
+t "reanchor body extraction is non-empty (task 3)" 1 (test -n "$T3REANCHOR"; and echo 1; or echo 0)
+t "reanchor calls the cached renderer" yes (string match -q '*__tmux_lives_theme_render_cached $seed $anch_theme*' -- "$T3REANCHOR"; and echo yes; or echo no)
+t "reanchor no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed \$anch_theme' -- "$T3REANCHOR"; and echo 1; or echo 0)
+
+set -l T3SEEDBATCH (awk '/^    function __tcz_thp_seedbatch/,/^    end$/' $catfile | string collect)
+t "seedbatch body extraction is non-empty (task 3)" 1 (test -n "$T3SEEDBATCH"; and echo 1; or echo 0)
+t "seedbatch roll-rebuild calls the cached renderer" yes (string match -q '*__tmux_lives_theme_render_cached $seed $rf[1]*' -- "$T3SEEDBATCH"; and echo yes; or echo no)
+t "seedbatch no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed \$rf\[1\]' -- "$T3SEEDBATCH"; and echo 1; or echo 0)
+
+set -l T3CASEZ (awk '/^            case tab$/{exit} /^            case z$/{f=1} f{print}' $catfile | string collect)
+t "case-z body extraction is non-empty (task 3)" 1 (test -n "$T3CASEZ"; and echo 1; or echo 0)
+t "case z roll-preview calls the cached renderer" yes (string match -q '*__tmux_lives_theme_render_cached $seed $r[1]*' -- "$T3CASEZ"; and echo yes; or echo no)
+t "case z no longer calls the raw renderer directly" 0 (string match -qr 'theme_render \$seed \$r\[1\]' -- "$T3CASEZ"; and echo 1; or echo 0)
+
+# --- end-to-end: a second reload build of the SAME seed serves from the disk
+# cache, not the render primitive. Own PRIVATE cache dir (not the whole-file
+# default $__tcg_rc_dir set at the top of this file, which by now holds
+# entries this suite's many earlier reload/reanchor/seedbatch/case-z tests
+# already warmed for common fixture seeds) -- a fresh dir removes any need to
+# reason about what else in this ~9000-line file might have already touched
+# it. ---------------------------------------------------------------------
+set -l t3dir /tmp/tcg-rc-t3-$fish_pid
+set -gx tmux_lives_render_cache_dir $t3dir
+eval $RB7
+set -g __t3_render_probe 0
+functions -c __tmux_lives_theme_render __t3_render_bak
+functions -e __tmux_lives_theme_render
+function __tmux_lives_theme_render
+    set -g __t3_render_probe (math $__t3_render_probe + 1)
+    __t3_render_bak $argv
+end
+function __t3_reload_build --argument-names seed expanded --description 'call the real __tcz_thp_reload against a FRESH throwaway scope on every call, mirroring a fresh picker open: __tcz_thp_reload own in-process cachekeys/cacheblobs blob memo starts EMPTY every call, so only the disk-backed render cache can possibly avoid a re-render across two separate calls to this wrapper. Prints the composed toks, one per line.'
+    set -l toks
+    set -l pals
+    set -l fgs
+    set -l tabsfgs
+    set -l recipes
+    set -l cachekeys
+    set -l cacheblobs
+    set -l seed $seed
+    set -l expanded $expanded
+    set -l mono_only 0
+    __tcz_thp_reload
+    printf '%s\n' $toks
+end
+set -l t3seed '#78b34c'
+set -l t3names1 (__t3_reload_build $t3seed 1)
+t "reload (cold, 42 rows): composes all 42 catalog rows" 42 (count $t3names1)
+t "reload (cold): renders each of the 42 distinct recipes exactly once" 42 $__t3_render_probe
+set -g __t3_render_probe 0
+set -l t3names2 (__t3_reload_build $t3seed 1)
+t "reload (warm, same seed, fresh picker-open scope): renders nothing, served entirely from the disk cache" 0 $__t3_render_probe
+t "reload (warm): composed names are still correct, the cache serves the same content, not just fewer renders" yes (test (string join \x1e -- $t3names1) = (string join \x1e -- $t3names2); and echo yes; or echo no)
+
+# Cross-call-site sharing: __tcz_thp_reanchor renders a recipe reload ALREADY
+# warmed above (mono deep = mono 0.55 0.11 0.50 deep, a real catalog row) --
+# proving the cache is keyed by (engine, seed, recipe), not private to
+# whichever call site populated it.
+eval $T3REANCHOR
+function __t3_reanchor_build --argument-names seed theme lspan peakc peakpos arr --description 'call the real __tcz_thp_reanchor against a throwaway scope with the given anchor recipe. Prints anchpal.'
+    set -l seed $seed
+    set -l anch_theme $theme
+    set -l anch_lspan $lspan
+    set -l anch_peakc $peakc
+    set -l anch_peakpos $peakpos
+    set -l anch_arr $arr
+    set -l anchpal ''
+    set -l anchfg '#f5f5f5'
+    set -l anchtabsfg '#f5f5f5'
+    __tcz_thp_reanchor
+    echo $anchpal
+end
+set -l t3direct (string join ' ' (__t3_render_bak $t3seed mono 0.55 0.11 0.50 deep))
+set -g __t3_render_probe 0
+set -l t3anchor (__t3_reanchor_build $t3seed mono 0.55 0.11 0.50 deep)
+t "reanchor (recipe already warmed by reload, above): renders nothing, shares reload disk cache entry" 0 $__t3_render_probe
+t "reanchor anchor palette matches the independently-rendered recipe (correct, not just cheap)" "$t3direct" "$t3anchor"
+
+functions -e __tmux_lives_theme_render; functions -c __t3_render_bak __tmux_lives_theme_render; functions -e __t3_render_bak
+set -e __t3_render_probe
+rm -rf $t3dir
+set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
@@ -9279,6 +9412,15 @@ rm -f $__tcg_sockdir/*-$fish_pid 2>/dev/null
 # leak in test-tmux-install.fish go unnoticed for so long).
 set -l __tcg_leftover (count (string match -r ".*$fish_pid.*" -- (ls $__tcg_sockdir 2>/dev/null)))
 t "hygiene: this run leaves no tmux socket files behind" 0 $__tcg_leftover
+
+# --- hygiene: this suite's own render-cache seam dir ------------------------
+# picker-render-cost Task 3: remove the whole-file render-cache seam dir set
+# at the top of this file, and prove the REAL default cache directory was
+# never touched (same before/after isolation-bracket idiom test-tmux-install.
+# fish's own Task 2 section already uses).
+rm -rf $__tcg_rc_dir
+set -l __tcg_real_rc_existed_after (test -d "$__tcg_real_rc_dir"; and echo yes; or echo no)
+t "isolation: real cache dir existence unchanged by this suite" "$__tcg_real_rc_existed_before" "$__tcg_real_rc_existed_after"
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
