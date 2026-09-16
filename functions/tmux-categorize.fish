@@ -1842,7 +1842,7 @@ end
 # stay top-level like every other __tcz_thp_* helper -- that is what makes them
 # testable -- but do not call them from anywhere the engine file is not already
 # sourced: fish aborts the whole calling statement silently rather than erroring.
-function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette, built from the `tabs` role ALONE (the widest block on the swatch strip and the one that covers most of a real ShellFish screen). Three fields: GROUP (0 coloured, 1 near-grey below chroma 0.05 — its hue is not visible so hue ordering would read as noise, 2 unusable/non-hex), then a 30-degree HUE BUCKET measured clockwise from the seed hue and CENTRED on it (bucket 0 is -15..+15 degrees, so the seed own family never splits across the ends of the list), then LIGHTNESS DESCENDING so each family reads light -> dark. The previous key walked all seven roles and compared hue at 0.001 degrees, so its lightness field never broke a tie and families rendered as a jumble; it also cost 349ms per list rebuild against 61ms for this one (42-scheme catalog, measured 2026-09-14).'
+function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a fixed-width lexicographically-sortable key for one palette, built from the `tabs` role ALONE (the widest block on the swatch strip and the one that covers most of a real ShellFish screen). Three fields: GROUP (0 coloured, 1 near-grey below chroma 0.05, 2 unusable/non-hex), then a 30-degree HUE BUCKET measured clockwise from the seed hue and CENTRED on it (bucket 0 is -15..+15 degrees, so the seed own family never splits across the ends of the list), then LIGHTNESS DESCENDING so each family reads light -> dark. For the near-grey group the bucket is forced to a CONSTANT (0): a greys hue is not visible on screen (fix round 1, 2026-09-15 — an earlier version of this docstring said computing it from the hue anyway "is fine"; it is not, since it re-introduces hue as a silent tie-breaker ahead of lightness for the one group where hue is meaningless), so lightness is the near-grey groups only discriminator, same as it is inside every coloured hue bucket. The previous (pre-Option-A) key walked all seven roles and compared hue at 0.001 degrees, so its lightness field never broke a tie and families rendered as a jumble; it also cost 349ms per list rebuild against 61ms for this one (42-scheme catalog, measured 2026-09-14).'
     set -l pal (string split ' ' -- "$hexes")
     set -l h ''
     test (count $pal) -ge 3; and set h "$pal[3]"
@@ -1865,8 +1865,17 @@ function __tcz_thp_sortkey --argument-names seedhue hexes --description 'pure: a
     # to compare floats with `test` directly — fish's test builtin handles
     # decimals natively. Followed that instead.
     test $o[2] -lt 0.05; and set group 1
-    set -l d (math "($o[3] - $seedhue + 360) % 360")
-    set -l bucket (math "floor((($d + 15) % 360) / 30)")
+    set -l bucket 0
+    # Only a coloured tabs contributes a real hue bucket. A near-grey's hue
+    # is not visible on screen, so bucketing it would make hue a silent
+    # tie-breaker ahead of lightness for exactly the group where hue is
+    # meaningless (fix round 1) -- forcing the constant here, rather than
+    # computing then discarding it, is also why $d no longer needs computing
+    # at all when $group is 1.
+    if test $group -eq 0
+        set -l d (math "($o[3] - $seedhue + 360) % 360")
+        set bucket (math "floor((($d + 15) % 360) / 30)")
+    end
     printf '%d%02d%08.3f\n' $group $bucket (math "(1 - $o[1]) * 1000")
 end
 function __tcz_thp_order --description 'pure: 1-based palette indices in colour order. argv[1] is the seed hex; argv[2..] are space-joined 7-hex palettes. Ties break on the original index so the total order is STABLE — the row caches are keyed by position, and a wobbling order would silently mis-key them.'

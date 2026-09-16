@@ -8920,6 +8920,17 @@ t "T6A: a tabs hue just below the seed stays with the seed family" "1 2" (string
 # actually FAILs against the pre-fix code (Step 2 evidence).
 set -g T6GREY (__t6a_pal '#7a8276')
 t "T6A: a near-grey tabs sorts after every coloured one" "2 1" (string join ' ' (__tcz_thp_order $T6SEED "$T6GREY" "$T6FAR"))
+# Fix round 1 (2026-09-15): near-grey tabs must sort by LIGHTNESS ALONE, not
+# by hue bucket then lightness — a grey's hue is not visible on screen, so
+# ordering greys by hue reads as arbitrary. Measured: T6GREYLATE (#a08296)
+# is H=338.654, C=0.046141 (bucket 7 relative to the seed, comfortably
+# under the 0.05 near-grey ceiling), T6GREY/#7a8276 above is H=134.998,
+# C=0.02022 (bucket 0). T6GREYLATE is LIGHTER (L=0.641057 vs T6GREY's
+# L=0.596284) but sits in the LATER bucket — bucket-then-lightness sorts
+# T6GREY first (smaller bucket number wins before lightness is ever read);
+# lightness-alone must sort T6GREYLATE first regardless of either one's hue.
+set -g T6GREYLATE (__t6a_pal '#a08296')
+t "T6A: near-grey tabs sort by lightness alone, hue bucket ignored" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6GREYLATE" "$T6GREY"))
 # unusable tabs sorts last of all
 set -g T6BAD (__t6a_pal 'notahex')
 t "T6A: an unusable tabs sorts last" "1 2" (string join ' ' (__tcz_thp_order $T6SEED "$T6FAR" "$T6BAD"))
