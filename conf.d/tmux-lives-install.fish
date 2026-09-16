@@ -558,9 +558,20 @@ function __tmux_lives_clip01 --argument v --description 'clamp a number into [0,
     if test $v -gt 1; echo 1; return; end
     echo $v
 end
-function __tmux_lives_hex_to_rgb01 --argument hex --description '#rrggbb -> r,g,b (0-1) one per line'
+function __tmux_lives_hex_to_rgb01_uncached --argument hex --description 'uncached core: #rrggbb -> r,g,b (0-1) one per line'
     set -l h (string replace -r '^#' '' $hex)
     printf "%s\n" (math "0x"(string sub -s 1 -l 2 $h)"/255") (math "0x"(string sub -s 3 -l 2 $h)"/255") (math "0x"(string sub -s 5 -l 2 $h)"/255")
+end
+function __tmux_lives_hex_to_rgb01 --argument hex --description 'memoizing front for __tmux_lives_hex_to_rgb01_uncached. Pure function, so the memo is process-lifetime and needs no invalidation: the engine decodes the same hexes over and over (measured: 1,699 calls for 521 distinct hexes across one catalog render), and each decode is ~0.8ms of fish math.'
+    set -l i (contains -i -- "$hex" $__tml_hr_keys)
+    if test -n "$i"
+        printf '%s\n' (string split ' ' -- $__tml_hr_vals[$i])
+        return
+    end
+    set -l v (__tmux_lives_hex_to_rgb01_uncached $hex)
+    set -ga __tml_hr_keys "$hex"
+    set -ga __tml_hr_vals (string join ' ' $v)
+    printf '%s\n' $v
 end
 function __tmux_lives_linrgb_to_hex --argument r g b --description 'linear-light r,g,b (unclamped) -> #rrggbb (gamma-encode + clip01 + round)'
     set -l re (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $r)))
@@ -568,7 +579,7 @@ function __tmux_lives_linrgb_to_hex --argument r g b --description 'linear-light
     set -l be (__tmux_lives_clip01 (__tmux_lives_lin_encode (__tmux_lives_clip01 $b)))
     printf "#%02x%02x%02x\n" (math "round($re*255)") (math "round($ge*255)") (math "round($be*255)")
 end
-function __tmux_lives_rgb_to_oklch --argument r g b --description 'sRGB (0-1) -> OKLCH: prints L, C, H(deg 0-360) one per line'
+function __tmux_lives_rgb_to_oklch_uncached --argument r g b --description 'uncached core: sRGB (0-1) -> OKLCH: prints L, C, H(deg 0-360) one per line'
     set -l rl (__tmux_lives_lin_decode $r); set -l gl (__tmux_lives_lin_decode $g); set -l bl (__tmux_lives_lin_decode $b)
     set -l l (math "0.4122214708*$rl + 0.5363325363*$gl + 0.0514459929*$bl")
     set -l m (math "0.2119034982*$rl + 0.6806995451*$gl + 0.1073969566*$bl")
@@ -581,6 +592,18 @@ function __tmux_lives_rgb_to_oklch --argument r g b --description 'sRGB (0-1) ->
     set -l H (math "atan2($b, $a) * 180 / $__tmux_lives_pi")
     if test $H -lt 0; set H (math "$H + 360"); end
     printf "%s\n" $L $C $H
+end
+function __tmux_lives_rgb_to_oklch --argument r g b --description 'memoizing front for __tmux_lives_rgb_to_oklch_uncached. Pure function, process-lifetime memo, keyed by the exact "$r $g $b" argument text -- same rationale as __tmux_lives_hex_to_rgb01 (measured: rgb_to_oklch is 0.8ms/call and the engine calls it thousands of times per catalog render for a small set of distinct triples).'
+    set -l key "$r $g $b"
+    set -l i (contains -i -- "$key" $__tml_ro_keys)
+    if test -n "$i"
+        printf '%s\n' (string split ' ' -- $__tml_ro_vals[$i])
+        return
+    end
+    set -l v (__tmux_lives_rgb_to_oklch_uncached $r $g $b)
+    set -ga __tml_ro_keys "$key"
+    set -ga __tml_ro_vals (string join ' ' $v)
+    printf '%s\n' $v
 end
 function __tmux_lives_oklch_to_linrgb --argument L C H --description 'OKLCH -> linear r,g,b (unclamped) one per line'
     set -l Hrad (math "$H * $__tmux_lives_pi / 180")

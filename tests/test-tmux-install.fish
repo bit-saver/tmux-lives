@@ -432,6 +432,83 @@ t "oklch #ff0000 C" "0.257684" $OK[2]
 t "oklch #ff0000 H" "29.233916" $OK[3]
 t "oklch_hex round-trips #ff0000" "#ff0000" (__tmux_lives_oklch_hex $OK[1] $OK[2] $OK[3])
 t "oklch_hex round-trips #36442d" "#36442d" (__tmux_lives_oklch_hex 0.367244 0.042157 133.601539)
+
+# --- picker-render-cost Task 1: memoize the colour-decode primitives --------
+# Render equivalence fixture (2026-09-15): the memo and the render cache must not
+# change a single byte of any palette. Three seeds x the whole catalog, hashed.
+function __tml_render_digest --argument-names seed --description 'pure: a digest of every catalog palette at <seed>'
+    set -l out
+    for row in (__tmux_lives_theme_catalog_v6)
+        set -l f (string split '|' -- $row)
+        set -a out (printf '%s|%s' "$f[1]" (string join ' ' (__tmux_lives_theme_render "$seed" $f[2] $f[3] $f[4] $f[5] $f[6])))
+    end
+    printf '%s\n' $out | cksum
+end
+# Pinned against the PRE-memo code at HEAD 7ce1eb3 -- computed by running this
+# exact fixture, on this exact file, before Step 3's implementation touched
+# anything (verified no collision: instrumented the pre-change functions and
+# confirmed none of the 4,730 real hex/rgb calls across these three seeds ever
+# equals a literal used by the probe tests below). These are non-regression
+# guards, not RED/GREEN pairs -- green before AND after Step 3; their only job
+# is to fail if the memo (or a later render cache) ever changes a rendered byte.
+t "render digest #78b34c unchanged by the memo" "3943951186 2972" (__tml_render_digest "#78b34c")
+t "render digest #c0703a unchanged by the memo" "2203151832 2972" (__tml_render_digest "#c0703a")
+t "render digest #3a6fc0 unchanged by the memo" "3674311851 2972" (__tml_render_digest "#3a6fc0")
+
+# The memo is per-process and keyed by the exact argument text. Counting real work is
+# the only way to see it: wrap the uncached body and count calls through it.
+set -g __tml_memo_probe 0
+functions -c __tmux_lives_hex_to_rgb01_uncached __tml_hr_probe_bak
+functions -e __tmux_lives_hex_to_rgb01_uncached
+function __tmux_lives_hex_to_rgb01_uncached; set -g __tml_memo_probe (math $__tml_memo_probe + 1); __tml_hr_probe_bak $argv; end
+__tmux_lives_hex_to_rgb01 '#123456' >/dev/null
+__tmux_lives_hex_to_rgb01 '#123456' >/dev/null
+__tmux_lives_hex_to_rgb01 '#123456' >/dev/null
+set -l probe1 $__tml_memo_probe
+t "hex_to_rgb01: three identical calls do the work once" 1 "$probe1"
+__tmux_lives_hex_to_rgb01 '#654321' >/dev/null
+set -l probe2 $__tml_memo_probe
+t "hex_to_rgb01: a different hex does new work" 2 "$probe2"
+functions -e __tmux_lives_hex_to_rgb01_uncached; functions -c __tml_hr_probe_bak __tmux_lives_hex_to_rgb01_uncached; functions -e __tml_hr_probe_bak
+set -e __tml_memo_probe
+
+set -g __tml_memo_probe 0
+functions -c __tmux_lives_rgb_to_oklch_uncached __tml_ro_probe_bak
+functions -e __tmux_lives_rgb_to_oklch_uncached
+function __tmux_lives_rgb_to_oklch_uncached; set -g __tml_memo_probe (math $__tml_memo_probe + 1); __tml_ro_probe_bak $argv; end
+__tmux_lives_rgb_to_oklch 0.2 0.4 0.6 >/dev/null
+__tmux_lives_rgb_to_oklch 0.2 0.4 0.6 >/dev/null
+__tmux_lives_rgb_to_oklch 0.2 0.4 0.6 >/dev/null
+set -l probe3 $__tml_memo_probe
+t "rgb_to_oklch: three identical calls do the work once" 1 "$probe3"
+__tmux_lives_rgb_to_oklch 0.6 0.4 0.2 >/dev/null
+set -l probe4 $__tml_memo_probe
+t "rgb_to_oklch: a different triple does new work" 2 "$probe4"
+functions -e __tmux_lives_rgb_to_oklch_uncached; functions -c __tml_ro_probe_bak __tmux_lives_rgb_to_oklch_uncached; functions -e __tml_ro_probe_bak
+set -e __tml_memo_probe
+
+# Edge-input behaviour, pinned UNCHANGED. Neither function has a shape/range
+# guard today, and the memo must not add one -- it only wraps whatever the
+# uncached body already does. Verified directly against the pre-memo bodies
+# (fish -c probes) before writing these literals:
+#  - hex_to_rgb01("12345"): 5 chars, no leading '#'. string sub still finds
+#    three windows -- "12","34","5" -- and all three parse as hex, so it
+#    silently emits exactly 3 fields despite not being six real hex digits
+#    (the same hole test-tmux-install.fish already documents below, at the
+#    Task 5 hardening comment for __tmux_lives_theme_mark).
+t "hex_to_rgb01: malformed 5-char input still emits 3 fields (pre-existing, no guard)" "0.070588 0.203922 0.019608" (string join ' ' (__tmux_lives_hex_to_rgb01 "12345"))
+#  - hex_to_rgb01("#zzzzzz"): every 2-char window fails to parse as hex, so all
+#    three `math` calls error to stderr and contribute zero words each; printf's
+#    single %s\n conversion still runs once against zero total arguments
+#    (standard printf behaviour: a format with a conversion runs at least once),
+#    so the call emits ONE empty line, never zero lines -- there is no
+#    zero-length $v case for the memo to special-case.
+t "hex_to_rgb01: fully non-hex input emits one empty line (pre-existing, no guard)" "" (string join ' ' (__tmux_lives_hex_to_rgb01 "#zzzzzz" 2>/dev/null))
+#  - rgb_to_oklch(-1, 2, 3): out-of-range but numeric -- nothing in this
+#    function clamps its inputs, so it extrapolates the formulas and returns 3
+#    real (unphysical) numbers rather than failing.
+t "rgb_to_oklch: out-of-range numeric input still computes (pre-existing, no clamp)" "1.636757 0.402642 242.812949" (string join ' ' (__tmux_lives_rgb_to_oklch -1 2 3))
+
 # gamut clamp never exceeds target, stays in range
 t "gamut_chroma caps at target" 1 (set -l c (__tmux_lives_gamut_chroma 0.62 30 0.19); test (math -s5 "min($c,0.19)") = (math -s5 "$c"); and echo 1; or echo 0)
 # WCAG contrast fg (new OKLCH-era helper; crossover 0.179 relative luminance)
