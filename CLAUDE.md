@@ -48,7 +48,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6; the v5 engine was deleted 2026-09-14), post-update note |
 | `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
 | `tests/test-*.fish` | The gate — 9 suites |
-| `tests/tick-rate-ab.fish` | Hand-run only; not named `test-*` so it stays out of the gate (samples a live window with real pty clients) |
+| `tests/tick-rate-ab.fish`, `tests/truncate-perf.fish` | Hand-run, not `test-*`: tick-rate-ab samples a live pty window; truncate-perf times `__tcz_popup_truncate` |
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
@@ -130,13 +130,14 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
 - Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **888 plain / 887
-  `--no-config`** (up from 842/841). **The 1-count delta is BY DESIGN** (one isolation assertion is
-  gated on plain fish) and has been for many cycles. Do not "fix" it.
-- `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge them
-  by the absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
-  `test-tmux-status.fish` (4) report numbers.
+  `--no-config`**. **The 1-count delta is BY DESIGN** (one isolation assertion gated on plain fish) — do
+  not "fix" it.
+- `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge by the
+  absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
+  `test-tmux-status.fish` (4) report numbers; `test-tmux-popup.fish`'s timing assertion is now the
+  hand-run `tests/truncate-perf.fish`.
 - Sweep leaked `-L` sockets from `/tmp/tmux-1000/` after heavy runs. **Never touch `default`**; leave
-  `neurotest*` alone (another project's). Killing a tmux server does **not** unlink its socket file.
+  `neurotest*` alone. Killing a tmux server does **not** unlink its socket file.
 
 ### Test isolation
 

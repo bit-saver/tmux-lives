@@ -77,15 +77,11 @@ t "trunc leaves no broken escape" "abcd…" (vis "$T_CUT")
 t "trunc plain long -> budget+…"        "abcdefghi…"           (__tcz_popup_truncate "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ" 10)
 t "trunc keeps SGR runs before the cut" (printf 'aaa\e[31mbb\e[0m…')  (__tcz_popup_truncate (printf 'aaa\e[31mbbbbbbbbbb\e[0mccc') 6)
 t "trunc wide chars after an SGR run"   (printf '\e[32m日本\e[0m…')    (__tcz_popup_truncate (printf '\e[32m日本語テストです') 6)
-# perf guard: truncate must NOT cost O(line length) with per-char builtin calls.
-# The old slow path was ~12ms/call on a wide colored pane -> ~130ms/redraw (24 rows)
-# -> a laggy picker. Coarse wall-clock bound (dev-box calibrated: old ~586ms/50 calls).
-set -g HEAVY ''
-for hi in (seq 40); set HEAVY "$HEAVY"(printf '\e[38;5;%smword%s ' (math "$hi % 256") $hi); end
-set -g TR_S (date +%s%N)
-for hi in (seq 50); __tcz_popup_truncate "$HEAVY" 40 >/dev/null; end
-set -g TR_MS (math "round(("(date +%s%N)" - $TR_S)/1000000)")
-t "truncate heavy colored line is fast (<300ms/50)" ok (test $TR_MS -lt 300; and echo ok; or echo "SLOW=$TR_MS""ms")
+# perf guard: truncate must NOT cost O(line length) with per-char builtin calls. The
+# wall-clock timing of this (<300ms/50 calls on a heavy colored line) moved to the
+# hand-run tests/truncate-perf.fish (chore-hygiene item 2) -- it flaked ~2 runs in 3
+# under normal host load, which does not belong in the gate. Run it by hand: fish
+# tests/truncate-perf.fish.
 
 # ---------------------------------------------------------------------
 # __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
