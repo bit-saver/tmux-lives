@@ -543,72 +543,71 @@ another process's ledger). `pgrep` is now **absent from the file entirely** — 
 
 ---
 
-## Current state — 2026-09-14
+## Current state — 2026-09-16
 
 **Four cycles shipped since the v6 surface**, merged to `main` and pushed — **the live install still
 predates them**; the user runs `fisher update` themselves.
 
-### Legibility floors (`feat/legibility-floors`, shipped)
+### Shipped cycles — the rules they left behind
 
-All big foregrounds on `bar` are now constrained, not just `text` — a **descending staircase**,
-`__tmux_lives_theme_floors`: text 0.40 · active 0.32 · windows 0.26 · sep 0.15 · ✦ 0.15, enforced by
-`__tmux_lives_theme_floor_role` (swap first, nudge second, each role **locked** once satisfied so a
-later swap cannot undo an earlier guarantee).
-
+**Legibility floors.** Every big foreground on `bar` is constrained by a descending staircase
+(`__tmux_lives_theme_floors`: text 0.40 · active 0.32 · windows 0.26 · sep 0.15 · ✦ 0.15), enforced in
+`__tmux_lives_theme_floor_role` — swap first, nudge second, each role **locked** once satisfied.
 ⚠ **Do NOT "fix" the nudge to prefer the DARK direction** — measured backwards (worst case 100% severe
-chroma loss vs the shipped 91.6%, since `bar` is dark and "down" lands near black). Chroma cost was
-measured and **ACCEPTED, do not re-litigate** — three mitigations were tried and refuted:
+chroma loss vs the shipped 91.6%; `bar` is dark, so "down" lands near black). The chroma cost was
+measured and **ACCEPTED — do not re-litigate**; three mitigations were tried and refuted:
 `[[three_bounds_palette_rule]]`.
 
-### Mono-only (`feat/mono-only`, shipped)
+**Mono-only.** `M` swaps the list for `__tmux_lives_theme_mono_grid` (36 rows: the six mono catalog
+rows' triples × six arrangements; `mono <style>·<arrangement>`, U+00B7). The grid **reads its triples out
+of** `__tmux_lives_theme_catalog_v6`, never restating them (test-proven coupling — two unlinked copies of
+the same constants is a defect shape this repo has been bitten by). `z` pins to mono while on, `m` goes
+inert, persisted in a universal.
 
-`M` in the picker swaps the list for `__tmux_lives_theme_mono_grid` — **36 rows**: the six mono catalog
-rows' parameter triples × all six arrangements, named `mono <style>·<arrangement>` (U+00B7 middle dot;
-the six diagonal cells keep their plain catalog name instead). The grid **reads its triples out of**
-`__tmux_lives_theme_catalog_v6`, never restating them (test-proven coupling). `z` pins to mono while the
-toggle is on; `m` goes inert and says so; persisted in a universal. A handful sit slightly under bound
-1's soft floor, left deliberately — see "Muted is a style the user LIKES" under Standing decisions.
+**Titles.** OSC 2 goes to **every** attached client — a client spawned from inside tmux (the picker)
+inherits the pane's environ and carries no `LC_TERMINAL`, and used to keep a stale title forever.
+Colour escapes in `__tcz_recolor`/`__tcz_on_attach` stay terminal-gated (test-pinned). **On attach the
+fragment's `client-session-changed` hook titles the new client — it fires BEFORE `client-attached` on
+both 3.3a and 3.7b (measured 2026-09-14)**, so `__tcz_on_attach` needs no retitle of its own; an attempt
+to add one was reverted as redundant emission. `__tcz_emit_prune` clears departed clients' per-tty cache
+entries (`/dev/ttysNNN` paths are OS-recycled). **Lesson:** a correct status bar proves nothing about the
+tab title — the tab only changes when the tick actively emits an escape.
 
-### Retitle fix (`fix/retitle-all-clients`, shipped)
+**Exact session targets.** Every option/window/pane/capture command targets via `__tcz_session_target`'s
+`=name:` form; `__tcz_pane_target` is deleted. See "tmux 3.3a" under Traps for the collision it fixes.
 
-Title emission (OSC 2) now goes to **every** attached client, not gated on `__tcz_client_terminal`
-identifying `LC_TERMINAL` — a client spawned from inside tmux (e.g. via the session picker) inherits the
-pane's environ, which never carries `LC_TERMINAL`, and used to keep a stale title forever.
-`__tcz_recolor`/`__tcz_on_attach` colour escapes stay terminal-gated (load-bearing, test-pinned); titles
-reach every client via `__tcz_retitle`, and **on attach it is the fragment's `client-session-changed`
-hook that titles the new client** — it fires before `client-attached` on both 3.3a and 3.7b (measured
-2026-09-14), so `__tcz_on_attach` needs no retitle of its own for an unidentified client.
-`__tcz_emit_prune` clears departed clients' per-tty cache entries, since `/dev/ttysNNN` paths are
-OS-recycled and can collide with a future client.
+**Follow-ups.** `__tcz_title_name` no longer strips `' - …'` (current Claude Code titles a pane with the
+session name alone, so the strip only cut real names like `Pingy - Mac 4`; restore one if a future
+version re-appends `- <task>`). The v5 engine (9 functions, 142 install assertions) is deleted —
+`__tmux_lives_theme_relationships` survives for `__tmux_lives_migrate_v4`. The tick self-rate-limit
+design was dropped unbuilt (user's call).
 
-**Lesson:** a correct status bar proves nothing about the tab title — it only changes when the tick
-actively emits an escape.
+### Picker colour ordering + render cost (2026-09-15/16, shipped)
 
-### Exact session targets (`fix/session-target-exact`, 2026-09-13, shipped)
+`o`'s ordering is **Option A**, chosen by the user off a rendered review page: the key comes from the
+`tabs` role ALONE — group (coloured / near-grey below chroma 0.05 / unusable), then a 30° hue bucket
+**centred on the seed** so the seed's own family never splits across the ends of the list, then lightness
+descending; near-greys ignore the bucket and sort by lightness alone (a grey's hue is invisible, so
+bucketing it made hue a silent tie-breaker). The old key walked all seven roles and compared hue at
+0.001°, so its lightness field never broke a tie. Cost fell 387 → 67 ms per list rebuild.
 
-Every option/window/pane/capture command now targets sessions via `__tcz_session_target`'s exact `=name:`
-form — see "tmux 3.3a" under Traps for the collision this fixes. `__tcz_pane_target` is deleted;
-session-typed commands were unaffected. The live install still needs `fisher update`.
+**The picker's multi-second stall is fixed.** Rendering the 42-scheme catalog cost **5.0 s on rocket /
+2.5 s on macwork**, paid again on every list rebuild. Three layers landed — a memo on the decode
+primitives, the **persisted render cache** (theme-engine section), and the gamut clamp's `seq` fork
+removed. **Warm list build is now 17-19 ms against a 4.6 s cold build**, palettes byte-identical (three
+pinned digests + mutation proof). Numbers, the profile, and what did NOT pay off: `[[theme_render_cache]]`.
 
-### Follow-ups (`fix/followups`, 2026-09-14)
-
-- `__tcz_title_name` no longer strips `' - …'`: current Claude Code titles a pane with the session name
-  alone, so the strip only cut real names (`Pingy - Mac 4` showed as `Pingy`). If a future Claude Code
-  re-appends `- <task>` to titles, displays will grow long — restore a strip then.
-- The v5 engine (9 functions, 142 install assertions) is deleted; `__tmux_lives_theme_relationships`
-  survives for `__tmux_lives_migrate_v4`.
-- The tick self-rate-limit design was dropped unbuilt (user's call).
-- The premise "an unidentifiable client waits up to 15s (one status-interval) for its first title on
-  attach" was investigated and found **false**: `client-session-changed` already titles an attaching
-  client before `client-attached` fires (see the Retitle fix hook-ordering note above). The attempted
-  fix (`0a8ca3c`, retitling from `__tcz_on_attach` too) was reverted — it only added a redundant second
-  title emission on every attach.
+The user reviewed the colour work on a rendered page (ShellFish + cmux facsimiles, 5 seeds) and accepted
+the palettes as they are: the near-black `text` on `bright` schemes is **fine**, and nothing in the
+14-schemes-across-5-seeds sweep was unacceptable. Do not re-open either as a defect.
 
 ### Open — none blocking
 
-- `text` still sits at a ramp end (see "Still open" under Theme engine); the `bright` arrangement renders
-  it near-black on a light bar. Under visual review with the user, along with picker colour ordering.
-- The session picker is reported "generally laggy, occasional big delay" — not yet investigated.
+- `text` still sits at a ramp end (see "Still open" under Theme engine) — the user has seen it rendered
+  and accepted it; not a defect, just a fact about the engine.
+- The live install predates every 2026-09-13→16 cycle; the user runs `fisher update` themselves.
+- `README.md`'s Retired settings says `--polarity`/`--range` "went before `--rotate`" — inherited text,
+  zero hits in current code, unverified.
 
 ---
 
