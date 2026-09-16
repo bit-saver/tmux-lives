@@ -4155,7 +4155,9 @@ function __tcz_set_claude_opt --argument-names session --description 'set @tmux_
     for line in (__tcz_tmux_panes "$session")
         # -m 2: the title is last and may contain tabs.
         set -l parts (string split -m 2 $TAB -- $line)
-        test "$parts[1]" = claude; or continue
+        # Not a literal cmd match: on macOS pane_current_command is the native install's
+        # version-named binary (e.g. 2.1.270) -- the same detection the snapshot uses.
+        __tcz_pane_is_claude "$parts[1]" "$parts[2]"; or continue
         set name (__tcz_cmdline_name $parts[2])
         # claude is usually started WITHOUT --name (e.g. `claude -c`), so the cmdline
         # yields nothing and the readable name lives in the pane title instead — that

@@ -3148,6 +3148,39 @@ set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 __tcz_set_claude_opt sA
 t "set_claude_opt ignores an unparseable title" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
+# macOS: tmux reports a native-install claude pane's pane_current_command as the
+# version-named binary (e.g. 2.1.270), and the real claude process is a CHILD of the
+# pane pid -- measured on macwork 2026-09-16, every claude session. A literal cmd match
+# skipped every such pane, so @tmux_lives_claude stayed empty on every macOS session and
+# the bar lost its mark while the snapshot (which walks the pid tree) still classified
+# the session as claude. The pid primitives are stubbed to that shape: pane 4242 ->
+# child 4243 whose comm is claude; pane 5252 has no children.
+functions -c __tcz_pid_children __tcz_pid_children_bak
+functions -c __tcz_pid_comm __tcz_pid_comm_bak
+functions -e __tcz_pid_children __tcz_pid_comm
+function __tcz_pid_children; test "$argv[1]" = 4242; and echo 4243; end
+function __tcz_pid_comm
+    switch "$argv[1]"
+        case 4243
+            echo claude
+        case '*'
+            echo fish
+    end
+end
+set -g tcz_claude_panes (printf '2.1.270\t4242\t✳ Watchface 52')
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_set_claude_opt sA
+t "set_claude_opt: a version-named cmd with a claude child is claude (macOS)" yes (string match -q '*@tmux_lives_claude*Watchface 52*' -- "$CLAUDE_SET"; and echo yes; or echo no)
+# guard: a version-named cmd with NO claude child is not claude, whatever its title says
+set -g tcz_claude_panes (printf '2.1.270\t5252\t✳ Watchface 52')
+set -g CLAUDE_CUR ''; set -g CLAUDE_SET ''
+functions -q __tcz_tmux_flush; and __tcz_tmux_flush
+__tcz_set_claude_opt sA
+t "set_claude_opt: a version-named cmd without a claude child stays empty" yes (test -z "$CLAUDE_SET"; and echo yes; or echo no)
+functions -e __tcz_pid_children __tcz_pid_comm
+functions -c __tcz_pid_children_bak __tcz_pid_children; functions -e __tcz_pid_children_bak
+functions -c __tcz_pid_comm_bak __tcz_pid_comm; functions -e __tcz_pid_comm_bak
 functions -e tmux; functions -e __tcz_cmdline_name; functions -c __tcz_cmdline_name_bak __tcz_cmdline_name; functions -e __tcz_cmdline_name_bak; set -e tcz_claude_panes; set -e CLAUDE_SET; set -e CLAUDE_CUR
 functions -q __tcz_tmux_flush; and __tcz_tmux_flush
 
