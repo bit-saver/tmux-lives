@@ -445,6 +445,11 @@ detection, bare cold-start on first attach. Install: `fisher install bit-saver/t
 process *and thread* per call (`/bin/ps` does not), with the cost **invisible from inside** (billed to
 another process's ledger). `pgrep` is now **absent from the file entirely** — `[[macos_pgrep_sysmond]]`.
 
+**On macOS a native-install claude pane's `pane_current_command` is its version (`2.1.270`)**, with the
+real `claude` a child of the pane pid. Detect claude with `__tcz_pane_is_claude`, never a literal cmd
+match — `__tcz_set_claude_opt` did the latter and left `@tmux_lives_claude` (the bar's ✦) empty on every
+macwork session until 2026-09-16.
+
 **Two settled dead ends — do not re-chase:**
 - **`reattach-to-user-namespace` as `default-command` is a proven no-op** on macOS 26.5.2 — GUI
   window/menu-bar placement is governed by the Aqua **audit session** `asid`, not the bootstrap domain.
@@ -602,10 +607,6 @@ the palettes as they are: the near-black `text` on `bright` schemes is **fine**,
 
 - `text` still sits at a ramp end (see "Still open" under Theme engine) — the user has seen it rendered
   and accepted it; not a defect, just a fact about the engine.
-- ⛔ **macwork only, predates the 2026-09-13→16 cycles: `@tmux_lives_claude` is EMPTY on every session**,
-  so the bar loses its ✦ marker (`__tcz_status_identity` keys off it); rocket populates it on the same
-  commit. Detection is NOT the cause — those sessions get their display's task half, and the pane does
-  carry a `claude` child. The gap is inside `__tcz_set_claude_opt`. Evidence + next step: 2026-09-16 handoff.
 - `README.md`'s Retired settings says `--polarity`/`--range` "went before `--rotate`" — inherited text,
   zero hits in current code, unverified.
 
