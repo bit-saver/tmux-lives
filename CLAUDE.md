@@ -545,8 +545,9 @@ another process's ledger). `pgrep` is now **absent from the file entirely** — 
 
 ## Current state — 2026-09-16
 
-**Four cycles shipped since the v6 surface**, merged to `main` and pushed — **the live install still
-predates them**; the user runs `fisher update` themselves.
+**Six cycles shipped since the v6 surface**, merged to `main` and pushed. **DEPLOYED 2026-09-16** — the
+user ran `fisher update` on rocket and macwork and both installs were verified to carry this code. (A
+Claude session never deploys; the user always runs it themselves.)
 
 ### Shipped cycles — the rules they left behind
 
@@ -564,32 +565,28 @@ of** `__tmux_lives_theme_catalog_v6`, never restating them (test-proven coupling
 the same constants is a defect shape this repo has been bitten by). `z` pins to mono while on, `m` goes
 inert, persisted in a universal.
 
-**Titles.** OSC 2 goes to **every** attached client — a client spawned from inside tmux (the picker)
-inherits the pane's environ and carries no `LC_TERMINAL`, and used to keep a stale title forever.
-Colour escapes in `__tcz_recolor`/`__tcz_on_attach` stay terminal-gated (test-pinned). **On attach the
-fragment's `client-session-changed` hook titles the new client — it fires BEFORE `client-attached` on
-both 3.3a and 3.7b (measured 2026-09-14)**, so `__tcz_on_attach` needs no retitle of its own; an attempt
-to add one was reverted as redundant emission. `__tcz_emit_prune` clears departed clients' per-tty cache
-entries (`/dev/ttysNNN` paths are OS-recycled). **Lesson:** a correct status bar proves nothing about the
-tab title — the tab only changes when the tick actively emits an escape.
+**Titles.** OSC 2 goes to **every** attached client — one spawned from inside tmux (the picker) carries
+no `LC_TERMINAL` and used to keep a stale title forever. Colour escapes in `__tcz_recolor`/
+`__tcz_on_attach` stay terminal-gated (test-pinned). **On attach the fragment's `client-session-changed`
+hook titles the new client — it fires BEFORE `client-attached` on 3.3a and 3.7b (measured)**, so
+`__tcz_on_attach` needs no retitle of its own; an attempt to add one was reverted as redundant emission
+(`[[tmux_attach_hook_order]]`). `__tcz_emit_prune` clears departed clients' per-tty cache entries
+(`/dev/ttysNNN` is OS-recycled). **Lesson:** a correct status bar proves nothing about the tab title.
 
 **Exact session targets.** Every option/window/pane/capture command targets via `__tcz_session_target`'s
 `=name:` form; `__tcz_pane_target` is deleted. See "tmux 3.3a" under Traps for the collision it fixes.
 
-**Follow-ups.** `__tcz_title_name` no longer strips `' - …'` (current Claude Code titles a pane with the
-session name alone, so the strip only cut real names like `Pingy - Mac 4`; restore one if a future
-version re-appends `- <task>`). The v5 engine (9 functions, 142 install assertions) is deleted —
-`__tmux_lives_theme_relationships` survives for `__tmux_lives_migrate_v4`. The tick self-rate-limit
-design was dropped unbuilt (user's call).
+**Follow-ups.** `__tcz_title_name` no longer strips `' - …'` — current Claude Code titles a pane with the
+session name alone, so the strip only cut real names (`Pingy - Mac 4`); restore one if a future version
+re-appends `- <task>`. The v5 engine (9 functions, 142 assertions) is deleted; only
+`__tmux_lives_theme_relationships` survives, for `__tmux_lives_migrate_v4`. The tick self-rate-limit was
+dropped unbuilt.
 
 ### Picker colour ordering + render cost (2026-09-15/16, shipped)
 
-`o`'s ordering is **Option A**, chosen by the user off a rendered review page: the key comes from the
-`tabs` role ALONE — group (coloured / near-grey below chroma 0.05 / unusable), then a 30° hue bucket
-**centred on the seed** so the seed's own family never splits across the ends of the list, then lightness
-descending; near-greys ignore the bucket and sort by lightness alone (a grey's hue is invisible, so
-bucketing it made hue a silent tie-breaker). The old key walked all seven roles and compared hue at
-0.001°, so its lightness field never broke a tie. Cost fell 387 → 67 ms per list rebuild.
+`o`'s ordering is **Option A**, chosen by the user off a rendered page; `__tcz_thp_sortkey` builds the
+key from the `tabs` role alone. The full key spec and why the old one produced no gradient:
+`[[theme_render_cache]]`. 387 → 67 ms per rebuild.
 
 **The picker's multi-second stall is fixed.** Rendering the 42-scheme catalog cost **5.0 s on rocket /
 2.5 s on macwork**, paid again on every list rebuild. Three layers landed — a memo on the decode
@@ -605,7 +602,10 @@ the palettes as they are: the near-black `text` on `bright` schemes is **fine**,
 
 - `text` still sits at a ramp end (see "Still open" under Theme engine) — the user has seen it rendered
   and accepted it; not a defect, just a fact about the engine.
-- The live install predates every 2026-09-13→16 cycle; the user runs `fisher update` themselves.
+- ⛔ **macwork only, predates the 2026-09-13→16 cycles: `@tmux_lives_claude` is EMPTY on every session**,
+  so the bar loses its ✦ marker (`__tcz_status_identity` keys off it); rocket populates it on the same
+  commit. Detection is NOT the cause — those sessions get their display's task half, and the pane does
+  carry a `claude` child. The gap is inside `__tcz_set_claude_opt`. Evidence + next step: 2026-09-16 handoff.
 - `README.md`'s Retired settings says `--polarity`/`--range` "went before `--rotate`" — inherited text,
   zero hits in current code, unverified.
 
