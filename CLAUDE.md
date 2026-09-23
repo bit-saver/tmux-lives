@@ -129,9 +129,10 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **888 plain / 887
-  `--no-config`**. **The 1-count delta is BY DESIGN** (one isolation assertion gated on plain fish) — do
-  not "fix" it.
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **889 plain / 888
+  `--no-config`** on a host where the real `~/.cache/tmux-lives` exists (one fewer each where it does
+  not — its isolation bracket adds an mtime check only then). **The 1-count delta between modes is BY
+  DESIGN** (one isolation assertion gated on plain fish) — do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge by the
   absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (2) and
   `test-tmux-status.fish` (4) report numbers; `test-tmux-popup.fish`'s timing assertion is now the
