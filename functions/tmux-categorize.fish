@@ -4130,9 +4130,9 @@ function __tcz_heal_due --argument-names now --description 'true (rc0) when the 
     return 1
 end
 
-function __tcz_emit_title --argument-names tty title --description 'write the OSC 2 title escape for <title> to <tty> (non-passthrough; client-tty level)'
+function __tcz_emit_title --argument-names tty title --description 'write the OSC 0 title escape for <title> to <tty> (non-passthrough; client-tty level). OSC 0, not OSC 2: it sets the icon title as well as the window title, and iTerm2 builds its tab label from the icon title alone (only OSC 0/1 change it), so an OSC 2 title never reached an iTerm2 tab. OSC 0 is also what fish emits for every bare-shell title ShellFish and iTerm2 already show.'
     test -n "$title"; or return 0
-    printf '\033]2;%s\a' "$title" > $tty
+    printf '\033]0;%s\a' "$title" > $tty
 end
 
 function __tcz_session_has_claude --argument-names session --description 'true if any pane in the session runs claude. tick-call-batching task 4: served from the shared per-pass pane memo (__tcz_tmux_panes) instead of its own list-panes call -- see that function'"'"'s docstring for the fetch-or-reuse contract.'
@@ -4262,7 +4262,7 @@ function __tcz_emit_prune --description 'drop @tmux_lives_emit_<key>_{title,colo
     end
 end
 
-function __tcz_retitle --argument-names mode --description 'emit each attached client its own OSC 2 title. Title emission is a plain escape every terminal either understands or silently ignores, so — unlike __tcz_recolor/__tcz_on_attach, whose colour escapes really are terminal-specific — this no longer gates on __tcz_client_terminal. A client whose environment lacks LC_TERMINAL (e.g. one spawned by this project'"'"'s own session picker, which re-execs without carrying it through) used to be silently skipped here forever, freezing its tab title on whatever it showed before. mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit, then prunes cache entries (__tcz_emit_prune) for any tty no longer among attached clients.'
+function __tcz_retitle --argument-names mode --description 'emit each attached client its own OSC 0 title (see __tcz_emit_title for why 0, not 2). Title emission is a plain escape every terminal either understands or silently ignores, so — unlike __tcz_recolor/__tcz_on_attach, whose colour escapes really are terminal-specific — this no longer gates on __tcz_client_terminal. A client whose environment lacks LC_TERMINAL (e.g. one spawned by this project'"'"'s own session picker, which re-execs without carrying it through) used to be silently skipped here forever, freezing its tab title on whatever it showed before. mode=dedup emits only when the title changed for that tty; else force. Updates the per-tty cache on emit, then prunes cache entries (__tcz_emit_prune) for any tty no longer among attached clients.'
     set -l TAB (printf '\t')
     # tick-call-batching task 5: served from the shared per-pass client memo
     # (__tcz_tmux_clients) instead of its own list-clients call -- the SAME

@@ -2381,9 +2381,16 @@ rm -f $tt1 $tt2
 # --- title emit ---
 set -g ttl /tmp/tcz-title-$fish_pid; rm -f $ttl; touch $ttl
 __tcz_emit_title $ttl "macwork: tmux-lives (C)"
-# Match the literal OSC-2 introducer `]2;` + the title (single quotes don't interpret
-# `\033`, so match the literal `]2;` that follows the ESC byte in the file, not the ESC).
-t "emit_title writes OSC 2 + title" yes (string match -q '*]2;macwork: tmux-lives (C)*' -- (cat $ttl | string collect); and echo yes; or echo no)
+# OSC 0, not OSC 2: iTerm2 builds its tab label from the session's "icon title",
+# which only OSC 0 and OSC 1 set (iterm2.com/documentation-session-title.html);
+# OSC 2 there sets the window title alone, so an iTerm2 tab kept whatever the
+# local shell last named it (seen 2026-09-23: "~ — macwork" over rocket's tasker).
+# OSC 0 sets both titles, and it is what fish itself emits for every bare-shell
+# tab title ShellFish and iTerm2 already show. Single quotes don't interpret
+# `\033`, so match the literal `]0;` that follows the ESC byte in the file.
+set -l ttlbytes (cat $ttl | string collect)
+t "emit_title writes OSC 0 + title (sets iTerm2's tab title too)" yes (string match -q '*]0;macwork: tmux-lives (C)*' -- "$ttlbytes"; and echo yes; or echo no)
+t "emit_title writes exactly one title escape" 1 (string match -ra ']\d;' -- "$ttlbytes" | count)
 rm -f $ttl; touch $ttl
 __tcz_emit_title $ttl ""
 t "emit_title empty is a no-op" no (test -s $ttl; and echo yes; or echo no)
@@ -4888,7 +4895,7 @@ set -l retitle_body (awk '/^function __tcz_retitle/,/^end$/' $catfile | string c
 t "recolor handles iterm2" 1 (string match -q '*iterm2*' -- "$recolor_body"; and echo 1; or echo 0)
 t "on-attach handles iterm2" 1 (string match -q '*iterm2*' -- "$onattach_body"; and echo 1; or echo 0)
 # retitle DROPPED its iterm2 branch on purpose (Fix 1, 2026-09): title
-# emission is a generic OSC 2 escape and no longer gates on
+# emission is a generic OSC 0 escape and no longer gates on
 # __tcz_client_terminal -- only the colour escapes in __tcz_recolor and
 # __tcz_on_attach above stay terminal-specific. Inverted from expecting a
 # branch (1) to expecting none (0).
