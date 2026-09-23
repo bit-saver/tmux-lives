@@ -572,8 +572,8 @@ the same constants is a defect shape this repo has been bitten by). `z` pins to 
 inert, persisted in a universal.
 
 **Titles.** OSC **0** (not 2 — iTerm2 builds its tab label from the icon title, which only OSC 0/1 set;
-OSC 2 left every iTerm2 tab on its local name until 2026-09-23) goes to **every** attached client — one spawned from inside tmux (the picker) carries
-no `LC_TERMINAL` and used to keep a stale title forever. Colour escapes in `__tcz_recolor`/
+OSC 2 left every iTerm2 tab on its local name until 2026-09-23) goes to **every** attached client — one
+spawned from inside tmux (the picker) carries no `LC_TERMINAL` and used to keep a stale title forever. Colour escapes in `__tcz_recolor`/
 `__tcz_on_attach` stay terminal-gated (test-pinned). **On attach the fragment's `client-session-changed`
 hook titles the new client — it fires BEFORE `client-attached` on 3.3a and 3.7b (measured)**, so
 `__tcz_on_attach` needs no retitle of its own; an attempt to add one was reverted as redundant emission

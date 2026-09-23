@@ -1,4 +1,6 @@
-# Design — ShellFish tab title (settitle / OSC 2)
+# Design — ShellFish tab title (settitle / OSC 0)
+
+> **Amended 2026-09-23:** the title escape is now **OSC 0**, not OSC 2. iTerm2 builds its tab label from the session's icon title, which only OSC 0/1 set, so an OSC 2 title never reached an iTerm2 tab. OSC 0 sets both titles; ShellFish and Ghostty show it exactly as they showed OSC 2.
 
 **Date:** 2026-07-06
 **Status:** Designed (approved in brainstorming → writing-plans next)
@@ -7,7 +9,7 @@
 
 ## Why
 
-ShellFish tabs default to an uninformative title. ShellFish's shell integration added a `settitle` helper that sets the tab/window title via the **standard OSC 2** escape (`\033]2;<title>\a`; inside tmux it wraps in a passthrough DCS, but that's only for interactive use). tmux-lives already knows, per session, the program / directory / claude-state, and already emits the ShellFish bar color directly to each client's tty. A tab title is the same shape of emission — so each ShellFish tab can show `[<h>] <dir> [(C)]` and always tell you where you are.
+ShellFish tabs default to an uninformative title. ShellFish's shell integration added a `settitle` helper that sets the tab/window title via the **standard OSC 2** escape (`\033]2;<title>\a`; inside tmux it wraps in a passthrough DCS, but that's only for interactive use). (tmux-lives itself now emits OSC 0 — see the amendment above.) tmux-lives already knows, per session, the program / directory / claude-state, and already emits the ShellFish bar color directly to each client's tty. A tab title is the same shape of emission — so each ShellFish tab can show `[<h>] <dir> [(C)]` and always tell you where you are.
 
 ## Goals
 
@@ -20,7 +22,7 @@ ShellFish tabs default to an uninformative title. ShellFish's shell integration 
 
 - No `setup title on/off` config surface yet (always-on for ShellFish; a toggle is a trivial later add, deferred).
 - No user-templatable format — the format is fixed (`[<h>] <dir> [(C)]`).
-- No title for non-ShellFish terminals (OSC 2 would work universally, but the request is ShellFish and we keep parity with the bar-color gating; universal titles are a possible later extension).
+- No title for non-ShellFish terminals (a title escape would work universally, but the request is ShellFish and we keep parity with the bar-color gating; universal titles are a possible later extension).
 - No instant refresh on *window* switch within a session — the ≤15s tick covers it (only cross-session switch gets a dedicated hook).
 
 ## Design
@@ -29,8 +31,8 @@ ShellFish tabs default to an uninformative title. ShellFish's shell integration 
 
 Two new categorizer functions, siblings of `__tcz_emit_barcolor` / `__tcz_recolor`:
 
-- **`__tcz_emit_title <tty> <title>`** — write plain OSC 2 straight to the client tty:
-  `printf '\033]2;%s\a' "$title" > $tty`.
+- **`__tcz_emit_title <tty> <title>`** — write plain OSC 0 straight to the client tty:
+  `printf '\033]0;%s\a' "$title" > $tty`.
   Direct-to-device (not tmux passthrough), exactly like `__tcz_emit_barcolor` — so it reaches the real ShellFish terminal even though the process runs inside tmux. An empty title is a no-op guard.
 - **`__tcz_retitle`** — iterate every attached client, filter to ShellFish, emit each client's own title:
   `tmux list-clients -F "#{client_pid}\t#{client_tty}\t#{client_session}"` → for each, `__tcz_client_is_shellfish $pid`; if so, `__tcz_emit_title $tty (__tcz_session_title $session)`.
@@ -61,7 +63,7 @@ The pure string assembly is split into **`__tcz_format_title <host> <dir> <is_cl
 
 Mirror the bar-color suite; nothing touches the live default-socket server (use the `tmux_lives_tmux_socket` / PATH-shim seam, `tmux_lives_fake_environ` for ShellFish detection, temp files as ttys):
 - **`__tcz_format_title`** — pure: assert `format_title macwork tmux-lives 1` → `macwork: tmux-lives (C)`; no-claude → `rocket: neurotto`.
-- **`__tcz_emit_title`** — writes `\033]2;<title>\a` to a temp "tty" file; assert the file contains the OSC 2 + the title.
+- **`__tcz_emit_title`** — writes `\033]0;<title>\a` to a temp "tty" file; assert the file contains the OSC 0 + the title, and exactly one title escape.
 - **`__tcz_retitle`** — stub `tmux list-clients`, inject `tmux_lives_fake_environ=LC_TERMINAL=ShellFish`, write to temp ttys; assert the ShellFish client's file gets the title and the non-ShellFish client's does not. (Reuse the existing recolor stub harness; the `tick` re-emit test extends the same block.)
 - **Fragment render** (`tests/test-tmux-install.fish`) — assert the rendered fragment contains the `client-session-changed` hook with `retitle`, and that `on-attach`/tick wiring reaches the title path.
 

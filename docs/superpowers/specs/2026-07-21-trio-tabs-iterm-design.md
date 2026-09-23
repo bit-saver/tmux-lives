@@ -71,7 +71,7 @@ any pin that captured the blue value).
   `__tcz_on_attach`, `__tcz_retitle`, the tick's dedup path, the heal
   backstop), an `iterm2` branch emits the TAB color (the tabs-role color via
   `__tcz_tab_color`, same resolved value ShellFish tabs get) and the same
-  OSC 2 title. Dedup caches: reuse the existing per-tty
+  OSC 0 title (OSC 2 until 2026-09-23 — it never reached iTerm2's tab label). Dedup caches: reuse the existing per-tty
   `@tmux_lives_emit_<tty>_{title,color}` keys — the cached value is the
   resolved color, terminal-agnostic; only the emitted ESCAPE differs by
   terminal type at write time.
