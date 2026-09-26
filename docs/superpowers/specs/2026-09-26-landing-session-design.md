@@ -1,6 +1,6 @@
 # Landing Session — Design
 
-Status: shape approved in chat 2026-09-26; this spec awaits review. Themes and schemes are on hold while this is built.
+Status: approved 2026-09-26. Plan: `docs/superpowers/plans/2026-09-26-landing-session.md`. Themes and schemes are on hold while this is built.
 
 ## Problem
 
@@ -21,7 +21,7 @@ Not in scope: ShellFish's built-in GUI session picker (outside our control), the
 
 ## Concepts
 
-- **Landing session** — one per client (tab). Reserved name `_landing-N`, N the smallest free integer. `__tcz_slugify` only emits `[A-Za-z0-9-]`, so an underscore name can never collide with a project session. While live it also carries `@tmux_lives_landing 1`. One window, one pane, running the landing app.
+- **Landing session** — one per client (tab). Reserved name `_landing-N`, N the smallest free integer. `__tcz_slugify` only emits `[A-Za-z0-9-]`, so an underscore name can never collide with a project session. The name is the whole identity — it survives a restore and needs no tmux call to test. One window, one pane, running the landing app.
 - **Why one per client.** A tmux pane is shared by every client attached to its session. One shared landing screen would show the iPad and the Mac the same menu, and could not tell which device pressed Enter. With one client per landing session, "my client" is simply the only client attached to my session.
 - **Landing app** — `fish --no-config $cat landing`: a full-pane chooser built from the existing popup picker (`__tcz_popup`) renderer and key loop.
 
@@ -58,7 +58,7 @@ Measured the same way on tmux 3.7b (macwork), 2026-09-26: identical — the hook
 
 ## Landing lifecycle
 
-- **Create** — `__tcz_landing_new [client]`: pick `_landing-N`, `new-session -d -s _landing-N -c $HOME` running the app, set `@tmux_lives_landing 1`; with a client, `switch-client -c <client> -t =_landing-N:`.
+- **Create** — `__tcz_landing_new [client]`: pick `_landing-N`, `new-session -d -s _landing-N -c $HOME` running the app; with a client, `switch-client -c <client> -t =_landing-N` in the same tmux invocation (so the sweep can never see it clientless).
 - **Leave** — after the app switches its client elsewhere, it kills its own (now clientless) session.
 - **Sweep** — the status tick kills any `_landing-*` session with no attached client, covering tabs that closed or detached while on landing (≤ 15 s).
 - **Respawn** — the app never exits on its own; an exit or crash is caught by `pane-died` rule 1.
@@ -80,7 +80,7 @@ Keys:
 - `Enter` — attach (live) · `claude --continue` (project) · new shell.
 - `r` — on a project row, start `claude --resume` (Claude's own conversation picker).
 - `x` — kill a live session (the picker's existing confirm).
-- `q` — detach this tab from tmux, then kill this (now clientless) landing session.
+- `d` — detach this tab from tmux, then kill this (now clientless) landing session. (`q` and Esc are one token in the shared key reader, and Esc must not detach — so both are no-ops here.)
 
 Refresh: re-snapshot every 3 s while idle (the key read times out) and immediately after any action — one snapshot per landing instance per 3 s.
 
@@ -97,7 +97,7 @@ Switching: `switch-client -c <my client> -t =<target>`, where my client is `list
 
 ## Exclusions everywhere else
 
-Landing sessions (by flag, or by reserved name where options are gone) are excluded from:
+Landing sessions (by reserved name) are excluded from:
 
 - categorize, rename, `@tmux_lives_display` / `@tmux_lives_claude` writes;
 - snapshot and overview (popup picker, fallback menu);
