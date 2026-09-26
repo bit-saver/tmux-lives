@@ -52,8 +52,8 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` does not exist by design — **plans are deleted once their work ships**; git is
-the archive. Specs for shipped features stay.
+`docs/superpowers/plans/` holds only in-flight plans (now: the landing session) — **plans are deleted once
+their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
 
@@ -465,6 +465,7 @@ macwork session until 2026-09-16.
 
 - **NO WHITE is a hard exclusion** (settled 2026-08-25, ban → prior → **ban**) — the user named the bias
   themselves and chose it anyway. Do not re-offer white "where it fits".
+- **Non-mono harmony schemes are rejected** (2026-09-21, "way too crazy") — do not re-offer radical range.
 - **Muted is a style the user LIKES.** The defect was ever only **fixedness**, not dimness — raising the
   ceiling relocates the single destination and costs a style they want.
 - **Hue placement is NOT what makes a palette work**, refuted three ways. Do not build another
@@ -549,68 +550,56 @@ macwork session until 2026-09-16.
 
 ---
 
-## Current state — 2026-09-16
+## Current state — 2026-09-26
 
-**Six cycles shipped since the v6 surface**, merged to `main` and pushed. **DEPLOYED 2026-09-16** — the
-user ran `fisher update` on rocket and macwork and both installs were verified to carry this code. (A
-Claude session never deploys; the user always runs it themselves.)
+`main` is pushed; the last **code** commit is `5076e04` (OSC 0 titles). The user's `fisher update` of
+~2026-09-18 carries everything through `fc318ca` (the macOS ✦ fix). **`5076e04` is NOT deployed yet** —
+verified 2026-09-26: rocket's installed categorizer differs from the repo, macwork's has no OSC 0 line.
 
-### Shipped cycles — the rules they left behind
+### Next: the landing session — approved, not built
 
-**Legibility floors.** Every big foreground on `bar` is constrained by a descending staircase
-(`__tmux_lives_theme_floors`: text 0.40 · active 0.32 · windows 0.26 · sep 0.15 · ✦ 0.15), enforced in
-`__tmux_lives_theme_floor_role` — swap first, nudge second, each role **locked** once satisfied.
-⚠ **Do NOT "fix" the nudge to prefer the DARK direction** — measured backwards (worst case 100% severe
-chroma loss vs the shipped 91.6%; `bar` is dark, so "down" lands near black). The chroma cost was
-measured and **ACCEPTED — do not re-litigate**; three mitigations were tried and refuted:
-`[[three_bounds_palette_rule]]`.
+Spec `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session -
+Design`); plan `docs/superpowers/plans/2026-09-26-landing-session.md`, 8 TDD tasks, subagent-driven.
+Every automatic attach, and every tab whose session closes, lands on a per-tab `_landing-N` chooser (live
+sessions · idle Claude projects · new shell). Close path = `remain-on-exit on` + a `pane-died` hook —
+measured identical on 3.3a and 3.7b. **`detach-on-destroy off` is refuted**: tmux moves the client to the
+MRU session before any hook runs. On macOS a test pty client needs python `pty.fork()` and `TERM` set; a
+backgrounded `script` never attaches there.
 
-**Mono-only.** `M` swaps the list for `__tmux_lives_theme_mono_grid` (36 rows: the six mono catalog
-rows' triples × six arrangements; `mono <style>·<arrangement>`, U+00B7). The grid **reads its triples out
-of** `__tmux_lives_theme_catalog_v6`, never restating them (test-proven coupling — two unlinked copies of
-the same constants is a defect shape this repo has been bitten by). `z` pins to mono while on, `m` goes
-inert, persisted in a universal.
+### Theme work — ON HOLD, direction changed 2026-09-21/22
 
-**Titles.** OSC **0** (not 2 — iTerm2 builds its tab label from the icon title, which only OSC 0/1 set;
-OSC 2 left every iTerm2 tab on its local name until 2026-09-23) goes to **every** attached client — one
-spawned from inside tmux (the picker) carries no `LC_TERMINAL` and used to keep a stale title forever. Colour escapes in `__tcz_recolor`/
-`__tcz_on_attach` stay terminal-gated (test-pinned). **On attach the fragment's `client-session-changed`
-hook titles the new client — it fires BEFORE `client-attached` on 3.3a and 3.7b (measured)**, so
-`__tcz_on_attach` needs no retitle of its own; an attempt to add one was reverted as redundant emission
-(`[[tmux_attach_hook_order]]`). `__tcz_emit_prune` clears departed clients' per-tty cache entries
-(`/dev/ttysNNN` is OS-recycled). **Lesson:** a correct status bar proves nothing about the tab title.
+The user rejected the non-mono v6 schemes ("way too crazy") and handed colour decisions to Claude. Target:
+the seed used **verbatim** as one colour + its shades + greys (neutral and tinted), HSB-style seed
+controls, maybe a second colour later. Measured: v6 ignores seed chroma entirely and seed lightness only
+shifts the ramp window. Prototype + calibrated ShellFish mock generator: `artifacts/mockgen/v7proto.py`
+(gitignored, rocket only); mock page `05-seed-plus-grey.html` awaits the user. See
+`[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]` (measured ShellFish rendering).
 
-**Exact session targets.** Every option/window/pane/capture command targets via `__tcz_session_target`'s
-`=name:` form; `__tcz_pane_target` is deleted. See "tmux 3.3a" under Traps for the collision it fixes.
+### Shipped — the rules they left behind
 
-**Follow-ups.** `__tcz_title_name` no longer strips `' - …'` — current Claude Code titles a pane with the
-session name alone, so the strip only cut real names (`Pingy - Mac 4`); restore one if a future version
-re-appends `- <task>`. The v5 engine (9 functions, 142 assertions) is deleted; only
-`__tmux_lives_theme_relationships` survives, for `__tmux_lives_migrate_v4`. The tick self-rate-limit was
-dropped unbuilt.
+- **Legibility floors** — text 0.40 · active 0.32 · windows 0.26 · sep 0.15 · ✦ 0.15 against `bar`, in
+  `__tmux_lives_theme_floor_role` (swap, then nudge; roles lock). ⚠ Do NOT prefer the dark nudge; the
+  chroma cost is ACCEPTED — `[[three_bounds_palette_rule]]`.
+- **Mono-only** — `M` → `__tmux_lives_theme_mono_grid` (36 rows); triples are read out of the catalog,
+  never restated.
+- **Titles** — OSC **0** to every attached client: iTerm2's tab label follows only OSC 0/1, so OSC 2 never
+  reached it. Colour escapes stay terminal-gated. `client-session-changed` titles a new client before
+  `client-attached` fires (3.3a + 3.7b), so `__tcz_on_attach` has no retitle (`[[tmux_attach_hook_order]]`).
+  A correct status bar proves nothing about the tab title.
+- **Exact targets** — `__tcz_session_target` → `=name:` everywhere options/panes are addressed.
+- **Picker** — `o` = Option A ordering; the render cache makes a warm list build 17-19 ms vs 4.6 s cold
+  (`[[theme_render_cache]]`). Accepted by the user: near-black `text` on `bright`, the 14 × 5-seed sweep.
+- `__tcz_title_name` no longer strips `' - …'`; the v5 engine is deleted; the tick self-rate-limit was
+  dropped unbuilt.
 
-### Picker colour ordering + render cost (2026-09-15/16, shipped)
+### Open
 
-`o`'s ordering is **Option A**, chosen by the user off a rendered page; `__tcz_thp_sortkey` builds the
-key from the `tabs` role alone. The full key spec and why the old one produced no gradient:
-`[[theme_render_cache]]`. 387 → 67 ms per rebuild.
-
-**The picker's multi-second stall is fixed.** Rendering the 42-scheme catalog cost **5.0 s on rocket /
-2.5 s on macwork**, paid again on every list rebuild. Three layers landed — a memo on the decode
-primitives, the **persisted render cache** (theme-engine section), and the gamut clamp's `seq` fork
-removed. **Warm list build is now 17-19 ms against a 4.6 s cold build**, palettes byte-identical (three
-pinned digests + mutation proof). Numbers, the profile, and what did NOT pay off: `[[theme_render_cache]]`.
-
-The user reviewed the colour work on a rendered page (ShellFish + cmux facsimiles, 5 seeds) and accepted
-the palettes as they are: the near-black `text` on `bright` schemes is **fine**, and nothing in the
-14-schemes-across-5-seeds sweep was unacceptable. Do not re-open either as a defect.
-
-### Open — none blocking
-
-- `text` still sits at a ramp end (see "Still open" under Theme engine) — the user has seen it rendered
-  and accepted it; not a defect, just a fact about the engine.
-- `README.md`'s Retired settings says `--polarity`/`--range` "went before `--rotate`" — inherited text,
-  zero hits in current code, unverified.
+- **ShellFish "Missing color." alert** (intermittent, on tab switch) — the macwork fish session's findings:
+  `docs/2026-09-23-shellfish-missing-color-findings-from-macwork.md`. Check its non-tmux-lives sender
+  first: rocket `~/.config/fish/config.fish` calls `setbarcolor 99AA33` (no `#`). Not investigated here.
+- **iTerm2 tabs read "… — macwork" over ssh** — iTerm2's own Host title component, fed by macwork's shell
+  integration. User to choose: untick Host, or tmux-lives sends `OSC 1337 RemoteHost`.
+- `README.md`'s Retired settings line about `--polarity`/`--range` — inherited, unverified.
 
 ---
 
