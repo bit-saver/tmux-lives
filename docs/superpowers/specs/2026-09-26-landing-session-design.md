@@ -54,7 +54,7 @@ The `pane-died` handler (`fish --no-config $cat pane-died <pane> <session>`):
 
 ⚠ `remain-on-exit` is global. `tmux-lives setup teardown` and the kill switch (below) must restore it along with removing the hook.
 
-⚠ tmux 3.7b (macwork) must be measured the same way before the handler is wired there — plan Task 1.
+Measured the same way on tmux 3.7b (macwork), 2026-09-26: identical — the hook fired with the client attached (`clients=1`), the client moved straight to landing, the session was gone, and no other session was touched. (macOS test harness note: a backgrounded `script` does not attach a client there, and ssh without a tty leaves `TERM` unset; a python `pty.fork()` client with `TERM` set does.)
 
 ## Landing lifecycle
 
@@ -117,7 +117,7 @@ Tab colour is untouched.
 ## Platforms
 
 - rocket: tmux 3.3a (measured above).
-- macwork: tmux 3.7b — measure the close path before wiring (plan Task 1).
+- macwork: tmux 3.7b (measured, identical).
 - macOS has no `/proc`: device identity through `ps eww` (existing helper).
 
 ## Testing
@@ -132,4 +132,3 @@ Tab colour is untouched.
 ## Open items
 
 - Measure what ShellFish does when its tmux client exits (reconnect into a new springboard, or close the tab). Informs the "killed some other way" path, not the design.
-- tmux 3.7b measurement (plan Task 1).
