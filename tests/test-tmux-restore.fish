@@ -39,7 +39,7 @@ set -g rdir /tmp/tmuxrestore-rdir-$fish_pid
 set -g plugindir (path resolve (status dirname)/..)
 
 mkdir -p $shimdir $rdir
-printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $sock > $shimdir/tmux
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $sock > $shimdir/tmux
 chmod +x $shimdir/tmux
 # Fake claude (comm = "claude"): the breadcrumb candidate must be a real
 # claude-running pane at save time.

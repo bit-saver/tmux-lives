@@ -77,7 +77,7 @@ end
 
 function __tcb_make_shim --argument-names dir sock log --description 'write a logging tmux shim at <dir>/tmux: appends every invocation'"'"'s argv (one line) to <log>, then execs the real binary against the isolated -L <sock> server. This is the handoff'"'"'s recipe (printf argv >> LOG; exec tmux "$@") with -L added for isolation, per this repo'"'"'s own convention (a fixture must never touch the live/default server).'
     mkdir -p $dir
-    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> %s\nexec /usr/bin/tmux -L %s "$@"\n' $log $sock > $dir/tmux
+    printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> %s\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $log $sock > $dir/tmux
     chmod +x $dir/tmux
 end
 

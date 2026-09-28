@@ -49,7 +49,7 @@ set -g __tcg_rc_dir /tmp/tcg-rc-$fish_pid
 set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 
 mkdir -p $shimdir
-printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $sock > $shimdir/tmux
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $sock > $shimdir/tmux
 chmod +x $shimdir/tmux
 # Fake claude: compiled binary so pane_current_command shows "claude" (not "sh"),
 # stays running, and /proc/pid/cmdline carries all args (incl. --name ...).
@@ -250,7 +250,7 @@ t "tmux_global sees the change once flushed" "#abcdef" (__tcz_tmux_global tabs_c
 # task 3 added the session half.
 set -g tgshim /tmp/tcz-tgshim-$fish_pid; set -g tglog /tmp/tcz-tglog-$fish_pid
 rm -rf $tgshim $tglog; mkdir -p $tgshim $tglog
-printf '#!/bin/bash\necho x >> %s/calls\nexec /usr/bin/tmux -L %s "$@"\n' $tglog $sock > $tgshim/tmux
+printf '#!/bin/bash\necho x >> %s/calls\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $tglog $sock > $tgshim/tmux
 chmod +x $tgshim/tmux
 set -g tg_path_save $PATH
 set -gx PATH $tgshim $PATH
@@ -8569,7 +8569,7 @@ mkdir -p $aarhome/fish/conf.d
 cp $plugindir/conf.d/tmux-lives-install.fish $aarhome/fish/conf.d/tmux-lives-install.fish
 set -l aardir /tmp/tcz-aar-shim-$fish_pid
 rm -rf $aardir; mkdir -p $aardir
-printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $aarsock > $aardir/tmux
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $aarsock > $aardir/tmux
 chmod +x $aardir/tmux
 command tmux -L $aarsock kill-server 2>/dev/null
 for i in (seq 50)
@@ -9507,6 +9507,21 @@ set -l evcount (command tmux -L $sock list-panes -t "=$evlnm:" | count)
 t "evict: split pane removed" 1 "$evcount"
 set -l evgen (command tmux -L $sock list-sessions -F '#{session_name}' | string match 'gen-*')
 t "evict: a gen-* session exists" 1 (test -n "$evgen"; and echo 1; or echo 0)
+cleanup
+
+# --- isolation: the test server must never see the live installed fragment ---
+# fresh_server's own new-session must never load ~/.tmux.conf -- that file
+# sources the LIVE installed tmux-lives fragment, whose client-session-changed
+# hook runs the real commandeer on this server and races whatever the test
+# under it is doing (found by Task 2's reviewer: a decoy session renamed live).
+# `show-hooks -g` lists every hook NAME tmux knows about regardless of whether
+# anything is attached (a bare "client-session-changed" line is normal and
+# proves nothing) -- an attached hook prints as "client-session-changed[0]
+# <command>", so that suffix is what actually distinguishes "set" from "known".
+fresh_server
+set -l isohooks (command tmux -L $sock show-hooks -g)
+t "isolation: fresh_server carries no live client-session-changed hook" 0 \
+    (string match -qr 'client-session-changed\[' -- "$isohooks"; and echo 1; or echo 0)
 cleanup
 
 # --- hygiene: this suite's own shim dir ------------------------------------

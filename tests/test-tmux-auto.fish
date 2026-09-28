@@ -23,9 +23,10 @@ set -g FAIL 0
 set -g sock test-autotmux-$fish_pid
 set -g plugindir (path resolve (status dirname)/..)
 
-# Route every bare `tmux` call (in the harness AND in the sourced functions) to the test server.
+# Route every bare `tmux` call (in the harness AND in the sourced functions) to the test
+# server, pinned config-free so a fresh server start never loads ~/.tmux.conf.
 function tmux
-    command tmux -L $sock $argv
+    command tmux -L $sock -f /dev/null $argv
 end
 
 function t --description 'assert: t <desc> <expected> <actual>'
@@ -438,7 +439,7 @@ function tmux  # intercept switch-client to capture its target session
     test "$argv[1]" = switch-client; and begin
         set -g _sw_target $argv[3]; return 0
     end
-    command tmux -L $sock $argv
+    command tmux -L $sock -f /dev/null $argv
 end
 set -g _sw_target ''
 __tmux_lives_new 2>/dev/null

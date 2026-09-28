@@ -36,4 +36,24 @@ if test -n "$unguarded"
     exit 1
 end
 
-echo "ALL PASS (2)"
+# Every tmux PATH shim (a printf line that execs the real tmux binary against an
+# isolated -L socket) must pin -f /dev/null, or the server it starts loads the
+# user's ~/.tmux.conf -- and with it the live installed tmux-lives fragment's
+# client-session-changed/client-attached hooks, which then race the test.
+set -l shim_hits (grep -n 'exec /usr/bin/tmux' $plugindir/tests/test-tmux-*.fish)
+if test (count $shim_hits) -lt 2
+    echo "FAIL: expected at least 2 tmux PATH shim lines under tests/test-tmux-*.fish, found "(count $shim_hits); echo "FAILED"
+    exit 1
+end
+set -l unsafe_shims
+for hit in $shim_hits
+    string match -q '*-f /dev/null*' -- "$hit"; or set -a unsafe_shims $hit
+end
+if test -n "$unsafe_shims"
+    echo "FAIL: tmux PATH shim(s) missing -f /dev/null (would load ~/.tmux.conf):"
+    printf '  %s\n' $unsafe_shims
+    echo "FAILED"
+    exit 1
+end
+
+echo "ALL PASS (3)"

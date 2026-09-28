@@ -219,7 +219,7 @@ set -g FRAGR0 (__tmux_lives_render_fragment /x/cat.fish S M-s '' 0 M-m M-t '' | 
 t "no M-r bind when resize key empty" no (string match -q '*resize-enter*' -- "$FRAGR0"; and echo yes; or echo no)
 # rendered fragment still parses on a real -L server
 set -g rsock tli-rz-$fish_pid
-command tmux -L $rsock new-session -d 2>/dev/null
+command tmux -L $rsock -f /dev/null new-session -d 2>/dev/null
 printf '%s\n' "$FRAGR" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > /tmp/tli-rzfrag-$fish_pid.conf
 t "resize fragment parses (source-file rc0)" 0 (command tmux -L $rsock source-file /tmp/tli-rzfrag-$fish_pid.conf 2>/dev/null; echo $status)
 command tmux -L $rsock kill-server 2>/dev/null; rm -f /tmp/tli-rzfrag-$fish_pid.conf
@@ -234,7 +234,7 @@ t "no status-pos bind when key empty" no (string match -q '*status-pos-toggle*' 
 t "no status-vis bind when key empty" no (string match -q '*status-vis-toggle*' -- "$FRAGS0"; and echo yes; or echo no)
 # the full fragment (with the status binds) still parses on a real -L server
 set -g rsock2 tli-sb-$fish_pid
-command tmux -L $rsock2 new-session -d 2>/dev/null
+command tmux -L $rsock2 -f /dev/null new-session -d 2>/dev/null
 printf '%s\n' "$FRAGS" | string replace -a '/x/cat.fish' '/tmp/nope.fish' >/tmp/tli-sbfrag-$fish_pid.conf
 t "status fragment parses (source-file rc0)" 0 (command tmux -L $rsock2 source-file /tmp/tli-sbfrag-$fish_pid.conf 2>/dev/null; echo $status)
 command tmux -L $rsock2 kill-server 2>/dev/null; rm -f /tmp/tli-sbfrag-$fish_pid.conf
@@ -408,7 +408,7 @@ set -e tmux_lives_bar_color
 
 # rendered fragment (fake cat path, empty computed values) must PARSE on a private -L socket
 set -g sfsock tli-bar-$fish_pid
-command tmux -L $sfsock new-session -d 2>/dev/null
+command tmux -L $sfsock -f /dev/null new-session -d 2>/dev/null
 printf '%s\n' $BAR > /tmp/tli-barfrag-$fish_pid.conf
 t "bar fragment parses (source-file rc0)" 0 (command tmux -L $sfsock source-file /tmp/tli-barfrag-$fish_pid.conf 2>/dev/null; echo $status)
 command tmux -L $sfsock kill-server 2>/dev/null; rm -f /tmp/tli-barfrag-$fish_pid.conf
@@ -418,7 +418,7 @@ set -g realcat $plugindir/functions/tmux-categorize.fish
 set -g BARR (__tmux_lives_render_fragment $realcat S M-s "#1f6feb" 0 M-m M-t M-r C-M-a C-M-s | string collect)
 t "real status-format[0] is non-empty" yes (string match -q '*◇ RESIZE ◇*' -- "$BARR"; and echo yes; or echo no)
 set -g brsock tli-barr-$fish_pid
-command tmux -L $brsock new-session -d 2>/dev/null
+command tmux -L $brsock -f /dev/null new-session -d 2>/dev/null
 printf '%s\n' $BARR > /tmp/tli-barrfrag-$fish_pid.conf
 t "real bar fragment parses (source-file rc0)" 0 (command tmux -L $brsock source-file /tmp/tli-barrfrag-$fish_pid.conf 2>/dev/null; echo $status)
 # the legacy neutral cap bg must SURVIVE the source (quoted, so it isn't eaten as a comment).
@@ -866,7 +866,7 @@ t "fragment sets automatic-rename-format" 1 (test -n "$arf"; and echo 1; or echo
 t "arf maps to claude"                    1 (string match -q '*claude*' -- "$arf"; and echo 1; or echo 0)
 t "arf keeps pane_current_command"        1 (string match -q '*pane_current_command*' -- "$arf"; and echo 1; or echo 0)
 set -g arsock tli-arf-$fish_pid
-command tmux -L $arsock new-session -d 2>/dev/null
+command tmux -L $arsock -f /dev/null new-session -d 2>/dev/null
 set -l arfmt (string replace 'set -g automatic-rename-format ' '' -- "$arf" | string trim -c "'")
 t "tmux accepts the rendered format"      0 (command tmux -L $arsock set -g automatic-rename-format "$arfmt"; echo $status)
 set -l fmt_v (string replace -a '#{pane_current_command}' '2.1.185' -- "$arfmt")
@@ -962,7 +962,7 @@ rm -f $cfrag
 
 # setup color --apply: reapply stored color live (status-style via the socket seam; recolor guarded)
 set -g apsock tli-apply-$fish_pid
-command tmux -L $apsock new-session -d 2>/dev/null
+command tmux -L $apsock -f /dev/null new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $apsock
 set -g __old_fcd2 $__fish_config_dir
 set -g __fish_config_dir /tmp/tcz-nofish2-$fish_pid   # recolor's test -f guard short-circuits
@@ -1038,7 +1038,7 @@ t "baseline: seed never overwrites" 1 (string match -q '*hand edit*' -- (cat $tm
 # conf add/reset call `tmux source-file` — pin it to a throwaway -L socket so the suite
 # never reconfigures the user's real tmux server (README: tests never touch the real server).
 set -g tmux_lives_tmux_socket tli-conf-$fish_pid
-command tmux -L $tmux_lives_tmux_socket new-session -d 2>/dev/null
+command tmux -L $tmux_lives_tmux_socket -f /dev/null new-session -d 2>/dev/null
 __tmux_lives_conf_cmd add 'set -g mouse off' >/dev/null
 t "baseline: conf add appends line" 1 (grep -qF 'set -g mouse off' $tmux_lives_baseline_conf; and echo 1; or echo 0)
 t "baseline: conf add with no cmd rc1" 1 (__tmux_lives_conf_cmd add >/dev/null 2>&1; echo $status)
@@ -1512,7 +1512,7 @@ functions -q __tl_wf_bak; and begin; functions -e __tmux_lives_write_fragment; f
 set -g rlsock tli-reload-$fish_pid
 set -g rlshim /tmp/tli-shim-$fish_pid
 mkdir -p $rlshim
-printf '#!/bin/bash\nexec /usr/bin/tmux -L %s "$@"\n' $rlsock > $rlshim/tmux
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $rlsock > $rlshim/tmux
 chmod +x $rlshim/tmux
 set -g rl_path_save $PATH
 set -gx PATH $rlshim $PATH
@@ -1637,7 +1637,7 @@ set -e _WF17_ARGV
 
 # themed fragment parses on a real -L server and the options land
 set -g thfsock tli-th-$fish_pid
-command tmux -L $thfsock new-session -d 2>/dev/null
+command tmux -L $thfsock -f /dev/null new-session -d 2>/dev/null
 printf '%s\n' "$TON" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > /tmp/tli-thfrag-$fish_pid.conf
 t "themed fragment parses (source-file rc0)" 0 (command tmux -L $thfsock source-file /tmp/tli-thfrag-$fish_pid.conf 2>/dev/null; echo $status)
 t "themed @text_fg lands" "$TONPAL[7]" (command tmux -L $thfsock show -gv @tmux_lives_text_fg 2>/dev/null)
@@ -2036,7 +2036,7 @@ t "theme list rows carry truecolor swatches" 42 (count (string match -r '48;2;' 
 set -g _th_fcd $__fish_config_dir
 set -g __fish_config_dir /tmp/th-noconf-$fish_pid
 set -g thsock tlt-$fish_pid
-command tmux -L $thsock new-session -d 2>/dev/null
+command tmux -L $thsock -f /dev/null new-session -d 2>/dev/null
 set -gx tmux_lives_tmux_socket $thsock
 # theme-v6-surface Task 5: __tmux_lives_theme_cmd now validates scheme names
 # against the v6 catalog, so it can no longer be used to get an unresolvable
