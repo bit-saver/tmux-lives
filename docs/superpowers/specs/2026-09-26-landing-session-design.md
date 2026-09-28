@@ -46,7 +46,7 @@ Measured 2026-09-26 on tmux 3.3a, isolated sockets with a real pty client:
 
 The `pane-died` handler (`fish --no-config $cat pane-died <pane> <session>`):
 
-1. Dead pane in a landing session → `respawn-pane -k` (the app comes back).
+1. Dead pane in a landing session → `respawn-pane -k` with the landing command (the app comes back; a bare `-k` would re-run whatever the pane last ran).
 2. Dead pane in any other session, other live panes remain → `kill-pane` it (normal close behaviour).
 3. Last live pane of a non-landing session → for each attached client, create a landing session and switch the client to it; then kill the session.
 

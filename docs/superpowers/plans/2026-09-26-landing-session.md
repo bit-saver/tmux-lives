@@ -29,6 +29,18 @@
 - **Never background a command.** Pass an explicit `timeout: 600000` to every suite run. If a Bash call reports it was backgrounded, abandon it and re-run in the foreground.
 - **Capture into a variable before asserting** (`set -l x (cmd); t "…" exp "$x"`) — a direct `(undefined_fn)` inside `t` aborts silently.
 - **Never `git checkout` to revert** while work is uncommitted.
+- **Where new categorize-suite sections go:** immediately before the first `# --- hygiene:` header near the end of `tests/test-tmux-categorize.fish`. Name the categorizer `$plugindir/functions/tmux-categorize.fish` (e.g. `set -l lcat …`) — the suite's `$catfile` is a script-local defined mid-file.
+- **New verbs** go in `__tcz_main` and in its `usage:` line.
+- **Landing sessions in tests:** a test that only needs a session *named* `_landing-N` creates it as a bare shell (`tmux new-session -d -s _landing-9`), never via the app. Sessions made by `__tcz_landing_new` run the app.
+
+## Pre-flight corrections (2026-09-28)
+
+A pre-flight of this plan against the code found 15 defects; the task text below is already corrected. The ones that change design:
+- `__tcz_free_gen` is generalised to `__tcz_free_name <prefix> <taken…>` instead of adding a duplicate `__tcz_landing_free_name`.
+- Task 1 adds the `landing` verb with a minimal `__tcz_landing` that never exits, so landing panes created by Tasks 1–5 stay alive; Task 6 replaces its body.
+- `pane-died` rule 1 respawns with the explicit landing command: a bare `respawn-pane -k` re-runs whatever command the pane last ran.
+- The discovery seams are exported suite-wide (Task 5), so landing apps started inside test servers never read `~/.claude/projects` or write `~/.cache/tmux-lives`.
+- `landing-name` is pure: the shell side passes the session names in, so the subprocess makes no tmux call.
 
 ## File Structure
 
@@ -50,21 +62,25 @@
 
 **Interfaces — Produces:**
 - `__tcz_is_landing <name>` → status 0 iff `name` matches `_landing-*`. Pure.
-- `__tcz_landing_free_name <existing-names…>` → prints `_landing-N`, smallest N ≥ 1 not among the arguments. Pure.
-- `__tcz_landing_new [client]` → creates `_landing-N` running `fish --no-config $__tcz_self landing` in `$HOME`; with `client`, switches that client to it **in the same tmux invocation**; prints the name.
-- Verb `landing-new [client]`.
+- `__tcz_free_name <prefix> <taken…>` → prints `<prefix>-N`, smallest N ≥ 1 not among the taken names. Pure. **Replaces** `__tcz_free_gen` (C:79): rename it and add the prefix argument; update its two callers (C:909 `__tcz_free_gen $others` → `__tcz_free_name gen $others`; C:1189 in `__tcz_new_general`) and its three tests (suite ~578-580). Landing names come from `__tcz_free_name _landing …`.
+- `__tcz_landing_cmd` — global set once next to `__tcz_self` (C:12): `"fish --no-config $__tcz_self landing"`. The one place the landing pane's command is spelled.
+- `__tcz_landing_new [client]` → creates `_landing-N` running `$__tcz_landing_cmd` in `$HOME`; with `client`, switches that client to it **in the same tmux invocation**; prints the name.
+- Verbs `landing-new [client]` and `landing`. `__tcz_landing` here is only a placeholder that never exits (`while true; sleep 3600; end`), so a landing pane stays alive until Task 6 replaces the body with the chooser.
 - Exclusions: `__tcz_snapshot` output (hence `__tcz_overview`, `__tcz_categorize`, both pickers) and `__tcz_pick_general` skip landing sessions; `__tcz_session_title` returns `[<h>] landing` for one.
 
-- [ ] **Step 1: Failing tests.** Append a section to `tests/test-tmux-categorize.fish` (after the session-title tests; reuse `fresh_server`, `$sock`, the PATH shim):
+- [ ] **Step 1: Failing tests.** Add a section to `tests/test-tmux-categorize.fish` at the place the Standing instructions name (reuse `fresh_server`, `$sock`, the PATH shim). Also change the three `free_gen` tests (~578-580) to call `__tcz_free_name gen …` with the same expectations (non-regression, renamed).
 
 ```fish
 # --- landing: identity, free name, create, exclusions ---
-t "is_landing: reserved name" 0 (__tcz_is_landing _landing-3; echo $status)
-t "is_landing: project name" 1 (__tcz_is_landing tmux-lives; echo $status)
-t "is_landing: look-alike without underscore" 1 (__tcz_is_landing landing-3; echo $status)
-set -l ln1 (__tcz_landing_free_name tmux-lives _landing-1 _landing-3)
+set -l il1 (__tcz_is_landing _landing-3; echo $status)
+t "is_landing: reserved name" 0 "$il1"
+set -l il2 (__tcz_is_landing tmux-lives; echo $status)
+t "is_landing: project name" 1 "$il2"
+set -l il3 (__tcz_is_landing landing-3; echo $status)
+t "is_landing: look-alike without underscore" 1 "$il3"
+set -l ln1 (__tcz_free_name _landing tmux-lives _landing-1 _landing-3)
 t "free_name: smallest gap" _landing-2 "$ln1"
-set -l ln2 (__tcz_landing_free_name)
+set -l ln2 (__tcz_free_name _landing)
 t "free_name: empty server" _landing-1 "$ln2"
 fresh_server
 set -l made (__tcz_landing_new)
@@ -73,7 +89,12 @@ set -l lcmd (command tmux -L $sock list-panes -t '=_landing-1:' -F '#{pane_start
 t "landing_new: pane runs the landing verb" 1 (string match -q '*--no-config*landing*' -- "$lcmd"; and echo 1; or echo 0)
 set -l ov (__tcz_overview | string split -f1 \t)
 t "overview hides landing" 0 (contains -- _landing-1 $ov; and echo 1; or echo 0)
-t "pick_general never picks landing" "" (__tcz_pick_general)
+# pick_general: leave only landing sessions, one of them an idle bare shell
+command tmux -L $sock new-session -d -s _landing-9
+sleep 0.3
+command tmux -L $sock kill-session -t =0
+set -l pg (__tcz_pick_general)
+t "pick_general never picks landing" "" "$pg"
 set -g tmux_lives_hostname rocket
 set -l lt (__tcz_session_title _landing-1)
 t "landing tab title" "[r] landing" "$lt"
@@ -81,7 +102,7 @@ set -e tmux_lives_hostname
 cleanup
 ```
 
-Run: `fish tests/test-tmux-categorize.fish 2>&1 | grep -E '^FAIL|ALL PASS|SOME FAILED'` (timeout 600000). Expected: the new lines FAIL (functions undefined → empty captures). Quote them in your report.
+Run: `fish tests/test-tmux-categorize.fish 2>&1 | grep -E '^FAIL|ALL PASS|SOME FAILED'` (timeout 600000). Expected: the new lines FAIL (functions undefined → empty captures; pre-fix `pick_general` returns `_landing-9`). Quote them in your report.
 
 - [ ] **Step 2: Implement** near `__tcz_new_general` in `functions/tmux-categorize.fish`:
 
@@ -90,25 +111,18 @@ function __tcz_is_landing --argument-names name --description 'true if <name> is
     string match -q -- '_landing-*' "$name"
 end
 
-function __tcz_landing_free_name --description 'existing session names -> smallest free _landing-N'
-    set -l n 1
-    while contains -- "_landing-$n" $argv
-        set n (math $n + 1)
-    end
-    echo "_landing-$n"
-end
-
 function __tcz_landing_new --argument-names client --description 'create a landing session running the landing app; with <client>, move it there in the same tmux call; print the name'
-    set -l name (__tcz_landing_free_name (tmux list-sessions -F '#{session_name}' 2>/dev/null))
-    set -l app "fish --no-config $__tcz_self landing"
+    set -l name (__tcz_free_name _landing (tmux list-sessions -F '#{session_name}' 2>/dev/null))
     if test -n "$client"
-        tmux new-session -d -s $name -c $HOME $app \; switch-client -c "$client" -t "=$name" 2>/dev/null; or return 1
+        tmux new-session -d -s $name -c $HOME $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null; or return 1
     else
-        tmux new-session -d -s $name -c $HOME $app 2>/dev/null; or return 1
+        tmux new-session -d -s $name -c $HOME $__tcz_landing_cmd 2>/dev/null; or return 1
     end
     echo $name
 end
 ```
+
+`__tcz_free_name` is `__tcz_free_gen`'s body with `gen` replaced by `$argv[1]` and the taken list `$argv[2..]`.
 
 Exclusions:
 - `__tcz_snapshot` final output loop (`for i in (seq (count $names))` that prints the 5 fields): first line of the loop body `__tcz_is_landing $names[$i]; and continue`.
@@ -116,7 +130,7 @@ Exclusions:
 - `__tcz_session_title`: after `test -n "$session"; or return 0`, add
   `__tcz_is_landing $session; and begin; __tcz_format_title (__tcz_hostname) landing ''; return 0; end`
   (check `__tcz_format_title`'s real argument order and the hostname helper name before writing this; adapt if they differ).
-- `__tcz_main`: add `case landing-new` → `__tcz_landing_new $argv[2]`.
+- `__tcz_main`: add `case landing-new` → `__tcz_landing_new $argv[2]` and `case landing` → `__tcz_landing`.
 
 - [ ] **Step 3: Run** the categorize suite in both modes (two foreground calls). Expected: ALL PASS.
 - [ ] **Step 4: Commit** `feat(landing): reserved _landing-N sessions — identity, creation, exclusions`.
@@ -130,7 +144,7 @@ Exclusions:
 **Interfaces — Consumes:** `__tcz_is_landing`, `__tcz_landing_new`, `__tcz_new_general <dir>` (prints the new session name).
 **Produces:**
 - `__tcz_pane_died <pane_id> <session>` + verb `pane-died`:
-  1. landing session → `respawn-pane -k -t <pane>`;
+  1. landing session → `respawn-pane -k -t <pane> $__tcz_landing_cmd` (explicit: a bare `-k` re-runs whatever the pane last ran);
   2. other session with another live pane → `kill-pane -t <pane>`;
   3. last live pane → each attached client gets `__tcz_landing_new <client>`, then `kill-session -t =<session>`.
 - `__tcz_landing_evict <pane_id> <session>` + verb `landing-evict`: for a landing session only — create a general session in `$HOME`, switch the landing's client there, kill `<pane>`.
@@ -138,11 +152,12 @@ Exclusions:
 - [ ] **Step 1: Failing tests** (real pty client; install the hook by hand on the test server — the fragment wiring is Task 4):
 
 ```fish
+set -l lcat $plugindir/functions/tmux-categorize.fish
 # --- landing: pane-died close path (real client) ---
 fresh_server
 command tmux -L $sock new-session -d -s victim -x 80 -y 24 'sleep 2'
 command tmux -L $sock set -g remain-on-exit on
-command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $catfile pane-died '#{pane_id}' '#{session_name}'\""
+command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $lcat pane-died '#{pane_id}' '#{session_name}'\""
 set -l seen /tmp/tcz-seen-$fish_pid; rm -f $seen
 command tmux -L $sock set-hook -g client-session-changed "run-shell 'echo #{session_name} >> $seen'"
 env TERM=xterm-256color script -qec "tmux attach -t =victim" /dev/null >/dev/null 2>&1 &
@@ -153,7 +168,7 @@ t "close: client lands on a landing session" 1 (string match -q '_landing-*' -- 
 t "close: dead session is gone" 1 (command tmux -L $sock has-session -t =victim 2>/dev/null; and echo 0; or echo 1)
 set -l visited (cat $seen | string match -v victim | string match -v '_landing-*')
 t "close: client never visited another session" "" "$visited"
-kill %1 2>/dev/null; rm -f $seen
+kill $last_pid 2>/dev/null; rm -f $seen
 cleanup
 
 # --- landing: a non-last pane dies -> only that pane goes ---
@@ -162,9 +177,11 @@ command tmux -L $sock set -g remain-on-exit on
 command tmux -L $sock split-window -t '=0:' 'sleep 1'
 set -l dead (command tmux -L $sock list-panes -t '=0:' -F '#{pane_id} #{pane_start_command}' | string match '*sleep*' | string split -f1 ' ')
 sleep 1.5
-set -l dres (fish --no-config $catfile pane-died $dead 0; echo $status)
-t "non-last pane: session survives" 0 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
-t "non-last pane: dead pane removed" 1 (command tmux -L $sock list-panes -t '=0:' | count)
+fish --no-config $lcat pane-died $dead 0
+set -l nls (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
+t "non-last pane: session survives" 0 "$nls"
+set -l nlp (command tmux -L $sock list-panes -t '=0:' | count)
+t "non-last pane: dead pane removed" 1 "$nlp"
 cleanup
 
 # --- landing: a dead landing pane is respawned ---
@@ -174,13 +191,13 @@ set -l lp (command tmux -L $sock list-panes -t "=$lnm:" -F '#{pane_id}')
 command tmux -L $sock set -g remain-on-exit on
 command tmux -L $sock respawn-pane -k -t $lp 'true'
 sleep 0.5
-fish --no-config $catfile pane-died $lp $lnm
+fish --no-config $lcat pane-died $lp $lnm
 set -l lcmd2 (command tmux -L $sock list-panes -t "=$lnm:" -F '#{pane_dead} #{pane_start_command}')
 t "landing pane respawned alive" 1 (string match -q '0 *landing*' -- "$lcmd2"; and echo 1; or echo 0)
 cleanup
 ```
 
-(`$catfile` is the suite's existing path to `functions/tmux-categorize.fish` — confirm its variable name. The `script -qec` idiom and the client-wait loop match the suite's existing pty tests; `respawn-pane … 'true'` then waiting makes the pane dead under `remain-on-exit`. If `pane_start_command` does not reflect a respawn command on 3.3a, assert on `#{pane_dead}` and the command separately — the code wins.)
+(The `script -qec` idiom and the client-wait loop match the suite's existing pty tests; `respawn-pane … 'true'` then waiting makes the pane dead under `remain-on-exit`, and its stored command is now `true` — which is why rule 1 must pass the landing command explicitly. If `pane_start_command` does not reflect a respawn command on 3.3a, assert on `#{pane_dead}` and the command separately — the code wins.)
 
 Expected before the fix: the close test shows the client detached/no landing session; the handler verb is unknown. Quote the FAIL lines.
 
@@ -190,7 +207,7 @@ Expected before the fix: the close test shows the client detached/no landing ses
 function __tcz_pane_died --argument-names pane session --description 'pane-died hook: respawn a landing app; drop a dead pane; or move the clients of a closing session to landing, then kill it'
     test -n "$pane"; and test -n "$session"; or return 0
     if __tcz_is_landing $session
-        tmux respawn-pane -k -t $pane 2>/dev/null
+        tmux respawn-pane -k -t $pane $__tcz_landing_cmd 2>/dev/null
         return 0
     end
     set -l live (tmux list-panes -s -t (__tcz_session_target $session) -F '#{pane_dead}' 2>/dev/null | string match 0)
@@ -217,7 +234,7 @@ end
 
 `__tcz_main`: `case pane-died` → `__tcz_pane_died $argv[2] $argv[3]`; `case landing-evict` → `__tcz_landing_evict $argv[2] $argv[3]`.
 
-Add an evict test: landing session with a client-less split (`split-window -t "=$lnm:"`), run `fish --no-config $catfile landing-evict <newpane> $lnm`, assert the split is gone and a `gen-*` session exists.
+Add an evict test: landing session with a client-less split (`split-window -t "=$lnm:"`), run `fish --no-config $lcat landing-evict <newpane> $lnm`, assert the split is gone and a `gen-*` session exists.
 
 - [ ] **Step 3: Run** the categorize suite, both modes. Expected ALL PASS.
 - [ ] **Step 4: Commit** `feat(landing): pane-died close path and landing guard`.
@@ -239,6 +256,7 @@ Add an evict test: landing session with a client-less split (`split-window -t "=
 # --- landing: commandeer lands a ShellFish springboard on landing ---
 fresh_server
 command tmux -L $sock new-session -d -s shellfish-1
+sleep 0.3
 functions -c tmux __tcz_tmux_bak 2>/dev/null
 function tmux; test "$argv[1]" = switch-client; and return 0; command tmux -L $sock $argv; end
 __tcz_commandeer fakeclient shellfish-1 on
@@ -254,8 +272,10 @@ fresh_server
 __tcz_landing_new >/dev/null
 __tcz_tmux_flush; __tcz_tmux_load
 __tcz_landing_sweep
-t "sweep: clientless landing killed" 1 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo 0; or echo 1)
-t "sweep: other sessions untouched" 0 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
+set -l sw1 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo 0; or echo 1)
+t "sweep: clientless landing killed" 1 "$sw1"
+set -l sw2 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
+t "sweep: other sessions untouched" 0 "$sw2"
 cleanup
 ```
 
@@ -277,6 +297,7 @@ cleanup
 
 ```fish
 function __tcz_landing_sweep --description 'kill landing sessions nobody is attached to (reads the per-pass session memo only)'
+    __tcz_tmux_load
     for i in (seq (count $__tcz_tmux_sess_names))
         __tcz_is_landing $__tcz_tmux_sess_names[$i]; or continue
         test "$__tcz_tmux_sess_attached[$i]" = 0; and tmux kill-session -t "=$__tcz_tmux_sess_names[$i]" 2>/dev/null
@@ -285,7 +306,8 @@ end
 ```
 
   - Tick: in `case tick`, after the `__tcz_categorize` line, add `__tcz_landing_sweep`.
-  - `__tcz_main case commandeer`: pass `$argv[4]` as the third argument.
+  - `__tcz_main case commandeer` already passes `$argv[2..]` (C:4416) — no change needed there.
+  - `__tcz_tmux_load` is a no-op once loaded this pass. If `__tcz_categorize` flushes the memo before the sweep runs, the reload costs a second `show -g` + `list-sessions` and tick-calls will fail — then read what the pass already loaded instead; the code wins.
 
 - [ ] **Step 3: Run** categorize and **tick-calls** suites, both modes. Expected ALL PASS with tick-calls unchanged (the sweep issues no tmux call when nothing needs killing). If tick-calls fails, the sweep is reading tmux instead of the memo — fix the sweep, not the test.
 - [ ] **Step 4: Commit** `feat(landing): ShellFish tabs land on landing; tick sweeps empty landing sessions`.
@@ -306,7 +328,7 @@ end
   - the commandeer call inside the existing `client-session-changed` block gets a trailing ` on`.
 - When `off`: `set -g remain-on-exit off`, `set-hook -gu pane-died`, `set-hook -gu after-new-window`, `set-hook -gu after-split-window`; commandeer gets ` off`.
 - `__tmux_lives_landing_cmd on|off|status` — `setup landing …`; `on`/`off` set the universal and call `__tmux_lives_write_fragment`; `status`/no arg prints `landing: ON` / `landing: OFF`; anything else → `usage: tmux-lives setup landing on|off|status` on stderr, status 1.
-- Help: a setup help row `'landing on|off|status        land every new tab on the chooser'` (column-28 padding like the `auto` row, under 77 chars); dispatcher `case landing`; add `landing` to the hidden top-level shortcut list.
+- Help: a setup help row `'landing on|off|status       land every new tab on the chooser'` — 7 spaces, so the description starts in the same column as the `auto` row (I:2201); under 77 chars. Dispatcher `case landing`; add `landing` to the hidden top-level shortcut list.
 - `_tmux_lives_post_update`: after re-rendering, respawn every live landing pane so it runs the new code: `for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null | string match '_landing-*'); tmux respawn-pane -k -t "=$s:" 2>/dev/null; end` (guard: only when a server is running).
 - Teardown: after removing the source line, if a server is running: `tmux set -g remain-on-exit off; tmux set-hook -gu pane-died; tmux set-hook -gu after-new-window; tmux set-hook -gu after-split-window` (all `2>/dev/null`).
 
@@ -331,6 +353,8 @@ Plus: source the `on` render into an isolated `-f /dev/null` server (the suite's
 
 Every existing assertion that renders with 18 args must keep passing: update those call sites to pass `on` as argv[19] only where they assert on commandeer text; elsewhere a missing argv[19] must behave as `on`. Grep `render_fragment` in the suite and account for every call site in your report.
 
+Two existing assertions pin the arg count and **must be updated**, not worked around: `tests/test-tmux-install.fish:1634` ("passes exactly 18 args") → 19, and add a sibling to :1635 asserting arg 19 is `tmux_lives_landing`. Prove both FAIL before the implementation.
+
 - [ ] **Step 2: Implement** per the Interfaces block. In `__tmux_lives_render_fragment`, read `set -l landing $argv[19]; test -n "$landing"; or set landing on`. Emit the `on`/`off` lines next to the existing hook block (I:219-227). Put the commandeer suffix on the existing line.
 - [ ] **Step 3: Run** the install suite, both modes. Expected ALL PASS; report the new counts (889+N / 888+N).
 - [ ] **Step 4: Commit** `feat(landing): fragment wiring and the tmux_lives_landing kill switch`.
@@ -348,36 +372,38 @@ Every existing assertion that renders with 18 args must keep passing: update tho
 - `__tcz_claude_cwds` → the cwd of every pane running claude (one `list-panes -a` call; uses `__tcz_pane_is_claude`).
 - `__tcz_age <seconds>` → `now`, `5m`, `3h`, `2d`, `4w`.
 
-⚠ Both seams resolve through `$HOME`; the suite must set both at its top (like `tmux_lives_render_cache_dir`) and bracket the real cache file's existence/mtime.
+⚠ Both seams resolve through `$HOME`. At the top of `tests/test-tmux-categorize.fish`, next to `tmux_lives_render_cache_dir` (~line 49), **export** both suite-wide: `set -gx tmux_lives_claude_projects_dir /tmp/tcg-projects-$fish_pid` and `set -gx tmux_lives_project_cache /tmp/tcg-projcache-$fish_pid.tsv`. Exported, they reach every test tmux server and so every landing app a later test starts (Task 6 makes that app real). In the hygiene section, remove both and bracket the real `~/.cache/tmux-lives/projects.tsv` (existence and mtime unchanged), mirroring the render-cache bracket. The discovery test below uses these values; it never sets or erases them.
 
 - [ ] **Step 1: Failing tests.**
 
 ```fish
 # --- landing: claude project discovery ---
-set -l pj /tmp/tcz-projects-$fish_pid; rm -rf $pj; mkdir -p $pj/-a $pj/-b $pj/-gone /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid
-set -g tmux_lives_claude_projects_dir $pj
-set -g tmux_lives_project_cache /tmp/tcz-projcache-$fish_pid.tsv; rm -f $tmux_lives_project_cache
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; mkdir -p $pj/-a $pj/-b $pj/-gone /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid
+rm -f $tmux_lives_project_cache
 printf '{"type":"summary"}\n{"cwd":"/tmp/tcz-proj-a-%s","x":1}\n' $fish_pid > $pj/-a/s1.jsonl
 printf '{"cwd":"/tmp/tcz-proj-b-%s"}\n' $fish_pid > $pj/-b/s1.jsonl
 printf '{"cwd":"/tmp/tcz-proj-gone-%s"}\n' $fish_pid > $pj/-gone/s1.jsonl
 touch -d '2 hours ago' $pj/-a/s1.jsonl
+touch -d '1 hour ago' $pj/-b/s1.jsonl
 set -l rows (__tcz_claude_projects)
 t "projects: gone folder dropped" 2 (count $rows)
 t "projects: newest first" "/tmp/tcz-proj-b-$fish_pid" (string split -f1 \t -- $rows[1])
 t "projects: cwd read past a non-cwd first line" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows[2])
 t "projects: cache written" 3 (count (cat $tmux_lives_project_cache))
+# s2 is written now, an hour newer than s1, so -b's newest mtime changes
 printf '{"cwd":"/tmp/tcz-proj-a-%s"}\n' $fish_pid > $pj/-b/s2.jsonl
 set -l rows2 (__tcz_claude_projects)
 t "projects: newer transcript re-read" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows2[1])
-t "age: minutes" 5m (__tcz_age 300)
-t "age: hours" 3h (__tcz_age 10800)
-t "age: days" 2d (__tcz_age 172800)
-t "age: just now" now (__tcz_age 20)
+t "projects: deduped by folder" 1 (count $rows2)
+set -l a1 (__tcz_age 300); t "age: minutes" 5m "$a1"
+set -l a2 (__tcz_age 10800); t "age: hours" 3h "$a2"
+set -l a3 (__tcz_age 172800); t "age: days" 2d "$a3"
+set -l a4 (__tcz_age 20); t "age: just now" now "$a4"
 rm -rf $pj /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid $tmux_lives_project_cache
-set -e tmux_lives_claude_projects_dir tmux_lives_project_cache
 ```
 
-(`touch -d` is GNU; the suite runs on rocket. If a macOS run of the suite is in scope, use `touch -t`.) Note `rows2`: after the new transcript in `-b` points at folder a, both dirs resolve to folder a — dedupe by folder, keeping the newest. Assert `count $rows2` = 1 as well.
+(`touch -d` is GNU; the suite runs on rocket. If a macOS run of the suite is in scope, use `touch -t`.) Note `rows2`: after the new transcript in `-b` points at folder a, both dirs resolve to folder a — dedupe by folder, keeping the newest.
 
 - [ ] **Step 2: Implement.** Use fish builtins: glob `$root/*/*.jsonl`, `path mtime`, `path dirname`; read a transcript head with `head -c 200000 -- $file | string match -rg '"cwd":"([^"]+)"'` (first match) — the only fork, on cache misses. Dedupe folders, keep the newest mtime, drop folders failing `test -d`, sort by mtime descending (`sort -t\t -k2,2nr` is acceptable — one fork). Write the cache with one `printf … > $tmp; mv $tmp $cache` (mkdir the directory first; never fail discovery over the cache).
   `__tcz_claude_cwds`: `tmux list-panes -a -F '#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}'`; for each row where `__tcz_pane_is_claude cmd pid`, print the path.
@@ -406,12 +432,17 @@ set -e tmux_lives_claude_projects_dir tmux_lives_project_cache
 
 In `tests/test-tmux-popup.fish` (pure):
 
+(`vis` strips SGR from its **argument**, not stdin — join the rows first, then pass them.)
+
 ```fish
-set -l here (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | vis | string join \n)
+set -l here (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set here (vis "$here" | string join \n)
 t "list_lines: mark 2 renders [here]" 1 (string match -q '*[here]*' -- "$here"; and echo 1; or echo 0)
-set -l att (printf 'alpha\tclaude\t1\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | vis | string join \n)
+set -l att (printf 'alpha\tclaude\t1\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set att (vis "$att" | string join \n)
 t "list_lines: mark 1 still [attached] (non-regression)" 1 (string match -q '*[attached]*' -- "$att"; and echo 1; or echo 0)
-set -l pr (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | vis | string join \n)
+set -l pr (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set pr (vis "$pr" | string join \n)
 t "list_lines: project rule" 1 (string match -q '*── idle claude*' -- "$pr"; and echo 1; or echo 0)
 ```
 
@@ -420,9 +451,11 @@ In `tests/test-tmux-categorize.fish` (stubbed tmux + fixtures):
 ```fish
 # --- landing: device identity ---
 set -g tmux_lives_fake_environ 'TERM=x' 'SSH_CONNECTION=10.0.30.120 49239 192.168.68.101 22'
-t "device: ssh client address" 10.0.30.120 (__tcz_client_device 1)
+set -l dv1 (__tcz_client_device 1)
+t "device: ssh client address" 10.0.30.120 "$dv1"
 set -g tmux_lives_fake_environ 'TERM=x'
-t "device: local" local (__tcz_client_device 1)
+set -l dv2 (__tcz_client_device 1)
+t "device: local" local "$dv2"
 set -e tmux_lives_fake_environ
 
 # --- landing: start a project ---
@@ -437,9 +470,9 @@ t "start: client switched by id" 1 (string match -q '*switch-client -c cl1 -t $9
 rm -f $LREC
 ```
 
-Plus a `__tcz_landing_model` test on a real `-L` server with one claude-shim session and a fixture projects dir: assert the live row, a project row for an idle fixture folder, no project row for the folder the shim session runs in, and the trailing `new` row. Plus a draw test: a model whose row 1 is `new` renders without calling capture-pane (stub `__tcz_popup_preview` to append to a recorder; assert it was not called).
+Plus a `__tcz_landing_model` test on a real `-L` server with one claude-shim session and fixture projects under the suite-wide `$tmux_lives_claude_projects_dir` (Task 5; clean them up after, never erase the variable): assert the live row, a project row for an idle fixture folder, no project row for the folder the shim session runs in, and the trailing `new` row. Plus a draw test: a model whose row 1 is `new` renders without calling capture-pane (stub `__tcz_popup_preview` to append to a recorder; assert it was not called).
 
-- [ ] **Step 2: Implement** `__tcz_client_device`, `__tcz_landing_model`, the list-lines and draw extensions, `__tcz_landing_info`, `__tcz_landing_start`, then the loop:
+- [ ] **Step 2: Implement** `__tcz_client_device`, `__tcz_landing_model`, the list-lines and draw extensions, `__tcz_landing_info`, `__tcz_landing_start`, then the loop — it **replaces** the placeholder body of `__tcz_landing` from Task 1 (the `case landing` verb already exists):
 
 ```fish
 function __tcz_landing --description 'the landing app: a full-pane chooser that never exits on its own'
@@ -495,7 +528,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
 end
 ```
 
-The `kill` arm mirrors the popup's (C `__tcz_popup`, the `kill` arm); the model is rebuilt at the top of the next iteration, so no refresh is needed there. `cancel` (q / Esc) is deliberately a no-op — the landing app never exits on its own. Verb: `case landing` → `__tcz_landing`.
+The `kill` arm mirrors the popup's (C `__tcz_popup`, the `kill` arm); the model is rebuilt at the top of the next iteration, so no refresh is needed there. `cancel` (q / Esc) is deliberately a no-op — the landing app never exits on its own.
 
 ⚠ `__tcz_popup_readkey`'s Esc path resets `stty min 1 time 0`; the loop re-asserts the timeout every iteration, so this is harmless — do not "fix" readkey.
 
@@ -511,7 +544,7 @@ The `kill` arm mirrors the popup's (C `__tcz_popup`, the `kill` arm); the model 
 **Interfaces — Consumes:** categorizer verbs `landing-new`; universal `tmux_lives_landing`.
 **Produces:**
 - `__tmux_is_landing <name>` (same rule as the categorizer's), `__tmux_landing_enabled` (`test "$tmux_lives_landing" != off`).
-- `__tmux_landing_argv` → the tmux argv that creates **and attaches** a new landing session: `-u new-session -s <free name> -c $HOME "fish --no-config $tmux_categorize_script landing"`; the free name comes from `fish --no-config $tmux_categorize_script landing-name` (add that one-line verb to the categorizer: `__tcz_landing_free_name (tmux list-sessions -F '#{session_name}' 2>/dev/null)`).
+- `__tmux_landing_argv` → the tmux argv that creates **and attaches** a new landing session: `-u new-session -s <free name> -c $HOME "fish --no-config $tmux_categorize_script landing"`. The free name comes from `fish --no-config $tmux_categorize_script landing-name <names…>`, where `__tmux_landing_argv` lists the session names itself (`tmux list-sessions -F '#{session_name}' 2>/dev/null`, in-shell, so the suite's `tmux` function shim covers it) and passes them in. Add that verb to the categorizer as a pure call: `case landing-name` → `__tcz_free_name _landing $argv[2..]` — the subprocess makes no tmux call.
 - `__tmux_autostart`: when enabled, after restore → `exec tmux (__tmux_landing_argv)` (skip categorize-pick; keep restore and prune). `exec` cannot be stubbed in fish — test `__tmux_landing_argv`, and pin the exec line with a source-shape assertion bounded to the function body.
 - `__tmux_lives_picker` outside tmux: when enabled → the same `exec`.
 - `__tmux_lives_close`: when enabled → for each `tmux list-clients -t "=$cur" -F '#{client_name}'`, `fish --no-config $tmux_categorize_script landing-new $c`; then kill the session.
@@ -520,11 +553,14 @@ The `kill` arm mirrors the popup's (C `__tcz_popup`, the `kill` arm); the model 
 - [ ] **Step 1: Failing tests** in `tests/test-tmux-auto.fish` (the suite's function-shim `tmux` reaches only in-process calls — stub the categorizer script with the suite's recorder pattern where a subprocess is involved):
 
 ```fish
-t "is_landing (shell side)" 0 (__tmux_is_landing _landing-1; echo $status)
+set -l sl1 (__tmux_is_landing _landing-1; echo $status)
+t "is_landing (shell side)" 0 "$sl1"
 set -e tmux_lives_landing
-t "landing enabled by default" 0 (__tmux_landing_enabled; echo $status)
+set -l le1 (__tmux_landing_enabled; echo $status)
+t "landing enabled by default" 0 "$le1"
 set -g tmux_lives_landing off
-t "landing off honoured" 1 (__tmux_landing_enabled; echo $status)
+set -l le2 (__tmux_landing_enabled; echo $status)
+t "landing off honoured" 1 "$le2"
 set -e tmux_lives_landing
 set -l la (__tmux_landing_argv)
 t "landing argv creates and attaches" 1 (string match -q -- '-u new-session -s _landing-* -c * *--no-config*landing' "$la"; and echo 1; or echo 0)
@@ -542,10 +578,10 @@ Plus: `__tmux_pick_session` on the test server never returns a `_landing-*` sess
 
 ### Task 8: Full gate, docs, and a live-server rehearsal on a throwaway socket
 
-**Files:** Modify `README.md`, `CLAUDE.md`, the spec (status line), `docs/superpowers/specs/2026-09-26-landing-session-design.md`.
+**Files:** Modify `README.md`, `CLAUDE.md`, and the spec's status line (`docs/superpowers/specs/2026-09-26-landing-session-design.md`).
 
 - [ ] **Step 1: Full gate**, both modes (two foreground calls). Expected 9/9 ALL PASS; record the new install counts.
-- [ ] **Step 2: Rehearsal** (no live server): start `tmux -L tl-rehearse -f <rendered fragment with the repo's cat path>` with a real pty client, and walk it: landing appears; Enter on a live session switches; `d` detaches; a session whose last pane exits lands the client on a fresh landing; `prefix c` inside landing evicts to a `gen-*`; an idle fixture project starts `claude --continue` (use the suite's fake claude on PATH). Record what you saw; kill the server; unlink the socket.
+- [ ] **Step 2: Rehearsal** (no live server): export `tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` to a fixture dir first (the server's panes inherit them — never let the rehearsal read the real store or write the real cache), then start `tmux -L tl-rehearse -f <rendered fragment with the repo's cat path>` with a real pty client, and walk it: landing appears; Enter on a live session switches; `d` detaches; a session whose last pane exits lands the client on a fresh landing; `prefix c` inside landing evicts to a `gen-*`; an idle fixture project starts `claude --continue` (use the suite's fake claude on PATH). Record what you saw; kill the server; unlink the socket.
 - [ ] **Step 3: Docs.** README: a "Landing page" section (what it is, keys, `setup landing on|off|status`). CLAUDE.md: replace nothing historical; add a short "Landing session" section (identity by name, close path mechanism, kill switch, exclusions list) and update the gate counts; stay within the ~40 KB budget (measure with `wc -c`, prune an equal amount if over).
 - [ ] **Step 4: Commit** `docs(landing): README, CLAUDE.md`, then finish the branch (merge to `main`, push). The user deploys with `fisher update`; ask them to smoke-test on both machines.
 
