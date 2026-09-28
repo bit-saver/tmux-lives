@@ -247,24 +247,43 @@ Add an evict test: landing session with a client-less split (`split-window -t "=
 
 **Interfaces — Consumes:** `__tcz_landing_new`, `__tcz_is_landing`, the session memo (`__tcz_tmux_sess_names`, `__tcz_tmux_sess_attached` — confirm exact array names in `__tcz_tmux_load`).
 **Produces:**
-- `__tcz_commandeer <client> <session> [landing]` — third arg `on`/`off` (default `off` = today). With `on`: target = `__tcz_landing_new` (detached), then the existing switch + springboard kill.
+- `__tcz_commandeer <client> <session> [landing]` — third arg `on`/`off` (default `off` = today). With `on`: `__tcz_landing_new "$client"` — create **and switch in the same tmux call** (spec, Landing lifecycle: so the sweep can never see it clientless) — then kill the springboard only if that succeeded.
+- `__tcz_landing_new` (Task 1) gains failure cleanup: when the combined `new-session … \; switch-client …` call fails (bad client), kill the session it just created and return 1, so a failed switch leaves nothing behind.
 - `__tcz_landing_sweep` — kill landing sessions with `attached = 0`, reading only the memo.
 
-- [ ] **Step 1: Failing tests.**
+- [ ] **Step 1: Failing tests.** A real pty client, as Task 2's close test does (`env SHELL=/bin/sh` is required: `script -c` runs its command through `$SHELL`, and zsh mangles `=name`).
 
 ```fish
-# --- landing: commandeer lands a ShellFish springboard on landing ---
+# --- landing: commandeer lands a ShellFish springboard on landing (real client) ---
 fresh_server
 command tmux -L $sock new-session -d -s shellfish-1
 sleep 0.3
-functions -c tmux __tcz_tmux_bak 2>/dev/null
-function tmux; test "$argv[1]" = switch-client; and return 0; command tmux -L $sock $argv; end
-__tcz_commandeer fakeclient shellfish-1 on
-functions -e tmux
+env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =shellfish-1" /dev/null >/dev/null 2>&1 &
+set -l cpid $last_pid
+set -l cl ''
+for i in (seq 25)
+    set cl (command tmux -L $sock list-clients -F '#{client_name}')[1]
+    test -n "$cl"; and break
+    sleep 0.2
+end
+__tcz_commandeer "$cl" shellfish-1 on
+sleep 0.3
+set -l csess (command tmux -L $sock list-clients -F '#{session_name}')
+t "commandeer(on): client moved to a landing session" 1 (string match -q '_landing-*' -- "$csess"; and echo 1; or echo 0)
 set -l sess (command tmux -L $sock list-sessions -F '#{session_name}')
-t "commandeer(on): a landing session exists" 1 (string match -q '_landing-*' -- $sess; and echo 1; or echo 0)
 t "commandeer(on): springboard disposed" 0 (contains -- shellfish-1 $sess; and echo 1; or echo 0)
 t "commandeer(on): no gen session created" 0 (string match -q 'gen-*' -- $sess; and echo 1; or echo 0)
+kill $cpid 2>/dev/null
+cleanup
+
+# --- landing: a failed switch leaves nothing behind (non-regression pre-fix; guards the cleanup) ---
+fresh_server
+command tmux -L $sock new-session -d -s shellfish-2
+sleep 0.3
+__tcz_commandeer no-such-client shellfish-2 on
+set -l sess2 (command tmux -L $sock list-sessions -F '#{session_name}')
+t "commandeer(on), bad client: springboard kept" 1 (contains -- shellfish-2 $sess2; and echo 1; or echo 0)
+t "commandeer(on), bad client: no orphan landing" 0 (string match -q '_landing-*' -- $sess2; and echo 1; or echo 0)
 cleanup
 
 # --- landing: sweep kills only clientless landing sessions ---
@@ -279,19 +298,19 @@ t "sweep: other sessions untouched" 0 "$sw2"
 cleanup
 ```
 
-(Match the existing commandeer tests' switch-client shim at the suite's commandeer section; the existing default-path commandeer tests are the non-regression guard for `off`.)
+(The existing default-path commandeer tests are the non-regression guard for `off`. Mutation-check the bad-client pair: removing the cleanup from `__tcz_landing_new` must fail "no orphan landing".)
 
 - [ ] **Step 2: Implement.**
   - `__tcz_commandeer`: add `landing` to `--argument-names`; before `set -l target (__tcz_pick_general "$session")`, insert:
 
 ```fish
     if test "$landing" = on
-        set -l target (__tcz_landing_new)
-        test -n "$target"; or return 0
-        tmux switch-client -c "$client" -t "=$target" 2>/dev/null; and tmux kill-session -t "=$session" 2>/dev/null
+        __tcz_landing_new "$client" >/dev/null; and tmux kill-session -t "=$session" 2>/dev/null
         return 0
     end
 ```
+
+  - `__tcz_landing_new`, client branch: on failure of the combined call, `tmux kill-session -t "=$name" 2>/dev/null` before `return 1`.
 
   - `__tcz_landing_sweep`:
 
