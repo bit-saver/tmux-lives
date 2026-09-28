@@ -10,6 +10,8 @@ set -g __tcz_shells fish bash sh zsh dash
 # Boring pager/tailer commands: don't count as "running" for naming purposes.
 set -g __tcz_boring tail less watch cat more bat
 set -g __tcz_self (path resolve (status filename))
+# The one place the landing pane's command is spelled.
+set -g __tcz_landing_cmd fish --no-config $__tcz_self landing
 
 function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9-])'
     # Callers must pass slugs with -- / -t "=$slug" style protection when handing them to tmux
@@ -76,12 +78,13 @@ function __tcz_title_name --description 'claude pane title -> display name, or e
     string match -qr '[A-Za-z0-9]' -- "$t"; and echo $t
 end
 
-function __tcz_free_gen --description 'argv = taken names -> smallest free gen-N (N from 1)'
+function __tcz_free_name --argument-names prefix --description '<prefix>, then taken names -> smallest free <prefix>-N (N from 1)'
+    set -l taken $argv[2..]
     set -l n 1
-    while contains -- "gen-$n" $argv
+    while contains -- "$prefix-$n" $taken
         set n (math $n + 1)
     end
-    echo "gen-$n"
+    echo "$prefix-$n"
 end
 
 function __tcz_unique --description '__tcz_unique <desired> <taken...> -> collision-free name'
@@ -759,6 +762,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
         set disps (__tcz_dup_ordinal $rows)
     end
     for i in (seq (count $names))
+        __tcz_is_landing $names[$i]; and continue
         printf '%s\t%s\t%s\t%s\t%s\n' $names[$i] $cats[$i] $atts[$i] $lasts[$i] "$disps[$i]"
     end
 end
@@ -906,7 +910,7 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
             test "$s" != "$cur"; and set -a others $s
         end
-        test -n "$desired"; or set desired (__tcz_free_gen $others)
+        test -n "$desired"; or set desired (__tcz_free_name gen $others)
         set desired (__tcz_unique $desired $others)
 
         # The no-op short-circuit below skips ONLY the rename+stamp, never the display sync
@@ -1166,6 +1170,7 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
     for line in (tmux list-sessions -F $fmt 2>/dev/null | sort -t $TAB -k2,2nr)
         set -l f (string split -m 2 $TAB -- $line)
         test (count $f) -ge 3; or continue
+        __tcz_is_landing $f[3]; and continue
         test "$f[1]" = 0; or continue                  # detached only
         test "$f[3]" != "$exclude"; or continue
         # general = at least one pane, every pane a bare shell (fail-safe: an
@@ -1186,11 +1191,31 @@ function __tcz_pick_general --argument-names exclude --description 'MRU detached
 end
 
 function __tcz_new_general --argument-names dir --description 'Create a detached general session named with the smallest free gen-N; echo its name. <dir> is the birth directory: pass one to PIN it, omit it to INHERIT the caller cwd (no -c emitted at all). The pin belongs to the call site, not here, because the two callers genuinely differ. __tcz_commandeer passes $HOME: it is reached only from the client-attached -> run-shell springboard path, and run-shell was measured to execute at the tmux SERVER cwd -- an artifact of wherever the server was started, which pane-cwd naming would surface as a spurious project name on a brand-new tab. The `new-general` dispatcher case passes NOTHING: its caller is __tmux_lives_picker outside tmux, a plain child of the user interactive shell with a real cwd they chose, so pinning there would contradict rule 2 of the project-from-pane-cwd design (a session inherits the cwd of the shell that asked for it) in the direction opposite that design own headline.'
-    set -l name (__tcz_free_gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
+    set -l name (__tcz_free_name gen (tmux list-sessions -F '#{session_name}' 2>/dev/null))
     # Empty list -> zero args, so a bare call emits no -c and inherits.
     set -l cflag
     test -n "$dir"; and set cflag -c "$dir"
     tmux new-session -d $cflag -s "$name" 2>/dev/null; and echo $name
+end
+
+function __tcz_is_landing --argument-names name --description 'true if <name> is a landing session (_landing-N; slugs never contain _)'
+    string match -q -- '_landing-*' "$name"
+end
+
+function __tcz_landing_new --argument-names client --description 'create a landing session running the landing app; with <client>, move it there in the same tmux call; print the name'
+    set -l name (__tcz_free_name _landing (tmux list-sessions -F '#{session_name}' 2>/dev/null))
+    if test -n "$client"
+        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null; or return 1
+    else
+        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd 2>/dev/null; or return 1
+    end
+    echo $name
+end
+
+function __tcz_landing --description 'the landing app; a placeholder that keeps the pane alive'
+    while true
+        sleep 3600
+    end
 end
 
 function __tcz_commandeer --argument-names client session --description 'commandeer <client> <session>: bounce a fresh ShellFish springboard onto a real session'
@@ -4188,6 +4213,10 @@ end
 
 function __tcz_session_title --argument-names session --description 'session -> "[<h>] <dir>[ (C)]" (<h> = the first character of the short hostname; the active pane'"'"'s live cwd, not the session'"'"'s fixed creation dir; session-wide claude). Precedence: @tmux_lives_name, else @tmux_lives_display, else the dir. Reads the active pane'"'"'s cwd on purpose, not #{session_path} (project-from-pane-cwd design, 2026-08-19/20, reversing the prior #{session_path} choice): this is what makes an unowned, hand-named session (e.g. myems-web-con) show its REAL directory instead of a stale/generic one, and it means a `cd` in the pane, or switching to a different window, now DOES move the tab -- intended, not a regression (session names in this system already track live state). display-message -p -t <tgt> #{pane_current_path} resolves to the CURRENTLY SELECTED window'"'"'s active pane (verified empirically), the same pane __tcz_categorize'"'"'s own pane walk targets, so both surfaces agree.'
     test -n "$session"; or return 0
+    __tcz_is_landing $session; and begin
+        __tcz_format_title (__tcz_hostname) landing ''
+        return 0
+    end
     # __tcz_session_target's "=name:" form is needed below for both the
     # @tmux_lives_display show-option call and the live path fallback'"'"'s
     # display-message call: a bare -t, or "=name" with no colon, can resolve
@@ -4426,6 +4455,10 @@ function __tcz_main
             # pins $HOME, and it does so at its own call site — do not add an
             # argv passthrough here.
             __tcz_new_general
+        case landing-new
+            __tcz_landing_new $argv[2]
+        case landing
+            __tcz_landing
         case host-kind
             __tcz_host_kind
         case status-format
@@ -4433,7 +4466,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

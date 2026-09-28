@@ -575,9 +575,9 @@ t "unquote: single quote char alone -> unchanged" '"' (__tcz_unquote '"')
 # "any matching bookend char", and nothing above exercises it.
 t "unquote: matching non-quote bookend chars -> unchanged" 'aFix the picker laga' (__tcz_unquote 'aFix the picker laga')
 
-t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_gen)
-t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_gen gen-1)
-t "free_gen: skips gaps"            "gen-2" (__tcz_free_gen gen-1 gen-3)
+t "free_gen: empty -> gen-1"        "gen-1" (__tcz_free_name gen)
+t "free_gen: gen-1 taken -> gen-2"  "gen-2" (__tcz_free_name gen gen-1)
+t "free_gen: skips gaps"            "gen-2" (__tcz_free_name gen gen-1 gen-3)
 t "owned: gen-N"                    "0" (__tcz_owned gen-2; echo $status)
 t "owned: legacy numeric"           "0" (__tcz_owned 4; echo $status)
 t "owned: hand name (no stamp)"     "1" (__tcz_owned mydev; echo $status)
@@ -932,7 +932,7 @@ t "cat: stale-claude specifically was renamed off its old name" "no" \
 # hands back "session" instead of leaving room for the gen-N fallback below
 # it -- a session named "session" would never again be recognized as
 # unnamed. This implementation never calls __tcz_slugify on an empty string:
-# an empty project skips straight past it to __tcz_free_gen.
+# an empty project skips straight past it to __tcz_free_name.
 cleanup
 tmux new-session -d -s 3 -c $HOME "node -e 'setInterval(function(){}, 1000)'"
 sleep 0.5
@@ -9414,6 +9414,36 @@ functions -e __tmux_lives_theme_render; functions -c __t3_render_bak __tmux_live
 set -e __t3_render_probe
 rm -rf $t3dir
 set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
+
+# --- landing: identity, free name, create, exclusions ---
+set -l il1 (__tcz_is_landing _landing-3; echo $status)
+t "is_landing: reserved name" 0 "$il1"
+set -l il2 (__tcz_is_landing tmux-lives; echo $status)
+t "is_landing: project name" 1 "$il2"
+set -l il3 (__tcz_is_landing landing-3; echo $status)
+t "is_landing: look-alike without underscore" 1 "$il3"
+set -l ln1 (__tcz_free_name _landing tmux-lives _landing-1 _landing-3)
+t "free_name: smallest gap" _landing-2 "$ln1"
+set -l ln2 (__tcz_free_name _landing)
+t "free_name: empty server" _landing-1 "$ln2"
+fresh_server
+set -l made (__tcz_landing_new)
+t "landing_new: prints the name" _landing-1 "$made"
+set -l lcmd (command tmux -L $sock list-panes -t '=_landing-1:' -F '#{pane_start_command}')
+t "landing_new: pane runs the landing verb" 1 (string match -q '*--no-config*landing*' -- "$lcmd"; and echo 1; or echo 0)
+set -l ov (__tcz_overview | string split -f1 \t)
+t "overview hides landing" 0 (contains -- _landing-1 $ov; and echo 1; or echo 0)
+# pick_general: leave only landing sessions, one of them an idle bare shell
+command tmux -L $sock new-session -d -s _landing-9
+sleep 0.3
+command tmux -L $sock kill-session -t =0
+set -l pg (__tcz_pick_general)
+t "pick_general never picks landing" "" "$pg"
+set -g tmux_lives_hostname rocket
+set -l lt (__tcz_session_title _landing-1)
+t "landing tab title" "[r] landing" "$lt"
+set -e tmux_lives_hostname
+cleanup
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
