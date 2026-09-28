@@ -9445,6 +9445,70 @@ t "landing tab title" "[r] landing" "$lt"
 set -e tmux_lives_hostname
 cleanup
 
+# --- landing: pane-died close path (real client) ---
+set -l lcat $plugindir/functions/tmux-categorize.fish
+fresh_server
+command tmux -L $sock new-session -d -s victim -x 80 -y 24 'sleep 2'
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $lcat pane-died '#{pane_id}' '#{session_name}'\""
+set -l seen /tmp/tcz-seen-$fish_pid; rm -f $seen
+command tmux -L $sock set-hook -g client-session-changed "run-shell 'echo #{session_name} >> $seen'"
+# SHELL=/bin/sh: `script -c` runs the command through $SHELL, and when that is
+# zsh (this sandbox's Bash-tool shell, not the user's login shell) its unquoted
+# equals-expansion reads "=victim" as a command-path lookup and aborts before
+# tmux ever runs ("victim not found") -- measured, not a tmux quirk. /bin/sh
+# has no such expansion.
+env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =victim" /dev/null >/dev/null 2>&1 &
+set -l pdn 0
+while test $pdn -lt 40; and command tmux -L $sock has-session -t =victim 2>/dev/null
+    sleep 0.2
+    set pdn (math $pdn + 1)
+end
+set -l pdnow (command tmux -L $sock list-clients -F '#{session_name}')
+t "close: client lands on a landing session" 1 (string match -q '_landing-*' -- "$pdnow"; and echo 1; or echo 0)
+t "close: dead session is gone" 1 (command tmux -L $sock has-session -t =victim 2>/dev/null; and echo 0; or echo 1)
+set -l pdvisited (cat $seen 2>/dev/null | string match -v victim | string match -v '_landing-*')
+t "close: client never visited another session" "" "$pdvisited"
+kill $last_pid 2>/dev/null; rm -f $seen
+cleanup
+
+# --- landing: a non-last pane dies -> only that pane goes ---
+fresh_server
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock split-window -t '=0:' 'sleep 1'
+set -l pddead (command tmux -L $sock list-panes -t '=0:' -F '#{pane_id} #{pane_start_command}' | string match '*sleep*' | string split -f1 ' ')
+sleep 1.5
+fish --no-config $lcat pane-died $pddead 0
+set -l pdnls (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
+t "non-last pane: session survives" 0 "$pdnls"
+set -l pdnlp (command tmux -L $sock list-panes -t '=0:' | count)
+t "non-last pane: dead pane removed" 1 "$pdnlp"
+cleanup
+
+# --- landing: a dead landing pane is respawned ---
+fresh_server
+set -l pdlnm (__tcz_landing_new)
+set -l pdlp (command tmux -L $sock list-panes -t "=$pdlnm:" -F '#{pane_id}')
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock respawn-pane -k -t $pdlp 'true'
+sleep 0.5
+fish --no-config $lcat pane-died $pdlp $pdlnm
+set -l pdlcmd2 (command tmux -L $sock list-panes -t "=$pdlnm:" -F '#{pane_dead} #{pane_start_command}')
+t "landing pane respawned alive" 1 (string match -q '0 *landing*' -- "$pdlcmd2"; and echo 1; or echo 0)
+cleanup
+
+# --- landing: evict a window/split opened inside a landing session ---
+fresh_server
+set -l evlnm (__tcz_landing_new)
+command tmux -L $sock split-window -t "=$evlnm:"
+set -l evpane (command tmux -L $sock list-panes -t "=$evlnm:" -F '#{pane_id}' | tail -1)
+fish --no-config $lcat landing-evict $evpane $evlnm
+set -l evcount (command tmux -L $sock list-panes -t "=$evlnm:" | count)
+t "evict: split pane removed" 1 "$evcount"
+set -l evgen (command tmux -L $sock list-sessions -F '#{session_name}' | string match 'gen-*')
+t "evict: a gen-* session exists" 1 (test -n "$evgen"; and echo 1; or echo 0)
+cleanup
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak

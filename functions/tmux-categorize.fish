@@ -1218,6 +1218,33 @@ function __tcz_landing --description 'the landing app; a placeholder that keeps 
     end
 end
 
+function __tcz_pane_died --argument-names pane session --description 'pane-died hook: respawn a dead landing pane, drop a dead pane in any other session, or -- on a session'"'"'s last live pane -- send each attached client to a new landing session and kill the session'
+    test -n "$pane"; and test -n "$session"; or return 0
+    if __tcz_is_landing $session
+        tmux respawn-pane -k -t $pane $__tcz_landing_cmd 2>/dev/null
+        return 0
+    end
+    set -l live (tmux list-panes -s -t (__tcz_session_target $session) -F '#{pane_dead}' 2>/dev/null | string match 0)
+    if test (count $live) -gt 0
+        tmux kill-pane -t $pane 2>/dev/null
+        return 0
+    end
+    for c in (tmux list-clients -t "=$session" -F '#{client_name}' 2>/dev/null)
+        __tcz_landing_new $c >/dev/null
+    end
+    tmux kill-session -t "=$session" 2>/dev/null
+    return 0
+end
+
+function __tcz_landing_evict --argument-names pane session --description 'a window/split opened in a landing session: give its client a real session in $HOME instead, then drop the extra pane'
+    __tcz_is_landing $session; or return 0
+    set -l client (tmux list-clients -t "=$session" -F '#{client_name}' 2>/dev/null)[1]
+    set -l gen (__tcz_new_general $HOME)
+    test -n "$client"; and test -n "$gen"; and tmux switch-client -c "$client" -t "=$gen" 2>/dev/null
+    tmux kill-pane -t $pane 2>/dev/null
+    return 0
+end
+
 function __tcz_commandeer --argument-names client session --description 'commandeer <client> <session>: bounce a fresh ShellFish springboard onto a real session'
     # ShellFish (tmux toggle ON) creates each tab as `new-session -s shellfish-N`
     # with no -A: the session is a disposable landing pad. Bounce the client to
@@ -4459,6 +4486,10 @@ function __tcz_main
             __tcz_landing_new $argv[2]
         case landing
             __tcz_landing
+        case pane-died
+            __tcz_pane_died $argv[2] $argv[3]
+        case landing-evict
+            __tcz_landing_evict $argv[2] $argv[3]
         case host-kind
             __tcz_host_kind
         case status-format
@@ -4466,7 +4497,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end
