@@ -241,6 +241,19 @@ Add an evict test: landing session with a client-less split (`split-window -t "=
 
 ---
 
+### Task 2b: Isolate every test tmux server from the user's `~/.tmux.conf`
+
+**Files:** Modify `tests/test-tmux-categorize.fish`, `tests/test-tmux-restore.fish`, and any other suite the audit finds; Test: the whole gate.
+
+**Why:** the categorize and restore suites start their `-L` servers through a PATH shim (`exec /usr/bin/tmux -L <sock> "$@"`) with no `-f /dev/null`, so every test server loads `~/.tmux.conf` — which sources the **live installed** tmux-lives fragment (its `client-session-changed` → `commandeer`, `client-attached` → `on-attach` hooks, run by the installed categorizer), plus neurotto's conf and TPM. Found by Task 2's reviewer: a numeric decoy session was renamed on attach by the live hooks. Consequences: Task 3's real-client commandeer test would race the installed commandeer; and once this feature is deployed, every such test server would also get `remain-on-exit on` and the installed `pane-died` handler.
+
+- [ ] **Step 1: Failing test.** In `tests/test-generic.fish` (which already greps every suite), add a guard: every `tests/test-*.fish` line that writes a tmux PATH shim (`printf '#!/bin/bash\nexec /usr/bin/tmux …`) contains `-f /dev/null`. Pair it with a positive count (≥ 2 shim lines found) so the guard cannot pass on an empty match. Prove it FAILS today (categorize + restore). Also add one behavioural assertion to the categorize suite: after `fresh_server`, `show-hooks -g` on the test server does not contain `client-session-changed` (the live fragment's hook) — prove it FAILS today.
+- [ ] **Step 2: Fix.** Add `-f /dev/null` to both shims (`exec /usr/bin/tmux -L %s -f /dev/null "$@"`). `command tmux` resolves through PATH, so every `command tmux -L $sock …` in those suites goes through the shim too. Then audit every other place any suite **starts** a server (a first `new-session`/`start-server` on a fresh socket) that does not pass through a shim, and give it `-f /dev/null` where missing. List each site in the report.
+- [ ] **Step 3: Run** the whole gate, both modes. Some tests may have been passing only because `~/.tmux.conf` was loaded (e.g. an option it sets); fix each at the test (set the option the test actually needs on its own server), never by re-loading the user's config. Report every such fallout.
+- [ ] **Step 4: Commit** `test: isolate every test tmux server from ~/.tmux.conf`.
+
+---
+
 ### Task 3: Commandeer to landing, and the tick sweep (categorizer)
 
 **Files:** Modify `functions/tmux-categorize.fish`; Test `tests/test-tmux-categorize.fish`, `tests/test-tmux-tick-calls.fish` (must stay green unchanged).
