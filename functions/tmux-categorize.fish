@@ -1205,7 +1205,13 @@ end
 function __tcz_landing_new --argument-names client --description 'create a landing session running the landing app; with <client>, move it there in the same tmux call; print the name'
     set -l name (__tcz_free_name _landing (tmux list-sessions -F '#{session_name}' 2>/dev/null))
     if test -n "$client"
-        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null; or return 1
+        # A failed switch (bad/gone client) must not leave an orphaned,
+        # clientless landing session behind -- kill what we just created.
+        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null
+        or begin
+            tmux kill-session -t "=$name" 2>/dev/null
+            return 1
+        end
     else
         tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd 2>/dev/null; or return 1
     end
@@ -1245,7 +1251,15 @@ function __tcz_landing_evict --argument-names pane session --description 'a wind
     return 0
 end
 
-function __tcz_commandeer --argument-names client session --description 'commandeer <client> <session>: bounce a fresh ShellFish springboard onto a real session'
+function __tcz_landing_sweep --description 'kill landing sessions nobody is attached to (reads the per-pass session memo only, so a clean pass costs zero tmux calls)'
+    __tcz_tmux_load
+    for i in (seq (count $__tcz_tmux_sess_names))
+        __tcz_is_landing $__tcz_tmux_sess_names[$i]; or continue
+        test "$__tcz_tmux_sess_attached[$i]" = 0; and tmux kill-session -t "=$__tcz_tmux_sess_names[$i]" 2>/dev/null
+    end
+end
+
+function __tcz_commandeer --argument-names client session landing --description 'commandeer <client> <session> [landing]: bounce a fresh ShellFish springboard onto a real session, or -- with <landing> = on -- onto a new landing session (default off = today: bounce to a general session)'
     # ShellFish (tmux toggle ON) creates each tab as `new-session -s shellfish-N`
     # with no -A: the session is a disposable landing pad. Bounce the client to
     # the MRU detached general session (plain-login parity) and dispose of the
@@ -1255,6 +1269,13 @@ function __tcz_commandeer --argument-names client session --description 'command
     test (count $cmds) -eq 1; or return 0
     contains -- $cmds[1] $__tcz_shells; or return 0
     set -l created 0
+    if test "$landing" = on
+        # Create-and-switch in one tmux call (__tcz_landing_new) so the tick
+        # sweep can never see the new landing session clientless. Dispose of
+        # the springboard only once that succeeded.
+        __tcz_landing_new "$client" >/dev/null; and tmux kill-session -t "=$session" 2>/dev/null
+        return 0
+    end
     set -l target (__tcz_pick_general "$session")
     if test -z "$target"
         # Pin $HOME here, not inside __tcz_new_general: THIS path is the one
@@ -4424,6 +4445,7 @@ function __tcz_main
             __tcz_categorize (__tcz_session_of_pane "$argv[2]")
         case tick
             __tcz_categorize >/dev/null 2>&1
+            __tcz_landing_sweep
             test -n "$argv[2]"; and __tcz_recolor $argv[2] dedup
             __tcz_retitle dedup
             test -n "$argv[2]"; and __tcz_heal_due (date +%s); and __tcz_recolor $argv[2]

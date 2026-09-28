@@ -9524,6 +9524,60 @@ t "isolation: fresh_server carries no live client-session-changed hook" 0 \
     (string match -qr 'client-session-changed\[' -- "$isohooks"; and echo 1; or echo 0)
 cleanup
 
+# --- landing: commandeer lands a ShellFish springboard on landing (real client) ---
+# Unlike Task 2's close-path client (attached to a session running `sleep`),
+# this springboard's pane is a bare, idle SHELL -- __tcz_commandeer's own guard
+# requires that. Measured on this sandbox: a `script`-wrapped client attaching
+# to a session whose pane actually BLOCKS READING ITS OWN pty (an idle shell
+# prompt, or `cat`) detaches again within ~100ms, while one attached to a
+# session that never reads its pty (`sleep`, `tail -f`) stays attached
+# normally -- reproduced with plain `sleep`/`cat`/`tail -f /dev/null` panes,
+# independent of tmux-lives entirely. Root cause not pinned down (pty/sandbox
+# interaction, not a tmux-lives bug); the fix is to keep `script`'s OWN stdin
+# from hitting EOF by piping it from a long-lived, silent producer -- verified
+# 3/3 with a plain `sleep`-fed pipe, 0/3 without.
+fresh_server
+command tmux -L $sock new-session -d -s shellfish-1
+sleep 0.3
+sleep 20 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =shellfish-1" /dev/null >/dev/null 2>&1 &
+set -l cpids (jobs -p)
+set -l cl ''
+for i in (seq 25)
+    set cl (command tmux -L $sock list-clients -F '#{client_name}')[1]
+    test -n "$cl"; and break
+    sleep 0.2
+end
+__tcz_commandeer "$cl" shellfish-1 on
+sleep 0.3
+set -l csess (command tmux -L $sock list-clients -F '#{session_name}')
+t "commandeer(on): client moved to a landing session" 1 (string match -q '_landing-*' -- "$csess"; and echo 1; or echo 0)
+set -l sess (command tmux -L $sock list-sessions -F '#{session_name}')
+t "commandeer(on): springboard disposed" 0 (contains -- shellfish-1 $sess; and echo 1; or echo 0)
+t "commandeer(on): no gen session created" 0 (string match -q 'gen-*' -- $sess; and echo 1; or echo 0)
+for p in $cpids; kill $p 2>/dev/null; end
+cleanup
+
+# --- landing: a failed switch leaves nothing behind (non-regression pre-fix; guards the cleanup) ---
+fresh_server
+command tmux -L $sock new-session -d -s shellfish-2
+sleep 0.3
+__tcz_commandeer no-such-client shellfish-2 on
+set -l sess2 (command tmux -L $sock list-sessions -F '#{session_name}')
+t "commandeer(on), bad client: springboard kept" 1 (contains -- shellfish-2 $sess2; and echo 1; or echo 0)
+t "commandeer(on), bad client: no orphan landing" 0 (string match -q '_landing-*' -- $sess2; and echo 1; or echo 0)
+cleanup
+
+# --- landing: sweep kills only clientless landing sessions ---
+fresh_server
+__tcz_landing_new >/dev/null
+__tcz_tmux_flush; __tcz_tmux_load
+__tcz_landing_sweep
+set -l sw1 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo 0; or echo 1)
+t "sweep: clientless landing killed" 1 "$sw1"
+set -l sw2 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
+t "sweep: other sessions untouched" 0 "$sw2"
+cleanup
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak
