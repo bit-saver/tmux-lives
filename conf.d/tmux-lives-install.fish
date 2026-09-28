@@ -39,6 +39,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l tpeakpos $argv[16]     #   16 peakpos     chroma peak position along the ramp
     set -l tarr $argv[17]         #   17 arrangement ramp-position-to-role pattern
     set -l syncterm $argv[18]     #   18 syncterm    TERM glob told to use synchronized output ('' = off)
+    set -l landing $argv[19]      # landing-session kill switch: '' or absent = on (unset universal default)
+    test -n "$landing"; or set landing on
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -219,12 +221,39 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set-hook -g client-session-changed {"
     set -a f "    run-shell \"fish --no-config $cat retitle\""
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
-    set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}'\""
+    set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}' $landing\""
     set -a f "    }"
     set -a f "}"
     set -a f "set-hook -g client-attached {"
     set -a f "    run-shell \"fish --no-config $cat on-attach '#{client_pid}' '#{client_tty}' '$color'\""
     set -a f "}"
+    # Close path (spec "When a session closes", measured on 3.3a + 3.7b):
+    # remain-on-exit keeps a dying session's last pane around long enough for
+    # pane-died to move its client to landing before the hook kills it itself
+    # -- `detach-on-destroy off` was tried and rejected (moves the client to
+    # an unrelated MRU session before any hook runs). after-new-window/
+    # after-split-window evict a window/split opened inside landing back to a
+    # real session. 'off' reproduces today's behaviour exactly. Nested
+    # if-shell/run-shell reuse the brace-block form already proven above
+    # (client-session-changed) rather than escaped-quote strings.
+    if test "$landing" = on
+        set -a f "set -g remain-on-exit on"
+        set -a f "set-hook -g pane-died {"
+        set -a f "    run-shell \"fish --no-config $cat pane-died '#{pane_id}' '#{session_name}'\""
+        set -a f "}"
+        for hook in after-new-window after-split-window
+            set -a f "set-hook -g $hook {"
+            set -a f "    if-shell -F '#{m:_landing-*,#{session_name}}' {"
+            set -a f "        run-shell \"fish --no-config $cat landing-evict '#{pane_id}' '#{session_name}'\""
+            set -a f "    }"
+            set -a f "}"
+        end
+    else
+        set -a f "set -g remain-on-exit off"
+        set -a f "set-hook -gu pane-died"
+        set -a f "set-hook -gu after-new-window"
+        set -a f "set-hook -gu after-split-window"
+    end
     # `set -ga` appends UNCONDITIONALLY and this fragment is re-sourced on every reload,
     # so a bare append grows without bound — 54 copies of each name observed on a host
     # with ~18 days of uptime. Guard each: append only when absent.
@@ -305,7 +334,7 @@ function __tmux_lives_write_fragment --description 'Render the managed fragment,
     set -l tmuxdir "$HOME/.config/tmux"
     set -l fragment "$tmuxdir/tmux-lives.conf"
     mkdir -p $tmuxdir
-    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_lspan 0.55) (__tmux_lives_key tmux_lives_theme_peakc 0.11) (__tmux_lives_key tmux_lives_theme_peakpos 0.50) (__tmux_lives_key tmux_lives_theme_arrangement deep) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') > $fragment
+    __tmux_lives_render_fragment $cat (__tmux_lives_key tmux_lives_prefix_key S) (__tmux_lives_key tmux_lives_switcher_key M-s) (__tmux_lives_key tmux_lives_bar_color '') (__tmux_lives_key tmux_lives_status_invert 0) (__tmux_lives_key tmux_lives_modal_key M-m) (__tmux_lives_key tmux_lives_scratch_key M-t) (__tmux_lives_key tmux_lives_resize_key M-r) (__tmux_lives_key tmux_lives_status_pos_key C-M-a) (__tmux_lives_key tmux_lives_status_vis_key C-M-s) (__tmux_lives_key tmux_lives_cursor_style block) (__tmux_lives_key tmux_lives_theme_key M-k) (__tmux_lives_key tmux_lives_theme mono) (__tmux_lives_key tmux_lives_theme_lspan 0.55) (__tmux_lives_key tmux_lives_theme_peakc 0.11) (__tmux_lives_key tmux_lives_theme_peakpos 0.50) (__tmux_lives_key tmux_lives_theme_arrangement deep) (__tmux_lives_key tmux_lives_sync_terminals 'xterm*') (__tmux_lives_key tmux_lives_landing on) > $fragment
     __tmux_lives_ensure_source_line "$HOME/.tmux.conf" $fragment
     __tmux_lives_reload
 end
@@ -359,10 +388,27 @@ function __tmux_lives_remove_source_line --description 'Remove the fragment sour
     mv $tmp $tmux_conf
 end
 
+function __tmux_lives_teardown_hooks --description 'internal: undo the landing close-path server options (remain-on-exit is global — teardown and the off switch must both restore it). Honors the tmux_lives_tmux_socket test seam; no-op with no server.'
+    if set -q tmux_lives_tmux_socket
+        command tmux -L $tmux_lives_tmux_socket list-sessions >/dev/null 2>&1; or return 0
+        command tmux -L $tmux_lives_tmux_socket set -g remain-on-exit off 2>/dev/null
+        command tmux -L $tmux_lives_tmux_socket set-hook -gu pane-died 2>/dev/null
+        command tmux -L $tmux_lives_tmux_socket set-hook -gu after-new-window 2>/dev/null
+        command tmux -L $tmux_lives_tmux_socket set-hook -gu after-split-window 2>/dev/null
+    else
+        tmux list-sessions >/dev/null 2>&1; or return 0
+        tmux set -g remain-on-exit off 2>/dev/null
+        tmux set-hook -gu pane-died 2>/dev/null
+        tmux set-hook -gu after-new-window 2>/dev/null
+        tmux set-hook -gu after-split-window 2>/dev/null
+    end
+end
+
 function __tmux_lives_teardown --description 'tmux-lives: remove fragment + tmux.conf wiring + systemd units'
     set -l fragment "$HOME/.config/tmux/tmux-lives.conf"
     __tmux_lives_remove_source_line "$HOME/.tmux.conf" $fragment
     rm -f $fragment
+    __tmux_lives_teardown_hooks
     echo "tmux-lives teardown: removed fragment + source-file line"
     if type -q systemctl
         echo "tmux-lives teardown: removing systemd units (sudo)…"
@@ -2201,7 +2247,8 @@ function __tmux_lives_setup_help_lines --description 'tmux-lives setup help cont
         'auto on|off|toggle|status   auto-attach to tmux on SSH login' \
         'color [<css>] [-i] [-a]     ShellFish tab/status; -i darker, -a reapply' \
         'theme [<scheme>|list|off]   seed-based bar theme; no-arg=picker' \
-        'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)'
+        'conf [edit|add|reset]       manage ~/.tmux-lives.conf (reset=defaults)' \
+        'landing on|off|status       land every new tab on the chooser'
 end
 
 function __tmux_lives_setup_help --description 'tmux-lives setup command list'
@@ -2229,9 +2276,31 @@ function __tmux_lives_setup_dispatch
             __tmux_lives_conf_cmd $argv[2..]
         case auto
             __tmux_lives_auto $argv[2..]
+        case landing
+            __tmux_lives_landing_cmd $argv[2..]
         case '*'
             echo "tmux-lives setup: unknown command '$argv[1]'" >&2
             __tmux_lives_setup_help >&2
+            return 1
+    end
+end
+
+function __tmux_lives_landing_cmd --description 'tmux-lives setup landing on|off|status: kill switch for the landing-session feature (unset universal = on)'
+    switch "$argv[1]"
+        case on
+            set -U tmux_lives_landing on
+            __tmux_lives_write_fragment
+        case off
+            set -U tmux_lives_landing off
+            __tmux_lives_write_fragment
+        case '' status
+            if test (__tmux_lives_key tmux_lives_landing on) = off
+                echo "landing: OFF"
+            else
+                echo "landing: ON"
+            end
+        case '*'
+            echo "usage: tmux-lives setup landing on|off|status" >&2
             return 1
     end
 end
@@ -2309,7 +2378,7 @@ function tmux-lives --description 'tmux-lives: unified command — setup/update/
             __tmux_categorize
         case setup
             __tmux_lives_setup_dispatch $argv[2..]
-        case install i verify v teardown keys auto color conf
+        case install i verify v teardown keys auto color conf landing
             # hidden shortcut: setup subcommands also work at top level (kept out of help)
             __tmux_lives_setup_dispatch $argv
         case '*'
@@ -2425,6 +2494,20 @@ function __tmux_lives_migrate_v6 --description 'v5.2 -> v6: relationship/place/m
     return 0
 end
 
+function __tmux_lives_landing_respawn --description 'internal: after an update, respawn every live landing pane so it runs the new code (the app never exits on its own). Honors the tmux_lives_tmux_socket test seam; no-op with no server.'
+    if set -q tmux_lives_tmux_socket
+        command tmux -L $tmux_lives_tmux_socket list-sessions >/dev/null 2>&1; or return 0
+        for s in (command tmux -L $tmux_lives_tmux_socket list-sessions -F '#{session_name}' 2>/dev/null | string match '_landing-*')
+            command tmux -L $tmux_lives_tmux_socket respawn-pane -k -t "=$s:" 2>/dev/null
+        end
+    else
+        tmux list-sessions >/dev/null 2>&1; or return 0
+        for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null | string match '_landing-*')
+            tmux respawn-pane -k -t "=$s:" 2>/dev/null
+        end
+    end
+end
+
 function _tmux_lives_post_update --on-event tmux-lives-install_update --description 'Post-update: re-render the fragment (if set up) so new wiring lands, then note'
     # `fisher update` refreshes the plugin CODE but not the generated fragment. If this host
     # has been set up (the fragment exists), re-render it so new wiring (e.g. the client-attached
@@ -2439,6 +2522,7 @@ function _tmux_lives_post_update --on-event tmux-lives-install_update --descript
     set -l refreshed 0
     if test -e (__tmux_lives_fragment_path)
         __tmux_lives_write_fragment
+        __tmux_lives_landing_respawn
         set refreshed 1
     end
     # Record which functions this version ships, so the NEXT update can spot removals.
