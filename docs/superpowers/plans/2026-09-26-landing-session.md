@@ -381,7 +381,12 @@ t "landing off: no pane-died handler" 0 (string match -q '*cat.fish pane-died*' 
 t "landing off: commandeer told off" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' off*" -- "$foff"; and echo 1; or echo 0)
 ```
 
-Plus: source the `on` render into an isolated `-f /dev/null` server (the suite's existing source-into-server pattern, ~159-189) and assert `show -gv remain-on-exit` = `on` and `show-hooks -g` contains `pane-died` — a malformed line would be silently accepted by `source-file` otherwise. `setup landing` CLI tests with the universal isolated by the suite's re-exec guard: `status` default prints `landing: ON`; `off` then `status` prints `landing: OFF`; a bad arg returns 1. Help-width assertions already cover the new row.
+Plus: source the `on` render into an isolated `-f /dev/null` server (the suite's existing source-into-server pattern, ~159-189) and assert `show -gv remain-on-exit` = `on` and that `show-hooks -g` shows `pane-died[`, `after-new-window[` and `after-split-window[` — ⚠ the **`[N]` attached form**: tmux 3.3a lists every hook NAME even when unset (found in Task 2b), so a bare-name match is vacuous. A malformed line would be silently accepted by `source-file` otherwise.
+
+Plus an end-to-end proof of the hook quoting — render with the **real** categorizer path (`$plugindir/functions/tmux-categorize.fish`, not `/x/cat.fish`), source it into an isolated `-f /dev/null` server, then:
+- create a bare-shell session `_landing-1`, `split-window -t '=_landing-1:'`, poll ≤ 3 s: a `gen-*` session exists and `_landing-1` is back to one pane (evict fired through the nested quotes);
+- create `new-session -d -s victim 'sleep 1'`, poll ≤ 4 s: `victim` is gone (pane-died → last pane, no clients → kill-session).
+Prove both FAIL against the pre-change fragment (no hooks). `setup landing` CLI tests with the universal isolated by the suite's re-exec guard: `status` default prints `landing: ON`; `off` then `status` prints `landing: OFF`; a bad arg returns 1. Help-width assertions already cover the new row.
 
 Every existing assertion that renders with 18 args must keep passing: update those call sites to pass `on` as argv[19] only where they assert on commandeer text; elsewhere a missing argv[19] must behave as `on`. Grep `render_fragment` in the suite and account for every call site in your report.
 
