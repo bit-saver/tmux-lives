@@ -2756,6 +2756,372 @@ t "guard: real tmux-lives-funcs untouched by this run" 1 (__ti_guard_funcs_ok $_
 t "guard: real fish_history untouched by this run" 1 (__ti_guard_history_ok $__ti_guard_history; and echo 1; or echo 0)
 functions -e __ti_guard_funcs_ok __ti_guard_history_ok
 
+# =============================================================================
+# --- landing session (Task 4): fragment wiring + the tmux_lives_landing kill
+# switch. Close path (spec "When a session closes", measured 3.3a+3.7b):
+# remain-on-exit + a pane-died hook move a dying session's client to landing
+# before killing it; after-new-window/after-split-window evict a window/split
+# opened inside landing. argv[19] is the switch: '' or absent = on (matches the
+# universal's unset-means-on default). Placed BEFORE the socket-hygiene sweep
+# below so its own `-L` sockets are swept by that one sweep (review round 1,
+# I-1) rather than leaking (kill-server does not unlink the socket file).
+# =============================================================================
+
+# __tmux_lives_landing_enabled: the ONE predicate render_fragment and setup
+# landing status must both defer to (review round 1, I-5 — they used to run
+# opposite-polarity checks, which disagreed on a garbage stored value).
+t "landing_enabled: literal on is enabled"    1 (__tmux_lives_landing_enabled on; and echo 1; or echo 0)
+t "landing_enabled: literal off is disabled"  0 (__tmux_lives_landing_enabled off; and echo 1; or echo 0)
+t "landing_enabled: garbage value is disabled" 0 (__tmux_lives_landing_enabled no; and echo 1; or echo 0)
+t "landing_enabled: empty is disabled"        0 (__tmux_lives_landing_enabled ''; and echo 1; or echo 0)
+
+set -l LBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*'
+set -l fon (__tmux_lives_render_fragment $LBASE on | string collect)
+set -l foff (__tmux_lives_render_fragment $LBASE off | string collect)
+t "landing on: remain-on-exit on" 1 (string match -q '*set -g remain-on-exit on*' -- "$fon"; and echo 1; or echo 0)
+t "landing on: pane-died hook" 1 (string match -q "*set-hook -g pane-died*cat.fish pane-died*#{q:pane_id}*#{q:session_name}*" -- "$fon"; and echo 1; or echo 0)
+t "landing on: pane-died has a kill-pane fallback" 1 (string match -q '*pane-died*|| tmux kill-pane*' -- "$fon"; and echo 1; or echo 0)
+t "landing on: evict on new window" 1 (string match -q '*after-new-window*_landing-*landing-evict*' -- "$fon"; and echo 1; or echo 0)
+t "landing on: evict on split" 1 (string match -q '*after-split-window*_landing-*landing-evict*' -- "$fon"; and echo 1; or echo 0)
+t "landing on: commandeer told on" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' on*" -- "$fon"; and echo 1; or echo 0)
+t "landing off: remain-on-exit off" 1 (string match -q '*set -g remain-on-exit off*' -- "$foff"; and echo 1; or echo 0)
+t "landing off: pane-died hook unset" 1 (string match -q '*set-hook -gu pane-died*' -- "$foff"; and echo 1; or echo 0)
+t "landing off: no pane-died handler (non-regression)" 0 (string match -q '*cat.fish pane-died*' -- "$foff"; and echo 1; or echo 0)
+t "landing off: commandeer told off" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' off*" -- "$foff"; and echo 1; or echo 0)
+# missing argv[19] (every pre-existing 18-arg call site) must behave as 'on'
+set -l fdefault (__tmux_lives_render_fragment $LBASE | string collect)
+t "landing: argv19 absent behaves as on" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' on*" -- "$fdefault"; and echo 1; or echo 0)
+t "write_fragment passes tmux_lives_landing key" yes (string match -q '*tmux_lives_landing on*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
+# I-5: a garbage stored value must render the SAME off-branch status shows.
+set -l fgarbage (__tmux_lives_render_fragment $LBASE no | string collect)
+t "I-5: garbage arg19 takes the off branch (remain-on-exit off)" 1 (string match -q '*set -g remain-on-exit off*' -- "$fgarbage"; and echo 1; or echo 0)
+t "I-5: garbage arg19 -> commandeer still gets a canonical off token" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' off*" -- "$fgarbage"; and echo 1; or echo 0)
+
+# The rendered 'on' fragment must actually PARSE and its hooks must be ATTACHED,
+# not merely named. tmux 3.3a lists every hook NAME in `show-hooks -g` even when
+# unset (found in Task 2b), so only the `name[N] <command>` form proves the line
+# took -- a malformed line is accepted by source-file with rc0 and no stderr
+# (already established above for the sync-terminal feature). MEASURED (not in
+# the brief): pane-died is a WINDOW-scoped hook on 3.3a -- entirely absent from
+# plain `show-hooks -g` (attached or not) and visible only under `-gw`; after-
+# new-window/after-split-window are session-scoped and appear under plain -g.
+set -g lonsock tli-land-on-$fish_pid
+command tmux -L $lonsock -f /dev/null new-session -d 2>/dev/null
+set -l lonconf /tmp/tli-land-on-$fish_pid.conf
+printf '%s\n' "$fon" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $lonconf
+t "landing on fragment parses (source-file rc0) (non-regression)" 0 (command tmux -L $lonsock source-file $lonconf 2>/dev/null; echo $status)
+t "landing on: remain-on-exit lands on the server" on (command tmux -L $lonsock show -gv remain-on-exit 2>/dev/null)
+set -l onhooksw (command tmux -L $lonsock show-hooks -gw 2>/dev/null)
+set -l onhooksg (command tmux -L $lonsock show-hooks -g 2>/dev/null)
+t "landing on: pane-died hook is ATTACHED (not just named)" 1 (count (string match -r '^pane-died\[[0-9]+\]' -- $onhooksw))
+t "landing on: after-new-window hook is ATTACHED" 1 (count (string match -r '^after-new-window\[[0-9]+\]' -- $onhooksg))
+t "landing on: after-split-window hook is ATTACHED" 1 (count (string match -r '^after-split-window\[[0-9]+\]' -- $onhooksg))
+command tmux -L $lonsock kill-server 2>/dev/null; rm -f $lonconf
+
+# 'off' must actually UNDO 'on' on a live server -- a FRESH server's off-by-
+# default state would make this vacuous (nothing set means nothing to unset).
+set -g ltogsock tli-land-tog-$fish_pid
+command tmux -L $ltogsock -f /dev/null new-session -d 2>/dev/null
+set -l ltogconf /tmp/tli-land-tog-$fish_pid.conf
+printf '%s\n' "$fon" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $ltogconf
+command tmux -L $ltogsock source-file $ltogconf 2>/dev/null
+t "toggle: on lands remain-on-exit first" on (command tmux -L $ltogsock show -gv remain-on-exit 2>/dev/null)
+printf '%s\n' "$foff" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $ltogconf
+command tmux -L $ltogsock source-file $ltogconf 2>/dev/null
+t "toggle: off flips remain-on-exit back (non-regression)" off (command tmux -L $ltogsock show -gv remain-on-exit 2>/dev/null)
+set -l offhooksw (command tmux -L $ltogsock show-hooks -gw 2>/dev/null)
+set -l offhooksg (command tmux -L $ltogsock show-hooks -g 2>/dev/null)
+t "toggle: off detaches the pane-died hook (non-regression)"    0 (count (string match -r '^pane-died\[' -- $offhooksw))
+t "toggle: off detaches after-new-window (non-regression)"      0 (count (string match -r '^after-new-window\[' -- $offhooksg))
+t "toggle: off detaches after-split-window (non-regression)"    0 (count (string match -r '^after-split-window\[' -- $offhooksg))
+command tmux -L $ltogsock kill-server 2>/dev/null; rm -f $ltogconf
+
+# --- end-to-end: the FRAGMENT's rendered hook lines actually FIRE through a
+# live server, sourced with the REAL categorizer path. This is what the nested
+# if-shell/run-shell quoting in after-new-window/after-split-window exists to
+# prove -- a malformed line parses with rc0 and no stderr, so only the effect
+# proves it. $TMUX is set by tmux for every run-shell job to the INVOKING
+# server's own socket (measured), so the categorizer's plain `tmux` calls stay
+# on this isolated server without a PATH shim.
+set -l lcat $plugindir/functions/tmux-categorize.fish
+set -l lecommon S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*' on
+
+set -g le1sock tli-land-e1-$fish_pid
+set -l le1conf /tmp/tli-land-e1-$fish_pid.conf
+__tmux_lives_render_fragment $lcat $lecommon | string match -v -- '*tpm/tpm*' > $le1conf
+command tmux -L $le1sock -f /dev/null new-session -d 2>/dev/null
+t "landing e2e split: real fragment parses (source-file rc0) (non-regression)" 0 (command tmux -L $le1sock source-file $le1conf 2>/dev/null; echo $status)
+command tmux -L $le1sock new-session -d -s _landing-1 -c $HOME 2>/dev/null
+command tmux -L $le1sock split-window -t '=_landing-1:' 2>/dev/null
+set -l le1n 0
+set -l le1gen
+set -l le1panes 2
+while test $le1n -lt 15
+    set le1gen (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*')
+    set le1panes (command tmux -L $le1sock list-panes -t '=_landing-1:' 2>/dev/null | count)
+    test -n "$le1gen[1]"; and test "$le1panes" = 1; and break
+    sleep 0.2
+    set le1n (math $le1n + 1)
+end
+t "landing e2e split: a gen-* session was created (evict fired)" 1 (test -n "$le1gen[1]"; and echo 1; or echo 0)
+t "landing e2e split: _landing-1 is back to one pane" 1 "$le1panes"
+# I-6 tail: the SAME guard must NOT fire for an ordinary (non-landing) session
+# -- the if-shell -F '#{m:_landing-*,...}' predicate is the only thing standing
+# between "evict inside landing" and "evict everywhere". Snapshot the gen-*
+# count FIRST: the landing split just above already left one behind on this
+# same server, so "any gen-* exists" would pass vacuously -- only a NEW one
+# (the count growing) would prove eviction fired here too.
+set -l le1genbefore (count (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*'))
+command tmux -L $le1sock new-session -d -s ordinary -c $HOME 2>/dev/null
+command tmux -L $le1sock split-window -t '=ordinary:' 2>/dev/null
+sleep 1
+set -l le1genafter (count (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*'))
+set -l le1ordpanes (command tmux -L $le1sock list-panes -t '=ordinary:' 2>/dev/null | count)
+t "landing e2e split: evict does NOT fire for an ordinary session" 1 (test "$le1genafter" = "$le1genbefore"; and test "$le1ordpanes" = 2; and echo 1; or echo 0)
+command tmux -L $le1sock kill-server 2>/dev/null; rm -f $le1conf
+
+if command -q script
+    # --- pane-died, ordinary case. I-7 (flaky e2e): the OLD version raced a
+    # fixed `sleep 1` against the pty client's attach on a loaded box. Fixed by
+    # sequencing explicitly: keep the pane alive (`sleep 600`) until
+    # `list-clients` CONFIRMS the attach, then end the pane's own process
+    # directly (measured: killing a pane's pid fires pane-died exactly like a
+    # natural exit) -- no timing race between "client attached" and "pane
+    # exits" remains.
+    set -l le2conf /tmp/tli-land-e2-$fish_pid.conf
+    __tmux_lives_render_fragment $lcat $lecommon | string match -v -- '*tpm/tpm*' > $le2conf
+    set -g le2sock tli-land-e2-$fish_pid
+    command tmux -L $le2sock -f /dev/null new-session -d 2>/dev/null
+    t "landing e2e pane-died: real fragment parses (source-file rc0) (non-regression)" 0 (command tmux -L $le2sock source-file $le2conf 2>/dev/null; echo $status)
+    command tmux -L $le2sock new-session -d -s victim -x 80 -y 24 'sleep 600' 2>/dev/null
+    set -l le2vpid (command tmux -L $le2sock list-panes -t '=victim:' -F '#{pane_pid}')
+    env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux -L $le2sock attach -t '=victim'" /dev/null >/dev/null 2>&1 &
+    set -l le2pid $last_pid
+    set -l le2an 0
+    set -l le2attached 0
+    while test $le2an -lt 30
+        if contains -- victim (command tmux -L $le2sock list-clients -F '#{session_name}' 2>/dev/null)
+            set le2attached 1
+            break
+        end
+        sleep 0.2
+        set le2an (math $le2an + 1)
+    end
+    t "landing e2e pane-died: client attachment confirmed before ending the pane" 1 $le2attached
+    # A further settle delay, past the attach CONFIRMATION itself: measured
+    # (15/15 clean vs. a real, reproduced ~1-in-5 flake without it) that
+    # killing the pane the instant list-clients first reports the attach can
+    # still race tmux's own post-attach settling, even though the client is
+    # already visible to list-clients at that point.
+    sleep 0.5
+    kill $le2vpid 2>/dev/null
+    set -l le2n 0
+    while test $le2n -lt 20; and command tmux -L $le2sock has-session -t '=victim' 2>/dev/null
+        sleep 0.2
+        set le2n (math $le2n + 1)
+    end
+    set -l le2clients (command tmux -L $le2sock list-clients -F '#{session_name}' 2>/dev/null)
+    # A bare "victim is gone" poll is VACUOUS here: tmux destroys a session whose
+    # last pane exits on ITS OWN even with remain-on-exit off and no hook at all
+    # (measured) -- only the client's DESTINATION (landing, never a bare detach)
+    # proves the hook did the killing, not tmux's own default cleanup.
+    t "landing e2e pane-died: client lands on landing (not detached)" 1 (string match -q '_landing-*' -- "$le2clients"; and echo 1; or echo 0)
+    t "landing e2e pane-died: victim session is gone" 1 (command tmux -L $le2sock has-session -t '=victim' 2>/dev/null; and echo 0; or echo 1)
+    kill $le2pid 2>/dev/null
+    command tmux -L $le2sock kill-server 2>/dev/null; rm -f $le2conf
+
+    # --- I-2 apostrophe: a session named with an apostrophe must still be
+    # handled. A literal '#{session_name}' wrapper breaks the sh command the
+    # instant the substituted value itself contains one (measured: rc0 on
+    # source-file, no stderr, the handler silently never runs and the pane
+    # stays dead forever under remain-on-exit). #{q:session_name} (no
+    # surrounding quotes) has tmux do the shell-quoting itself. Targeted by
+    # #{session_id} (a plain "$N", never containing special characters) so the
+    # apostrophe never has to survive the test's OWN shell-quoting layers.
+    set -l le3conf /tmp/tli-land-e3-$fish_pid.conf
+    __tmux_lives_render_fragment $lcat $lecommon | string match -v -- '*tpm/tpm*' > $le3conf
+    set -g le3sock tli-land-e3-$fish_pid
+    command tmux -L $le3sock -f /dev/null new-session -d 2>/dev/null
+    command tmux -L $le3sock source-file $le3conf 2>/dev/null
+    set -l le3sid (command tmux -L $le3sock new-session -d -s "bob's x" -x 80 -y 24 -P -F '#{session_id}' 'sleep 600' 2>/dev/null)
+    set -l le3vpid (command tmux -L $le3sock list-panes -t "$le3sid" -F '#{pane_pid}' 2>/dev/null)
+    env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux -L $le3sock attach -t '$le3sid'" /dev/null >/dev/null 2>&1 &
+    set -l le3pid $last_pid
+    set -l le3an 0
+    set -l le3attached 0
+    while test $le3an -lt 30
+        if contains -- "bob's x" (command tmux -L $le3sock list-clients -F '#{session_name}' 2>/dev/null)
+            set le3attached 1
+            break
+        end
+        sleep 0.2
+        set le3an (math $le3an + 1)
+    end
+    t "I-2 apostrophe: client attachment confirmed before ending the pane" 1 $le3attached
+    sleep 0.5
+    kill $le3vpid 2>/dev/null
+    set -l le3n 0
+    while test $le3n -lt 20; and command tmux -L $le3sock has-session -t "$le3sid" 2>/dev/null
+        sleep 0.2
+        set le3n (math $le3n + 1)
+    end
+    set -l le3clients (command tmux -L $le3sock list-clients -F '#{session_name}' 2>/dev/null)
+    t "I-2 apostrophe: client lands on landing (handler survives the apostrophe)" 1 (string match -q '_landing-*' -- "$le3clients"; and echo 1; or echo 0)
+    t "I-2 apostrophe: the named session is gone" 1 (command tmux -L $le3sock has-session -t "$le3sid" 2>/dev/null; and echo 0; or echo 1)
+    kill $le3pid 2>/dev/null
+    command tmux -L $le3sock kill-server 2>/dev/null; rm -f $le3conf
+else
+    echo "SKIP: util-linux `script` unavailable — pane-died close-path (incl. apostrophe case) untested"
+end
+
+# --- I-2 containment fallback: a total handler failure (categorizer path does
+# not exist -- e.g. `fisher remove`, or fish missing from the server's PATH)
+# must still close an exiting NON-LAST pane, not leave it dead forever under
+# remain-on-exit. No client needed -- this proves the `|| tmux kill-pane`
+# fallback on the pane-died line, independent of the landing-redirect path.
+set -l le4cat /tmp/tli-land-nonexistent-cat-$fish_pid.fish
+set -l le4conf /tmp/tli-land-e4-$fish_pid.conf
+__tmux_lives_render_fragment $le4cat $lecommon | string match -v -- '*tpm/tpm*' > $le4conf
+set -g le4sock tli-land-e4-$fish_pid
+command tmux -L $le4sock -f /dev/null new-session -d 2>/dev/null
+# source-file's own exit code is NOT asserted here: with the categorizer path
+# entirely broken, the status-right clock's own synchronous run-shell (which
+# also names $le4cat) fails FIRST, during the source itself, and its exit
+# code is what source-file reports (measured: 127) -- tmux still applies
+# every other line in the file regardless (measured: remain-on-exit and the
+# pane-died hook both land), so it is not a sign anything is actually broken.
+command tmux -L $le4sock source-file $le4conf 2>/dev/null
+command tmux -L $le4sock new-session -d -s multi -c $HOME 2>/dev/null
+command tmux -L $le4sock split-window -t '=multi:' 'sleep 1' 2>/dev/null
+set -l le4n 0
+set -l le4panes 2
+while test $le4n -lt 20
+    set le4panes (command tmux -L $le4sock list-panes -t '=multi:' 2>/dev/null | count)
+    test "$le4panes" = 1; and break
+    sleep 0.2
+    set le4n (math $le4n + 1)
+end
+t "landing fallback: non-last pane closes even with a nonexistent categorizer path" 1 "$le4panes"
+t "landing fallback: the session itself survives (non-last pane only)" 1 (command tmux -L $le4sock has-session -t '=multi' 2>/dev/null; and echo 1; or echo 0)
+command tmux -L $le4sock kill-server 2>/dev/null; rm -f $le4conf
+
+# --- __tmux_lives_landing_respawn (post-update): re-exec every live landing
+# pane so it runs the new code (the app never exits on its own) ---------------
+t "post_update calls landing_respawn" yes (string match -q '*__tmux_lives_landing_respawn*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
+set -g lrsock tli-land-resp-$fish_pid
+command tmux -L $lrsock -f /dev/null new-session -d -s _landing-1 'sleep 600' 2>/dev/null
+command tmux -L $lrsock new-session -d -s other-1 'sleep 600' 2>/dev/null
+set -l lrpid1 (command tmux -L $lrsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
+set -l lrpid2 (command tmux -L $lrsock list-panes -t '=other-1:' -F '#{pane_pid}')
+set -g tmux_lives_tmux_socket $lrsock
+__tmux_lives_landing_respawn
+set -e tmux_lives_tmux_socket
+sleep 0.3
+set -l lrpid1b (command tmux -L $lrsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
+set -l lrpid2b (command tmux -L $lrsock list-panes -t '=other-1:' -F '#{pane_pid}')
+t "landing_respawn: respawns a landing session's pane (pid changes)" 1 (test "$lrpid1" != "$lrpid1b"; and echo 1; or echo 0)
+t "landing_respawn: leaves a non-landing session untouched (non-regression)" 1 (test "$lrpid2" = "$lrpid2b"; and echo 1; or echo 0)
+command tmux -L $lrsock kill-server 2>/dev/null
+set -g tmux_lives_tmux_socket tli-land-resp-none-$fish_pid
+t "landing_respawn: no server is a clean no-op" 0 (__tmux_lives_landing_respawn 2>/dev/null; echo $status)
+set -e tmux_lives_tmux_socket
+
+# I-4: the seam ("if set -q tmux_lives_tmux_socket") branch above is the only
+# one any test exercised -- the PRODUCTION (no-seam, bare `tmux`) branch never
+# ran. A PATH shim (same idiom as the __tmux_lives_reload test's $rlshim,
+# above) routes bare `tmux` to an isolated -L socket so the real branch can be
+# exercised without ever touching the live default server.
+set -g lrshsock tli-land-resp-sh-$fish_pid
+set -g lrshim /tmp/tli-land-resp-shim-$fish_pid
+mkdir -p $lrshim
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $lrshsock > $lrshim/tmux
+chmod +x $lrshim/tmux
+set -g lrsh_path_save $PATH
+set -gx PATH $lrshim $PATH
+command tmux -L $lrshsock -f /dev/null new-session -d -s _landing-1 'sleep 600' 2>/dev/null
+set -l lrshpid1 (command tmux -L $lrshsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
+set -e tmux_lives_tmux_socket
+__tmux_lives_landing_respawn
+sleep 0.3
+set -l lrshpid1b (command tmux -L $lrshsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
+t "landing_respawn (I-4, production/no-seam branch): respawns via bare tmux" 1 (test "$lrshpid1" != "$lrshpid1b"; and echo 1; or echo 0)
+command tmux -L $lrshsock kill-server 2>/dev/null
+set -gx PATH $lrsh_path_save
+rm -rf $lrshim
+
+# --- teardown: undoes the close-path server options (remain-on-exit is global,
+# so both teardown and the 'off' switch must restore it) ----------------------
+t "teardown calls teardown_hooks" yes (string match -q '*__tmux_lives_teardown_hooks*' -- (functions __tmux_lives_teardown | string collect); and echo yes; or echo no)
+set -g tdsock tli-land-td-$fish_pid
+command tmux -L $tdsock -f /dev/null new-session -d 2>/dev/null
+command tmux -L $tdsock set -g remain-on-exit on
+command tmux -L $tdsock set-hook -g pane-died "run-shell 'echo x'"
+command tmux -L $tdsock set-hook -g after-new-window "run-shell 'echo x'"
+command tmux -L $tdsock set-hook -g after-split-window "run-shell 'echo x'"
+set -g tmux_lives_tmux_socket $tdsock
+__tmux_lives_teardown_hooks
+set -e tmux_lives_tmux_socket
+t "teardown_hooks: remain-on-exit restored to off" off (command tmux -L $tdsock show -gv remain-on-exit 2>/dev/null)
+t "teardown_hooks: pane-died hook detached" 0 (count (string match -r '^pane-died\[' -- (command tmux -L $tdsock show-hooks -gw 2>/dev/null)))
+t "teardown_hooks: after-new-window hook detached" 0 (count (string match -r '^after-new-window\[' -- (command tmux -L $tdsock show-hooks -g 2>/dev/null)))
+t "teardown_hooks: after-split-window hook detached" 0 (count (string match -r '^after-split-window\[' -- (command tmux -L $tdsock show-hooks -g 2>/dev/null)))
+command tmux -L $tdsock kill-server 2>/dev/null
+set -g tmux_lives_tmux_socket tli-land-td-none-$fish_pid
+t "teardown_hooks: no server is a clean no-op" 0 (__tmux_lives_teardown_hooks 2>/dev/null; echo $status)
+set -e tmux_lives_tmux_socket
+
+# I-4: same production-branch gap as landing_respawn, same PATH-shim fix.
+set -g tdshsock tli-land-td-sh-$fish_pid
+set -g tdshim /tmp/tli-land-td-shim-$fish_pid
+mkdir -p $tdshim
+printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $tdshsock > $tdshim/tmux
+chmod +x $tdshim/tmux
+set -g tdsh_path_save $PATH
+set -gx PATH $tdshim $PATH
+command tmux -L $tdshsock -f /dev/null new-session -d 2>/dev/null
+command tmux -L $tdshsock set -g remain-on-exit on
+command tmux -L $tdshsock set-hook -g pane-died "run-shell 'echo x'"
+command tmux -L $tdshsock set-hook -g after-new-window "run-shell 'echo x'"
+command tmux -L $tdshsock set-hook -g after-split-window "run-shell 'echo x'"
+set -e tmux_lives_tmux_socket
+__tmux_lives_teardown_hooks
+t "teardown_hooks (I-4, production/no-seam branch): remain-on-exit restored to off" off (command tmux -L $tdshsock show -gv remain-on-exit 2>/dev/null)
+t "teardown_hooks (I-4, production/no-seam branch): pane-died hook detached" 0 (count (string match -r '^pane-died\[' -- (command tmux -L $tdshsock show-hooks -gw 2>/dev/null)))
+command tmux -L $tdshsock kill-server 2>/dev/null
+set -gx PATH $tdsh_path_save
+rm -rf $tdshim
+
+# --- setup landing: the CLI kill switch (isolated universal store — this
+# suite's own outer re-exec guard) --------------------------------------------
+t "setup help lists landing" 1 (string match -q '*landing on|off|status*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
+functions -c __tmux_lives_setup_dispatch __tl_land_sd_bak
+function __tmux_lives_setup_dispatch; set -g _tl_land_sd "$argv"; end
+set -g _tl_land_sd ''; tmux-lives landing status; t "hidden: landing -> setup landing" "landing status" "$_tl_land_sd"
+functions -e __tmux_lives_setup_dispatch; functions -c __tl_land_sd_bak __tmux_lives_setup_dispatch; functions -e __tl_land_sd_bak
+set -e _tl_land_sd
+
+set -e tmux_lives_landing
+functions -c __tmux_lives_write_fragment __tl_land_wf_bak 2>/dev/null
+function __tmux_lives_write_fragment; end
+t "setup landing: default status is ON" "landing: ON" (tmux-lives setup landing | string collect)
+t "setup landing: status (explicit) is ON" "landing: ON" (tmux-lives setup landing status | string collect)
+tmux-lives setup landing off
+t "setup landing: off persists the universal" off "$tmux_lives_landing"
+t "setup landing: status now OFF" "landing: OFF" (tmux-lives setup landing status | string collect)
+tmux-lives setup landing on
+t "setup landing: on persists the universal" on "$tmux_lives_landing"
+t "setup landing: status back to ON" "landing: ON" (tmux-lives setup landing | string collect)
+tmux-lives setup landing bogus 2>/dev/null; t "setup landing: bad arg rc1" 1 $status
+set -e tmux_lives_landing
+# I-5: the exact regression this round's fix closes -- render_fragment's own
+# rule (only literal "on" is on) and setup landing status must agree even on
+# a value neither "on" nor "off".
+set -U tmux_lives_landing no
+t "I-5: a garbage stored value ('no') -> status OFF, same rule render uses" "landing: OFF" (tmux-lives setup landing status | string collect)
+set -e tmux_lives_landing
+functions -e __tmux_lives_write_fragment; functions -c __tl_land_wf_bak __tmux_lives_write_fragment; functions -e __tl_land_wf_bak
+
+
 # --- socket hygiene ---------------------------------------------------------
 # Every `-L` server this suite starts is killed, but tmux leaves the SOCKET FILE
 # behind, and this file starts ~20 of them per run. They accumulated to 1543 in
@@ -4717,198 +5083,6 @@ end
 t "roll: the exhaustion fallback still honours the pin across $MREXHN draws" 0 $MREXHBAD
 functions -e __tmux_lives_theme_render
 eval $__mgr_realrender
-
-# =============================================================================
-# --- landing session (Task 4): fragment wiring + the tmux_lives_landing kill
-# switch. Close path (spec "When a session closes", measured 3.3a+3.7b):
-# remain-on-exit + a pane-died hook move a dying session's client to landing
-# before killing it; after-new-window/after-split-window evict a window/split
-# opened inside landing. argv[19] is the switch: '' or absent = on (matches the
-# universal's unset-means-on default).
-# =============================================================================
-set -l LBASE /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*'
-set -l fon (__tmux_lives_render_fragment $LBASE on | string collect)
-set -l foff (__tmux_lives_render_fragment $LBASE off | string collect)
-t "landing on: remain-on-exit on" 1 (string match -q '*set -g remain-on-exit on*' -- "$fon"; and echo 1; or echo 0)
-t "landing on: pane-died hook" 1 (string match -q "*set-hook -g pane-died*cat.fish pane-died*#{pane_id}*#{session_name}*" -- "$fon"; and echo 1; or echo 0)
-t "landing on: evict on new window" 1 (string match -q '*after-new-window*_landing-*landing-evict*' -- "$fon"; and echo 1; or echo 0)
-t "landing on: evict on split" 1 (string match -q '*after-split-window*_landing-*landing-evict*' -- "$fon"; and echo 1; or echo 0)
-t "landing on: commandeer told on" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' on*" -- "$fon"; and echo 1; or echo 0)
-t "landing off: remain-on-exit off" 1 (string match -q '*set -g remain-on-exit off*' -- "$foff"; and echo 1; or echo 0)
-t "landing off: pane-died hook unset" 1 (string match -q '*set-hook -gu pane-died*' -- "$foff"; and echo 1; or echo 0)
-t "landing off: no pane-died handler" 0 (string match -q '*cat.fish pane-died*' -- "$foff"; and echo 1; or echo 0)
-t "landing off: commandeer told off" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' off*" -- "$foff"; and echo 1; or echo 0)
-# missing argv[19] (every pre-existing 18-arg call site) must behave as 'on'
-set -l fdefault (__tmux_lives_render_fragment $LBASE | string collect)
-t "landing: argv19 absent behaves as on" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' on*" -- "$fdefault"; and echo 1; or echo 0)
-t "write_fragment passes tmux_lives_landing key" yes (string match -q '*tmux_lives_landing on*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
-
-# The rendered 'on' fragment must actually PARSE and its hooks must be ATTACHED,
-# not merely named. tmux 3.3a lists every hook NAME in `show-hooks -g` even when
-# unset (found in Task 2b), so only the `name[N] <command>` form proves the line
-# took -- a malformed line is accepted by source-file with rc0 and no stderr
-# (already established above for the sync-terminal feature). MEASURED (not in
-# the brief): pane-died is a WINDOW-scoped hook on 3.3a -- entirely absent from
-# plain `show-hooks -g` (attached or not) and visible only under `-gw`; after-
-# new-window/after-split-window are session-scoped and appear under plain -g.
-set -g lonsock tli-land-on-$fish_pid
-command tmux -L $lonsock -f /dev/null new-session -d 2>/dev/null
-set -l lonconf /tmp/tli-land-on-$fish_pid.conf
-printf '%s\n' "$fon" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $lonconf
-t "landing on fragment parses (source-file rc0)" 0 (command tmux -L $lonsock source-file $lonconf 2>/dev/null; echo $status)
-t "landing on: remain-on-exit lands on the server" on (command tmux -L $lonsock show -gv remain-on-exit 2>/dev/null)
-set -l onhooksw (command tmux -L $lonsock show-hooks -gw 2>/dev/null)
-set -l onhooksg (command tmux -L $lonsock show-hooks -g 2>/dev/null)
-t "landing on: pane-died hook is ATTACHED (not just named)" 1 (count (string match -r '^pane-died\[[0-9]+\]' -- $onhooksw))
-t "landing on: after-new-window hook is ATTACHED" 1 (count (string match -r '^after-new-window\[[0-9]+\]' -- $onhooksg))
-t "landing on: after-split-window hook is ATTACHED" 1 (count (string match -r '^after-split-window\[[0-9]+\]' -- $onhooksg))
-command tmux -L $lonsock kill-server 2>/dev/null; rm -f $lonconf
-
-# 'off' must actually UNDO 'on' on a live server -- a FRESH server's off-by-
-# default state would make this vacuous (nothing set means nothing to unset).
-set -g ltogsock tli-land-tog-$fish_pid
-command tmux -L $ltogsock -f /dev/null new-session -d 2>/dev/null
-set -l ltogconf /tmp/tli-land-tog-$fish_pid.conf
-printf '%s\n' "$fon" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $ltogconf
-command tmux -L $ltogsock source-file $ltogconf 2>/dev/null
-t "toggle: on lands remain-on-exit first" on (command tmux -L $ltogsock show -gv remain-on-exit 2>/dev/null)
-printf '%s\n' "$foff" | string replace -a '/x/cat.fish' '/tmp/nope.fish' > $ltogconf
-command tmux -L $ltogsock source-file $ltogconf 2>/dev/null
-t "toggle: off flips remain-on-exit back" off (command tmux -L $ltogsock show -gv remain-on-exit 2>/dev/null)
-set -l offhooksw (command tmux -L $ltogsock show-hooks -gw 2>/dev/null)
-set -l offhooksg (command tmux -L $ltogsock show-hooks -g 2>/dev/null)
-t "toggle: off detaches the pane-died hook"    0 (count (string match -r '^pane-died\[' -- $offhooksw))
-t "toggle: off detaches after-new-window"      0 (count (string match -r '^after-new-window\[' -- $offhooksg))
-t "toggle: off detaches after-split-window"    0 (count (string match -r '^after-split-window\[' -- $offhooksg))
-command tmux -L $ltogsock kill-server 2>/dev/null; rm -f $ltogconf
-
-# --- end-to-end: the FRAGMENT's rendered hook lines actually FIRE through a
-# live server, sourced with the REAL categorizer path. This is what the nested
-# if-shell/run-shell quoting in after-new-window/after-split-window exists to
-# prove -- a malformed line parses with rc0 and no stderr, so only the effect
-# proves it. Both proofs run with no attached client: __tcz_landing_evict
-# creates its general session unconditionally, and __tcz_pane_died's client
-# loop and kill-session both run with zero attached clients -- measured, and
-# consistent with "Landing sessions in tests" (a bare-shell session, never the
-# app). $TMUX is set by tmux for every run-shell job to the INVOKING server's
-# own socket (measured), so the categorizer's plain `tmux` calls stay on this
-# isolated server without a PATH shim.
-set -l lcat $plugindir/functions/tmux-categorize.fish
-set -l lecommon S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k mono 0.55 0.11 0.50 deep 'xterm*' on
-
-set -g le1sock tli-land-e1-$fish_pid
-set -l le1conf /tmp/tli-land-e1-$fish_pid.conf
-__tmux_lives_render_fragment $lcat $lecommon | string match -v -- '*tpm/tpm*' > $le1conf
-command tmux -L $le1sock -f /dev/null new-session -d 2>/dev/null
-t "landing e2e split: real fragment parses (source-file rc0)" 0 (command tmux -L $le1sock source-file $le1conf 2>/dev/null; echo $status)
-command tmux -L $le1sock new-session -d -s _landing-1 -c $HOME 2>/dev/null
-command tmux -L $le1sock split-window -t '=_landing-1:' 2>/dev/null
-set -l le1n 0
-set -l le1gen
-set -l le1panes 2
-while test $le1n -lt 15
-    set le1gen (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*')
-    set le1panes (command tmux -L $le1sock list-panes -t '=_landing-1:' 2>/dev/null | count)
-    test -n "$le1gen[1]"; and test "$le1panes" = 1; and break
-    sleep 0.2
-    set le1n (math $le1n + 1)
-end
-t "landing e2e split: a gen-* session was created (evict fired)" 1 (test -n "$le1gen[1]"; and echo 1; or echo 0)
-t "landing e2e split: _landing-1 is back to one pane" 1 "$le1panes"
-command tmux -L $le1sock kill-server 2>/dev/null; rm -f $le1conf
-
-if command -q script
-    set -g le2sock tli-land-e2-$fish_pid
-    set -l le2conf /tmp/tli-land-e2-$fish_pid.conf
-    __tmux_lives_render_fragment $lcat $lecommon | string match -v -- '*tpm/tpm*' > $le2conf
-    command tmux -L $le2sock -f /dev/null new-session -d 2>/dev/null
-    t "landing e2e pane-died: real fragment parses (source-file rc0)" 0 (command tmux -L $le2sock source-file $le2conf 2>/dev/null; echo $status)
-    command tmux -L $le2sock new-session -d -s victim -x 80 -y 24 'sleep 1' 2>/dev/null
-    env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux -L $le2sock attach -t '=victim'" /dev/null >/dev/null 2>&1 &
-    set -l le2pid $last_pid
-    set -l le2n 0
-    while test $le2n -lt 20; and command tmux -L $le2sock has-session -t '=victim' 2>/dev/null
-        sleep 0.2
-        set le2n (math $le2n + 1)
-    end
-    set -l le2clients (command tmux -L $le2sock list-clients -F '#{session_name}' 2>/dev/null)
-    # A bare "victim is gone" poll is VACUOUS here: tmux destroys a session whose
-    # last pane exits on ITS OWN even with remain-on-exit off and no hook at all
-    # (measured) -- only the client's DESTINATION (landing, never a bare detach)
-    # proves the hook did the killing, not tmux's own default cleanup.
-    t "landing e2e pane-died: client lands on landing (not detached)" 1 (string match -q '_landing-*' -- "$le2clients"; and echo 1; or echo 0)
-    t "landing e2e pane-died: victim session is gone" 1 (command tmux -L $le2sock has-session -t '=victim' 2>/dev/null; and echo 0; or echo 1)
-    kill $le2pid 2>/dev/null
-    command tmux -L $le2sock kill-server 2>/dev/null; rm -f $le2conf
-else
-    echo "SKIP: util-linux `script` unavailable — pane-died close-path untested"
-end
-
-# --- __tmux_lives_landing_respawn (post-update): re-exec every live landing
-# pane so it runs the new code (the app never exits on its own) ---------------
-t "post_update calls landing_respawn" yes (string match -q '*__tmux_lives_landing_respawn*' -- (functions _tmux_lives_post_update | string collect); and echo yes; or echo no)
-set -g lrsock tli-land-resp-$fish_pid
-command tmux -L $lrsock -f /dev/null new-session -d -s _landing-1 'sleep 600' 2>/dev/null
-command tmux -L $lrsock new-session -d -s other-1 'sleep 600' 2>/dev/null
-set -l lrpid1 (command tmux -L $lrsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
-set -l lrpid2 (command tmux -L $lrsock list-panes -t '=other-1:' -F '#{pane_pid}')
-set -g tmux_lives_tmux_socket $lrsock
-__tmux_lives_landing_respawn
-set -e tmux_lives_tmux_socket
-sleep 0.3
-set -l lrpid1b (command tmux -L $lrsock list-panes -t '=_landing-1:' -F '#{pane_pid}')
-set -l lrpid2b (command tmux -L $lrsock list-panes -t '=other-1:' -F '#{pane_pid}')
-t "landing_respawn: respawns a landing session's pane (pid changes)" 1 (test "$lrpid1" != "$lrpid1b"; and echo 1; or echo 0)
-t "landing_respawn: leaves a non-landing session untouched" 1 (test "$lrpid2" = "$lrpid2b"; and echo 1; or echo 0)
-command tmux -L $lrsock kill-server 2>/dev/null
-set -g tmux_lives_tmux_socket tli-land-resp-none-$fish_pid
-t "landing_respawn: no server is a clean no-op" 0 (__tmux_lives_landing_respawn 2>/dev/null; echo $status)
-set -e tmux_lives_tmux_socket
-
-# --- teardown: undoes the close-path server options (remain-on-exit is global,
-# so both teardown and the 'off' switch must restore it) ----------------------
-t "teardown calls teardown_hooks" yes (string match -q '*__tmux_lives_teardown_hooks*' -- (functions __tmux_lives_teardown | string collect); and echo yes; or echo no)
-set -g tdsock tli-land-td-$fish_pid
-command tmux -L $tdsock -f /dev/null new-session -d 2>/dev/null
-command tmux -L $tdsock set -g remain-on-exit on
-command tmux -L $tdsock set-hook -g pane-died "run-shell 'echo x'"
-command tmux -L $tdsock set-hook -g after-new-window "run-shell 'echo x'"
-command tmux -L $tdsock set-hook -g after-split-window "run-shell 'echo x'"
-set -g tmux_lives_tmux_socket $tdsock
-__tmux_lives_teardown_hooks
-set -e tmux_lives_tmux_socket
-t "teardown_hooks: remain-on-exit restored to off" off (command tmux -L $tdsock show -gv remain-on-exit 2>/dev/null)
-t "teardown_hooks: pane-died hook detached" 0 (count (string match -r '^pane-died\[' -- (command tmux -L $tdsock show-hooks -gw 2>/dev/null)))
-t "teardown_hooks: after-new-window hook detached" 0 (count (string match -r '^after-new-window\[' -- (command tmux -L $tdsock show-hooks -g 2>/dev/null)))
-t "teardown_hooks: after-split-window hook detached" 0 (count (string match -r '^after-split-window\[' -- (command tmux -L $tdsock show-hooks -g 2>/dev/null)))
-command tmux -L $tdsock kill-server 2>/dev/null
-set -g tmux_lives_tmux_socket tli-land-td-none-$fish_pid
-t "teardown_hooks: no server is a clean no-op" 0 (__tmux_lives_teardown_hooks 2>/dev/null; echo $status)
-set -e tmux_lives_tmux_socket
-
-# --- setup landing: the CLI kill switch (isolated universal store — this
-# suite's own outer re-exec guard) --------------------------------------------
-t "setup help lists landing" 1 (string match -q '*landing on|off|status*' -- (__tmux_lives_setup_help_lines | string collect); and echo 1; or echo 0)
-functions -c __tmux_lives_setup_dispatch __tl_land_sd_bak
-function __tmux_lives_setup_dispatch; set -g _tl_land_sd "$argv"; end
-set -g _tl_land_sd ''; tmux-lives landing status; t "hidden: landing -> setup landing" "landing status" "$_tl_land_sd"
-functions -e __tmux_lives_setup_dispatch; functions -c __tl_land_sd_bak __tmux_lives_setup_dispatch; functions -e __tl_land_sd_bak
-set -e _tl_land_sd
-
-set -e tmux_lives_landing
-functions -c __tmux_lives_write_fragment __tl_land_wf_bak 2>/dev/null
-function __tmux_lives_write_fragment; end
-t "setup landing: default status is ON" "landing: ON" (tmux-lives setup landing | string collect)
-t "setup landing: status (explicit) is ON" "landing: ON" (tmux-lives setup landing status | string collect)
-tmux-lives setup landing off
-t "setup landing: off persists the universal" off "$tmux_lives_landing"
-t "setup landing: status now OFF" "landing: OFF" (tmux-lives setup landing status | string collect)
-tmux-lives setup landing on
-t "setup landing: on persists the universal" on "$tmux_lives_landing"
-t "setup landing: status back to ON" "landing: ON" (tmux-lives setup landing | string collect)
-tmux-lives setup landing bogus 2>/dev/null; t "setup landing: bad arg rc1" 1 $status
-functions -e __tmux_lives_write_fragment; functions -c __tl_land_wf_bak __tmux_lives_write_fragment; functions -e __tl_land_wf_bak
-set -e tmux_lives_landing
 
 # picker-render-cost Task 3: remove the whole-file render-cache seam dir set at
 # the top of this file (mirrors the shim/socket hygiene sweeps other suites end

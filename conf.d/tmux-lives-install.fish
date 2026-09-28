@@ -19,6 +19,10 @@ function __tmux_lives_key --description 'Effective switcher key: VARNAME unset -
     echo $$name
 end
 
+function __tmux_lives_landing_enabled --description 'true (rc0) iff <value> means the landing kill switch is ON. The single rule both render_fragment and setup landing status must share: only the literal string "on" is on; anything else (off, garbage, empty) is off.'
+    test "$argv[1]" = on
+end
+
 function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment (categorizer path + switcher key binds)'
     # $cat is interpolated unquoted into nested tmux+sh quote layers; assumes no spaces.
     set -l cat $argv[1]
@@ -41,6 +45,11 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l syncterm $argv[18]     #   18 syncterm    TERM glob told to use synchronized output ('' = off)
     set -l landing $argv[19]      # landing-session kill switch: '' or absent = on (unset universal default)
     test -n "$landing"; or set landing on
+    # Canonicalize once: whatever garbage argv[19] carries, everything downstream
+    # (the branch below AND the commandeer line's trailing token) reads this same
+    # literal on/off — the single shared rule is __tmux_lives_landing_enabled.
+    set -l landingon off
+    __tmux_lives_landing_enabled $landing; and set landingon on
     test "$theme" = off; and set theme ''
     set -l baseline (__tmux_lives_baseline_path)
     set -l state (__tmux_lives_state_path)
@@ -221,7 +230,7 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -a f "set-hook -g client-session-changed {"
     set -a f "    run-shell \"fish --no-config $cat retitle\""
     set -a f "    if-shell -F '#{m:shellfish-*,#{client_session}}' {"
-    set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}' $landing\""
+    set -a f "        run-shell \"fish --no-config $cat commandeer '#{client_name}' '#{client_session}' $landingon\""
     set -a f "    }"
     set -a f "}"
     set -a f "set-hook -g client-attached {"
@@ -236,15 +245,24 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     # real session. 'off' reproduces today's behaviour exactly. Nested
     # if-shell/run-shell reuse the brace-block form already proven above
     # (client-session-changed) rather than escaped-quote strings.
-    if test "$landing" = on
+    if test "$landingon" = on
         set -a f "set -g remain-on-exit on"
+        # #{q:...}, NOT '#{...}': a literal single-quote wrapper breaks the sh
+        # command the instant a session name itself contains an apostrophe
+        # (e.g. "bob's") -- tmux substitutes the raw value first, so the quotes
+        # never balance and the handler silently never runs (measured: rc0 on
+        # source-file, no stderr, pane stuck dead forever under remain-on-exit).
+        # #{q:...} has tmux do the shell-quoting itself, so no wrapper is needed.
+        # The `||` fallback closes the pane even if the fish invocation itself
+        # can't run at all (fish removed from PATH, categorizer deleted by
+        # `fisher remove`) -- otherwise remain-on-exit leaves it dead forever.
         set -a f "set-hook -g pane-died {"
-        set -a f "    run-shell \"fish --no-config $cat pane-died '#{pane_id}' '#{session_name}'\""
+        set -a f "    run-shell \"fish --no-config $cat pane-died #{q:pane_id} #{q:session_name} || tmux kill-pane -t #{q:pane_id}\""
         set -a f "}"
         for hook in after-new-window after-split-window
             set -a f "set-hook -g $hook {"
             set -a f "    if-shell -F '#{m:_landing-*,#{session_name}}' {"
-            set -a f "        run-shell \"fish --no-config $cat landing-evict '#{pane_id}' '#{session_name}'\""
+            set -a f "        run-shell \"fish --no-config $cat landing-evict #{q:pane_id} #{q:session_name}\""
             set -a f "    }"
             set -a f "}"
         end
@@ -2294,10 +2312,10 @@ function __tmux_lives_landing_cmd --description 'tmux-lives setup landing on|off
             set -U tmux_lives_landing off
             __tmux_lives_write_fragment
         case '' status
-            if test (__tmux_lives_key tmux_lives_landing on) = off
-                echo "landing: OFF"
-            else
+            if __tmux_lives_landing_enabled (__tmux_lives_key tmux_lives_landing on)
                 echo "landing: ON"
+            else
+                echo "landing: OFF"
             end
         case '*'
             echo "usage: tmux-lives setup landing on|off|status" >&2
