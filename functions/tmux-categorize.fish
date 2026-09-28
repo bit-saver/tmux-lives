@@ -1268,7 +1268,6 @@ function __tcz_commandeer --argument-names client session landing --description 
     set -l cmds (tmux list-panes -t (__tcz_session_target "$session") -F '#{pane_current_command}' 2>/dev/null)
     test (count $cmds) -eq 1; or return 0
     contains -- $cmds[1] $__tcz_shells; or return 0
-    set -l created 0
     if test "$landing" = on
         # Create-and-switch in one tmux call (__tcz_landing_new) so the tick
         # sweep can never see the new landing session clientless. Dispose of
@@ -1276,6 +1275,7 @@ function __tcz_commandeer --argument-names client session landing --description 
         __tcz_landing_new "$client" >/dev/null; and tmux kill-session -t "=$session" 2>/dev/null
         return 0
     end
+    set -l created 0
     set -l target (__tcz_pick_general "$session")
     if test -z "$target"
         # Pin $HOME here, not inside __tcz_new_general: THIS path is the one

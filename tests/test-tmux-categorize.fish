@@ -9527,15 +9527,13 @@ cleanup
 # --- landing: commandeer lands a ShellFish springboard on landing (real client) ---
 # Unlike Task 2's close-path client (attached to a session running `sleep`),
 # this springboard's pane is a bare, idle SHELL -- __tcz_commandeer's own guard
-# requires that. Measured on this sandbox: a `script`-wrapped client attaching
-# to a session whose pane actually BLOCKS READING ITS OWN pty (an idle shell
-# prompt, or `cat`) detaches again within ~100ms, while one attached to a
-# session that never reads its pty (`sleep`, `tail -f`) stays attached
-# normally -- reproduced with plain `sleep`/`cat`/`tail -f /dev/null` panes,
-# independent of tmux-lives entirely. Root cause not pinned down (pty/sandbox
-# interaction, not a tmux-lives bug); the fix is to keep `script`'s OWN stdin
-# from hitting EOF by piping it from a long-lived, silent producer -- verified
-# 3/3 with a plain `sleep`-fed pipe, 0/3 without.
+# requires that. `script`'s own stdin is closed in this sandbox: on EOF it
+# forwards that into the client pty, the shell in the TARGET pane reads it as
+# Ctrl-D and exits, destroying the (single-pane) session -- the client
+# detaching is a side effect, not the cause. A `sleep`/`tail -f` pane never
+# reads its tty, so it's immune (Task 2's `sleep`-running session was never at
+# risk). Fix: keep `script`'s stdin from ever hitting EOF via a long-lived,
+# silent pipe.
 fresh_server
 command tmux -L $sock new-session -d -s shellfish-1
 sleep 0.3
@@ -9576,6 +9574,40 @@ set -l sw1 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and ec
 t "sweep: clientless landing killed" 1 "$sw1"
 set -l sw2 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
 t "sweep: other sessions untouched" 0 "$sw2"
+cleanup
+
+# --- landing: sweep never kills a landing session with an attached client ---
+# The landing pane runs the placeholder `__tcz_landing` (a `sleep 3600` loop):
+# it never reads its own tty, so -- unlike the commandeer test above -- a
+# plain `script`-wrapped client survives here with no stdin-pipe workaround.
+# Piped anyway, for the same belt-and-suspenders reliability.
+fresh_server
+set -l swcname (__tcz_landing_new)
+sleep 20 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$swcname" /dev/null >/dev/null 2>&1 &
+set -l swcpids (jobs -p)
+set -l swccl ''
+for i in (seq 25)
+    set swccl (command tmux -L $sock list-clients -F '#{client_name}')[1]
+    test -n "$swccl"; and break
+    sleep 0.2
+end
+# A second, clientless landing session in the same fixture -- must still die.
+__tcz_landing_new >/dev/null
+__tcz_tmux_flush; __tcz_tmux_load
+__tcz_landing_sweep
+set -l swcalive (command tmux -L $sock has-session -t "=$swcname" 2>/dev/null; echo $status)
+t "sweep: landing session with an attached client survives" 0 "$swcalive"
+set -l swcdead (command tmux -L $sock has-session -t =_landing-2 2>/dev/null; and echo 0; or echo 1)
+t "sweep: clientless sibling in the same pass is still killed" 1 "$swcdead"
+for p in $swcpids; kill $p 2>/dev/null; end
+cleanup
+
+# --- landing: the tick verb actually calls the sweep (real dispatch, not a direct call) ---
+fresh_server
+set -l tsname (__tcz_landing_new)
+fish --no-config $lcat tick >/dev/null 2>&1
+set -l tsdead (command tmux -L $sock has-session -t "=$tsname" 2>/dev/null; and echo 0; or echo 1)
+t "tick dispatch sweeps a clientless landing session" 1 "$tsdead"
 cleanup
 
 # --- hygiene: this suite's own shim dir ------------------------------------
