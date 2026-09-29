@@ -1,6 +1,6 @@
 # Landing Session — Design
 
-Status: implemented on `feat/landing-session` (rehearsed on a throwaway server with a real pty client); awaiting the whole-branch review, merge and the user's `fisher update`. Approved 2026-09-26. Plan: `docs/superpowers/plans/2026-09-26-landing-session.md`. Themes and schemes are on hold while this is built.
+Status: shipped in `main` `7528599` and deployed on rocket and macwork. Approved 2026-09-26. Its plan was deleted once it shipped (git keeps it).
 
 ## Problem
 

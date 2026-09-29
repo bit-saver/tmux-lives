@@ -47,7 +47,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` holds only in-flight plans (now: the landing session) — **plans are deleted once
+`docs/superpowers/plans/` holds only in-flight plans (none now) — **plans are deleted once
 their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
@@ -567,7 +567,7 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 
 ## Current state — 2026-09-29
 
-**The landing session** (`main` `7528599`) is deployed on both machines; delete its plan.
+**The landing session** (`main` `7528599`) is deployed on both machines.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
