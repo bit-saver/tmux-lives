@@ -13,10 +13,9 @@ This file was 231 KB on 2026-09-02 because each cycle appended a narrative and n
 
 **When you write here, you also prune here.** Before adding a cycle narrative, delete the narrative it
 supersedes. A paragraph describing an engine that no longer exists in the codebase is not history worth
-carrying — it is a live-looking claim about dead code. The full pre-prune text is at
-`docs/history/2026-09-02-claude-md-full-archive.md` and in git; the deep war stories live in the memory
-store. **Budget: keep this file under ~40 KB.** If a cycle needs more than a few paragraphs, the detail
-belongs in a memory file or a spec, with a pointer from here.
+carrying — it is a live-looking claim about dead code. The pre-prune text and the deep war stories: "Where
+the history lives", below. **Budget: keep this file under ~40 KB.** If a cycle needs more than a few
+paragraphs, the detail belongs in a memory file or a spec, with a pointer from here.
 
 ---
 
@@ -123,10 +122,9 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **957 plain / 956
-  `--no-config`** on a host where the real `~/.cache/tmux-lives` exists (one fewer each where it does
-  not — its isolation bracket adds an mtime check only then). **The 1-count delta between modes is BY
-  DESIGN** (one isolation assertion gated on plain fish) — do not "fix" it.
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **960 plain / 959 `--no-config`**
+  on every host. **The 1-count delta between modes is BY DESIGN** (one isolation assertion gated on plain
+  fish) — do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge by the
   absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (3) and
   `test-tmux-status.fish` (4) report numbers; `test-tmux-popup.fish`'s timing assertion is now the
@@ -159,7 +157,8 @@ suite. See `[[tmux_test_isolation]]`.
 ⚠ The directory is shared (the landing app keeps `projects.tsv` there): its prune deletes only
 `<digits>-<hex6>.tsv` files. Any suite that can start a landing app must export
 `tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` (auto, categorize, install do; install once
-wrote the real `projects.tsv`).
+wrote the real `projects.tsv`). Real-cache brackets check this run's **footprint** (seam rows, `-$fish_pid`
+folders, an emptied file), never an mtime: the user's landing apps rewrite `projects.tsv` mid-run.
 
 ---
 

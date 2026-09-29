@@ -52,14 +52,12 @@ set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 # (not just -g) so they reach every test tmux server this file starts, and so
 # a landing app started inside one of those servers (Task 6) never reads the
 # real ~/.claude/projects or writes the real ~/.cache/tmux-lives/projects.tsv.
-# Removed in the hygiene section at the end, which proves the real cache
-# file's existence AND mtime are unchanged (mirrors the render-cache bracket
-# above, plus mtime -- this one is a FILE a real run may have already written,
-# so existence alone would miss a silent overwrite-with-same-rows).
+# Removed in the hygiene section at the end, which checks the real cache for
+# this run's footprint. Not its mtime: the user's own landing apps rewrite it.
 set -g __tcg_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __tcg_real_proj_cache_existed_before (test -e "$__tcg_real_proj_cache"; and echo yes; or echo no)
-set -g __tcg_real_proj_cache_mtime_before (test -e "$__tcg_real_proj_cache"; and path mtime -- "$__tcg_real_proj_cache"; or echo none)
+set -g __tcg_real_proj_rows_before (count (cat "$__tcg_real_proj_cache" 2>/dev/null))
 set -gx tmux_lives_claude_projects_dir /tmp/tcg-projects-$fish_pid
+set -g __tcg_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache /tmp/tcg-projcache-$fish_pid.tsv
 
 mkdir -p $shimdir
@@ -10639,18 +10637,47 @@ set -l __tcg_real_rc_existed_after (test -d "$__tcg_real_rc_dir"; and echo yes; 
 t "isolation: real cache dir existence unchanged by this suite" "$__tcg_real_rc_existed_before" "$__tcg_real_rc_existed_after"
 
 # --- hygiene: this suite's own claude-project-discovery seams ---------------
-# Landing Task 5: remove the projects-dir + project-cache seams set at the top
-# of this file (their own section already cleans up its fixture contents; this
-# drops the seam paths themselves), and prove the REAL project cache file was
-# never touched -- existence AND mtime, since a silent rewrite-with-same-rows
-# would pass an existence-only check.
+# Drop the seams set at the top, then look for this run's footprint in the REAL project cache. Its mtime
+# proves nothing: every landing app on this host rewrites it. A leak from this run shows as either
+# - a row (in the file or a stray <cache>.XXXXXX temp) whose transcript dir is under this run's seam root,
+#   or whose folder is one of this run's /tmp fixtures, or
+# - a cache that had rows and now has none: discovery over an empty seam root writes an empty file.
 rm -rf "$tmux_lives_claude_projects_dir" "$tmux_lives_project_cache"
 set -e tmux_lives_claude_projects_dir
 set -e tmux_lives_project_cache
-set -l __tcg_real_proj_cache_existed_after (test -e "$__tcg_real_proj_cache"; and echo yes; or echo no)
-set -l __tcg_real_proj_cache_mtime_after (test -e "$__tcg_real_proj_cache"; and path mtime -- "$__tcg_real_proj_cache"; or echo none)
-t "isolation: real project cache existence unchanged by this suite" "$__tcg_real_proj_cache_existed_before" "$__tcg_real_proj_cache_existed_after"
-t "isolation: real project cache mtime unchanged by this suite" "$__tcg_real_proj_cache_mtime_before" "$__tcg_real_proj_cache_mtime_after"
+function __tcg_proj_leaks --argument-names cache root --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a /tmp folder ending -$fish_pid), then "checked"'
+    if test -z "$root"; or test -z "$fish_pid"
+        echo "refusing: no seam root or pid to match on"; return
+    end
+    for f in $cache $cache.*
+        test -f $f; or continue
+        test $f = $cache; or string match -rq '\.[A-Za-z0-9]{6}$' -- $f; or continue
+        test -r $f; or begin; echo "$f: unreadable"; continue; end
+        while read -l line
+            set -l r (string split \t -- $line)
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- "^/tmp/.*-$fish_pid(/|\$)" "$r[3]"; or continue
+            echo "$f: $line"
+        end < $f
+    end
+    echo checked
+end
+# Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
+set -l lk /tmp/tcg-leakprobe-$fish_pid.tsv
+printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n' > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tcz-y-%s\n' $__tcg_proj_root $fish_pid > $lk.Ab12Cd
+set -l lkout (__tcg_proj_leaks $lk $__tcg_proj_root)
+t "isolation: the leak check finds this run's two rows in a stray temp and passes the real one" "3 checked" "$(count $lkout) $lkout[-1]"
+rm -f $lk $lk.Ab12Cd
+set -l __tcg_rows_after (count (cat "$__tcg_real_proj_cache" 2>/dev/null))
+set -l __tcg_emptied unknown
+if string match -qr '^[0-9]+$' -- "$__tcg_real_proj_rows_before"
+    set __tcg_emptied no
+    test $__tcg_real_proj_rows_before -gt 0; and test $__tcg_rows_after -eq 0; and set __tcg_emptied yes
+end
+t "isolation: the real project cache was not emptied or removed by this suite" no "$__tcg_emptied"
+set -l __tcg_leaks (__tcg_proj_leaks "$__tcg_real_proj_cache" "$__tcg_proj_root")
+t "isolation: the real project cache and its temps hold no row from this suite" checked "$__tcg_leaks"
+functions -e __tcg_proj_leaks
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0

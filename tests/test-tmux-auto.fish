@@ -47,10 +47,11 @@ set -e TMUX_PANE
 set -g real_cat_path $plugindir/functions/tmux-categorize.fish
 set -g __tac_cat_stub $TMUX_LIVES_TEST_UVARS/cat-stub.fish
 printf '#!/usr/bin/env fish\nprintf "%%s\\n" "$argv" >> %s/cat-calls.log\n' $TMUX_LIVES_TEST_UVARS > $__tac_cat_stub
+# Checked at the end for this run's footprint (not its mtime: the user's own landing apps rewrite it).
 set -g __tac_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __tac_real_proj_cache_before (test -e "$__tac_real_proj_cache"; and echo yes; or echo no)
-set -g __tac_real_proj_cache_mtime_before (test -e "$__tac_real_proj_cache"; and path mtime -- "$__tac_real_proj_cache"; or echo none)
+set -g __tac_real_proj_rows_before (count (cat "$__tac_real_proj_cache" 2>/dev/null))
 set -gx tmux_lives_claude_projects_dir $TMUX_LIVES_TEST_UVARS/claude-projects
+set -g __tac_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache $TMUX_LIVES_TEST_UVARS/projects.tsv
 # Landing needs the managed fragment; run as a set-up host unless a test says not.
 set -g tmux_lives_fragment_file $TMUX_LIVES_TEST_UVARS/fragment.conf
@@ -980,13 +981,46 @@ set -g __tac_frag $tmux_lives_fragment_file
 functions -e __tac_exec __tac_exec_log_landing
 
 # ---------------------------------------------------------------------
-# Hygiene: nothing this suite made outside its own throwaway dir, and the real
-# project-discovery cache untouched (existence AND mtime).
+# Hygiene: nothing this suite made outside its own throwaway dir, and no footprint of this run in the
+# REAL project-discovery cache. Its mtime proves nothing: every landing app on this host rewrites it. A leak
+# from this run shows as either
+# - a row (in the file or a stray <cache>.XXXXXX temp) whose transcript dir is under this run's seam root,
+#   or whose folder is one of this run's /tmp fixtures, or
+# - a cache that had rows and now has none: this suite's seam root is empty, so a leak writes an empty file.
 # ---------------------------------------------------------------------
-set -l __tac_after (test -e "$__tac_real_proj_cache"; and echo yes; or echo no)
-set -l __tac_mtime_after (test -e "$__tac_real_proj_cache"; and path mtime -- "$__tac_real_proj_cache"; or echo none)
-t "isolation: real project cache existence unchanged by this suite" "$__tac_real_proj_cache_before" "$__tac_after"
-t "isolation: real project cache mtime unchanged by this suite" "$__tac_real_proj_cache_mtime_before" "$__tac_mtime_after"
+function __tac_proj_leaks --argument-names cache root --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a /tmp folder ending -$fish_pid), then "checked"'
+    if test -z "$root"; or test -z "$fish_pid"
+        echo "refusing: no seam root or pid to match on"; return
+    end
+    for f in $cache $cache.*
+        test -f $f; or continue
+        test $f = $cache; or string match -rq '\.[A-Za-z0-9]{6}$' -- $f; or continue
+        test -r $f; or begin; echo "$f: unreadable"; continue; end
+        while read -l line
+            set -l r (string split \t -- $line)
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- "^/tmp/.*-$fish_pid(/|\$)" "$r[3]"; or continue
+            echo "$f: $line"
+        end < $f
+    end
+    echo checked
+end
+# Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
+set -l lk $TMUX_LIVES_TEST_UVARS/leakprobe.tsv
+printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n' > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tac-y-%s\n' $__tac_proj_root $fish_pid > $lk.Ab12Cd
+set -l lkout (__tac_proj_leaks $lk $__tac_proj_root)
+t "isolation: the leak check finds this run's two rows in a stray temp and passes the real one" "3 checked" "$(count $lkout) $lkout[-1]"
+rm -f $lk $lk.Ab12Cd
+set -l __tac_rows_after (count (cat "$__tac_real_proj_cache" 2>/dev/null))
+set -l __tac_emptied unknown
+if string match -qr '^[0-9]+$' -- "$__tac_real_proj_rows_before"
+    set __tac_emptied no
+    test $__tac_real_proj_rows_before -gt 0; and test $__tac_rows_after -eq 0; and set __tac_emptied yes
+end
+t "isolation: the real project cache was not emptied or removed by this suite" no "$__tac_emptied"
+set -l __tac_leaks (__tac_proj_leaks "$__tac_real_proj_cache" "$__tac_proj_root")
+t "isolation: the real project cache and its temps hold no row from this suite" checked "$__tac_leaks"
+functions -e __tac_proj_leaks
 cleanup
 
 # ---------------------------------------------------------------------

@@ -31,10 +31,12 @@ set -gx tmux_lives_render_cache_dir $__til_rc_dir
 # Landing Task 6: the pane-died end-to-end tests land real clients on real
 # landing apps, and the app runs Claude-project discovery. Exported before any
 # test server starts (servers inherit it) so no app here reads the real
-# ~/.claude/projects or writes the real projects cache; checked at the end.
+# ~/.claude/projects or writes the real projects cache; checked at the end for
+# this run's footprint (not its mtime: the user's own landing apps rewrite it).
 set -g __til_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __til_real_proj_cache_before (test -e "$__til_real_proj_cache"; and path mtime -- "$__til_real_proj_cache"; or echo none)
+set -g __til_real_proj_rows_before (count (cat "$__til_real_proj_cache" 2>/dev/null))
 set -gx tmux_lives_claude_projects_dir /tmp/til-projects-$fish_pid
+set -g __til_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache /tmp/til-projcache-$fish_pid.tsv
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
@@ -530,18 +532,25 @@ t "rgb_to_oklch: out-of-range numeric input still computes (pre-existing, no cla
 
 # --- picker-render-cost Task 2: a file-backed render cache -------------------
 # Isolation bracket (brief item 9): record the REAL cache directory's
-# existence + mtime BEFORE this block touches anything. Every assertion below
-# that can reach the cache sets tmux_lives_render_cache_dir to a per-run temp
-# directory FIRST -- this bracket proves none of them fell through to the real
-# default anyway. The funcs-file seam already did exactly that once and
-# silently truncated a real user file for weeks (see I-3 above).
+# existence and its render-cache files BEFORE this block touches anything. Every
+# assertion below that can reach the cache sets tmux_lives_render_cache_dir to a
+# per-run temp directory FIRST -- this bracket proves none of them fell through
+# to the real default anyway. The funcs-file seam already did exactly that once
+# and silently truncated a real user file for weeks (see I-3 above).
+# Not the directory's mtime: landing apps rewrite projects.tsv (via a temp) in it.
 function __ti_dir_mtime --argument-names p --description 'portable mtime (epoch seconds) of an existing path, empty if it does not exist -- GNU stat on Linux, BSD stat on macOS.'
     test -e "$p"; or return
     stat -c %Y -- "$p" 2>/dev/null; or stat -f %m -- "$p" 2>/dev/null
 end
+function __ti_rc_files --argument-names dir --description 'one "name bytes mtime" line per render-cache file (<engine key>-<seed>.tsv) in <dir>'
+    for f in $dir/*.tsv
+        string match -rq '/[0-9]+-[0-9a-fA-F]{6}\.tsv$' -- $f; or continue
+        echo (path basename -- $f) (wc -c < $f | string trim) (__ti_dir_mtime $f)
+    end
+end
 set -l real_rc_dir "$HOME/.cache/tmux-lives"
 set -l real_rc_existed_before (test -d "$real_rc_dir"; and echo yes; or echo no)
-set -l real_rc_mtime_before (__ti_dir_mtime "$real_rc_dir")
+set -l real_rc_files_before (__ti_rc_files "$real_rc_dir")
 
 # 1. __tmux_lives_render_cache_path: seam, then XDG_CACHE_HOME, then $HOME
 # fallback. The two non-seam checks perform no I/O -- the function only
@@ -680,6 +689,9 @@ set -l fileElines (cat $fileE)
 t "concurrency: three appends (own write, hand-written, own write) all land in the file" 3 (count $fileElines)
 t "concurrency: the hand-appended entry between two of this process's own writes survives" yes (string match -q "*$reckH*$fakeH*" -- (string join \n $fileElines); and echo yes; or echo no)
 
+# Positive control for the bracket below: the lister sees the files this block wrote.
+set -l trc_listed (count (__ti_rc_files $trc))
+t "isolation: the render-cache lister sees this block's own cache files" 1 (test "$trc_listed" -gt 0 2>/dev/null; and echo 1; or echo 0)
 rm -rf $trc /tmp/tml-rc-xdg-$fish_pid
 # picker-render-cost Task 3: restore the WHOLE-FILE default seam (set at the top
 # of this file) rather than fully unsetting -- __tmux_lives_theme_list and
@@ -692,10 +704,9 @@ set -gx tmux_lives_render_cache_dir $__til_rc_dir
 # default cache directory -- every call was seamed to $trc.
 set -l real_rc_existed_after (test -d "$real_rc_dir"; and echo yes; or echo no)
 t "isolation: real cache dir existence unchanged by this suite" "$real_rc_existed_before" "$real_rc_existed_after"
-if test "$real_rc_existed_before" = yes
-    set -l real_rc_mtime_after (__ti_dir_mtime "$real_rc_dir")
-    t "isolation: real cache dir mtime unchanged by this suite" "$real_rc_mtime_before" "$real_rc_mtime_after"
-end
+set -l real_rc_files_after (__ti_rc_files "$real_rc_dir")
+t "isolation: no render-cache file in the real cache dir was created or changed by this suite" "$real_rc_files_before" "$real_rc_files_after"
+functions -e __ti_rc_files
 
 # --- picker-render-cost Task 3: theme_list / theme_apply_live serve from the
 # render cache -----------------------------------------------------------
@@ -5107,10 +5118,45 @@ eval $__mgr_realrender
 # with).
 rm -rf $__til_rc_dir
 
-# Landing Task 6: drop the discovery seams set at the top, and prove the real
-# project cache was never written (existence and mtime in one token).
+# Landing Task 6: drop the discovery seams set at the top, then look for this run's footprint in the REAL
+# project cache. Its mtime proves nothing: every landing app on this host rewrites it. A leak from this run
+# shows as either
+# - a row (in the file or a stray <cache>.XXXXXX temp) whose transcript dir is under this run's seam root,
+#   or whose folder is one of this run's /tmp fixtures, or
+# - a cache that had rows and now has none: this suite's seam root is empty, so a leak writes an empty file.
 rm -rf $tmux_lives_claude_projects_dir $tmux_lives_project_cache
-set -l __til_real_proj_cache_after (test -e "$__til_real_proj_cache"; and path mtime -- "$__til_real_proj_cache"; or echo none)
-t "isolation: the real project cache is untouched by this suite" "$__til_real_proj_cache_before" "$__til_real_proj_cache_after"
+function __til_proj_leaks --argument-names cache root --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a /tmp folder ending -$fish_pid), then "checked"'
+    if test -z "$root"; or test -z "$fish_pid"
+        echo "refusing: no seam root or pid to match on"; return
+    end
+    for f in $cache $cache.*
+        test -f $f; or continue
+        test $f = $cache; or string match -rq '\.[A-Za-z0-9]{6}$' -- $f; or continue
+        test -r $f; or begin; echo "$f: unreadable"; continue; end
+        while read -l line
+            set -l r (string split \t -- $line)
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- "^/tmp/.*-$fish_pid(/|\$)" "$r[3]"; or continue
+            echo "$f: $line"
+        end < $f
+    end
+    echo checked
+end
+# Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
+set -l lk /tmp/til-leakprobe-$fish_pid.tsv
+printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n' > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tli-y-%s\n' $__til_proj_root $fish_pid > $lk.Ab12Cd
+set -l lkout (__til_proj_leaks $lk $__til_proj_root)
+t "isolation: the leak check finds this run's two rows in a stray temp and passes the real one" "3 checked" "$(count $lkout) $lkout[-1]"
+rm -f $lk $lk.Ab12Cd
+set -l __til_rows_after (count (cat "$__til_real_proj_cache" 2>/dev/null))
+set -l __til_emptied unknown
+if string match -qr '^[0-9]+$' -- "$__til_real_proj_rows_before"
+    set __til_emptied no
+    test $__til_real_proj_rows_before -gt 0; and test $__til_rows_after -eq 0; and set __til_emptied yes
+end
+t "isolation: the real project cache was not emptied or removed by this suite" no "$__til_emptied"
+set -l __til_leaks (__til_proj_leaks "$__til_real_proj_cache" "$__til_proj_root")
+t "isolation: the real project cache and its temps hold no row from this suite" checked "$__til_leaks"
+functions -e __til_proj_leaks
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
