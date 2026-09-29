@@ -1,6 +1,6 @@
 # Landing Session — Design
 
-Status: approved 2026-09-26. Plan: `docs/superpowers/plans/2026-09-26-landing-session.md`. Themes and schemes are on hold while this is built.
+Status: implemented on `feat/landing-session` (rehearsed on a throwaway server with a real pty client); awaiting the whole-branch review, merge and the user's `fisher update`. Approved 2026-09-26. Plan: `docs/superpowers/plans/2026-09-26-landing-session.md`. Themes and schemes are on hold while this is built.
 
 ## Problem
 
@@ -29,13 +29,13 @@ Not in scope: ShellFish's built-in GUI session picker (outside our control), the
 
 | Path | Today | New |
 |---|---|---|
-| Login autostart | attach MRU detached general, else new session | `exec tmux new-session -s _landing-N` running the app |
+| Login autostart | attach MRU detached general, else new session | `landing-new` (detached; a lost name race retries with a fresh name), then `exec tmux attach-session -t =_landing-N`; if that yields no name, today's path |
 | New ShellFish tab (`__tcz_commandeer`) | switch to MRU detached general or a new `gen-N`, kill the springboard | create `_landing-N`, switch the client to it, kill the springboard |
-| `tmux-lives picker` outside tmux | attach MRU general, open the popup | attach a new landing session (landing *is* the picker) |
+| `tmux-lives picker` outside tmux | attach MRU general, open the popup | same as login (landing *is* the picker); `picker -t` / `--take` keeps the take-over path |
 | The tab's session closes | client detaches (`detach-on-destroy on`) | client moves to a new landing session (next section) |
-| `tmux-lives close` | kill session, client detaches | move the session's clients to landing sessions, then kill it |
+| `tmux-lives close` | kill session, client detaches | `session-close`: move the session's clients to landing sessions, then kill it (falls back to a direct kill) |
 
-Unchanged: `tmux-lives new`, `tmux-lives attach <name>`, and the in-session picker keys (`M-s`, `prefix S`), which keep opening the popup.
+Unchanged: `tmux-lives new`, `tmux-lives attach <name>`, and the in-session picker keys (`M-s`, `prefix S`), which keep opening the popup — including that popup's own `x`, which kills without landing the victim's tabs. `clear -x` goes through `close`, so with landing on it lands the tab instead of exiting.
 
 ## When a session closes
 
@@ -44,11 +44,11 @@ Measured 2026-09-26 on tmux 3.3a, isolated sockets with a real pty client:
 - **`detach-on-destroy off` — rejected.** tmux moves the client to the most recently used other session before any hook runs: a transient duplicate attach, the exact problem. `#{client_last_session}` was also empty in the hook.
 - **`remain-on-exit on` + a `pane-died` hook — adopted.** The hook fires while the dying session still exists with its client still on it; switching the client to landing and then killing the session never touches another session.
 
-The `pane-died` handler (`fish --no-config $cat pane-died <pane> <session>`):
+The `pane-died` handler (`fish --no-config $cat pane-died <pane> <session>`) is registered with `#{q:pane_id}` / `#{q:session_name}` quoting (a session name with an apostrophe would otherwise break the shell line and leave the pane dead forever) and a `|| tmux kill-pane` fallback, so a handler that cannot run at all (fish or the categorizer gone) still closes the pane. Its rules:
 
 1. Dead pane in a landing session → `respawn-pane -k` with the landing command (the app comes back; a bare `-k` would re-run whatever the pane last ran).
 2. Dead pane in any other session, other live panes remain → `kill-pane` it (normal close behaviour).
-3. Last live pane of a non-landing session → for each attached client, create a landing session and switch the client to it; then kill the session.
+3. Last live pane of a non-landing session → `session-close`: for each attached client, create a landing session and switch the client to it; then kill the session. `session-close` is the one helper shared with `tmux-lives close` and the app's `x`.
 
 `detach-on-destroy` stays `on`, so a session killed any other way (a hand-typed `tmux kill-session`, ShellFish's GUI kill) detaches its tabs — never moves them somewhere random.
 
@@ -58,11 +58,11 @@ Measured the same way on tmux 3.7b (macwork), 2026-09-26: identical — the hook
 
 ## Landing lifecycle
 
-- **Create** — `__tcz_landing_new [client]`: pick `_landing-N`, `new-session -d -s _landing-N -c $HOME` running the app; with a client, `switch-client -c <client> -t =_landing-N` in the same tmux invocation (so the sweep can never see it clientless).
-- **Leave** — after the app switches its client elsewhere, it kills its own (now clientless) session.
-- **Sweep** — the status tick kills any `_landing-*` session with no attached client, covering tabs that closed or detached while on landing (≤ 15 s).
+- **Create** — `__tcz_landing_new [client]`: pick `_landing-N`, `new-session -d -s _landing-N -c $HOME` running the app; with a client, `switch-client -c <client> -t =_landing-N` in the same tmux invocation (so the sweep can never see it clientless). Two tabs can pick the same free name at once: the loser retries with a fresh name, and a failed switch removes only the session this call created, by its id.
+- **Leave** — after the app switches its client elsewhere, it kills its own session once no tab is left on it.
+- **Sweep** — the status tick kills any `_landing-*` session with no attached client, covering tabs that closed or detached while on landing (≤ 15 s). It spares landing sessions younger than 10 s: `landing-new` creates detached and the shell attaches a moment later. It reads the per-pass session memo, so a pass with no clientless landing session costs zero tmux calls.
 - **Respawn** — the app never exits on its own; an exit or crash is caught by `pane-died` rule 1.
-- **Misuse** — a new window or split inside a landing session (landing-guarded `after-new-window` / `after-split-window` hooks) is removed, and the client gets a new general session in `$HOME` instead: asking landing for a shell gives you a real session.
+- **Misuse** — a new window or split inside a landing session (landing-guarded `after-new-window` / `after-split-window` hooks, `landing-evict`) is removed, and the client gets a new general session in `$HOME` instead: asking landing for a shell gives you a real session. The now-clientless landing session is left to the sweep.
 
 ## The landing app
 
@@ -79,10 +79,10 @@ Keys:
 - `↑↓` / `jk` move.
 - `Enter` — attach (live) · `claude --continue` (project) · new shell.
 - `r` — on a project row, start `claude --resume` (Claude's own conversation picker).
-- `x` — kill a live session (the picker's existing confirm).
+- `x` — kill a live session (the picker's confirm). Its attached tabs land first (`session-close`), as for any closing session.
 - `d` — detach this tab from tmux, then kill this (now clientless) landing session. (`q` and Esc are one token in the shared key reader, and Esc must not detach — so both are no-ops here.)
 
-Refresh: re-snapshot every 3 s while idle (the key read times out) and immediately after any action — one snapshot per landing instance per 3 s.
+Refresh: re-snapshot live sessions every 3 s while idle (the key read times out) and immediately after any action. The idle-project list is re-read only every 10th pass and after an action (running claude panes are still checked every pass), so a newly idle project can show up to 30 s late. The frame goes through the popup's diff emitter and is skipped when nothing shown changed: an idle refresh writes nothing to the terminal.
 
 Switching: `switch-client -c <my client> -t =<target>`, where my client is `list-clients -t =<my session>: -F '#{client_name}'`, read at action time. Then kill my own session.
 
@@ -92,8 +92,8 @@ Switching: `switch-client -c <my client> -t =<target>`, where my client is `list
 - **Not `~/.claude.json`** — 176 KB of JSON, fish has no JSON parser, and macOS has no `jq` by default.
 - **Not running** — drop a project when a live pane runs claude with that folder (or its git root) as its cwd.
 - **Order** — newest transcript first; show a relative age.
-- **Cost** — about one fork per directory to read a transcript head. Cache `dir|mtime|folder` lines in `$XDG_CACHE_HOME/tmux-lives/projects.tsv` (seam `tmux_lives_project_cache`); re-read a directory only when its newest transcript's mtime changes.
-- **Start** — `new-session -d -c <folder>` (the categorizer names it from the folder, as for any session), `send-keys -t =<name>: 'claude --continue' Enter`, switch, kill own landing. The shell stays after Claude exits, as today. `r` sends `claude --resume` instead.
+- **Cost** — about one fork per directory to read a transcript head. Cache `dir|mtime|folder` lines in `$XDG_CACHE_HOME/tmux-lives/projects.tsv` (seam `tmux_lives_project_cache`; the transcript root has its own seam, `tmux_lives_claude_projects_dir`); re-read a directory only when its newest transcript's mtime changes, and rewrite the cache only when something changed. The file shares its directory with the theme render cache, whose prune deletes only its own `<digits>-<hex6>.tsv` files.
+- **Start** — `new-session -d -c <folder>` (the categorizer names it from the folder, as for any session, so it is addressed by its session id), `send-keys 'claude --continue' Enter`, switch, and leave once no tab is left on the landing. The shell stays after Claude exits, as today. `r` sends `claude --resume` instead.
 
 ## Exclusions everywhere else
 
@@ -101,7 +101,7 @@ Landing sessions (by reserved name) are excluded from:
 
 - categorize, rename, `@tmux_lives_display` / `@tmux_lives_claude` writes;
 - snapshot and overview (popup picker, fallback menu);
-- `__tmux_pick_session`, `__tcz_pick_general`, prune and idle-kill, restore disposal;
+- `__tmux_pick_session`, `__tcz_pick_general`, `prune` and idle-kill, restore disposal;
 - tab titles — a landing tab gets the fixed title `[<h>] landing`.
 
 tmux-resurrect has no per-session exclusion, so snapshots will contain landing sessions. On restore, tmux-lives kills any restored `_landing-*` session (by name — options are not restored).

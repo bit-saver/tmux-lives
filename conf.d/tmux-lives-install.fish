@@ -520,7 +520,7 @@ function __tmux_lives_help_lines --description 'tmux-lives help content (unframe
     printf '%-2s%-28s%s\n' p 'picker [-t]' 'open the session switcher (-t takes it)'
     printf '%-2s%-28s%s\n' f 'fix' 'repair the SSH agent socket'
     printf '%-2s%-28s%s\n' c 'categorize' 're-categorize sessions (fix a bad name)'
-    printf '%-2s%-28s%s\n' '' 'clear [-q|-x]' 'kill idle sessions (-q/-x also exits)'
+    printf '%-2s%-28s%s\n' '' 'clear [-q|-x]' 'kill idle sessions (-q/-x also closes)'
     printf '%-2s%-28s%s\n' x 'close' 'kill the current session and exit'
 end
 

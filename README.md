@@ -2,7 +2,7 @@
 
 Categorized tmux session automation + persistence, packaged as a [fisher](https://github.com/jorgebucaran/fisher) plugin for fish.
 
-It keeps tmux sessions self-categorizing (claude / running / general), auto-attaches the right one on login, prunes stale shells, persists across reboots (tmux-resurrect/continuum), and coexists with the ShellFish iOS app.
+It keeps tmux sessions self-categorizing (claude / running / general), lands every new tab on a per-tab chooser instead of auto-attaching one (see Landing page), prunes stale shells, persists across reboots (tmux-resurrect/continuum), and coexists with the ShellFish iOS app.
 
 ## Requirements
 
@@ -35,8 +35,8 @@ tmux-lives attach, a <name> [-t]       attach to a session (-t takes it)
 tmux-lives picker, p [-t]              open the session switcher (-t takes it)
 tmux-lives fix, f                      repair the SSH agent socket
 tmux-lives categorize, c               re-categorize sessions (fix a bad name)
-tmux-lives clear [-q|-x]               kill idle sessions (-q/-x also exits)
-tmux-lives close, x, q                 kill the current session and exit
+tmux-lives clear [-q|-x]               kill idle sessions (-q/-x also closes)
+tmux-lives close, x, q                 kill the current session and exit (with landing on, the tab lands instead)
 ```
 
 Create your own short aliases as desired, e.g. `alias ts="tmux-lives picker"`.
@@ -48,6 +48,22 @@ with something in the foreground (e.g. Claude) returns to one. You only need to 
 can't unset one that no longer exists), or this is the very first update that carries the
 auto-reload feature itself (already-open shells don't have the handler installed yet to
 pick it up). The update note tells you which, if either, applies.
+
+### Landing page
+
+Every automatic entry into tmux (an SSH login, a new ShellFish tab, `tmux-lives picker` run outside tmux) and every tab whose session closes lands on a **landing page** instead of attaching to an existing session, so a device never ends up attached twice to the same work session. The page is a private session per tab, named `_landing-N`, that runs a full-screen chooser: your live sessions (marked `[here]` when this device already has a tab on one, `[attached]` when only another device does), then Claude projects that are not running right now (newest conversation first, read from `~/.claude/projects`, only folders that still exist), then `new shell`.
+
+Keys: `↑↓` (or `j`/`k`) move · `⏎` open the session, run `claude --continue` in the project, or start a new shell · `r` on a project row runs `claude --resume` instead · `x` kills the highlighted live session (with a y/n confirm; any tab attached to it lands on a fresh landing page) · `d` detaches this tab from tmux. `q` and `Esc` do nothing here on purpose. Opening a window or split inside a landing page gives you a real session in `$HOME` instead, so `prefix c` on the chooser never leaves you in a bare landing shell.
+
+When a session's last pane exits, `tmux-lives close` runs, or `tmux-lives clear -x` closes the current session, the tab moves to a fresh landing page instead of detaching (this is what makes `clear -x` land rather than exit with landing on). A session killed some other way (a hand-typed `tmux kill-session`, ShellFish's own session list) still detaches its tabs. `tmux-lives picker -t` and `attach -t` keep taking a session over as before, and the in-session picker (`M-s`, `prefix S`) is unchanged. Landing pages never appear in the pickers, are cleaned up by the status tick when nobody is attached (a new one is spared for its first 10 seconds), and are removed if tmux-resurrect restores them.
+
+```fish
+tmux-lives setup landing status   # landing: ON | OFF
+tmux-lives setup landing off      # back to auto-attaching a general session, detach on close
+tmux-lives setup landing on       # the default when the setting was never touched
+```
+
+The switch takes effect at once for new logins, and reloads a running tmux for the close path (`remain-on-exit` and the `pane-died` hook, which `off` removes again).
 
 ### ShellFish/iTerm2 tab color & baseline
 
@@ -171,6 +187,6 @@ fisher remove bit-saver/tmux-lives
 - `functions/tmux-categorize.fish` — the categorizer (invoked by tmux as a script)
 - `conf.d/tmux-lives-install.fish` — `tmux-lives` dispatcher + the `setup` group (install/verify/teardown/keys/auto)
 - `tests/` — isolated test suites (`-L` sockets; never touch the real server)
-- `docs/superpowers/` — design spec + implementation plan
+- `docs/superpowers/` — design specs (plans live there only while in flight)
 
 See `docs/superpowers/specs/` for the design.
