@@ -1259,6 +1259,125 @@ function __tcz_landing_sweep --description 'kill landing sessions nobody is atta
     end
 end
 
+# --- Claude project discovery: idle-project source data for the landing app -
+
+function __tcz_claude_projects_dir --description 'pure: root directory of Claude transcripts (seam tmux_lives_claude_projects_dir, else $HOME/.claude/projects)'
+    if set -q tmux_lives_claude_projects_dir
+        echo $tmux_lives_claude_projects_dir
+    else
+        echo "$HOME/.claude/projects"
+    end
+end
+
+function __tcz_claude_project_cache --description 'pure: path to the discovery cache FILE (seam tmux_lives_project_cache, else $XDG_CACHE_HOME/tmux-lives/projects.tsv, else $HOME/.cache/tmux-lives/projects.tsv -- same seam idiom as __tmux_lives_render_cache_path in tmux-lives-install.fish)'
+    if set -q tmux_lives_project_cache
+        echo $tmux_lives_project_cache
+    else if set -q XDG_CACHE_HOME
+        echo "$XDG_CACHE_HOME/tmux-lives/projects.tsv"
+    else
+        echo "$HOME/.cache/tmux-lives/projects.tsv"
+    end
+end
+
+function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per real project folder that still exists locally. Each directory under __tcz_claude_projects_dir is a lossy slug; its real folder is the first "cwd":"..." value in its NEWEST *.jsonl transcript. Caches dir/mtime/folder rows in __tcz_claude_project_cache and only re-reads a directory whose newest transcript mtime moved, so a warm call forks nothing per project -- see the commit message for the measured fork count. Never fails discovery over a cache write it could not make.'
+    set -l root (__tcz_claude_projects_dir)
+    set -l cache (__tcz_claude_project_cache)
+    set -l TAB (printf '\t')
+
+    set -l cdirs; set -l cmtimes; set -l cfolders
+    if test -r "$cache"
+        while read -l line
+            set -l f (string split -m 2 $TAB -- $line)
+            test (count $f) -eq 3; or continue
+            set -a cdirs $f[1]; set -a cmtimes $f[2]; set -a cfolders $f[3]
+        end < $cache
+    end
+
+    # One row per source directory, whether or not its folder still exists --
+    # this is exactly what gets written back to the cache, so a directory
+    # whose folder was deleted stays cached instead of being re-read forever.
+    set -l ddirs; set -l dmtimes; set -l dfolders
+    for dir in $root/*/
+        set dir (string replace -r '/+$' '' -- $dir)
+        set -l files $dir/*.jsonl
+        test (count $files) -gt 0; or continue
+        set -l mtimes (path mtime -- $files)
+        set -l newest $files[1]; set -l newestmtime $mtimes[1]
+        for i in (seq 2 (count $files))
+            test "$mtimes[$i]" -gt "$newestmtime"; or continue
+            set newest $files[$i]; set newestmtime $mtimes[$i]
+        end
+
+        set -l idx (contains -i -- "$dir" $cdirs)
+        set -l folder
+        if test -n "$idx"; and test "$cmtimes[$idx]" = "$newestmtime"
+            set folder $cfolders[$idx]
+        else
+            # The only fork in this function: read the transcript head and take
+            # the FIRST "cwd" match -- an earlier summary line can lack one.
+            set -l m (head -c 200000 -- $newest | string match -rg '"cwd":"([^"]+)"')
+            set folder $m[1]
+        end
+
+        set -a ddirs $dir; set -a dmtimes $newestmtime; set -a dfolders "$folder"
+    end
+
+    set -l cachedir (path dirname -- $cache)
+    test -d "$cachedir"; or mkdir -p "$cachedir" 2>/dev/null
+    set -l tmp (mktemp "$cachedir/projects.XXXXXX" 2>/dev/null)
+    if test -n "$tmp"
+        for i in (seq (count $ddirs))
+            printf '%s\t%s\t%s\n' $ddirs[$i] $dmtimes[$i] $dfolders[$i]
+        end > $tmp
+        mv $tmp "$cache" 2>/dev/null
+    end
+
+    # Dedupe by folder (two source directories can resolve to the same real
+    # folder), keep the newest mtime, drop anything that no longer exists.
+    set -l ufolders; set -l umtimes
+    for i in (seq (count $ddirs))
+        set -l folder $dfolders[$i]
+        test -n "$folder"; and test -d "$folder"; or continue
+        set -l j (contains -i -- "$folder" $ufolders)
+        if test -n "$j"
+            test "$dmtimes[$i]" -gt "$umtimes[$j]"; and set umtimes[$j] $dmtimes[$i]
+        else
+            set -a ufolders $folder; set -a umtimes $dmtimes[$i]
+        end
+    end
+
+    test (count $ufolders) -gt 0; or return
+    set -l rows
+    for i in (seq (count $ufolders))
+        set -a rows "$ufolders[$i]$TAB$umtimes[$i]"
+    end
+    printf '%s\n' $rows | sort -t\t -k2,2nr
+end
+
+function __tcz_claude_cwds --description 'lines: the cwd of every pane, across every session, currently running claude (ONE tmux list-panes -a call; the claude test is __tcz_pane_is_claude)'
+    set -l TAB (printf '\t')
+    set -l fmt (printf '#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}')
+    for row in (tmux list-panes -a -F $fmt 2>/dev/null)
+        set -l f (string split -m 2 $TAB -- $row)
+        test (count $f) -eq 3; or continue
+        __tcz_pane_is_claude "$f[1]" "$f[2]"; and echo $f[3]
+    end
+end
+
+function __tcz_age --argument-names secs --description 'pure: seconds -> a short relative-age token (now / Nm / Nh / Nd / Nw)'
+    if test "$secs" -lt 60
+        echo now
+    else if test "$secs" -lt 3600
+        echo (math "floor($secs / 60)")m
+    else if test "$secs" -lt 86400
+        echo (math "floor($secs / 3600)")h
+    else if test "$secs" -lt 604800
+        echo (math "floor($secs / 86400)")d
+    else
+        echo (math "floor($secs / 604800)")w
+    end
+end
+
 function __tcz_commandeer --argument-names client session landing --description 'commandeer <client> <session> [landing]: bounce a fresh ShellFish springboard onto a real session, or -- with <landing> = on -- onto a new landing session (default off = today: bounce to a general session)'
     # ShellFish (tmux toggle ON) creates each tab as `new-session -s shellfish-N`
     # with no -A: the session is a disposable landing pad. Bounce the client to

@@ -48,6 +48,20 @@ set -g __tcg_real_rc_existed_before (test -d "$__tcg_real_rc_dir"; and echo yes;
 set -g __tcg_rc_dir /tmp/tcg-rc-$fish_pid
 set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 
+# Landing Task 5: same idiom for the Claude-project-discovery seams. Exported
+# (not just -g) so they reach every test tmux server this file starts, and so
+# a landing app started inside one of those servers (Task 6) never reads the
+# real ~/.claude/projects or writes the real ~/.cache/tmux-lives/projects.tsv.
+# Removed in the hygiene section at the end, which proves the real cache
+# file's existence AND mtime are unchanged (mirrors the render-cache bracket
+# above, plus mtime -- this one is a FILE a real run may have already written,
+# so existence alone would miss a silent overwrite-with-same-rows).
+set -g __tcg_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
+set -g __tcg_real_proj_cache_existed_before (test -e "$__tcg_real_proj_cache"; and echo yes; or echo no)
+set -g __tcg_real_proj_cache_mtime_before (test -e "$__tcg_real_proj_cache"; and path mtime -- "$__tcg_real_proj_cache"; or echo none)
+set -gx tmux_lives_claude_projects_dir /tmp/tcg-projects-$fish_pid
+set -gx tmux_lives_project_cache /tmp/tcg-projcache-$fish_pid.tsv
+
 mkdir -p $shimdir
 printf '#!/bin/bash\nexec /usr/bin/tmux -f /dev/null -L %s "$@"\n' $sock > $shimdir/tmux
 chmod +x $shimdir/tmux
@@ -9610,6 +9624,49 @@ set -l tsdead (command tmux -L $sock has-session -t "=$tsname" 2>/dev/null; and 
 t "tick dispatch sweeps a clientless landing session" 1 "$tsdead"
 cleanup
 
+# --- landing: claude project discovery ---
+# Pure filesystem tests -- no tmux server needed. tmux_lives_claude_projects_dir
+# and tmux_lives_project_cache are the suite-wide seams set at the top of this
+# file; this section is the only one that sets or clears their CONTENTS.
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; mkdir -p $pj/-a $pj/-b $pj/-gone /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid
+rm -f $tmux_lives_project_cache
+printf '{"type":"summary"}\n{"cwd":"/tmp/tcz-proj-a-%s","x":1}\n' $fish_pid > $pj/-a/s1.jsonl
+printf '{"cwd":"/tmp/tcz-proj-b-%s"}\n' $fish_pid > $pj/-b/s1.jsonl
+printf '{"cwd":"/tmp/tcz-proj-gone-%s"}\n' $fish_pid > $pj/-gone/s1.jsonl
+touch -d '2 hours ago' $pj/-a/s1.jsonl
+touch -d '1 hour ago' $pj/-b/s1.jsonl
+set -l rows (__tcz_claude_projects)
+t "projects: gone folder dropped" 2 (count $rows)
+t "projects: newest first" "/tmp/tcz-proj-b-$fish_pid" (string split -f1 \t -- $rows[1])
+t "projects: cwd read past a non-cwd first line" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows[2])
+t "projects: cache written" 3 (count (cat $tmux_lives_project_cache))
+# s2 is written now, an hour newer than s1, so -b's newest mtime changes
+printf '{"cwd":"/tmp/tcz-proj-a-%s"}\n' $fish_pid > $pj/-b/s2.jsonl
+set -l rows2 (__tcz_claude_projects)
+t "projects: newer transcript re-read" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows2[1])
+t "projects: deduped by folder" 1 (count $rows2)
+set -l a1 (__tcz_age 300); t "age: minutes" 5m "$a1"
+set -l a2 (__tcz_age 10800); t "age: hours" 3h "$a2"
+set -l a3 (__tcz_age 172800); t "age: days" 2d "$a3"
+set -l a4 (__tcz_age 20); t "age: just now" now "$a4"
+set -l a5 (__tcz_age 2419200); t "age: weeks" 4w "$a5"
+rm -rf $pj /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid $tmux_lives_project_cache
+
+# --- landing: claude project discovery — running-pane cwds ---
+# __tcz_claude_projects is not itself the running-pane filter (that combination
+# is the landing app's job, Task 6) -- but __tcz_claude_cwds is a produced
+# interface with no test in the brief; covered here as a real integration test
+# using the existing shim tmux + fake claude binary and __tcz_pane_is_claude.
+cleanup
+mkdir -p /tmp/tcz-cwd-claude-$fish_pid /tmp/tcz-cwd-plain-$fish_pid
+tmux new-session -d -s cwdc -c /tmp/tcz-cwd-claude-$fish_pid "$shimdir/claude --enable-auto-mode"
+tmux new-session -d -s cwdp -c /tmp/tcz-cwd-plain-$fish_pid
+sleep 0.5
+t "claude_cwds: only the claude pane's cwd is reported" "/tmp/tcz-cwd-claude-$fish_pid" (__tcz_claude_cwds)
+rm -rf /tmp/tcz-cwd-claude-$fish_pid /tmp/tcz-cwd-plain-$fish_pid
+cleanup
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak
@@ -9656,6 +9713,20 @@ t "hygiene: this run leaves no tmux socket files behind" 0 $__tcg_leftover
 rm -rf $__tcg_rc_dir
 set -l __tcg_real_rc_existed_after (test -d "$__tcg_real_rc_dir"; and echo yes; or echo no)
 t "isolation: real cache dir existence unchanged by this suite" "$__tcg_real_rc_existed_before" "$__tcg_real_rc_existed_after"
+
+# --- hygiene: this suite's own claude-project-discovery seams ---------------
+# Landing Task 5: remove the projects-dir + project-cache seams set at the top
+# of this file (their own section already cleans up its fixture contents; this
+# drops the seam paths themselves), and prove the REAL project cache file was
+# never touched -- existence AND mtime, since a silent rewrite-with-same-rows
+# would pass an existence-only check.
+rm -rf "$tmux_lives_claude_projects_dir" "$tmux_lives_project_cache"
+set -e tmux_lives_claude_projects_dir
+set -e tmux_lives_project_cache
+set -l __tcg_real_proj_cache_existed_after (test -e "$__tcg_real_proj_cache"; and echo yes; or echo no)
+set -l __tcg_real_proj_cache_mtime_after (test -e "$__tcg_real_proj_cache"; and path mtime -- "$__tcg_real_proj_cache"; or echo none)
+t "isolation: real project cache existence unchanged by this suite" "$__tcg_real_proj_cache_existed_before" "$__tcg_real_proj_cache_existed_after"
+t "isolation: real project cache mtime unchanged by this suite" "$__tcg_real_proj_cache_mtime_before" "$__tcg_real_proj_cache_mtime_after"
 
 if test $FAIL -eq 0
     echo "ALL PASS"; exit 0
