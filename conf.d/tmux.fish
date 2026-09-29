@@ -96,19 +96,22 @@ function __tmux_saved_claude_sessions --argument-names save --description 'Echo 
     awk -F '\t' '$1 == "pane" && $10 == "claude" { print $2 }' "$save" 2>/dev/null | sort -u
 end
 
-function __tmux_dispose_restored --description 'Post-restore: keep and stamp claude breadcrumbs + live work; kill the idle rest; purge any restored landing session'
+function __tmux_dispose_restored --description 'Post-restore: keep and stamp claude breadcrumbs + live work; kill the idle rest; purge any clientless landing session'
     # Login restore is HEADLESS: resurrect never relaunches programs (verified
     # 2026-06-12 post-incident), so every session returns as bare shells and the
     # SAVE FILE decides what was worth keeping.
     set -l crumbs (__tmux_saved_claude_sessions (__tmux_resurrect_dir)/last)
-    for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    for row in (tmux list-sessions -F '#{session_attached} #{session_name}' 2>/dev/null)
+        set -l f (string split -m 1 ' ' -- $row)
+        set -l att $f[1]; set -l s $f[2]
         # A restored landing session's pane is a bare "fish" prompt, which
         # __tmux_session_is_idle also treats as idle -- but tmux-resurrect has
         # no per-session exclusion, so a save can carry one, and options
-        # (hence any breadcrumb stamp) are never restored. Kill it unconditionally,
-        # before the crumb check, regardless of what the save file claims about it.
+        # (hence any breadcrumb stamp) are never restored. Kill it before the
+        # crumb check, whatever the save file claims about it -- unless a client
+        # is on it: that one is a login's, made during the restore.
         if __tmux_is_landing "$s"
-            tmux kill-session -t "=$s" 2>/dev/null
+            test "$att" = 0; and tmux kill-session -t "=$s" 2>/dev/null
             continue
         end
         if contains -- $s $crumbs
@@ -195,6 +198,14 @@ function __tmux_landing_enabled --description 'true iff landing is on: unset tmu
     test "$tmux_lives_landing" = on
 end
 
+function __tmux_fragment_path --description 'the managed fragment (must agree with __tmux_lives_fragment_path in tmux-lives-install.fish; seam tmux_lives_fragment_file)'
+    set -q tmux_lives_fragment_file; and echo $tmux_lives_fragment_file; or echo "$HOME/.config/tmux/tmux-lives.conf"
+end
+
+function __tmux_landing_ready --description 'true iff landing is on AND the managed fragment exists: its tick sweep and pane-died hook are what clean landing sessions up'
+    __tmux_landing_enabled; and test -e (__tmux_fragment_path)
+end
+
 function __tmux_landing_create --description 'Create a detached landing session through the categorizer and print its name; prints nothing on any failure.'
     # landing-new retries names, so two logins racing for _landing-1 both get a
     # session. Empty or malformed output means "no landing": callers then fall
@@ -214,7 +225,7 @@ function __tmux_autostart --description 'Restore (first login after reboot), the
     if not tmux has-session 2>/dev/null     # no server yet → first login after a reboot
         __tmux_restore
     end
-    if __tmux_landing_enabled
+    if __tmux_landing_ready
         __tmux_prune
         set -l landing (__tmux_landing_create)
         test -n "$landing"; and exec tmux -u attach-session -t "=$landing"
@@ -252,7 +263,7 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     # Outside tmux: with landing on, landing IS the picker -- attach a fresh
     # one. -t/--take asks to take a session over, so it keeps the legacy path.
     __tmux_ensure_server
-    if test -z "$take"; and __tmux_landing_enabled
+    if test -z "$take"; and __tmux_landing_ready
         set -l landing (__tmux_landing_create)
         test -n "$landing"; and exec tmux -u attach-session -t "=$landing"
     end
@@ -426,7 +437,7 @@ function __tmux_lives_close --description 'Kill the current session and return t
     end
     set -l cur (__tmux_lives_current_session)
     test -n "$cur"; or return 1
-    if __tmux_landing_enabled
+    if __tmux_landing_ready
         # One subprocess, one tested helper (Task 6's __tcz_session_close):
         # moves every client attached to $cur to its own landing session,
         # then kills $cur. If the helper fails, fall through to the direct kill.

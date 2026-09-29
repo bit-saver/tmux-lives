@@ -10,8 +10,10 @@ set -g __tcz_shells fish bash sh zsh dash
 # Boring pager/tailer commands: don't count as "running" for naming purposes.
 set -g __tcz_boring tail less watch cat more bat
 set -g __tcz_self (path resolve (status filename))
-# The one place the landing pane's command is spelled.
-set -g __tcz_landing_cmd fish --no-config $__tcz_self landing
+# The one place the landing pane's command is spelled. Its stderr goes nowhere:
+# the diff painter never repaints an unchanged row, so error text would stay on
+# screen. A redirect inside fish cannot do this -- fish's own errors bypass it.
+set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' $__tcz_self
 
 function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9-])'
     # Callers must pass slugs with -- / -t "=$slug" style protection when handing them to tmux
@@ -643,7 +645,8 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
     # pane-cwd design, 2026-08-19/20). Naming is now anchored to THAT pane's
     # cwd, never any other pane's, and never #{session_path} (fixed at
     # creation, never better than the live pane path -- see the design doc).
-    set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{?#{&&:#{pane_active},#{window_active}},1,0}\t#{pane_title}')
+    # Field 5 is 2 when that active pane is dead (remain-on-exit, pane-died pending).
+    set -l pane_fmt (printf '#{session_name}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{?#{&&:#{pane_active},#{window_active}},#{?pane_dead,2,1},0}\t#{pane_title}')
     set -l panes
     if test -n "$only"
         # __tcz_session_target: list-panes wants an exact SESSION target, and a
@@ -691,6 +694,7 @@ function __tcz_snapshot --argument-names only --description 'one line per sessio
             test "$cats[$i]" = claude; or set cats[$i] running
         end
         test "$f[5]" = 1; and set cpath[$i] "$f[4]"
+        test "$f[5]" = 2; and set -ga __tcz_tmux_activedead $s
     end
     # Share this pass's active-pane-cwd-per-session with __tcz_categorize and
     # __tcz_session_title (project-from-pane-cwd design): both need the SAME
@@ -884,6 +888,10 @@ function __tcz_categorize --argument-names only --description 'rename every owne
             test -n "$curdisp"; and tmux set-option -u -t (__tcz_session_target "$cur") @tmux_lives_display 2>/dev/null
             continue
         end
+
+        # A dead active pane reports an empty path: the session is closing, not
+        # project-less. Renaming it now would race the pane-died handler.
+        contains -- "$cur" $__tcz_tmux_activedead; and continue
 
         # Project = the git root, else the basename, of the active pane's cwd
         # (project-from-pane-cwd design, 2026-08-19/20) -- never #{session_path}
@@ -1235,34 +1243,40 @@ function __tcz_landing_new --argument-names client --description 'create a landi
     return 1
 end
 
-function __tcz_pane_died --argument-names pane session --description 'pane-died hook: respawn a dead landing pane, drop a dead pane in any other session, or -- on a session'"'"'s last live pane -- send each attached client to a new landing session and kill the session'
-    test -n "$pane"; and test -n "$session"; or return 0
-    if __tcz_is_landing $session
+function __tcz_pane_died --argument-names pane --description 'pane-died hook: respawn a dead landing pane, drop a dead pane in any other session, or -- on a session'"'"'s last live pane -- send each attached client to a new landing session and kill the session'
+    test -n "$pane"; or return 0
+    # Resolve the session from the pane: a tick can rename it between the
+    # pane's death and this handler, so the name the hook captured may be stale.
+    set -l s (tmux display-message -p -t $pane '#{session_id} #{session_name}' 2>/dev/null | string split -m 1 ' ')
+    test -n "$s[1]"; or return 0
+    if __tcz_is_landing "$s[2]"
         tmux respawn-pane -k -t $pane $__tcz_landing_cmd 2>/dev/null
         return 0
     end
-    set -l live (tmux list-panes -s -t (__tcz_session_target $session) -F '#{pane_dead}' 2>/dev/null | string match 0)
+    set -l live (tmux list-panes -s -t $s[1] -F '#{pane_dead}' 2>/dev/null | string match 0)
     if test (count $live) -gt 0
         tmux kill-pane -t $pane 2>/dev/null
         return 0
     end
-    __tcz_session_close $session
+    __tcz_session_close $s[1]
 end
 
-function __tcz_session_close --argument-names session --description 'close <session> the landing way: move each attached client to a new landing session, then kill it'
+function __tcz_session_close --argument-names session --description 'close <session> (a name, or a $N session id) the landing way: move each attached client to a new landing session, then kill it'
     test -n "$session"; or return 0
-    for c in (tmux list-clients -t "=$session" -F '#{client_name}' 2>/dev/null)
+    set -l tgt "=$session"
+    string match -qr '^\$[0-9]+$' -- "$session"; and set tgt $session
+    for c in (tmux list-clients -t $tgt -F '#{client_name}' 2>/dev/null)
         __tcz_landing_new $c >/dev/null
     end
-    tmux kill-session -t "=$session" 2>/dev/null
+    tmux kill-session -t $tgt 2>/dev/null
     return 0
 end
 
 function __tcz_landing_evict --argument-names pane session --description 'a window/split opened in a landing session: give its client a real session in $HOME instead, then drop the extra pane'
     __tcz_is_landing $session; or return 0
-    set -l client (tmux list-clients -t "=$session" -F '#{client_name}' 2>/dev/null)[1]
-    set -l gen (__tcz_new_general $HOME)
-    test -n "$client"; and test -n "$gen"; and tmux switch-client -c "$client" -t "=$gen" 2>/dev/null
+    # No client, no new session: it would only sit there idle.
+    set -l client (__tcz_landing_client $session)
+    test -n "$client"; and __tcz_landing_new_shell $client
     tmux kill-pane -t $pane 2>/dev/null
     return 0
 end
@@ -4970,7 +4984,8 @@ function __tcz_main
         case landing
             __tcz_landing
         case pane-died
-            __tcz_pane_died $argv[2] $argv[3]
+            # argv[3], the hook's session name, is not trusted (see __tcz_pane_died).
+            __tcz_pane_died $argv[2]
         case landing-evict
             __tcz_landing_evict $argv[2] $argv[3]
         case session-close

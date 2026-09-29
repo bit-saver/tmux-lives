@@ -43,8 +43,8 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l tpeakpos $argv[16]     #   16 peakpos     chroma peak position along the ramp
     set -l tarr $argv[17]         #   17 arrangement ramp-position-to-role pattern
     set -l syncterm $argv[18]     #   18 syncterm    TERM glob told to use synchronized output ('' = off)
-    set -l landing $argv[19]      # landing-session kill switch: '' or absent = on (unset universal default)
-    test -n "$landing"; or set landing on
+    set -l landing $argv[19]      # landing-session kill switch: absent = on (unset universal default); '' is off
+    test (count $argv) -ge 19; or set landing on
     # Canonicalize once: whatever garbage argv[19] carries, everything downstream
     # (the branch below AND the commandeer line's trailing token) reads this same
     # literal on/off — the single shared rule is __tmux_lives_landing_enabled.

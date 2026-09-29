@@ -2778,8 +2778,8 @@ functions -e __ti_guard_funcs_ok __ti_guard_history_ok
 # switch. Close path (spec "When a session closes", measured 3.3a+3.7b):
 # remain-on-exit + a pane-died hook move a dying session's client to landing
 # before killing it; after-new-window/after-split-window evict a window/split
-# opened inside landing. argv[19] is the switch: '' or absent = on (matches the
-# universal's unset-means-on default). Placed BEFORE the socket-hygiene sweep
+# opened inside landing. argv[19] is the switch: absent = on (matches the
+# universal's unset-means-on default); '' is off. Placed BEFORE the socket-hygiene sweep
 # below so its own `-L` sockets are swept by that one sweep (review round 1,
 # I-1) rather than leaking (kill-server does not unlink the socket file).
 # =============================================================================
@@ -2808,6 +2808,9 @@ t "landing off: commandeer told off" 1 (string match -q "*commandeer '#{client_n
 # missing argv[19] (every pre-existing 18-arg call site) must behave as 'on'
 set -l fdefault (__tmux_lives_render_fragment $LBASE | string collect)
 t "landing: argv19 absent behaves as on" 1 (string match -q "*commandeer '#{client_name}' '#{client_session}' on*" -- "$fdefault"; and echo 1; or echo 0)
+# M-1: a set-but-empty switch is off everywhere (status and the shell side say so).
+set -l fempty (__tmux_lives_render_fragment $LBASE '' | string collect)
+t "M-1: argv19 empty takes the off branch" 1 (string match -q '*set -g remain-on-exit off*' -- "$fempty"; and echo 1; or echo 0)
 t "write_fragment passes tmux_lives_landing key" yes (string match -q '*tmux_lives_landing on*' -- (functions __tmux_lives_write_fragment | string collect); and echo yes; or echo no)
 # I-5: a garbage stored value must render the SAME off-branch status shows.
 set -l fgarbage (__tmux_lives_render_fragment $LBASE no | string collect)
@@ -2871,23 +2874,21 @@ t "landing e2e split: real fragment parses (source-file rc0) (non-regression)" 0
 command tmux -L $le1sock new-session -d -s _landing-1 -c $HOME 2>/dev/null
 command tmux -L $le1sock split-window -t '=_landing-1:' 2>/dev/null
 set -l le1n 0
-set -l le1gen
 set -l le1panes 2
 while test $le1n -lt 15
-    set le1gen (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*')
     set le1panes (command tmux -L $le1sock list-panes -t '=_landing-1:' 2>/dev/null | count)
-    test -n "$le1gen[1]"; and test "$le1panes" = 1; and break
+    test "$le1panes" = 1; and break
     sleep 0.2
     set le1n (math $le1n + 1)
 end
-t "landing e2e split: a gen-* session was created (evict fired)" 1 (test -n "$le1gen[1]"; and echo 1; or echo 0)
-t "landing e2e split: _landing-1 is back to one pane" 1 "$le1panes"
+t "landing e2e split: _landing-1 is back to one pane (evict fired)" 1 "$le1panes"
+# No client on _landing-1, so evict made no session for it (M-5).
+set -l le1gen (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*')
+t "landing e2e split: a clientless evict leaves no gen-* behind" "" "$le1gen"
 # I-6 tail: the SAME guard must NOT fire for an ordinary (non-landing) session
 # -- the if-shell -F '#{m:_landing-*,...}' predicate is the only thing standing
-# between "evict inside landing" and "evict everywhere". Snapshot the gen-*
-# count FIRST: the landing split just above already left one behind on this
-# same server, so "any gen-* exists" would pass vacuously -- only a NEW one
-# (the count growing) would prove eviction fired here too.
+# between "evict inside landing" and "evict everywhere". The pane count is the
+# signal (evict drops the pane); the gen-* count is kept as a second witness.
 set -l le1genbefore (count (command tmux -L $le1sock list-sessions -F '#{session_name}' 2>/dev/null | string match 'gen-*'))
 command tmux -L $le1sock new-session -d -s ordinary -c $HOME 2>/dev/null
 command tmux -L $le1sock split-window -t '=ordinary:' 2>/dev/null

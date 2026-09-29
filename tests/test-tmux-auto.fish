@@ -52,6 +52,9 @@ set -g __tac_real_proj_cache_before (test -e "$__tac_real_proj_cache"; and echo 
 set -g __tac_real_proj_cache_mtime_before (test -e "$__tac_real_proj_cache"; and path mtime -- "$__tac_real_proj_cache"; or echo none)
 set -gx tmux_lives_claude_projects_dir $TMUX_LIVES_TEST_UVARS/claude-projects
 set -gx tmux_lives_project_cache $TMUX_LIVES_TEST_UVARS/projects.tsv
+# Landing needs the managed fragment; run as a set-up host unless a test says not.
+set -g tmux_lives_fragment_file $TMUX_LIVES_TEST_UVARS/fragment.conf
+touch $tmux_lives_fragment_file
 
 # Every bare `tmux` in the harness AND in the sourced functions lands on the test
 # server (the PATH script above adds -L and -f /dev/null, so a fresh server never
@@ -364,6 +367,28 @@ set -e tmux_resurrect_dir
 rm -rf $rdir_d
 cleanup
 
+# M-2: a landing session a client is already on (a login during the boot-time
+# restore window) is live, not restored -- killing it would end that login.
+set -gx tmux_resurrect_dir $TMUX_LIVES_TEST_UVARS/rdir-m2
+mkdir -p $tmux_resurrect_dir
+tmux new-session -d -s _landing-3
+tmux new-session -d -s _landing-4
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-4" /dev/null >/dev/null 2>&1 &
+set -l m2pids (jobs -p)
+set -l m2att 0
+for i in (seq 25)
+    set -l c (command tmux -L $sock list-clients -t =_landing-4 2>/dev/null)
+    test -n "$c"; and set m2att 1; and break
+    sleep 0.2
+end
+__tmux_dispose_restored
+set -l m2left (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
+t "M-2: dispose keeps a landing session with a client on it, purges the clientless one" "1 _landing-4" "$m2att $m2left"
+for p in $m2pids; kill $p 2>/dev/null; end
+set -e tmux_resurrect_dir
+rm -rf $TMUX_LIVES_TEST_UVARS/rdir-m2
+cleanup
+
 # ---------------------------------------------------------------------
 # picker inside tmux runs the categorizer SUBPROCESS `open-switcher <client> [--take]`
 # (the __tcz_* helpers are not autoloaded into the interactive shell, so the real code
@@ -607,6 +632,17 @@ t "close (landing on): the kill itself is session-close's job, not ours" "yes" (
 printf '#!/usr/bin/env fish\nexit 1\n' > $cl_stub
 __tmux_lives_close
 t "close (landing on): a failing session-close falls back to the direct kill" "no" (tmux has-session -t =cur2 2>/dev/null; and echo yes; or echo no)
+# M-3: without the managed fragment nothing would ever clean a landing session up.
+printf '#!/usr/bin/env fish\nprintf "%%s\\n" $argv > %s\n' $cl_rec > $cl_stub
+rm -f $cl_rec
+tmux new-session -d -s cur2
+set -l cl_frag $tmux_lives_fragment_file
+set -g tmux_lives_fragment_file $TMUX_LIVES_TEST_UVARS/no-such-fragment.conf
+__tmux_lives_close
+set -l cl_called (test -e $cl_rec; and echo called; or echo absent)
+set -l cl_alive (tmux has-session -t =cur2 2>/dev/null; and echo yes; or echo no)
+t "M-3: close (landing on, no fragment) kills directly, no session-close" "absent no" "$cl_called $cl_alive"
+set -g tmux_lives_fragment_file $cl_frag
 set -g tmux_categorize_script $real_cat3
 rm -f $cl_stub $cl_rec
 functions -e __tmux_lives_current_session
@@ -834,8 +870,10 @@ set -e tmux_lives_landing
 # defaults to on, and everything else -- including a garbage stored value --
 # is off. The brief's own formula (`!= off`) disagrees with that rule on a
 # garbage value, so this proves agreement directly rather than trusting docs.
+# The renderer is the third opinion, fed the value exactly as write_fragment feeds it.
 source $plugindir/conf.d/tmux-lives-install.fish
-for v in on off UNSET no
+set -l lbase /x/cat.fish S M-s '' 0 M-m M-t M-r C-M-a C-M-s block M-k off 0.55 0.11 0.50 deep 'xterm*'
+for v in on off UNSET no ''
     if test "$v" = UNSET
         set -e tmux_lives_landing
     else
@@ -843,9 +881,21 @@ for v in on off UNSET no
     end
     set -l shell_side (__tmux_landing_enabled; and echo 1; or echo 0)
     set -l install_side (__tmux_lives_landing_enabled (__tmux_lives_key tmux_lives_landing on); and echo 1; or echo 0)
-    t "landing rule agrees with the install side ($v)" "$install_side" "$shell_side"
+    set -l frag (__tmux_lives_render_fragment $lbase (__tmux_lives_key tmux_lives_landing on) | string collect)
+    set -l render_side (string match -q '*set -g remain-on-exit on*' -- "$frag"; and echo 1; or echo 0)
+    t "landing rule agrees: shell, status and renderer ('$v')" "$install_side $install_side" "$shell_side $render_side"
 end
 set -e tmux_lives_landing
+
+# M-3: the shell side's fragment path mirrors the one _tmux_lives_post_update checks.
+set -l fp_keep $tmux_lives_fragment_file
+set -e tmux_lives_fragment_file
+set -l fp_shell (__tmux_fragment_path)
+t "fragment path agrees with the install side (default)" (__tmux_lives_fragment_path) "$fp_shell"
+set -g tmux_lives_fragment_file /x/frag.conf
+set -l fp_shell2 (__tmux_fragment_path)
+t "fragment path agrees with the install side (seam)" (__tmux_lives_fragment_path) "$fp_shell2"
+set -g tmux_lives_fragment_file $fp_keep
 
 # ---------------------------------------------------------------------
 # The exec sites, behaviourally. __tmux_autostart and the outside-tmux picker
@@ -866,6 +916,7 @@ printf '#!/bin/sh\nIFS="|"\necho "$*" >> %s\nexit 0\n' $ex_log > $ex_bin/tmux
 chmod +x $ex_bin/tmux
 printf '#!/usr/bin/env fish\nswitch "$argv[1]"\n    case landing-new\n        switch "$TL_STUB_MODE"\n            case empty\n            case junk\n                echo boom\n            case \'*\'\n                echo _landing-7\n        end\n    case new-general\n        echo gen-4\nend\n' > $ex_cat
 
+set -g __tac_frag $tmux_lives_fragment_file
 function __tac_exec --argument-names landing catscript mode --description '__tac_exec <landing: unset|on|off|..> <categorizer> <stub mode> <fn args...>: run the call in a child fish against the recorder tmux; print the last recorded tmux call'
     set -l call $argv[4..]
     rm -f $ex_log; touch $ex_log
@@ -873,6 +924,7 @@ function __tac_exec --argument-names landing catscript mode --description '__tac
     test "$landing" = unset; or set lenv tmux_lives_landing=$landing
     env -u TMUX -u TMUX_PANE PATH=(string join : $ex_bin $PATH) TMUX_AUTO=0 \
         tmux_categorize_script=$catscript TL_STUB_MODE=$mode $lenv \
+        tmux_lives_fragment_file=$__tac_frag \
         fish --no-config -c "source $plugindir/conf.d/tmux.fish; $call" >/dev/null 2>&1
     tail -n 1 $ex_log
 end
@@ -915,6 +967,16 @@ t "picker outside tmux -t (landing on): legacy take-over, popup carries --take" 
 t "picker outside tmux -t (landing on): no landing was created" no (__tac_exec_log_landing)
 set -l p_take2 (__tac_exec on $ex_cat name __tmux_lives_picker --take)
 t "picker outside tmux --take (landing on): legacy take-over" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*popup '' --take" "$p_take2"; and echo 1; or echo 0)
+# M-3: no managed fragment (before setup install, or after teardown) means no
+# tick sweep and no pane-died respawn, so landing would leak: the legacy path.
+set -g __tac_frag $ex_root/no-such-fragment.conf
+set -l a_nofrag (__tac_exec on $ex_cat name __tmux_autostart)
+t "M-3: autostart (landing on, no fragment): the legacy new-session" "-u|new-session" "$a_nofrag"
+t "M-3: autostart (landing on, no fragment): nothing landing was touched" no (__tac_exec_log_landing)
+set -l p_nofrag (__tac_exec on $ex_cat name __tmux_lives_picker)
+t "M-3: picker outside tmux (landing on, no fragment): the legacy path" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*" "$p_nofrag"; and echo 1; or echo 0)
+t "M-3: picker outside tmux (landing on, no fragment): nothing landing was touched" no (__tac_exec_log_landing)
+set -g __tac_frag $tmux_lives_fragment_file
 functions -e __tac_exec __tac_exec_log_landing
 
 # ---------------------------------------------------------------------

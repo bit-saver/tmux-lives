@@ -9519,8 +9519,6 @@ set -l evpane (command tmux -L $sock list-panes -t "=$evlnm:" -F '#{pane_id}' | 
 fish --no-config $lcat landing-evict $evpane $evlnm
 set -l evcount (command tmux -L $sock list-panes -t "=$evlnm:" | count)
 t "evict: split pane removed" 1 "$evcount"
-set -l evgen (command tmux -L $sock list-sessions -F '#{session_name}' | string match 'gen-*')
-t "evict: a gen-* session exists" 1 (test -n "$evgen"; and echo 1; or echo 0)
 cleanup
 
 # --- isolation: the test server must never see the live installed fragment ---
@@ -10264,7 +10262,6 @@ end
 set -l bhlisted (string match -q -- $bh\t'*' $bhm; and echo listed; or echo hidden)
 t "model: a claude below a \$HOME dotfiles repo does not hide the \$HOME project" listed "$bhlisted"
 rm -rf $pj $tmux_lives_project_cache $bh
-functions -e __tcg_screen_has __tcg_client_on
 cleanup
 
 # --- landing fix round 1: discovery sweeps its own stray temp files ---
@@ -10279,6 +10276,176 @@ set -l tkeep (test -e $tmux_lives_project_cache.keep; and echo kept; or echo swe
 set -l tcache (test -e $tmux_lives_project_cache; and echo written; or echo missing)
 t "projects: a write sweeps this cache's own stray temps and nothing else" "swept kept written" "$tstray $tkeep $tcache"
 rm -rf $pj $tmux_lives_project_cache $tmux_lives_project_cache.keep $tmux_lives_project_cache.AbC123 /tmp/tcz-tmp-proj-$fish_pid
+
+# --- final fix I-1: a rename between a pane's death and its pane-died handler ---
+# A dead pane (remain-on-exit) reports an empty path, so a tick in the
+# handler's latency used to rename its session to gen-N; the handler, given
+# the old name by the hook, then missed and left the pane dead forever.
+function __tcg_pane_dead --argument-names pane --description 'poll (≤ 3 s) until <pane> reports dead'
+    for i in (seq 30)
+        set -l d (command tmux -L $sock display-message -p -t $pane '#{pane_dead}' 2>/dev/null)
+        test "$d" = 1; and return 0
+        sleep 0.1
+    end
+    return 1
+end
+set -l rcroot /tmp/tcz-rc-$fish_pid
+mkdir -p $rcroot/racer $rcroot/moved
+
+# The reviewer's repro: pane dies, a categorize pass runs, then the handler.
+fresh_server
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock new-session -d -s racer -c $rcroot/racer 'sleep 600'
+command tmux -L $sock set-option -t '=racer:' @tmux_auto_name racer
+set -l rcpane (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_id}')
+set -l rcpid (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_pid}')
+kill $rcpid
+set -l rcdead (__tcg_pane_dead $rcpane; and echo 1; or echo 0)
+fish --no-config $lcat categorize >/dev/null 2>&1
+fish --no-config $lcat pane-died $rcpane racer
+set -l rcleft (command tmux -L $sock list-panes -a -F '#{session_name} #{pane_dead}' 2>/dev/null | string match '* 1')
+t "I-1: categorize then pane-died leaves no dead pane behind" "1 " "$rcdead $rcleft"
+cleanup
+
+# categorize alone: a dead active pane is a closing session, not a project-less one.
+# Control: an owned, misnamed session with a live pane IS renamed in the same pass.
+fresh_server
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock new-session -d -s racer -c $rcroot/racer 'sleep 600'
+command tmux -L $sock set-option -t '=racer:' @tmux_auto_name racer
+command tmux -L $sock new-session -d -s wrongname -c $rcroot/moved
+command tmux -L $sock set-option -t '=wrongname:' @tmux_auto_name wrongname
+set -l rc2pane (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_id}')
+kill (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_pid}')
+__tcg_pane_dead $rc2pane >/dev/null
+__tcz_categorize
+set -l rc2names (command tmux -L $sock list-sessions -F '#{session_name}' 2>/dev/null)
+set -l rc2kept (contains -- racer $rc2names; and echo kept; or echo renamed)
+set -l rc2ctl (contains -- moved $rc2names; and echo renamed; or echo stuck)
+t "I-1: categorize skips a session whose active pane is dead (control renamed)" "kept renamed" "$rc2kept $rc2ctl"
+cleanup
+
+# pane-died after a rename, with a real client: resolves the session from the pane.
+fresh_server
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock new-session -d -s racer -x 80 -y 24 -c /tmp 'sleep 600'
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =racer" /dev/null >/dev/null 2>&1 &
+set -l rc3pids (jobs -p)
+set -l rc3cl (__tcg_client_on racer)
+sleep 0.5
+set -l rc3pane (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_id}')
+kill (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_pid}')
+__tcg_pane_dead $rc3pane >/dev/null
+command tmux -L $sock rename-session -t =racer gen-7
+fish --no-config $lcat pane-died $rc3pane racer
+set -l rc3on ''
+for i in (seq 30)
+    set rc3on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    string match -q '_landing-*' -- "$rc3on"; and break
+    sleep 0.1
+end
+set -l rc3gone (command tmux -L $sock has-session -t =gen-7 2>/dev/null; and echo 0; or echo 1)
+t "I-1: pane-died after a rename lands the client and kills the renamed session" "1 1 1" (test -n "$rc3cl"; and echo 1; or echo 0)" "(string match -q '_landing-*' -- "$rc3on"; and echo 1; or echo 0)" $rc3gone"
+for p in $rc3pids; kill $p 2>/dev/null; end
+cleanup
+
+# A dying split after a rename: only that pane goes (it used to fall into the close path and miss).
+fresh_server
+command tmux -L $sock set -g remain-on-exit on
+command tmux -L $sock new-session -d -s racer -c /tmp
+command tmux -L $sock split-window -t '=racer:' 'sleep 600'
+set -l rc4 (command tmux -L $sock list-panes -t '=racer:' -F '#{pane_id} #{pane_pid} #{pane_start_command}' | string match '*sleep*' | string split ' ')
+kill $rc4[2]
+__tcg_pane_dead $rc4[1] >/dev/null
+command tmux -L $sock rename-session -t =racer gen-8
+fish --no-config $lcat pane-died $rc4[1] racer
+set -l rc4panes (command tmux -L $sock list-panes -t '=gen-8:' -F '#{pane_dead}' 2>/dev/null | string join ,)
+t "I-1: a dying split after a rename: the session keeps its one live pane" 0 "$rc4panes"
+cleanup
+rm -rf $rcroot
+functions -e __tcg_pane_dead
+
+# --- final fix M-5: evict checks for a client before making a session ---
+fresh_server
+set -l ev2 (__tcz_landing_new)
+command tmux -L $sock split-window -t "=$ev2:"
+set -l ev2pane (command tmux -L $sock list-panes -t "=$ev2:" -F '#{pane_id}' | tail -1)
+fish --no-config $lcat landing-evict $ev2pane $ev2
+set -l ev2count (command tmux -L $sock list-panes -t "=$ev2:" | count)
+set -l ev2gen (command tmux -L $sock list-sessions -F '#{session_name}' | string match 'gen-*')
+t "M-5: a clientless evict drops the pane and leaves no gen-N" "1 " "$ev2count $ev2gen"
+cleanup
+fresh_server
+set -l ev3 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ev3" /dev/null >/dev/null 2>&1 &
+set -l ev3pids (jobs -p)
+__tcg_client_on $ev3 >/dev/null
+command tmux -L $sock split-window -t "=$ev3:"
+set -l ev3pane (command tmux -L $sock list-panes -t "=$ev3:" -F '#{pane_id}' | tail -1)
+fish --no-config $lcat landing-evict $ev3pane $ev3
+set -l ev3on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+set -l ev3count (command tmux -L $sock list-panes -t "=$ev3:" | count)
+t "M-5 (non-regression): evict with a client moves it to a gen-N and drops the pane" "1 1" (string match -q 'gen-*' -- "$ev3on"; and echo 1; or echo 0)" $ev3count"
+for p in $ev3pids; kill $p 2>/dev/null; end
+cleanup
+
+# --- final fix M-7: stderr from the app loop never reaches its screen ---
+# The diff painter never repaints an unchanged row, so error text would stay.
+# Trigger: a transcript nobody can read makes discovery's `head` fail on stderr.
+fresh_server
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-m7
+set -l m7 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$m7" /dev/null >/dev/null 2>&1 &
+set -l m7pids (jobs -p)
+__tcg_client_on $m7 >/dev/null
+__tcg_screen_has "=$m7:" '*new shell*' 80 >/dev/null
+printf '{"cwd":"/tmp"}\n' > $pj/-m7/s.jsonl
+chmod 000 $pj/-m7/s.jsonl
+if test -r $pj/-m7/s.jsonl
+    echo "SKIP: M-7 needs an unreadable file (running as root?)"
+else
+    # r on a live row does nothing except re-read the project list next pass.
+    command tmux -L $sock send-keys -t "=$m7:" r
+    set -l m7read 0
+    for i in (seq 50)
+        test -e $tmux_lives_project_cache; and string match -q -- '*-m7*' < $tmux_lives_project_cache; and set m7read 1; and break
+        sleep 0.1
+    end
+    sleep 0.5
+    set -l m7err (command tmux -L $sock capture-pane -p -t "=$m7:" | string match -e 'Permission denied' | count)
+    t "M-7: a failing command in the app loop leaves no text on its screen" "1 0" "$m7read $m7err"
+end
+for p in $m7pids; kill $p 2>/dev/null; end
+chmod 600 $pj/-m7/s.jsonl
+rm -rf $pj $tmux_lives_project_cache
+cleanup
+
+# --- final fix: held arrow keys (the ESC path) drain too ---
+# readkey's CSI branch leaves the tty blocking, so the drain must re-arm the
+# zero timeout every read or the app blocks after the burst.
+fresh_server
+for n in s1 s2 s3 s4 s5
+    command tmux -L $sock new-session -d -s $n -c /tmp
+end
+command tmux -L $sock kill-session -t =0
+set -l ha (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ha" /dev/null >/dev/null 2>&1 &
+set -l hapids (jobs -p)
+__tcg_client_on $ha >/dev/null
+__tcg_screen_has "=$ha:" '*▐ s1*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=$ha:" Down Down Down Down
+set -l ha1 (__tcg_screen_has "=$ha:" '*▐ s2*' 20; and echo 1; or echo 0)
+sleep 0.5
+set -l ha1b (__tcg_screen_has "=$ha:" '*▐ s2*' 1; and echo 1; or echo 0)
+t "app: a burst of Down (the ESC path) moves exactly one row" "1 1" "$ha1 $ha1b"
+command tmux -L $sock new-session -d -s zz -c /tmp
+set -l ha2 (__tcg_screen_has "=$ha:" '*│ zz*' 50; and echo 1; or echo 0)
+t "app: ... and the next idle refresh still arrives" 1 "$ha2"
+for p in $hapids; kill $p 2>/dev/null; end
+cleanup
+functions -e __tcg_screen_has __tcg_client_on
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
