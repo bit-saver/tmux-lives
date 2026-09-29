@@ -67,6 +67,15 @@ tmux kill-session -t shellY
 t "pick_session: no idle detached -> empty" "" (__tmux_pick_session)
 cleanup
 
+# pick_session must never return a landing session. Both are idle bare shells
+# and this tmux's MRU tiebreak (equal, never-attached last_attached) sorts
+# "_landing-9" ahead of "shellL" -- created in this order, unfixed code picks
+# the landing session deterministically.
+tmux new-session -d -s _landing-9
+tmux new-session -d -s shellL
+t "pick_session: never returns a landing session" "shellL" (__tmux_pick_session)
+cleanup
+
 # ---------------------------------------------------------------------
 # Idle predicate
 # ---------------------------------------------------------------------
@@ -107,6 +116,11 @@ set -e TMUX; set -e TMUX_PANE
 set -g __tac_collides 0
 set -g __tac_rdir /tmp/test-tac-rdir-$fish_pid
 mkdir -p $__tac_rdir
+# Non-regression: this loop's __tmux_lives_close calls exercise the pre-landing
+# direct-kill path deliberately. Left at the default (on), close would shell
+# out to the categorizer's session-close verb, which is a real subprocess
+# that would reach the LIVE tmux server, not this loop's -L $sock.
+set -g tmux_lives_landing off
 for order in target-first target-last
     # busy "claude", idle-shell "other"
     __tac_build $order 'sleep 1000' ''
@@ -174,6 +188,7 @@ for order in target-first target-last
     set -l gone (command tmux -L $sock has-session -t =claude 2>/dev/null; and echo yes; or echo no)
     t "collision[$order]: close kills session claude" no "$gone"
 end
+set -e tmux_lives_landing
 t "collision: the fixture reproduced tmux's session/window ambiguity in at least one order" 1 "$__tac_collides"
 set -q __tac_saved_tmux; and set -gx TMUX $__tac_saved_tmux
 set -q __tac_saved_pane; and set -gx TMUX_PANE $__tac_saved_pane
@@ -275,12 +290,17 @@ cleanup
 set -g rdir_d /tmp/test-rdird-$fish_pid
 mkdir -p $rdir_d
 printf 'pane\tcrumbS\t0\t1\t:*\t0\t✳ Crumb\t:/home/bitsaver\t1\tclaude\t:claude --name Crumb\n' > $rdir_d/last
+# A restored _landing-2 that even LOOKS like a save-time claude breadcrumb
+# (so it lands in $crumbs too) must still be purged -- the landing check
+# has to run before, not after, the crumb check.
+printf 'pane\t_landing-2\t0\t1\t:*\t0\t✦ Landing\t:/home/bitsaver\t1\tclaude\t:claude --name Landing\n' >> $rdir_d/last
 set -gx tmux_resurrect_dir $rdir_d
 tmux new-session -d -s crumbS
 tmux new-session -d -s liveS 'sleep 1000'
 tmux new-session -d -s deadS
+tmux new-session -d -s _landing-2
 __tmux_dispose_restored
-t "dispose: breadcrumb + live kept, idle killed" "crumbS,liveS" (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
+t "dispose: breadcrumb + live kept, idle killed, landing purged despite looking like a crumb" "crumbS,liveS" (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
 # Stamped like every other kept session (2026-08-30). Unstamped meant the
 # ownership guard froze the name AND blocked the display write, so a restored
 # breadcrumb could never track its pane once naming moved to the pane's cwd.
@@ -489,8 +509,11 @@ set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
-# close: kills the current session; outside tmux errors.
+# close: kills the current session; outside tmux errors. Non-regression: run
+# with landing OFF -- with the default (on) close shells out to session-close
+# instead (tested separately below with a recorder stub).
 cleanup
+set -g tmux_lives_landing off
 t "close: outside tmux errors (rc1)" "1" (begin; set -e TMUX; __tmux_lives_close 2>/dev/null; echo $status; end)
 tmux new-session -d -s cur
 tmux new-session -d -s other
@@ -502,20 +525,46 @@ t "close: current session killed" "no" (tmux has-session -t =cur 2>/dev/null; an
 t "close: other session kept" "yes" (tmux has-session -t =other 2>/dev/null; and echo yes; or echo no)
 functions -e __tmux_lives_current_session
 set -e TMUX
+set -e tmux_lives_landing
+cleanup
+
+# close (landing on, the default): delegate to the categorizer's session-close
+# verb -- Task 6 already built and tested __tcz_session_close for this. Stub
+# the categorizer script so the call is recorded instead of reaching the live
+# tmux server.
+cleanup
+tmux new-session -d -s cur2
+set -gx TMUX fake
+function __tmux_lives_current_session; echo cur2; end
+set -g real_cat3 $tmux_categorize_script
+set -g cl_rec /tmp/close-rec-$fish_pid
+set -g cl_stub /tmp/close-stub-$fish_pid.fish
+set -g tmux_categorize_script $cl_stub
+printf '#!/usr/bin/env fish\nprintf "%%s\\n" $argv > %s\n' $cl_rec > $cl_stub
+__tmux_lives_close
+t "close (landing on): delegates to session-close"       "session-close" (head -1 $cl_rec 2>/dev/null)
+t "close (landing on): passes the current session name"  "cur2"          (sed -n 2p $cl_rec 2>/dev/null)
+t "close (landing on): the kill itself is session-close's job, not ours" "yes" (tmux has-session -t =cur2 2>/dev/null; and echo yes; or echo no)
+set -g tmux_categorize_script $real_cat3
+rm -f $cl_stub $cl_rec
+functions -e __tmux_lives_current_session
+set -e TMUX
 cleanup
 
 # ---------------------------------------------------------------------
-# clear: kills idle sessions, keeps current + non-idle.
+# clear: kills idle sessions, keeps current + non-idle; never touches landing.
 cleanup
 tmux new-session -d -s idleA
 tmux new-session -d -s idleB
 tmux new-session -d -s busy 'sleep 1000'
+tmux new-session -d -s _landing-3
 set -gx TMUX fake
 function __tmux_lives_current_session; echo idleA; end
 __tmux_lives_clear
 t "clear: idle non-current killed" "no"  (tmux has-session -t =idleB 2>/dev/null; and echo yes; or echo no)
 t "clear: current kept"            "yes" (tmux has-session -t =idleA 2>/dev/null; and echo yes; or echo no)
 t "clear: non-idle kept"           "yes" (tmux has-session -t =busy 2>/dev/null; and echo yes; or echo no)
+t "clear: landing session survives" "yes" (tmux has-session -t =_landing-3 2>/dev/null; and echo yes; or echo no)
 functions -e __tmux_lives_current_session
 set -e TMUX
 cleanup
@@ -701,6 +750,47 @@ t "shell key: the pty harness left the real fish_history untouched" "$hist_befor
 functions -e _shellkey_press _shellkey_setup
 set -e _tl_plugindir
 rm -rf $ptydir
+
+# ---------------------------------------------------------------------
+# Landing (Task 7): identity, kill switch, argv, and the two exec sites that
+# can only be proven by inspecting source -- exec replaces the process, so it
+# cannot be driven behaviourally here.
+# ---------------------------------------------------------------------
+set -l sl1 (__tmux_is_landing _landing-1; echo $status)
+t "is_landing (shell side)" 0 "$sl1"
+set -e tmux_lives_landing
+set -l le1 (__tmux_landing_enabled; echo $status)
+t "landing enabled by default" 0 "$le1"
+set -g tmux_lives_landing off
+set -l le2 (__tmux_landing_enabled; echo $status)
+t "landing off honoured" 1 "$le2"
+set -e tmux_lives_landing
+set -l la (__tmux_landing_argv)
+t "landing argv creates and attaches" 1 (string match -q -- '-u new-session -s _landing-* -c * *--no-config*landing' "$la"; and echo 1; or echo 0)
+set -l ab (functions __tmux_autostart | string collect)
+t "autostart execs the landing argv when enabled" 1 (string match -q '*__tmux_landing_enabled*exec tmux (__tmux_landing_argv)*' -- "$ab"; and echo 1; or echo 0)
+set -l picker_src2 (functions __tmux_lives_picker | string collect)
+t "picker outside tmux execs the landing argv when enabled" 1 \
+    (string match -q '*__tmux_landing_enabled*exec tmux (__tmux_landing_argv)*' -- "$picker_src2"; and echo 1; or echo 0)
+
+# The kill-switch rule must agree with the install side's
+# __tmux_lives_landing_enabled (+ its unset-defaults-on __tmux_lives_key),
+# which this suite does not otherwise load: only literal "on" is on, unset
+# defaults to on, and everything else -- including a garbage stored value --
+# is off. The brief's own formula (`!= off`) disagrees with that rule on a
+# garbage value, so this proves agreement directly rather than trusting docs.
+source $plugindir/conf.d/tmux-lives-install.fish
+for v in on off UNSET no
+    if test "$v" = UNSET
+        set -e tmux_lives_landing
+    else
+        set -g tmux_lives_landing $v
+    end
+    set -l shell_side (__tmux_landing_enabled; and echo 1; or echo 0)
+    set -l install_side (__tmux_lives_landing_enabled (__tmux_lives_key tmux_lives_landing on); and echo 1; or echo 0)
+    t "landing rule agrees with the install side ($v)" "$install_side" "$shell_side"
+end
+set -e tmux_lives_landing
 
 # ---------------------------------------------------------------------
 if test $FAIL -eq 0

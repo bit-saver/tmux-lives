@@ -4956,6 +4956,10 @@ function __tcz_main
             # pins $HOME, and it does so at its own call site — do not add an
             # argv passthrough here.
             __tcz_new_general
+        case landing-name
+            # Pure: the shell side passes the taken names in, so this makes
+            # no tmux call itself (Task 7's __tmux_landing_argv).
+            __tcz_free_name _landing $argv[2..]
         case landing-new
             __tcz_landing_new $argv[2]
         case landing
@@ -4973,7 +4977,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-name|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

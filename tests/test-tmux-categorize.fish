@@ -10253,6 +10253,14 @@ set -l tcache (test -e $tmux_lives_project_cache; and echo written; or echo miss
 t "projects: a write sweeps this cache's own stray temps and nothing else" "swept kept written" "$tstray $tkeep $tcache"
 rm -rf $pj $tmux_lives_project_cache $tmux_lives_project_cache.keep $tmux_lives_project_cache.AbC123 /tmp/tcz-tmp-proj-$fish_pid
 
+# --- landing-name (Task 7): pure verb, __tmux_landing_argv's own subprocess --
+set -l lnv (__tcz_main landing-name tmux-lives _landing-1 _landing-3)
+t "landing-name: smallest gap, same result as __tcz_free_name directly" "_landing-2" "$lnv"
+set -l lnv2 (__tcz_main landing-name)
+t "landing-name: no taken names -> _landing-1" "_landing-1" "$lnv2"
+t "landing-name: listed in __tcz_main and its usage line" yes \
+    (string match -q '*landing-name*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak

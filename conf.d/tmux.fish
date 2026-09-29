@@ -23,9 +23,10 @@ function __tmux_pick_candidates_from --description 'Read "attached last_attached
     end | sort -t $TAB -k1,1nr | cut -f2-
 end
 
-function __tmux_pick_session --description 'Echo the MRU detached GENERAL session to resume, or nothing'
+function __tmux_pick_session --description 'Echo the MRU detached GENERAL session to resume, or nothing (never a landing session)'
     for s in (tmux list-sessions -F '#{session_attached} #{session_last_attached} #{session_name}' 2>/dev/null \
                   | __tmux_pick_candidates_from)
+        __tmux_is_landing "$s"; and continue
         if __tmux_session_is_idle "$s"
             echo $s
             return
@@ -94,12 +95,21 @@ function __tmux_saved_claude_sessions --argument-names save --description 'Echo 
     awk -F '\t' '$1 == "pane" && $10 == "claude" { print $2 }' "$save" 2>/dev/null | sort -u
 end
 
-function __tmux_dispose_restored --description 'Post-restore: keep and stamp claude breadcrumbs + live work; kill the idle rest'
+function __tmux_dispose_restored --description 'Post-restore: keep and stamp claude breadcrumbs + live work; kill the idle rest; purge any restored landing session'
     # Login restore is HEADLESS: resurrect never relaunches programs (verified
     # 2026-06-12 post-incident), so every session returns as bare shells and the
     # SAVE FILE decides what was worth keeping.
     set -l crumbs (__tmux_saved_claude_sessions (__tmux_resurrect_dir)/last)
     for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+        # A restored landing session's pane is a bare "fish" prompt, which
+        # __tmux_session_is_idle also treats as idle -- but tmux-resurrect has
+        # no per-session exclusion, so a save can carry one, and options
+        # (hence any breadcrumb stamp) are never restored. Kill it unconditionally,
+        # before the crumb check, regardless of what the save file claims about it.
+        if __tmux_is_landing "$s"
+            tmux kill-session -t "=$s" 2>/dev/null
+            continue
+        end
         if contains -- $s $crumbs
             # Claude breadcrumb: a bare shell at the project cwd, ready for
             # `claude -r`. Kept (never killed, however idle it looks) and STAMPED.
@@ -174,16 +184,39 @@ function __tmux_trace_in_function --description 'True if a stack-trace blob show
     string match -q '*in function*' -- "$argv"
 end
 
+# ---- landing (kill switch: universal tmux_lives_landing) ----
+function __tmux_is_landing --argument-names name --description 'true if <name> is a landing session (must agree with __tcz_is_landing in tmux-categorize.fish)'
+    string match -q -- '_landing-*' "$name"
+end
+
+function __tmux_landing_enabled --description 'true iff landing is on: unset tmux_lives_landing, or its value is literally "on". Must agree with __tmux_lives_landing_enabled + __tmux_lives_key (tmux-lives-install.fish) -- this file does not load that one, so the rule is mirrored, not shared.'
+    set -q tmux_lives_landing; or return 0
+    test "$tmux_lives_landing" = on
+end
+
+function __tmux_landing_argv --description 'tmux argv that creates AND attaches a new landing session'
+    set -l names (tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    set -l name (fish --no-config $tmux_categorize_script landing-name $names)
+    # Printed one token per line so a caller's unquoted (__tmux_landing_argv)
+    # expands to separate argv words for tmux -- the trailing 4 words are the
+    # pane's shell command, same shape as __tcz_landing_cmd.
+    printf '%s\n' -u new-session -s "$name" -c $HOME fish --no-config $tmux_categorize_script landing
+end
+
 # ---- orchestrator ----
 function __tmux_ensure_server --description 'Start the tmux server, restoring the saved snapshot if none is running'
     tmux list-sessions >/dev/null 2>&1; and return 0
     __tmux_restore
 end
 
-function __tmux_autostart --description 'Restore (first login after reboot), categorize, prune, then attach or create'
+function __tmux_autostart --description 'Restore (first login after reboot), then land: a fresh landing session when enabled, else categorize/prune/pick-or-create as before'
     command -q tmux; or return
     if not tmux has-session 2>/dev/null     # no server yet → first login after a reboot
         __tmux_restore
+    end
+    if __tmux_landing_enabled
+        __tmux_prune
+        exec tmux (__tmux_landing_argv)
     end
     __tmux_categorize
     __tmux_prune
@@ -215,8 +248,11 @@ function __tmux_lives_picker --description 'Open the categorized session switche
             fish --no-config $tmux_categorize_script open-switcher "$client" $take
         return
     end
-    # Outside tmux: get into a session, then open the popup on the new client.
+    # Outside tmux: with landing on, landing IS the picker -- attach a fresh one.
     __tmux_ensure_server
+    if __tmux_landing_enabled
+        exec tmux (__tmux_landing_argv)
+    end
     __tmux_categorize
     set -l target (__tmux_pick_session)
     test -n "$target"; or set target (fish --no-config $tmux_categorize_script new-general)
@@ -380,13 +416,20 @@ function __tmux_lives_current_session --description 'Name of the session this cl
     tmux display-message -p '#{session_name}' 2>/dev/null
 end
 
-function __tmux_lives_close --description 'Kill the current session and return to the shell. tmux-lives close'
+function __tmux_lives_close --description 'Kill the current session and return to the shell (or, with landing on, to a fresh landing session). tmux-lives close'
     if not set -q TMUX
         echo "tmux-lives close: not inside a tmux session" >&2
         return 1
     end
     set -l cur (__tmux_lives_current_session)
     test -n "$cur"; or return 1
+    if __tmux_landing_enabled
+        # One subprocess, one tested helper (Task 6's __tcz_session_close):
+        # moves every client attached to $cur to its own landing session,
+        # then kills $cur.
+        fish --no-config $tmux_categorize_script session-close "$cur" >/dev/null 2>&1
+        return
+    end
     tmux set-option -t "=$cur:" detach-on-destroy on 2>/dev/null
     tmux kill-session -t "=$cur" 2>/dev/null
 end
@@ -405,6 +448,7 @@ function __tmux_lives_clear --description 'Kill idle sessions, keeping the curre
     set -q TMUX; and set cur (__tmux_lives_current_session)
     for s in (tmux list-sessions -F '#{session_name}' 2>/dev/null)
         test "$s" = "$cur"; and continue
+        __tmux_is_landing "$s"; and continue
         __tmux_session_is_idle "$s"; and tmux kill-session -t "=$s" 2>/dev/null
     end
     if test $do_exit -eq 1; and set -q TMUX
