@@ -9646,6 +9646,20 @@ printf '{"cwd":"/tmp/tcz-proj-a-%s"}\n' $fish_pid > $pj/-b/s2.jsonl
 set -l rows2 (__tcz_claude_projects)
 t "projects: newer transcript re-read" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows2[1])
 t "projects: deduped by folder" 1 (count $rows2)
+# fix round 1, finding 2: a WARM call (nothing changed since rows2) must not
+# rewrite the cache -- backdate it first so a rewrite would move its mtime.
+touch -d '1 minute ago' $tmux_lives_project_cache
+set -l cache_mtime_before (path mtime -- $tmux_lives_project_cache)
+__tcz_claude_projects >/dev/null
+set -l cache_mtime_after (path mtime -- $tmux_lives_project_cache)
+t "projects: warm call does not rewrite an unchanged cache" "$cache_mtime_before" "$cache_mtime_after"
+# ... but a vanished source directory (the set of directories changed) DOES.
+rm -rf $pj/-a
+__tcz_claude_projects >/dev/null
+set -l cache_rows_after_removal (cat $tmux_lives_project_cache)
+set -l gone_dir_rows (string match -r -- "^$pj/-a\t" $cache_rows_after_removal)
+t "projects: a removed directory rewrites the cache" 2 (count $cache_rows_after_removal)
+t "projects: the removed directory's row is gone from the cache" 0 (count $gone_dir_rows)
 set -l a1 (__tcz_age 300); t "age: minutes" 5m "$a1"
 set -l a2 (__tcz_age 10800); t "age: hours" 3h "$a2"
 set -l a3 (__tcz_age 172800); t "age: days" 2d "$a3"
@@ -9663,7 +9677,12 @@ mkdir -p /tmp/tcz-cwd-claude-$fish_pid /tmp/tcz-cwd-plain-$fish_pid
 tmux new-session -d -s cwdc -c /tmp/tcz-cwd-claude-$fish_pid "$shimdir/claude --enable-auto-mode"
 tmux new-session -d -s cwdp -c /tmp/tcz-cwd-plain-$fish_pid
 sleep 0.5
-t "claude_cwds: only the claude pane's cwd is reported" "/tmp/tcz-cwd-claude-$fish_pid" (__tcz_claude_cwds)
+# fix round 1, finding 1: capture BEFORE asserting -- calling an undefined
+# function directly inside `t`'s argument list aborts the whole statement
+# silently (no FAIL line); a separate capture line lets only that line abort,
+# so the assertion below still runs and fails visibly against $cwds unset/empty.
+set -l cwds (__tcz_claude_cwds)
+t "claude_cwds: only the claude pane's cwd is reported" "/tmp/tcz-cwd-claude-$fish_pid" "$cwds"
 rm -rf /tmp/tcz-cwd-claude-$fish_pid /tmp/tcz-cwd-plain-$fish_pid
 cleanup
 

@@ -1279,7 +1279,7 @@ function __tcz_claude_project_cache --description 'pure: path to the discovery c
     end
 end
 
-function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per real project folder that still exists locally. Each directory under __tcz_claude_projects_dir is a lossy slug; its real folder is the first "cwd":"..." value in its NEWEST *.jsonl transcript. Caches dir/mtime/folder rows in __tcz_claude_project_cache and only re-reads a directory whose newest transcript mtime moved, so a warm call forks nothing per project -- see the commit message for the measured fork count. Never fails discovery over a cache write it could not make.'
+function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per real project folder that still exists locally. Each directory under __tcz_claude_projects_dir is a lossy slug; its real folder is the first "cwd":"..." value in its NEWEST *.jsonl transcript. Caches dir/mtime/folder rows in __tcz_claude_project_cache, re-reading a directory only when its newest transcript mtime moved, and REWRITING the cache only when something actually changed (a re-read happened, or the directory set itself moved) -- a fully warm, unchanged call forks nothing per project and skips the cache write too. See the commit message for the measured fork counts. Never fails discovery over a cache write it could not make.'
     set -l root (__tcz_claude_projects_dir)
     set -l cache (__tcz_claude_project_cache)
     set -l TAB (printf '\t')
@@ -1296,7 +1296,11 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
     # One row per source directory, whether or not its folder still exists --
     # this is exactly what gets written back to the cache, so a directory
     # whose folder was deleted stays cached instead of being re-read forever.
+    # <changed> tracks whether the cache is stale: set on any re-read below,
+    # or (after the loop) when the directory SET itself moved -- a directory
+    # can vanish with no replacement, which the loop never visits to notice.
     set -l ddirs; set -l dmtimes; set -l dfolders
+    set -l changed 0
     for dir in $root/*/
         set dir (string replace -r '/+$' '' -- $dir)
         set -l files $dir/*.jsonl
@@ -1313,6 +1317,7 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         if test -n "$idx"; and test "$cmtimes[$idx]" = "$newestmtime"
             set folder $cfolders[$idx]
         else
+            set changed 1
             # The only fork in this function: read the transcript head and take
             # the FIRST "cwd" match -- an earlier summary line can lack one.
             set -l m (head -c 200000 -- $newest | string match -rg '"cwd":"([^"]+)"')
@@ -1321,15 +1326,18 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
 
         set -a ddirs $dir; set -a dmtimes $newestmtime; set -a dfolders "$folder"
     end
+    test (count $ddirs) -eq (count $cdirs); or set changed 1
 
-    set -l cachedir (path dirname -- $cache)
-    test -d "$cachedir"; or mkdir -p "$cachedir" 2>/dev/null
-    set -l tmp (mktemp "$cachedir/projects.XXXXXX" 2>/dev/null)
-    if test -n "$tmp"
-        for i in (seq (count $ddirs))
-            printf '%s\t%s\t%s\n' $ddirs[$i] $dmtimes[$i] $dfolders[$i]
-        end > $tmp
-        mv $tmp "$cache" 2>/dev/null
+    if test "$changed" = 1
+        set -l cachedir (path dirname -- $cache)
+        test -d "$cachedir"; or mkdir -p "$cachedir" 2>/dev/null
+        set -l tmp (mktemp "$cachedir/projects.XXXXXX" 2>/dev/null)
+        if test -n "$tmp"
+            for i in (seq (count $ddirs))
+                printf '%s\t%s\t%s\n' $ddirs[$i] $dmtimes[$i] $dfolders[$i]
+            end > $tmp
+            mv $tmp "$cache" 2>/dev/null
+        end
     end
 
     # Dedupe by folder (two source directories can resolve to the same real
