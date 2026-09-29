@@ -1210,19 +1210,28 @@ function __tcz_is_landing --argument-names name --description 'true if <name> is
 end
 
 function __tcz_landing_new --argument-names client --description 'create a landing session running the landing app; with <client>, move it there in the same tmux call; print the name'
-    set -l name (__tcz_free_name _landing (tmux list-sessions -F '#{session_name}' 2>/dev/null))
-    if test -n "$client"
-        # A failed switch (bad/gone client) must not leave an orphaned,
-        # clientless landing session behind -- kill what we just created.
-        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null
-        or begin
-            tmux kill-session -t "=$name" 2>/dev/null
-            return 1
+    # Two tabs can pick the same free name at once:
+    # - the loser's new-session fails, prints no id, and stops the chain -- retry with a fresh name;
+    # - a failed switch removes only the session this call created, by the id it printed.
+    for try in 1 2 3 4 5
+        set -l name (__tcz_free_name _landing (tmux list-sessions -F '#{session_name}' 2>/dev/null))
+        set -l id
+        if test -n "$client"
+            set id (tmux new-session -d -s "$name" -c "$HOME" -P -F '#{session_id}' $__tcz_landing_cmd \; switch-client -c "$client" -t "=$name" 2>/dev/null)
+            set -l rc $status
+            test -n "$id"; or continue
+            if test $rc -ne 0
+                tmux kill-session -t "$id" 2>/dev/null
+                return 1
+            end
+        else
+            set id (tmux new-session -d -s "$name" -c "$HOME" -P -F '#{session_id}' $__tcz_landing_cmd 2>/dev/null)
+            test -n "$id"; or continue
         end
-    else
-        tmux new-session -d -s "$name" -c "$HOME" $__tcz_landing_cmd 2>/dev/null; or return 1
+        echo $name
+        return 0
     end
-    echo $name
+    return 1
 end
 
 function __tcz_pane_died --argument-names pane session --description 'pane-died hook: respawn a dead landing pane, drop a dead pane in any other session, or -- on a session'"'"'s last live pane -- send each attached client to a new landing session and kill the session'
@@ -1236,6 +1245,11 @@ function __tcz_pane_died --argument-names pane session --description 'pane-died 
         tmux kill-pane -t $pane 2>/dev/null
         return 0
     end
+    __tcz_session_close $session
+end
+
+function __tcz_session_close --argument-names session --description 'close <session> the landing way: move each attached client to a new landing session, then kill it'
+    test -n "$session"; or return 0
     for c in (tmux list-clients -t "=$session" -F '#{client_name}' 2>/dev/null)
         __tcz_landing_new $c >/dev/null
     end
@@ -1335,14 +1349,21 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
     if test "$changed" = 1
         set -l cachedir (path dirname -- $cache)
         test -d "$cachedir"; or mkdir -p "$cachedir" 2>/dev/null
-        set -l tmp (mktemp "$cachedir/projects.XXXXXX" 2>/dev/null)
+        # Temps are named after the cache file, so a sweep can only ever
+        # touch this cache's own leftovers (a writer killed between mktemp
+        # and mv -- a landing app whose session closes -- leaves one).
+        set -l tmp (mktemp "$cache.XXXXXX" 2>/dev/null)
         if test -n "$tmp"
             set -l i 0
             for d in $ddirs
                 set i (math $i + 1)
                 printf '%s\t%s\t%s\n' $d $dmtimes[$i] $dfolders[$i]
             end > $tmp
-            mv $tmp "$cache" 2>/dev/null
+            if mv $tmp "$cache" 2>/dev/null
+                set -l strays $cache.*       # a glob in `set`: no match is no error
+                set strays (string match -er '\.[A-Za-z0-9]{6}$' -- $strays)
+                test (count $strays) -gt 0; and rm -f -- $strays
+            end
         end
     end
 
@@ -1397,18 +1418,22 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description 'rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self>: live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects, then new shell'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects, then new shell. Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
     set -l TAB (printf '\t')
     set -l cpids; set -l csess
-    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_session}" 2>/dev/null)
-        set -l f (string split -m 1 $TAB -- $line)
-        test (count $f) -eq 2; or continue
+    set -l me; set -l meact -1
+    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_session}$TAB#{client_activity}" 2>/dev/null)
+        set -l f (string split -m 2 $TAB -- $line)
+        test (count $f) -eq 3; or continue
         set -a cpids $f[1]; set -a csess $f[2]
+        # My client: the most recently active one on my session.
+        if test "$f[2]" = "$self"; and test "$f[3]" -gt $meact 2>/dev/null
+            set me (count $cpids); set meact $f[3]
+        end
     end
     # Sessions another client from my device is on. Clients on landing
     # sessions are skipped: those sessions are never listed.
     set -l here
-    set -l me (contains -i -- "$self" $csess)
     if test -n "$me"
         set -l mine (__tcz_client_device $cpids[$me])
         set -l j 0
@@ -1432,20 +1457,49 @@ function __tcz_landing_model --argument-names self --description 'rows "target\t
         end
         printf '%s\t%s\t%s\t%s\t%s\n' $f[1] $f[2] $mark $f[4] "$f[5]"
     end
-    # A project is running when a claude pane sits in its folder, or in a
-    # subdirectory whose git root is that folder.
+    # A project is running when a claude pane sits in its folder, or below it
+    # in a repo rooted there. A generic root ($HOME via a dotfiles repo, /,
+    # /tmp) is no project -- the same rule __tcz_project_name applies.
     set -l busy
     for cwd in (__tcz_claude_cwds)
-        set -a busy $cwd (__tcz_git_root $cwd)
+        set -a busy $cwd
+        set -l root (__tcz_git_root $cwd)
+        test -n "$root"; and not contains -- "$root" "$HOME" / /tmp /var/tmp; and set -a busy $root
+    end
+    set -l disc
+    if test "$argv[2]" = --
+        set disc $argv[3..]
+    else
+        set disc (__tcz_claude_projects)
     end
     set -l now
-    for line in (__tcz_claude_projects)
+    for line in $disc
         set -l f (string split -m 1 $TAB -- $line)
+        test (count $f) -eq 2; or continue
         contains -- $f[1] $busy; and continue
         test -n "$now"; or set now (date +%s)
         printf '%s\tproject\t0\t%s\t%s · %s\n' $f[1] $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2]))
     end
     printf 'new\tnew\t0\t0\tnew shell\n'
+end
+
+function __tcz_landing_client --argument-names self --description 'the client a landing session serves: the most recently active one attached to <self> (a tab can share it through a GUI session list or a hand attach)'
+    set -l best; set -l bestact -1
+    for line in (tmux list-clients -t "=$self" -F '#{client_activity} #{client_name}' 2>/dev/null)
+        set -l f (string split -m 1 ' ' -- $line)
+        test (count $f) -eq 2; or continue
+        test "$f[1]" -gt $bestact 2>/dev/null; or continue
+        set best $f[2]; set bestact $f[1]
+    end
+    test -n "$best"; and echo $best
+end
+
+function __tcz_landing_new_shell --argument-names client --description 'a new general session in $HOME for <client>; removed again if the switch fails'
+    set -l gen (__tcz_new_general $HOME)
+    test -n "$gen"; or return 1
+    tmux switch-client -c "$client" -t "=$gen" 2>/dev/null; and return 0
+    tmux kill-session -t "=$gen" 2>/dev/null
+    return 1
 end
 
 function __tcz_landing_info --argument-names row w h --description 'the preview column for a project or new-shell row: what Enter does, clipped to <w> cols and <h> lines'
@@ -1481,24 +1535,51 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> -- <model lines...>: paint the landing frame, legend last, through the diff emitter. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
+    set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]
+    set -e argv[1..4]
+    set -l model $argv
+    set -l lay (__tcz_popup_layout $cols | string split ' ')
+    set -l cap
+    set -l f (string split -m 2 \t -- $model[(math $sel + 1)])
+    if test $lay[2] -gt 0; and not contains -- "$f[2]" project new
+        set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
+    end
+    set -l key (string join \n -- $sel $rows $cols $model $cap | string collect)
+    if test "$__tcz_pe_force" != 1; and set -q __tcz_lp_key; and test "$key" = "$__tcz_lp_key"
+        return 1
+    end
+    set -g __tcz_lp_key "$key"
+    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 1) '' -- $model)
+    set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open r resume x kill d detach)
+    __tcz_popup_emit $frame (__tcz_popup_truncate "$legend" (math $cols - 1))
+end
+
 function __tcz_landing --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash)'
     set -l self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
     stty -icanon -echo 2>/dev/null
     printf '\e[?25l\e[2J'
-    set -l model
-    set -l sel 0
-    set -l stale 1
+    set -g __tcz_pe_prev
+    set -g __tcz_pe_force 1
+    set -e __tcz_lp_key
+    set -l model; set -l disc; set -l sel 0; set -l size ''
+    set -l stale 1                    # re-snapshot on the next turn
+    set -l pass 0                     # 0 = the idle-project list is due
+    set -l pending ''                 # a key the held-key drain read past
     while true
-        # Re-snapshot on the 3 s idle timeout and after an action, not on a
-        # move: the selection follows its target when rows shift.
+        # Live sessions re-snapshot every 3 s idle and after an action; the
+        # idle-project list only every 10th pass and after an action (running
+        # claude panes are still checked every pass). A move only repaints.
         if test $stale -eq 1
             __tcz_ps_flush
             __tcz_tmux_flush
-            set -l keep
-            test $sel -lt (count $model); and set keep (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
-            set model (__tcz_landing_model "$self")
-            set -l at (contains -i -- "$keep" (string split -f1 $TAB -- $model))
+            test $pass -eq 0; and set disc (__tcz_claude_projects)
+            set pass (math "($pass + 1) % 10")
+            # The pointer follows its row (target and category) when rows shift.
+            set -l keep (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model[(math $sel + 1)])
+            set model (__tcz_landing_model "$self" -- $disc)
+            set -l at (contains -i -- "$keep" (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model))
             if test -n "$at"
                 set sel (math $at - 1)
             else if test $sel -ge (count $model)
@@ -1511,13 +1592,30 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
         if string match -qr '^[1-9][0-9]*$' -- "$sz[1]"; and string match -qr '^[1-9][0-9]*$' -- "$sz[2]"
             set rows $sz[1]; set cols $sz[2]
         end
-        set -l lay (__tcz_popup_layout $cols | string split ' ')
-        __tcz_popup_draw $sel $lay[1] $lay[2] (math $rows - 1) '' -- $model
-        set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open r resume x kill d detach)
-        printf '\e[%s;1H\e[K%s' $rows (__tcz_popup_truncate "$legend" (math $cols - 1))
-        # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
-        stty min 0 time 30 2>/dev/null
-        set -l tok (__tcz_popup_readkey timeout)
+        if test "$rows $cols" != "$size"
+            set size "$rows $cols"
+            set -g __tcz_pe_force 1
+        end
+        __tcz_landing_paint $sel $rows $cols -- $model
+        set -l tok $pending
+        set pending ''
+        if test -z "$tok"
+            # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
+            stty min 0 time 30 2>/dev/null
+            set tok (__tcz_popup_readkey timeout)
+        end
+        if contains -- $tok up down pgup pgdn
+            # Held keys: discard queued repeats, one step per frame. A
+            # different key read past is kept for the next turn.
+            while true
+                stty min 0 time 0 2>/dev/null
+                set -l k2 (__tcz_popup_readkey timeout)
+                contains -- $k2 up down pgup pgdn; and continue
+                test "$k2" = timeout; or set pending $k2
+                break
+            end
+        end
+        set -l n (count $model)
         set -l row (string split \t -- $model[(math $sel + 1)])
         switch $tok
             case timeout
@@ -1525,47 +1623,50 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             case up
                 test $sel -gt 0; and set sel (math $sel - 1)
             case down
-                test $sel -lt (math (count $model) - 1); and set sel (math $sel + 1)
+                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
+            case pgup
+                set sel (math "max(0, $sel - max(1, $rows - 3))")
+            case pgdn
+                set sel (math "min($n - 1, $sel + max(1, $rows - 3))")
             case enter r
-                set stale 1
-                set -l client (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)[1]
+                set stale 1; set pass 0
+                set -l client (__tcz_landing_client "$self")
                 test -n "$client"; or continue
-                set -l moved 0
                 switch $row[2]
                     case project
                         set -l how continue
                         test $tok = r; and set how resume
-                        __tcz_landing_start $row[1] $how $client; and set moved 1
+                        __tcz_landing_start $row[1] $how $client
                     case new
                         test $tok = enter; or continue
-                        set -l gen (__tcz_new_general $HOME)
-                        test -n "$gen"; or continue
-                        if tmux switch-client -c $client -t "=$gen" 2>/dev/null
-                            set moved 1
-                        else
-                            tmux kill-session -t "=$gen" 2>/dev/null
-                        end
+                        __tcz_landing_new_shell $client
                     case '*'
                         test $tok = enter; or continue
-                        tmux switch-client -c $client -t "=$row[1]" 2>/dev/null; and set moved 1
+                        tmux switch-client -c $client -t "=$row[1]" 2>/dev/null
                 end
-                # Leave only once the client is somewhere else: killing an
-                # attached landing session would detach the tab.
-                test $moved -eq 1; and tmux kill-session -t "=$self" 2>/dev/null
+                # Leave once no tab is left here. A failed move leaves this tab
+                # here, and killing an attached landing session would detach it.
+                set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)
+                test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
             case kill
                 contains -- $row[2] claude running general; or continue
                 printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$row[1]"
+                set -g __tcz_pe_force 1       # the prompt overwrote the legend
                 stty min 1 time 0 2>/dev/null
                 set -l ans ''
                 dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read ans
                 if test "$ans" = 79; or test "$ans" = 59   # y / Y
-                    tmux kill-session -t "=$row[1]" 2>/dev/null
+                    # Its tabs land on landing, like any closing session.
+                    __tcz_session_close $row[1]
                 end
-                set stale 1
+                set stale 1; set pass 0
             case d
-                set -l client (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)[1]
+                set stale 1; set pass 0
+                set -l client (__tcz_landing_client "$self")
                 test -n "$client"; and tmux detach-client -t $client 2>/dev/null
-                tmux kill-session -t "=$self" 2>/dev/null
+                # A detached client can linger in the list for a moment: leave it out.
+                set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null | string match -v -- "$client")
+                test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
         end
     end
 end
@@ -1946,28 +2047,37 @@ function __tcz_popup_emit --description 'Paint a popup frame differentially: emi
     set -g __tcz_pe_partial 1
 end
 
-function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
+function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> -- <model lines...>: the frame as <rows> lines, each ending in erase-to-EOL. An overflowing list scrolls only to keep the selection in view; the window top persists in __tcz_pd_top across calls.'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
     set -l model $argv
     set -l TAB (printf '\t')
     set -l DIV (printf '\e[38;5;240m│\e[0m')
+    set -l EL (printf '\e[K')
     set -l left (printf '%s\n' $model | __tcz_popup_list_lines $listw $sel "$current")
-    # Scroll only when the selected row would fall below the last row; until
-    # then the list stays top-anchored. Mirrors list_lines: one rule line per
-    # category change, one line per row.
+    # Window: the pointer moves first; the list scrolls only when the
+    # selected row (with its rule, if it opens a group) would leave the window.
+    # Line numbering mirrors list_lines: one rule per category change.
     set -l top 0
     if test (count $left) -gt $rows
-        set -l line 0; set -l grp ''
+        set -l line 0; set -l first 0; set -l grp ''
         for row in $model[1..(math $sel + 1)]
             set -l c (string split -f2 $TAB -- $row)
+            set first 0
             if test "$c" != "$grp"
-                set grp $c; set line (math $line + 1)
+                set grp $c; set line (math $line + 1); set first $line
             end
             set line (math $line + 1)
         end
-        test $line -gt $rows; and set top (math $line - $rows)
+        test $first -eq 0; and set first $line
+        set -q __tcz_pd_top; and set top $__tcz_pd_top
+        test $first -le $top; and set top (math $first - 1)
+        test $line -gt (math $top + $rows); and set top (math $line - $rows)
+        set -l maxtop (math (count $left) - $rows)
+        test $top -gt $maxtop; and set top $maxtop
+        test $top -lt 0; and set top 0
     end
+    set -g __tcz_pd_top $top
     set -l right
     if test $prevw -gt 0
         set -l selrow $model[(math $sel + 1)]
@@ -1979,8 +2089,9 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
         end
     end
     set -l blankL (string repeat -n $listw ' ')
-    set -l out
-    for r in (seq $rows)
+    set -l r 0
+    while test $r -lt $rows
+        set r (math $r + 1)
         set -l lseg $blankL
         set -l li (math $r + $top)
         test $li -le (count $left); and set lseg $left[$li]
@@ -1990,8 +2101,12 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
             test $r -le (count $right); and set rseg $right[$r]
             set line "$lseg$DIV$rseg"
         end
-        set -a out "$line"(printf '\e[K')
+        printf '%s%s\n' "$line" $EL
     end
+end
+
+function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
+    set -l out (__tcz_popup_frame $argv)
     # Synchronized update (DECSET 2026) so the whole frame commits atomically — no
     # tearing/flash between list and preview. Newlines BETWEEN rows only: a trailing
     # newline after the last row scrolls a full-height popup up one (dropping the top
@@ -4849,6 +4964,8 @@ function __tcz_main
             __tcz_pane_died $argv[2] $argv[3]
         case landing-evict
             __tcz_landing_evict $argv[2] $argv[3]
+        case session-close
+            __tcz_session_close $argv[2]
         case host-kind
             __tcz_host_kind
         case status-format
@@ -4856,7 +4973,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

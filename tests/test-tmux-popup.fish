@@ -231,6 +231,57 @@ t "draw: the selected row is on screen when the list overflows" 1 (string match 
 set -g SCT (__tcz_popup_draw 0 20 0 8 '' -- $SCM)
 t "draw: a selection above the fold stays top-anchored (non-regression)" 1 (string match -q '*╭── general*' -- (vis "$SCT[1]"); and echo 1; or echo 0)
 
+# --- frame: ↑ below the fold moves the pointer; the list scrolls only at the window's top ---
+set -e __tcz_pd_top
+set -l s11 (__tcz_popup_frame 11 20 0 8 '' -- $SCM)
+set -l s10 (__tcz_popup_frame 10 20 0 8 '' -- $SCM)
+set -l s10p (string match -q '*▐ row11*' -- (vis "$s10"); and echo 1; or echo 0)
+t "frame: ↑ below the fold moves the pointer, the window stays" "1 1" (test -n "$s11[1]" -a "$s11[1]" = "$s10[1]"; and echo 1; or echo 0)" $s10p"
+set -l s03 (__tcz_popup_frame 3 20 0 8 '' -- $SCM)
+t "frame: the window scrolls up once the pointer passes its top" 1 (string match -q '*▐ row4*' -- (vis "$s03[1]"); and echo 1; or echo 0)
+set -e __tcz_pd_top
+
+# --- landing: the painter skips an unchanged frame and diffs a changed one ---
+set -g LPM (printf '/tmp/tcz-pa\tproject\t0\t%s\tpa · 2h' (math (date +%s) - 7200)) \
+    (printf '/tmp/tcz-pb\tproject\t0\t%s\tpb · 5h' (math (date +%s) - 18000)) \
+    (printf 'new\tnew\t0\t0\tnew shell')
+functions -c __tcz_popup_frame __tcp_frame_bak
+set -g FREC /tmp/tcz-frec-$fish_pid
+set -g LPOUT /tmp/tcz-lpout-$fish_pid
+rm -f $FREC $LPOUT
+function __tcz_popup_frame
+    echo built >> $FREC
+    __tcp_frame_bak $argv
+end
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+__tcz_landing_paint 2 24 80 -- $LPM > $LPOUT
+set -l lp1 (test (wc -c < $LPOUT) -gt 0; and echo 1; or echo 0)
+__tcz_landing_paint 2 24 80 -- $LPM > $LPOUT
+set -l lp2rc $status
+set -l lp2bytes (wc -c < $LPOUT | string trim)
+set -l lpbuilt (count (cat $FREC 2>/dev/null))
+t "paint: an unchanged frame is neither rebuilt nor emitted" "1 1 0 1" "$lp1 $lp2rc $lp2bytes $lpbuilt"
+# A move between two project rows: only the rows that differ are emitted.
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+__tcz_landing_paint 0 24 80 -- $LPM > /dev/null
+set -l fa (__tcp_frame_bak 0 33 46 23 '' -- $LPM)
+set -l fb (__tcp_frame_bak 1 33 46 23 '' -- $LPM)
+set -l fdiff
+for i in (seq (count $fb))
+    test "$fa[$i]" = "$fb[$i]"; or set -a fdiff $i
+end
+__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
+set -l lpemitted (string match -rag '\e\[([0-9]+);1H' -- (cat $LPOUT))
+set -l lpfull (string match -q '*'(printf '\e[H')'*' -- (cat $LPOUT | string collect); and echo 1; or echo 0)
+set -l lpsome (test (count $fdiff) -gt 0 -a (count $fdiff) -lt 23; and echo 1; or echo 0)
+set -l lpsame (test "$lpemitted" = "$fdiff"; and echo 1; or echo 0)
+t "paint: a move between two project rows emits only the changed rows" "1 1 0" "$lpsome $lpsame $lpfull"
+functions -e __tcz_popup_frame
+functions -c __tcp_frame_bak __tcz_popup_frame
+functions -e __tcp_frame_bak
+rm -f $FREC $LPOUT
+set -e __tcz_lp_key
+
 # --- landing: the preview column for project and new rows ---
 # __tcz_popup_preview is stubbed to a recorder: a project/new row must never
 # reach capture-pane, and this suite must never reach a real tmux server.
