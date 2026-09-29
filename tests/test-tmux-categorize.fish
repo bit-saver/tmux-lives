@@ -9686,6 +9686,259 @@ t "claude_cwds: only the claude pane's cwd is reported" "/tmp/tcz-cwd-claude-$fi
 rm -rf /tmp/tcz-cwd-claude-$fish_pid /tmp/tcz-cwd-plain-$fish_pid
 cleanup
 
+# --- landing: device identity ---
+set -g tmux_lives_fake_environ 'TERM=x' 'SSH_CONNECTION=10.0.30.120 49239 192.168.68.101 22'
+set -l dv1 (__tcz_client_device 1)
+t "device: ssh client address" 10.0.30.120 "$dv1"
+set -g tmux_lives_fake_environ 'TERM=x'
+set -l dv2 (__tcz_client_device 1)
+t "device: local" local "$dv2"
+set -g tmux_lives_fake_environ 'TERM=x' 'NOT_SSH_CONNECTION=10.9.9.9 1 2 3'
+set -l dv3 (__tcz_client_device 1)
+t "device: a look-alike variable is not SSH_CONNECTION" local "$dv3"
+set -e tmux_lives_fake_environ
+
+# --- landing: start a project ---
+set -g LREC /tmp/tcz-lrec-$fish_pid; rm -f $LREC
+function tmux; echo $argv >> $LREC; test "$argv[1]" = new-session; and echo '$9'; return 0; end
+__tcz_landing_start /tmp/projx continue cl1
+functions -e tmux
+set -l rec (cat $LREC)
+t "start: new session in the folder, id captured" 1 (string match -q '*new-session -d -c /tmp/projx -P -F #{session_id}*' -- $rec; and echo 1; or echo 0)
+t "start: claude --continue sent" 1 (string match -q '*send-keys -t $9 claude --continue Enter*' -- $rec; and echo 1; or echo 0)
+t "start: client switched by id" 1 (string match -q '*switch-client -c cl1 -t $9*' -- $rec; and echo 1; or echo 0)
+rm -f $LREC
+function tmux; echo $argv >> $LREC; test "$argv[1]" = new-session; and echo '$9'; return 0; end
+__tcz_landing_start /tmp/projx resume cl1
+functions -e tmux
+set -l rec2 (cat $LREC)
+t "start: r sends claude --resume" 1 (string match -q '*send-keys -t $9 claude --resume Enter*' -- $rec2; and echo 1; or echo 0)
+rm -f $LREC
+
+# --- landing: the model (real server, real pty clients, fixture projects) ---
+# Three clients: A on the landing session (device 10.9.9.1), B on `0` from the
+# same device, C on the claude session lmc from another device. lmr runs claude
+# in a subdirectory of a fixture repo, so its repo root counts as running too.
+fresh_server
+set -l lmi /tmp/tcz-lm-idle-$fish_pid
+set -l lmb /tmp/tcz-lm-busy-$fish_pid
+set -l lmr /tmp/tcz-lm-repo-$fish_pid
+mkdir -p $lmi $lmb $lmr/.git $lmr/sub
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-idle $pj/-busy $pj/-repo
+printf '{"cwd":"%s"}\n' $lmi > $pj/-idle/s.jsonl
+printf '{"cwd":"%s"}\n' $lmb > $pj/-busy/s.jsonl
+printf '{"cwd":"%s"}\n' $lmr > $pj/-repo/s.jsonl
+touch -d '2 hours ago' $pj/-idle/s.jsonl
+command tmux -L $sock new-session -d -s _landing-1
+command tmux -L $sock new-session -d -s lmc -c $lmb "$shimdir/claude --enable-auto-mode"
+command tmux -L $sock new-session -d -s lmr -c $lmr/sub "$shimdir/claude --enable-auto-mode"
+sleep 0.3
+sleep 30 | env SSH_CONNECTION='10.9.9.1 1 2 3' SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-1" /dev/null >/dev/null 2>&1 &
+sleep 30 | env SSH_CONNECTION='10.9.9.1 4 5 6' SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =0" /dev/null >/dev/null 2>&1 &
+sleep 30 | env SSH_CONNECTION='10.9.9.2 7 8 9' SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =lmc" /dev/null >/dev/null 2>&1 &
+set -l lmpids (jobs -p)
+for i in (seq 30)
+    test (command tmux -L $sock list-clients | count) -ge 3; and break
+    sleep 0.2
+end
+set -l lm (__tcz_landing_model _landing-1)
+set -l lm0 (string match -- '0'\t'*' $lm)
+t "model: a live row with a client from my device -> mark 2" "0 general 2" (string split -f1,2,3 \t -- "$lm0" | string join ' ')
+set -l lmcr (string match -- 'lmc'\t'*' $lm)
+t "model: a live row with a client from another device -> mark 1" "lmc claude 1" (string split -f1,2,3 \t -- "$lmcr" | string join ' ')
+set -l lmrr (string match -- 'lmr'\t'*' $lm)
+t "model: a live row with no client -> mark 0" "lmr claude 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
+t "model: rows listed, none of them a landing session" 1 (test (count $lm) -gt 0; and not string match -q -- '_landing-*' $lm; and echo 1; or echo 0)
+set -l lmir (string match -- $lmi\t'*' $lm)
+t "model: an idle project row" "project 0 tcz-lm-idle-$fish_pid · 2h" (string split -f2,3,5 \t -- "$lmir" | string join ' ')
+set -l lmimt (string split -f4 \t -- "$lmir")
+t "model: a project row carries its transcript mtime" (path mtime -- $pj/-idle/s.jsonl) "$lmimt"
+# Each hidden-row check also proves discovery DID find the folder and the model
+# is non-empty, so neither can pass on an empty model.
+set -l lmdisc (__tcz_claude_projects | string split -f1 \t)
+set -l lmbusy empty-model
+test (count $lm) -gt 0; and set lmbusy (string match -q -- $lmb\t'*' $lm; and echo listed; or echo hidden)
+set -l lmbdisc (contains -- $lmb $lmdisc; and echo discovered; or echo undiscovered)
+t "model: a project whose folder runs claude is hidden" "discovered hidden" "$lmbdisc $lmbusy"
+set -l lmrepo empty-model
+test (count $lm) -gt 0; and set lmrepo (string match -q -- $lmr\t'*' $lm; and echo listed; or echo hidden)
+set -l lmrdisc (contains -- $lmr $lmdisc; and echo discovered; or echo undiscovered)
+t "model: a project whose repo runs claude in a subdirectory is hidden" "discovered hidden" "$lmrdisc $lmrepo"
+t "model: the last row is new shell" (printf 'new\tnew\t0\t0\tnew shell') "$lm[-1]"
+for p in $lmpids; kill $p 2>/dev/null; end
+rm -rf $pj $tmux_lives_project_cache $lmi $lmb $lmr
+cleanup
+
+# --- landing: the running app, driven through a real pty client ---
+function __tcg_screen_has --argument-names target glob tries --description 'poll capture-pane of <target> (0.1 s steps) until a line matches <glob>'
+    for i in (seq $tries)
+        command tmux -L $sock capture-pane -p -t $target 2>/dev/null | string match -q -- $glob; and return 0
+        sleep 0.1
+    end
+    return 1
+end
+function __tcg_client_on --argument-names name --description 'poll (≤ 5 s) for a client on =<name>; print its name'
+    for i in (seq 25)
+        set -l c (command tmux -L $sock list-clients -t "=$name" -F '#{client_name}' 2>/dev/null)[1]
+        test -n "$c"; and echo $c; and return 0
+        sleep 0.2
+    end
+    return 1
+end
+
+# q / Esc do nothing; Enter on a live row moves the client there.
+fresh_server
+set -l la1 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la1" /dev/null >/dev/null 2>&1 &
+set -l lapids (jobs -p)
+__tcg_client_on $la1 >/dev/null
+set -l ladrawn (__tcg_screen_has "=$la1:" '*new shell*' 80; and echo 1; or echo 0)
+t "app: draws the chooser (a new shell row)" 1 "$ladrawn"
+command tmux -L $sock send-keys -t "=$la1:" q
+command tmux -L $sock send-keys -t "=$la1:" Escape
+sleep 1
+set -l laalive 0
+command tmux -L $sock has-session -t "=$la1" 2>/dev/null; and __tcg_screen_has "=$la1:" '*new shell*' 1; and set laalive 1
+t "app: q and Esc leave it running and drawing" 1 "$laalive"
+command tmux -L $sock send-keys -t "=$la1:" Enter
+set -l laon ''
+for i in (seq 30)
+    set laon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    test "$laon" = 0; and break
+    sleep 0.1
+end
+t "app: Enter on a live row switches the client there" 0 "$laon"
+set -l lagone (command tmux -L $sock has-session -t "=$la1" 2>/dev/null; and echo 0; or echo 1)
+t "app: ... and its landing session is gone" 1 "$lagone"
+for p in $lapids; kill $p 2>/dev/null; end
+cleanup
+
+# Enter on a session that vanished after the last snapshot: the switch fails,
+# so the app must keep its own session (killing it would detach the tab).
+fresh_server
+set -l lav (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$lav" /dev/null >/dev/null 2>&1 &
+set -l lavpids (jobs -p)
+__tcg_client_on $lav >/dev/null
+__tcg_screen_has "=$lav:" '*▐*' 80 >/dev/null
+# A no-op move restarts the app's 3 s read, so no refresh can land between the
+# kill and the Enter (sent in one tmux call).
+command tmux -L $sock send-keys -t "=$lav:" k
+sleep 1
+command tmux -L $sock kill-session -t =0 \; send-keys -t "=$lav:" Enter
+sleep 1
+set -l lavon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+set -l lavdraw (__tcg_screen_has "=$lav:" '*▐ new shell*' 50; and echo 1; or echo 0)
+t "app: Enter on a vanished session keeps the tab on its landing session, still drawing" "$lav 1" "$lavon $lavdraw"
+for p in $lavpids; kill $p 2>/dev/null; end
+cleanup
+
+# Enter on new shell: the client lands on a fresh gen-N.
+fresh_server
+set -l la2 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la2" /dev/null >/dev/null 2>&1 &
+set -l la2pids (jobs -p)
+__tcg_client_on $la2 >/dev/null
+__tcg_screen_has "=$la2:" '*new shell*' 80 >/dev/null
+set -l la2sel 0
+for i in (seq 6)
+    __tcg_screen_has "=$la2:" '*▐ new shell*' 5; and set la2sel 1; and break
+    command tmux -L $sock send-keys -t "=$la2:" j
+end
+t "app: j moves the pointer to new shell" 1 "$la2sel"
+# A session created now sorts above new shell; after the next refresh the
+# pointer must still be on new shell, not on whatever took its index.
+command tmux -L $sock new-session -d -s zz -c /tmp
+set -l la2zz (__tcg_screen_has "=$la2:" '*│ zz*' 50; and echo 1; or echo 0)
+set -l la2kept (__tcg_screen_has "=$la2:" '*▐ new shell*' 1; and echo 1; or echo 0)
+t "app: after a refresh adds a row above it, the pointer stays on new shell" "1 1" "$la2zz $la2kept"
+command tmux -L $sock send-keys -t "=$la2:" Enter
+set -l la2on ''
+for i in (seq 30)
+    set la2on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    string match -q 'gen-*' -- "$la2on"; and break
+    sleep 0.1
+end
+t "app: Enter on new shell lands the client on a gen session" 1 (string match -q 'gen-*' -- "$la2on"; and echo 1; or echo 0)
+set -l la2gone (command tmux -L $sock has-session -t "=$la2" 2>/dev/null; and echo 0; or echo 1)
+t "app: ... and its landing session is gone" 1 "$la2gone"
+for p in $la2pids; kill $p 2>/dev/null; end
+cleanup
+
+# x asks first (n keeps, y kills); d detaches the tab and removes the landing session.
+fresh_server
+set -l la3 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la3" /dev/null >/dev/null 2>&1 &
+set -l la3pids (jobs -p)
+__tcg_client_on $la3 >/dev/null
+__tcg_screen_has "=$la3:" '*new shell*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=$la3:" x
+set -l la3ask (__tcg_screen_has "=$la3:" '*kill 0 ?*' 30; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$la3:" n
+sleep 0.5
+set -l la3kept (command tmux -L $sock has-session -t =0 2>/dev/null; and echo 1; or echo 0)
+t "app: x asks before killing, and n keeps the session" "1 1" "$la3ask $la3kept"
+command tmux -L $sock send-keys -t "=$la3:" x
+__tcg_screen_has "=$la3:" '*kill 0 ?*' 30 >/dev/null
+command tmux -L $sock send-keys -t "=$la3:" y
+set -l la3killed 0
+for i in (seq 30)
+    command tmux -L $sock has-session -t =0 2>/dev/null; or begin; set la3killed 1; break; end
+    sleep 0.1
+end
+t "app: x then y kills the selected live session" 1 "$la3killed"
+command tmux -L $sock send-keys -t "=$la3:" d
+set -l la3cl x
+for i in (seq 30)
+    set la3cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
+    test -z "$la3cl"; and break
+    sleep 0.1
+end
+t "app: d detaches the client" "" "$la3cl"
+set -l la3gone (command tmux -L $sock has-session -t "=$la3" 2>/dev/null; and echo 0; or echo 1)
+t "app: ... and its landing session is gone" 1 "$la3gone"
+for p in $la3pids; kill $p 2>/dev/null; end
+cleanup
+
+# Enter on an idle project: a new session in its folder runs claude --continue
+# (the suite's fake claude is on the server's PATH).
+fresh_server
+set -l lpf /tmp/tcz-lp-proj-$fish_pid
+mkdir -p $lpf
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-lp
+printf '{"cwd":"%s"}\n' $lpf > $pj/-lp/s.jsonl
+set -l la4 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la4" /dev/null >/dev/null 2>&1 &
+set -l la4pids (jobs -p)
+__tcg_client_on $la4 >/dev/null
+__tcg_screen_has "=$la4:" '*new shell*' 80 >/dev/null
+set -l la4sel 0
+for i in (seq 6)
+    __tcg_screen_has "=$la4:" "*▐ tcz-lp-proj-$fish_pid*" 5; and set la4sel 1; and break
+    command tmux -L $sock send-keys -t "=$la4:" j
+end
+t "app: j reaches the idle project row" 1 "$la4sel"
+command tmux -L $sock send-keys -t "=$la4:" Enter
+set -l la4on ''
+for i in (seq 30)
+    set la4on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    test -n "$la4on"; and test "$la4on" != "$la4"; and break
+    sleep 0.1
+end
+set -l la4cwd (command tmux -L $sock display-message -p -t "=$la4on:" '#{pane_current_path}' 2>/dev/null)
+set -l la4typed (__tcg_screen_has "=$la4on:" '*claude --continue*' 30; and echo 1; or echo 0)
+t "app: Enter on a project moves the client to a session in its folder running claude --continue" "$lpf 1" "$la4cwd $la4typed"
+set -l la4gone (command tmux -L $sock has-session -t "=$la4" 2>/dev/null; and echo 0; or echo 1)
+t "app: ... and its landing session is gone" 1 "$la4gone"
+for p in $la4pids; kill $p 2>/dev/null; end
+rm -rf $pj $tmux_lives_project_cache $lpf
+functions -e __tcg_screen_has __tcg_client_on
+cleanup
+
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs
 # had accumulated on the dev host across two days. Same class as the socket leak

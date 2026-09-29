@@ -135,6 +135,28 @@ t "current chevron is muted-yellow"  yes (string match -q '*38;5;179*❯*' -- $C
 t "current row width = listwidth"    30  (string length (vis $CURL[3]))
 t "selected row still ▐ (not ❯)"     yes (string match -q '*▐*' -- $CURL[2]; and echo yes; or echo no)
 
+# --- landing: list_lines marks and the landing categories ---
+set -l here (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set here (vis "$here" | string join \n)
+t "list_lines: mark 2 renders [here]" 1 (string match -q '*[here]*' -- "$here"; and echo 1; or echo 0)
+set -l att (printf 'alpha\tclaude\t1\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set att (vis "$att" | string join \n)
+t "list_lines: mark 1 still [attached] (non-regression)" 1 (string match -q '*[attached]*' -- "$att"; and echo 1; or echo 0)
+set -l pr (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set pr (vis "$pr" | string join \n)
+t "list_lines: project rule" 1 (string match -q '*── idle claude*' -- "$pr"; and echo 1; or echo 0)
+set -g LHERE (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 1 '')
+set -l lhw (string length --visible -- (vis "$LHERE[2]"))
+set -l lhe (string match -qr '\[here\]$' -- (vis "$LHERE[2]"); and echo 1; or echo 0)
+t "list_lines: a [here] row is flush-right at listwidth" "40 1" "$lhw $lhe"
+set -g LLAND (printf '/p/x\tproject\t0\t0\tx · 2d\nnew\tnew\t0\t0\tnew shell\n' | __tcz_popup_list_lines 40 9 '')
+t "list_lines: project rule is colour 5" 1 (string match -q '*38;5;5m╭── idle claude *' -- "$LLAND[1]"; and echo 1; or echo 0)
+set -l lpw (string length --visible -- (vis "$LLAND[1]"))
+set -l lpf (string match -qr '^╭── idle claude ─+$' -- (vis "$LLAND[1]"); and echo 1; or echo 0)
+t "list_lines: the idle claude rule fills to listwidth" "40 1" "$lpw $lpf"
+t "list_lines: project row border is colour 5" 1 (string match -q '*38;5;5m│*' -- "$LLAND[2]"; and echo 1; or echo 0)
+t "list_lines: new rule is colour 8" 1 (string match -q '*38;5;8m╭── new ─*' -- "$LLAND[3]"; and echo 1; or echo 0)
+
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
 # lines stripped, bottom-anchored (blank rows on top), each truncated to w cols.
@@ -198,6 +220,62 @@ __tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2 > /tmp/tcz-draw-$fish_pid
 set -g DNL (wc -l < /tmp/tcz-draw-$fish_pid | string trim)
 rm -f /tmp/tcz-draw-$fish_pid
 t "draw has no trailing newline (rows-1)" 7 "$DNL"
+
+# --- draw: a selection below the fold scrolls into view ---
+set -g SCM
+for i in (seq 12)
+    set -a SCM (printf 's%s\tgeneral\t0\t0\trow%s' $i $i)
+end
+set -g SCD (__tcz_popup_draw 11 20 0 8 '' -- $SCM)
+t "draw: the selected row is on screen when the list overflows" 1 (string match -q '*▐ row12*' -- (vis "$SCD"); and echo 1; or echo 0)
+set -g SCT (__tcz_popup_draw 0 20 0 8 '' -- $SCM)
+t "draw: a selection above the fold stays top-anchored (non-regression)" 1 (string match -q '*╭── general*' -- (vis "$SCT[1]"); and echo 1; or echo 0)
+
+# --- landing: the preview column for project and new rows ---
+# __tcz_popup_preview is stubbed to a recorder: a project/new row must never
+# reach capture-pane, and this suite must never reach a real tmux server.
+functions -c __tcz_popup_preview __tcp_preview_bak
+set -g PREC /tmp/tcz-prec-$fish_pid
+rm -f $PREC
+function __tcz_popup_preview
+    echo $argv >> $PREC
+end
+set -g LDnew (printf 'new\tnew\t0\t0\tnew shell')
+set -g LDlive (printf 'alpha\tgeneral\t0\t0\talpha')
+set -g LDproj (printf '/tmp/tcz-some/proj\tproject\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
+__tcz_popup_draw 0 20 30 8 '' -- $LDnew $LDlive >/dev/null
+set -l prec_new (cat $PREC 2>/dev/null)
+t "draw: a new row never calls capture-pane" "" "$prec_new"
+set -l dproj (__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDnew | string join \n)
+set dproj (vis "$dproj" | string join \n)
+t "draw: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
+rm -f $PREC
+__tcz_popup_draw 1 20 30 8 '' -- $LDnew $LDlive >/dev/null
+set -l prec_live (cat $PREC 2>/dev/null)
+t "draw: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
+rm -f $PREC
+functions -e __tcz_popup_preview
+functions -c __tcp_preview_bak __tcz_popup_preview
+functions -e __tcp_preview_bak
+
+# --- landing: __tcz_landing_info ---
+set -l linow (date +%s)
+set -l li1 (__tcz_landing_info (printf '/p/x\tproject\t0\t%s\tx · 2h' (math $linow - 7200)) 40 8)
+set li1 (vis "$li1")
+t "landing_info: project shows its folder" 1 (string match -q '*/p/x*' -- "$li1"; and echo 1; or echo 0)
+t "landing_info: project shows its age" 1 (string match -q '*2h*' -- "$li1"; and echo 1; or echo 0)
+t "landing_info: project names both keys" 1 (string match -q '*--continue*--resume*' -- "$li1"; and echo 1; or echo 0)
+set -l li2 (__tcz_landing_info (printf 'new\tnew\t0\t0\tnew shell') 40 8)
+set li2 (vis "$li2")
+t "landing_info: new shell shows a hint" 1 (string match -q '*shell*' -- "$li2"; and echo 1; or echo 0)
+set -l li3 (__tcz_landing_info (printf '/a/very/long/folder/path/that/overflows\tproject\t0\t%s\tpath · 2h' $linow) 12 2)
+t "landing_info: never more than h lines" 2 (count $li3)
+set -l li3w 0
+for l in $li3
+    set -l w (string length --visible -- (vis "$l"))
+    test $w -gt $li3w; and set li3w $w
+end
+t "landing_info: every line fits w" 1 (test $li3w -le 12 -a $li3w -gt 0; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
 # __tcz_popup_readkey — must accept SS3 (\eOA/\eOB) cursor keys, not only CSI

@@ -440,6 +440,13 @@ function __tcz_client_is_shellfish --argument-names pid --description 'true if t
     test (__tcz_client_terminal $pid) = shellfish
 end
 
+function __tcz_client_device --argument-names pid --description 'client pid -> its device: the first field of SSH_CONNECTION in its environment, else local'
+    # Anchored on start-of-line or a space: Linux environ is one KEY=VALUE per
+    # line, macOS `ps eww` is one space-separated line.
+    set -l m (__tcz_pid_environ $pid | string match -rg '(?:^|\s)SSH_CONNECTION=(\S+)')
+    test -n "$m[1]"; and echo $m[1]; or echo local
+end
+
 function __tcz_emit_barcolor --argument-names tty color --description 'write the ShellFish setbarcolor OSC for <color> to <tty> (non-passthrough; client-tty level)'
     test -n "$color"; or return 0
     printf '\033]6;settoolbar://?ver=2&color=%s\a' (printf '%s' "$color" | base64 | string join '') > $tty
@@ -1218,12 +1225,6 @@ function __tcz_landing_new --argument-names client --description 'create a landi
     echo $name
 end
 
-function __tcz_landing --description 'the landing app; a placeholder that keeps the pane alive'
-    while true
-        sleep 3600
-    end
-end
-
 function __tcz_pane_died --argument-names pane session --description 'pane-died hook: respawn a dead landing pane, drop a dead pane in any other session, or -- on a session'"'"'s last live pane -- send each attached client to a new landing session and kill the session'
     test -n "$pane"; and test -n "$session"; or return 0
     if __tcz_is_landing $session
@@ -1307,9 +1308,12 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         test (count $files) -gt 0; or continue
         set -l mtimes (path mtime -- $files)
         set -l newest $files[1]; set -l newestmtime $mtimes[1]
-        for i in (seq 2 (count $files))
-            test "$mtimes[$i]" -gt "$newestmtime"; or continue
-            set newest $files[$i]; set newestmtime $mtimes[$i]
+        # Counters, not seq: this loop runs per directory on every landing refresh.
+        set -l i 0
+        for m in $mtimes
+            set i (math $i + 1)
+            test "$m" -gt "$newestmtime"; or continue
+            set newest $files[$i]; set newestmtime $m
         end
 
         set -l idx (contains -i -- "$dir" $cdirs)
@@ -1333,8 +1337,10 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         test -d "$cachedir"; or mkdir -p "$cachedir" 2>/dev/null
         set -l tmp (mktemp "$cachedir/projects.XXXXXX" 2>/dev/null)
         if test -n "$tmp"
-            for i in (seq (count $ddirs))
-                printf '%s\t%s\t%s\n' $ddirs[$i] $dmtimes[$i] $dfolders[$i]
+            set -l i 0
+            for d in $ddirs
+                set i (math $i + 1)
+                printf '%s\t%s\t%s\n' $d $dmtimes[$i] $dfolders[$i]
             end > $tmp
             mv $tmp "$cache" 2>/dev/null
         end
@@ -1343,8 +1349,9 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
     # Dedupe by folder (two source directories can resolve to the same real
     # folder), keep the newest mtime, drop anything that no longer exists.
     set -l ufolders; set -l umtimes
-    for i in (seq (count $ddirs))
-        set -l folder $dfolders[$i]
+    set -l i 0
+    for folder in $dfolders
+        set i (math $i + 1)
         test -n "$folder"; and test -d "$folder"; or continue
         set -l j (contains -i -- "$folder" $ufolders)
         if test -n "$j"
@@ -1356,8 +1363,10 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
 
     test (count $ufolders) -gt 0; or return
     set -l rows
-    for i in (seq (count $ufolders))
-        set -a rows "$ufolders[$i]$TAB$umtimes[$i]"
+    set -l i 0
+    for folder in $ufolders
+        set i (math $i + 1)
+        set -a rows "$folder$TAB$umtimes[$i]"
     end
     printf '%s\n' $rows | sort -t\t -k2,2nr
 end
@@ -1383,6 +1392,181 @@ function __tcz_age --argument-names secs --description 'pure: seconds -> a short
         echo (math "floor($secs / 86400)")d
     else
         echo (math "floor($secs / 604800)")w
+    end
+end
+
+# --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
+
+function __tcz_landing_model --argument-names self --description 'rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self>: live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects, then new shell'
+    set -l TAB (printf '\t')
+    set -l cpids; set -l csess
+    for line in (tmux list-clients -F "#{client_pid}$TAB#{client_session}" 2>/dev/null)
+        set -l f (string split -m 1 $TAB -- $line)
+        test (count $f) -eq 2; or continue
+        set -a cpids $f[1]; set -a csess $f[2]
+    end
+    # Sessions another client from my device is on. Clients on landing
+    # sessions are skipped: those sessions are never listed.
+    set -l here
+    set -l me (contains -i -- "$self" $csess)
+    if test -n "$me"
+        set -l mine (__tcz_client_device $cpids[$me])
+        set -l j 0
+        for pid in $cpids
+            set j (math $j + 1)
+            test $j -eq $me; and continue
+            __tcz_is_landing $csess[$j]; and continue
+            contains -- $csess[$j] $here; and continue
+            set -l dev (__tcz_client_device $pid)
+            test "$dev" = "$mine"; and set -a here $csess[$j]
+        end
+    end
+    for line in (__tcz_overview)
+        set -l f (string split -m 4 $TAB -- $line)
+        test (count $f) -ge 5; or continue
+        set -l mark 0
+        if contains -- $f[1] $here
+            set mark 2
+        else if contains -- $f[1] $csess
+            set mark 1
+        end
+        printf '%s\t%s\t%s\t%s\t%s\n' $f[1] $f[2] $mark $f[4] "$f[5]"
+    end
+    # A project is running when a claude pane sits in its folder, or in a
+    # subdirectory whose git root is that folder.
+    set -l busy
+    for cwd in (__tcz_claude_cwds)
+        set -a busy $cwd (__tcz_git_root $cwd)
+    end
+    set -l now
+    for line in (__tcz_claude_projects)
+        set -l f (string split -m 1 $TAB -- $line)
+        contains -- $f[1] $busy; and continue
+        test -n "$now"; or set now (date +%s)
+        printf '%s\tproject\t0\t%s\t%s · %s\n' $f[1] $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2]))
+    end
+    printf 'new\tnew\t0\t0\tnew shell\n'
+end
+
+function __tcz_landing_info --argument-names row w h --description 'the preview column for a project or new-shell row: what Enter does, clipped to <w> cols and <h> lines'
+    set -l f (string split -m 4 \t -- "$row")
+    set -l MUT (__tcz_theme muted); set -l RST (__tcz_theme reset)
+    set -l lines
+    switch "$f[2]"
+        case project
+            set -l dir $f[1]
+            string match -q -- "$HOME/*" $dir; and set dir "~"(string sub -s (math (string length -- $HOME) + 1) -- $dir)
+            set -l age (__tcz_age (math (date +%s) - $f[4]))
+            test "$age" = now; or set age "$age ago"
+            set lines '' " $dir" " $MUT""last conversation $age$RST" '' ' ⏎ claude --continue' ' r claude --resume'
+        case new
+            set lines '' ' new shell' " $MUT""a new session in ~$RST"
+    end
+    set -l n 0
+    for l in $lines
+        test $n -lt $h; or break
+        printf '%s%s\n' (__tcz_popup_truncate "$l" $w) $RST
+        set n (math $n + 1)
+    end
+end
+
+function __tcz_landing_start --argument-names folder how client --description 'start claude --continue (or --resume) in a new session born in <folder> and move <client> there; the session is addressed by id because the categorizer may rename it'
+    test "$how" = resume; or set how continue
+    set -l id (tmux new-session -d -c "$folder" -P -F '#{session_id}' 2>/dev/null)
+    test -n "$id"; or return 1
+    tmux send-keys -t $id "claude --$how" Enter 2>/dev/null
+    tmux switch-client -c "$client" -t $id 2>/dev/null; and return 0
+    # The client is gone: do not leave an unwatched claude behind.
+    tmux kill-session -t $id 2>/dev/null
+    return 1
+end
+
+function __tcz_landing --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash)'
+    set -l self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+    set -l TAB (printf '\t')
+    stty -icanon -echo 2>/dev/null
+    printf '\e[?25l\e[2J'
+    set -l model
+    set -l sel 0
+    set -l stale 1
+    while true
+        # Re-snapshot on the 3 s idle timeout and after an action, not on a
+        # move: the selection follows its target when rows shift.
+        if test $stale -eq 1
+            __tcz_ps_flush
+            __tcz_tmux_flush
+            set -l keep
+            test $sel -lt (count $model); and set keep (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
+            set model (__tcz_landing_model "$self")
+            set -l at (contains -i -- "$keep" (string split -f1 $TAB -- $model))
+            if test -n "$at"
+                set sel (math $at - 1)
+            else if test $sel -ge (count $model)
+                set sel (math (count $model) - 1)
+            end
+            set stale 0
+        end
+        set -l sz (stty size 2>/dev/null | string split ' ')
+        set -l rows 24; set -l cols 80
+        if string match -qr '^[1-9][0-9]*$' -- "$sz[1]"; and string match -qr '^[1-9][0-9]*$' -- "$sz[2]"
+            set rows $sz[1]; set cols $sz[2]
+        end
+        set -l lay (__tcz_popup_layout $cols | string split ' ')
+        __tcz_popup_draw $sel $lay[1] $lay[2] (math $rows - 1) '' -- $model
+        set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open r resume x kill d detach)
+        printf '\e[%s;1H\e[K%s' $rows (__tcz_popup_truncate "$legend" (math $cols - 1))
+        # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
+        stty min 0 time 30 2>/dev/null
+        set -l tok (__tcz_popup_readkey timeout)
+        set -l row (string split \t -- $model[(math $sel + 1)])
+        switch $tok
+            case timeout
+                set stale 1
+            case up
+                test $sel -gt 0; and set sel (math $sel - 1)
+            case down
+                test $sel -lt (math (count $model) - 1); and set sel (math $sel + 1)
+            case enter r
+                set stale 1
+                set -l client (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)[1]
+                test -n "$client"; or continue
+                set -l moved 0
+                switch $row[2]
+                    case project
+                        set -l how continue
+                        test $tok = r; and set how resume
+                        __tcz_landing_start $row[1] $how $client; and set moved 1
+                    case new
+                        test $tok = enter; or continue
+                        set -l gen (__tcz_new_general $HOME)
+                        test -n "$gen"; or continue
+                        if tmux switch-client -c $client -t "=$gen" 2>/dev/null
+                            set moved 1
+                        else
+                            tmux kill-session -t "=$gen" 2>/dev/null
+                        end
+                    case '*'
+                        test $tok = enter; or continue
+                        tmux switch-client -c $client -t "=$row[1]" 2>/dev/null; and set moved 1
+                end
+                # Leave only once the client is somewhere else: killing an
+                # attached landing session would detach the tab.
+                test $moved -eq 1; and tmux kill-session -t "=$self" 2>/dev/null
+            case kill
+                contains -- $row[2] claude running general; or continue
+                printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$row[1]"
+                stty min 1 time 0 2>/dev/null
+                set -l ans ''
+                dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read ans
+                if test "$ans" = 79; or test "$ans" = 59   # y / Y
+                    tmux kill-session -t "=$row[1]" 2>/dev/null
+                end
+                set stale 1
+            case d
+                set -l client (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)[1]
+                test -n "$client"; and tmux detach-client -t $client 2>/dev/null
+                tmux kill-session -t "=$self" 2>/dev/null
+        end
     end
 end
 
@@ -1510,12 +1694,15 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         set -l c 208
         test "$cat" = running; and set c 6
         test "$cat" = general; and set c 2
+        test "$cat" = project; and set c 5      # landing: idle Claude projects
+        test "$cat" = new; and set c 8          # landing: new shell
         set -l BORD (printf '\e[38;5;%sm' $c)   # category left-border (non-bold)
         # category rule (full width to listwidth)
         if test "$cat" != "$group"
             set group "$cat"
             set -l hdr (printf '\e[1;38;5;%sm' $c)
             set -l word "── $cat "
+            test "$cat" = project; and set word "── idle claude "
             set -l wl (string length -- "$word")
             set -l lead (math "1 + $wl")            # corner + word
             if test $lead -ge $listwidth
@@ -1528,6 +1715,8 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         set -l mk ''
         if test -n "$current"; and test "$name" = "$current"
             set mk '[current]'
+        else if test "$att" = 2
+            set mk '[here]'                         # landing: attached from this device
         else if test "$att" = 1
             set mk '[attached]'
         end
@@ -1764,16 +1953,37 @@ function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> 
     set -l TAB (printf '\t')
     set -l DIV (printf '\e[38;5;240m│\e[0m')
     set -l left (printf '%s\n' $model | __tcz_popup_list_lines $listw $sel "$current")
+    # Scroll only when the selected row would fall below the last row; until
+    # then the list stays top-anchored. Mirrors list_lines: one rule line per
+    # category change, one line per row.
+    set -l top 0
+    if test (count $left) -gt $rows
+        set -l line 0; set -l grp ''
+        for row in $model[1..(math $sel + 1)]
+            set -l c (string split -f2 $TAB -- $row)
+            if test "$c" != "$grp"
+                set grp $c; set line (math $line + 1)
+            end
+            set line (math $line + 1)
+        end
+        test $line -gt $rows; and set top (math $line - $rows)
+    end
     set -l right
     if test $prevw -gt 0
-        set -l selname (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
-        set right (__tcz_popup_preview "$selname" $prevw $rows)
+        set -l selrow $model[(math $sel + 1)]
+        set -l f (string split -m 2 $TAB -- $selrow)
+        if contains -- "$f[2]" project new
+            set right (__tcz_landing_info "$selrow" $prevw $rows)
+        else
+            set right (__tcz_popup_preview "$f[1]" $prevw $rows)
+        end
     end
     set -l blankL (string repeat -n $listw ' ')
     set -l out
     for r in (seq $rows)
         set -l lseg $blankL
-        test $r -le (count $left); and set lseg $left[$r]
+        set -l li (math $r + $top)
+        test $li -le (count $left); and set lseg $left[$li]
         set -l line $lseg
         if test $prevw -gt 0
             set -l rseg ''

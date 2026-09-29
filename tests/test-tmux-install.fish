@@ -28,6 +28,14 @@ source $plugindir/conf.d/tmux-lives-install.fish
 # of this file.
 set -g __til_rc_dir /tmp/til-rc-$fish_pid
 set -gx tmux_lives_render_cache_dir $__til_rc_dir
+# Landing Task 6: the pane-died end-to-end tests land real clients on real
+# landing apps, and the app runs Claude-project discovery. Exported before any
+# test server starts (servers inherit it) so no app here reads the real
+# ~/.claude/projects or writes the real projects cache; checked at the end.
+set -g __til_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
+set -g __til_real_proj_cache_before (test -e "$__til_real_proj_cache"; and path mtime -- "$__til_real_proj_cache"; or echo none)
+set -gx tmux_lives_claude_projects_dir /tmp/til-projects-$fish_pid
+set -gx tmux_lives_project_cache /tmp/til-projcache-$fish_pid.tsv
 set -g pass 0; set -g fail 0
 function t; test "$argv[2]" = "$argv[3]"; and set -g pass (math $pass+1); or begin; set -g fail (math $fail+1); echo "FAIL: $argv[1] => got [$argv[3]]"; end; end
 
@@ -5088,5 +5096,11 @@ eval $__mgr_realrender
 # the top of this file (mirrors the shim/socket hygiene sweeps other suites end
 # with).
 rm -rf $__til_rc_dir
+
+# Landing Task 6: drop the discovery seams set at the top, and prove the real
+# project cache was never written (existence and mtime in one token).
+rm -rf $tmux_lives_claude_projects_dir $tmux_lives_project_cache
+set -l __til_real_proj_cache_after (test -e "$__til_real_proj_cache"; and path mtime -- "$__til_real_proj_cache"; or echo none)
+t "isolation: the real project cache is untouched by this suite" "$__til_real_proj_cache_before" "$__til_real_proj_cache_after"
 
 test $fail -eq 0; and echo "ALL PASS ($pass)"; or begin; echo "FAILED ($fail)"; exit 1; end
