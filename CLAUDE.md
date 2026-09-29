@@ -124,7 +124,7 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **956 plain / 955
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **957 plain / 956
   `--no-config`** on a host where the real `~/.cache/tmux-lives` exists (one fewer each where it does
   not — its isolation bracket adds an mtime check only then). **The 1-count delta between modes is BY
   DESIGN** (one isolation assertion gated on plain fish) — do not "fix" it.
@@ -525,8 +525,7 @@ macwork session until 2026-09-16.
 
 ## Landing session
 
-Built on `feat/landing-session`, rehearsed on a throwaway server 2026-09-29. Spec:
-`docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
+Spec: `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
 Every automatic entry (login, outside-tmux `picker`, new ShellFish tab) and every closing tab lands on a
 per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell).
 
@@ -535,18 +534,19 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
   switch** = universal `tmux_lives_landing` (only the literal `on` is on; unset = on), fragment argv[19],
   `setup landing on|off|status`; `off` must equal pre-landing behavior exactly.
 - **Close path** = global `remain-on-exit on` + a `pane-died` hook → `session-close` (`__tcz_session_close`:
-  land every client, then kill; shared with `close` and the app's `x`). Hook is `#{q:…}`-quoted (an
-  apostrophe in a session name once left a pane dead forever) with a `|| tmux kill-pane` fallback.
+  land every client, then kill; shared with `close` and the app's `x`). Hook is `#{q:…}`-quoted with a
+  `|| tmux kill-pane` fallback. ⚠ The handler resolves the session from the **pane id** (a tick can
+  rename it mid-close); categorize never renames a session whose active pane is dead.
   **`detach-on-destroy off` is refuted** (MRU session first). `remain-on-exit` and the three hooks are
   server-global: `off` and teardown restore them.
 - **Creation** — `__tcz_landing_new [client]` retries a lost name race; a failed switch kills only its own
-  session, by id. Login/`picker` run `landing-new` then `exec tmux attach-session`, falling through to the
-  legacy path on no name; `picker -t` keeps take-over. `fisher update` respawns every live landing pane
-  (`__tmux_lives_landing_respawn`).
+  session, by id. Login/`picker` run `landing-new` then `exec tmux attach-session`; they and `close` go
+  legacy on no name or **no managed fragment** (nothing would clean up). `picker -t` keeps take-over.
+  `fisher update` respawns every live landing pane (`__tmux_lives_landing_respawn`).
 - **Sweep** — the tick kills clientless `_landing-*` from the loaded memo (zero tmux calls when none);
   ⚠ it **spares any under 10 s old**: `landing-new` creates detached and the shell attaches later.
 - **Excluded from** categorize/rename, snapshot+overview, both general-picks, `prune`, `clear`, tab titles
-  and restore (a restored landing is killed by name). `after-new-window`/`-split-window` hooks evict a
+  and restore (a restored clientless landing is killed by name). `after-new-window`/`-split-window` hooks evict a
   window opened inside landing to a `gen-N` in `$HOME`.
 - **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s, the idle-project list every
   10th pass (cache `projects.tsv`; seams `tmux_lives_claude_projects_dir`, `tmux_lives_project_cache`);
@@ -567,7 +567,7 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 ## Current state — 2026-09-29
 
 `main`'s last **code** commit `5076e04` (OSC 0 titles) is deployed on both machines since 2026-09-27.
-**The landing session is built on `feat/landing-session`** and awaits the whole-branch review, merge, and the user's `fisher update`; delete its plan once it ships.
+**The landing session** (`feat/landing-session`): review fixes landed; awaits merge and the user's `fisher update`; delete its plan once it ships.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
