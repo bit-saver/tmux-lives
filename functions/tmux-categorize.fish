@@ -1600,8 +1600,15 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l pass 0                     # 0 = the idle-project list is due
     set -l pending ''                 # a key the held-key drain read past
     set -l settle 1                   # drain all input until a quiet second after the first paint
+    # Idle cadence: once idle_after seconds pass with no key, refresh every idle_refresh seconds (test
+    # seams; 60 and 15). `idle` counts read timeouts in deciseconds, so it never runs ahead of the clock.
+    set -l idle 0; set -l idle_after 600; set -l slow 150
+    string match -qr '^[0-9]+(\.[0-9]+)?$' -- "$tmux_lives_landing_idle_after"
+    and set idle_after (math "round($tmux_lives_landing_idle_after * 10)")
+    string match -qr '^[0-9]+(\.[0-9]+)?$' -- "$tmux_lives_landing_idle_refresh"
+    and set slow (math "min(255, max(1, round($tmux_lives_landing_idle_refresh * 10)))")
     while true
-        # Live sessions re-snapshot every 3 s idle and after an action; the
+        # Live sessions re-snapshot every 3 s (15 s once idle) and after an action; the
         # idle-project list only every 10th pass and after an action (running
         # claude panes are still checked every pass). A move only repaints.
         if test $stale -eq 1
@@ -1634,11 +1641,22 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
         set pending ''
         if test -z "$tok"
             set -l wait 30
-            test $settle -eq 1; and set wait 10
+            if test $settle -eq 1
+                set wait 10
+            else if test $idle -ge $idle_after
+                set wait $slow
+            end
             # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
             stty min 0 time $wait 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
-            test "$tok" = timeout; and set settle 0
+            if test "$tok" = timeout
+                set settle 0
+                test $idle -lt $idle_after; and set idle (math $idle + $wait)
+            else
+                # Any key wakes an idle tab: refresh now, then back to 3 s.
+                test $idle -ge $idle_after; and set stale 1
+                set idle 0
+            end
         end
         if test "$tok" != timeout
             # A key acts only alone. More input already pending means typed-ahead or pasted text (ShellFish

@@ -546,8 +546,9 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 - **Excluded from** categorize/rename, snapshot+overview, both general-picks, `prune`, `clear`, tab titles
   and restore (a restored clientless landing is killed by name). `after-new-window`/`-split-window` hooks evict a
   window opened inside landing to a `gen-N` in `$HOME`.
-- **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s, the idle-project list every
-  10th pass (cache `projects.tsv`; seams `tmux_lives_claude_projects_dir`, `tmux_lives_project_cache`);
+- **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s (15 s after a minute with no
+  key; seams `tmux_lives_landing_idle_after`/`_idle_refresh`), the idle-project list every 10th pass
+  (cache `projects.tsv`; seams `tmux_lives_claude_projects_dir`, `tmux_lives_project_cache`);
   `d` detaches, `q`/Esc are no-ops (one token in `__tcz_popup_readkey`).
 - **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
   types `cd "<dir>"`⏎ into each new tab), drained unless a held move; all input is drained until a quiet

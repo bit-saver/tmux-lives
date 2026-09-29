@@ -10551,6 +10551,44 @@ rm -f $tyk
 cleanup
 functions -e __tcg_kbd_client __tcg_type __tcg_where
 
+# --- idle: a landing idle past its threshold refreshes on the slow cadence ---
+# Seams: idle after 2 s, then every 6 s. The model builder records each refresh.
+fresh_server
+set -l ilrec /tmp/tcz-ilrec-$fish_pid
+rm -f $ilrec
+set -l ilcmd "set -g tmux_categorize_test 1; source $lcat; set -g tmux_lives_landing_idle_after 2; set -g tmux_lives_landing_idle_refresh 6; functions -c __tcz_landing_model __il_bak; function __tcz_landing_model; date +%s%3N >> $ilrec; __il_bak \$argv; end; __tcz_landing"
+command tmux -L $sock new-session -d -s _landing-6 -c $HOME fish --no-config -c "$ilcmd"
+sleep 40 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-6" /dev/null >/dev/null 2>&1 &
+set -l ilpids (jobs -p)
+__tcg_client_on _landing-6 >/dev/null
+__tcg_screen_has "=_landing-6:" '*new shell*' 80 >/dev/null
+for i in (seq 200)
+    test (count (cat $ilrec 2>/dev/null)) -ge 4; and break
+    sleep 0.1
+end
+set -l ilm (cat $ilrec 2>/dev/null)
+set -l ilslow 0
+test (count $ilm) -ge 4; and set ilslow (math "$ilm[4] - $ilm[3]")
+set -l ilisslow (test $ilslow -ge 5000; and echo 1; or echo 0)
+t "idle: once idle, refreshes come on the slow cadence (3rd to 4th refresh >= 5 s apart)" 1 "$ilisslow"
+sleep 0.5
+set -l ilkey (date +%s%3N)
+command tmux -L $sock send-keys -t "=_landing-6:" j
+for i in (seq 100)
+    test (count (cat $ilrec 2>/dev/null)) -ge 6; and break
+    sleep 0.1
+end
+set ilm (cat $ilrec 2>/dev/null)
+set -l ilwoke 0; set -l ilfast 0
+if test (count $ilm) -ge 6
+    test (math "$ilm[5] - $ilkey") -lt 1000; and set ilwoke 1
+    set -l ilgap (math "$ilm[6] - $ilm[5]")
+    test $ilgap -ge 2500; and test $ilgap -le 4500; and set ilfast 1
+end
+t "idle: a key refreshes at once and the next refresh is on the 3 s cadence" "1 1" "$ilwoke $ilfast"
+for p in $ilpids; kill $p 2>/dev/null; end
+rm -f $ilrec
+cleanup
 functions -e __tcg_screen_has __tcg_client_on __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
