@@ -36,13 +36,16 @@ if test -n "$unguarded"
     exit 1
 end
 
-# Every tmux PATH shim (a printf line that execs the real tmux binary against an
-# isolated -L socket) must pin -f /dev/null, or the server it starts loads the
-# user's ~/.tmux.conf -- and with it the live installed tmux-lives fragment's
+# Every tmux PATH shim (a printf line writing a file named tmux that execs a tmux
+# binary -- literal or a %s like `command -s tmux` -- against an isolated -L
+# socket) must pin -f /dev/null, or the server it starts loads the user's
+# ~/.tmux.conf -- and with it the live installed tmux-lives fragment's
 # client-session-changed/client-attached hooks, which then race the test.
-set -l shim_hits (grep -n 'exec /usr/bin/tmux' $plugindir/tests/test-tmux-*.fish)
-if test (count $shim_hits) -lt 2
-    echo "FAIL: expected at least 2 tmux PATH shim lines under tests/test-tmux-*.fish, found "(count $shim_hits); echo "FAILED"
+# The floor is the count the suites carry today: a pattern that stops seeing a
+# shim shape fails here instead of passing vacuously.
+set -l shim_hits (grep -nE 'exec [^ ]+ .*-L .*> *\$[A-Za-z_]+/tmux([^A-Za-z0-9_-]|$)' $plugindir/tests/test-tmux-*.fish)
+if test (count $shim_hits) -lt 9
+    echo "FAIL: expected at least 9 tmux PATH shim lines under tests/test-tmux-*.fish, found "(count $shim_hits); echo "FAILED"
     exit 1
 end
 set -l unsafe_shims
