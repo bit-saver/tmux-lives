@@ -488,6 +488,10 @@ macwork session until 2026-09-16.
 ## Traps that cost real time
 
 **Environment**
+- ⛔ **Every agent shell runs inside the user's LIVE tmux, so `TMUX` names his real server — and `TMUX`
+  beats `TMUX_TMPDIR`.** Every ad-hoc tmux command in a probe names its socket (`-L name` / `-S path`);
+  never a bare `kill-server`. A review agent killed the live server this way on 2026-09-29
+  (`docs/2026-09-29-review-agent-killed-live-tmux-server.md`). Put this rule in every sub-agent prompt.
 - **The agent Bash tool runs zsh.** A non-matching glob **aborts the whole command** (`rm -rf a/* b/*` can
   silently no-op) — use `find … -delete`. MULTIOS also leaks stdout into a stderr-only pipe count; wrap
   in `bash -c '…'`.
