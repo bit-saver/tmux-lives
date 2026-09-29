@@ -162,9 +162,9 @@ doesn't reach subprocesses — one call site returns the user's **real** session
 `TMUX=fake` failing to connect. Coincidence, not isolation: stub directly. See `[[tmux_test_isolation]]`.
 
 **A third $HOME-resolving seam, now guarded:** `tmux_lives_render_cache_dir` (the render cache, above)
-defaults through `$XDG_CACHE_HOME`/`$HOME` like the two seams above — both suites now set it. ⚠ Its
-prune deletes every `*.tsv` not carrying the current engine key, so it must never point at a shared
-directory.
+defaults through `$XDG_CACHE_HOME`/`$HOME` like the two seams above — both suites now set it. ⚠ The
+directory is shared (the landing app keeps `projects.tsv` there), so its prune deletes only stale files
+of its own `<digits>-<hex6>.tsv` shape.
 
 ---
 

@@ -1380,13 +1380,15 @@ function __tmux_lives_theme_render --argument-names seedHex mode Lspan peakC pea
     __tmux_lives_theme_constrain $pal $arrangement
 end
 
-function __tmux_lives_render_cache_prune --argument-names dir ek --description 'picker-render-cost Task 2: delete stale-engine cache files under <dir> -- any *.tsv whose name does not start with "<ek>-". Called after a fresh write so a bumped engine key sweeps its predecessors instead of the directory growing forever. Guarded on a NON-EMPTY <ek> before touching anything: the only glob used is the fixed "*.tsv" (the variable never appears inside a wildcard), and each candidate is filtered individually via string match against "<ek>-*", so an empty <ek> can only make this return early -- never widen what gets deleted. This repo has shipped exactly the opposite bug before: an empty variable silently turning a narrow glob into a broad one.'
+function __tmux_lives_render_cache_prune --argument-names dir ek --description 'picker-render-cost Task 2: delete stale-engine cache files under <dir> -- files of this cache'"'"'s OWN shape (<digits engine key>-<6 hex seed>.tsv) whose name does not start with "<ek>-". Anything else in the directory is never touched: it is shared (the landing app keeps projects.tsv there). Called after a fresh write so a bumped engine key sweeps its predecessors instead of the directory growing forever. Guarded on a NON-EMPTY <ek> before touching anything: the only glob used is the fixed "*.tsv" (the variable never appears inside a wildcard), and each candidate is filtered individually, so an empty <ek> can only make this return early -- never widen what gets deleted. This repo has shipped exactly the opposite bug before: an empty variable silently turning a narrow glob into a broad one.'
     if test -z "$dir"; or test -z "$ek"; or not test -d "$dir"
         return
     end
     for f in $dir/*.tsv
         test -e "$f"; or continue
-        string match -q -- "$ek-*" (path basename -- "$f"); and continue
+        set -l b (path basename -- "$f")
+        string match -qr '^[0-9]+-[0-9a-fA-F]{6}\.tsv$' -- $b; or continue
+        string match -q -- "$ek-*" $b; and continue
         rm -f -- "$f"
     end
 end

@@ -623,7 +623,7 @@ t "a different seed produced different hexes" no (test "$cachedB" = "$direct1"; 
 set -l seedC "#3a6fc0"
 set -l recC complementary 0.30 0.17 0.55 bright
 set -l reckC (string join ' ' $recC)
-set -l bogus_ek notarealenginekey
+set -l bogus_ek 1111111111             # a real engine key is all digits (cksum)
 set -l seedCkey (string replace -r '^#' '' -- $seedC)
 set -l bogusFile "$trc/$bogus_ek-$seedCkey.tsv"
 printf '%s\t%s\n' "$reckC" '#111111 #222222 #333333 #444444 #555555 #666666 #777777' >$bogusFile
@@ -632,6 +632,15 @@ set -l cachedC (string join ' ' (__tmux_lives_theme_render_cached $seedC $recC))
 t "a stale-engine-key file is not served" "$directC" "$cachedC"
 t "serving the real recipe rendered (bogus entry ignored, not hit)" 3 $__tml_render_probe
 t "a fresh write pruned the stale-engine-key file" no (test -f "$bogusFile"; and echo yes; or echo no)
+
+# 6b. The cache directory is shared (the landing app keeps projects.tsv there):
+# the prune deletes only stale files of its own <digits>-<hex6>.tsv shape.
+set -l prd (mktemp -d /tmp/tli-prune-$fish_pid.XXXXXX)
+touch $prd/1111111111-aaaaaa.tsv $prd/2222222222-bbbbbb.tsv $prd/projects.tsv $prd/notes.tsv
+__tmux_lives_render_cache_prune $prd 2222222222
+set -l prleft (path basename -- $prd/*.tsv | string join ' ')
+t "prune: only stale engine files go; a foreign projects.tsv survives" "2222222222-bbbbbb.tsv notes.tsv projects.tsv" "$prleft"
+rm -rf $prd
 
 # 7. Corrupt/truncated cache lines are ignored, not served. Uses a fresh seed
 # so this process has never loaded its file before -- otherwise the
