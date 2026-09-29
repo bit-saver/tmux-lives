@@ -2440,10 +2440,10 @@ function tmux
         case display-message
             echo $tcz_test_path              # the active pane's live cwd (fallback only)
         case list-sessions
-            # @tmux_lives_name (8, last, greedy) is the only field
+            # @tmux_lives_name (9, last, greedy) is the only field
             # __tcz_session_title reads from this row; the rest (attached/
-            # last_attached/path/claude/auto_name/display) are unused.
-            printf 'sA\t0\t0\t\t\t\t\t%s\n' $tcz_test_name
+            # last_attached/path/created/claude/auto_name/display) are unused.
+            printf 'sA\t0\t0\t\t\t\t\t\t%s\n' $tcz_test_name
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -2477,7 +2477,7 @@ function tmux
         case display-message
             echo ''                          # empty active-pane cwd
         case list-sessions
-            printf 'sA\t0\t0\t\t\t\t\t\n'     # empty name (8)
+            printf 'sA\t0\t0\t\t\t\t\t\t\n'     # empty name (9)
     end
 end
 set -g __tcz_oldhome $HOME; set -g HOME /home/x; set -g tmux_lives_hostname macwork
@@ -3096,10 +3096,10 @@ function tmux
         case set-option
             set -g CLAUDE_SET "$argv"   # capture the last set-option
         case list-sessions
-            # session_name/attached/last_attached/path/auto_name/display/name are
-            # unused by __tcz_set_claude_opt -- only the claude field (position 5,
+            # session_name/attached/last_attached/path/created/auto_name/display/name
+            # are unused by __tcz_set_claude_opt -- only the claude field (position 6,
             # not greedy-last) matters here.
-            printf 'sA\t0\t0\t\t%s\t\t\t\n' $CLAUDE_CUR
+            printf 'sA\t0\t0\t\t\t%s\t\t\t\n' $CLAUDE_CUR
         case list-panes
             printf '%s\n' $tcz_claude_panes
     end
@@ -9580,10 +9580,14 @@ t "commandeer(on), bad client: no orphan landing" 0 (string match -q '_landing-*
 cleanup
 
 # --- landing: sweep kills only clientless landing sessions ---
+# The sweep spares a session younger than 10 s (the gap between landing-new and
+# the shell's attach), so these fixtures are aged past it with the clock seam.
 fresh_server
 __tcz_landing_new >/dev/null
+set -gx tmux_auto_now (math (date +%s) + 60)
 __tcz_tmux_flush; __tcz_tmux_load
 __tcz_landing_sweep
+set -e tmux_auto_now
 set -l sw1 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo 0; or echo 1)
 t "sweep: clientless landing killed" 1 "$sw1"
 set -l sw2 (command tmux -L $sock has-session -t =0 2>/dev/null; echo $status)
@@ -9607,8 +9611,10 @@ for i in (seq 25)
 end
 # A second, clientless landing session in the same fixture -- must still die.
 __tcz_landing_new >/dev/null
+set -gx tmux_auto_now (math (date +%s) + 60)
 __tcz_tmux_flush; __tcz_tmux_load
 __tcz_landing_sweep
+set -e tmux_auto_now
 set -l swcalive (command tmux -L $sock has-session -t "=$swcname" 2>/dev/null; echo $status)
 t "sweep: landing session with an attached client survives" 0 "$swcalive"
 set -l swcdead (command tmux -L $sock has-session -t =_landing-2 2>/dev/null; and echo 0; or echo 1)
@@ -9619,9 +9625,30 @@ cleanup
 # --- landing: the tick verb actually calls the sweep (real dispatch, not a direct call) ---
 fresh_server
 set -l tsname (__tcz_landing_new)
-fish --no-config $lcat tick >/dev/null 2>&1
+env tmux_auto_now=(math (date +%s) + 60) fish --no-config $lcat tick >/dev/null 2>&1
 set -l tsdead (command tmux -L $sock has-session -t "=$tsname" 2>/dev/null; and echo 0; or echo 1)
 t "tick dispatch sweeps a clientless landing session" 1 "$tsdead"
+cleanup
+
+# --- landing: the sweep's grace period (age rule: spare when younger than 10 s) ---
+# A landing session created by `landing-new` sits clientless until the shell
+# attaches to it; a tick landing in that gap must not kill it. Backdated with
+# the clock seam: `now` is pinned relative to the session's real created time.
+fresh_server
+__tcz_landing_new >/dev/null
+set -l lcre (command tmux -L $sock list-sessions -F '#{session_name} #{session_created}' | string replace -rf '^_landing-1 (\d+)$' '$1')
+t "sweep grace: the fixture read the session's created time" 1 (string match -qr '^\d+$' -- "$lcre"; and echo 1; or echo 0)
+set -gx tmux_auto_now (math $lcre + 9)
+__tcz_tmux_flush; __tcz_tmux_load
+__tcz_landing_sweep
+set -l g9 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo alive; or echo dead)
+t "sweep grace: clientless landing session 9 s old survives" alive "$g9"
+set -gx tmux_auto_now (math $lcre + 10)
+__tcz_tmux_flush; __tcz_tmux_load
+__tcz_landing_sweep
+set -l g10 (command tmux -L $sock has-session -t =_landing-1 2>/dev/null; and echo alive; or echo dead)
+t "sweep grace: the same session at 10 s is swept" dead "$g10"
+set -e tmux_auto_now
 cleanup
 
 # --- landing: claude project discovery ---
@@ -10252,14 +10279,6 @@ set -l tkeep (test -e $tmux_lives_project_cache.keep; and echo kept; or echo swe
 set -l tcache (test -e $tmux_lives_project_cache; and echo written; or echo missing)
 t "projects: a write sweeps this cache's own stray temps and nothing else" "swept kept written" "$tstray $tkeep $tcache"
 rm -rf $pj $tmux_lives_project_cache $tmux_lives_project_cache.keep $tmux_lives_project_cache.AbC123 /tmp/tcz-tmp-proj-$fish_pid
-
-# --- landing-name (Task 7): pure verb, __tmux_landing_argv's own subprocess --
-set -l lnv (__tcz_main landing-name tmux-lives _landing-1 _landing-3)
-t "landing-name: smallest gap, same result as __tcz_free_name directly" "_landing-2" "$lnv"
-set -l lnv2 (__tcz_main landing-name)
-t "landing-name: no taken names -> _landing-1" "_landing-1" "$lnv2"
-t "landing-name: listed in __tcz_main and its usage line" yes \
-    (string match -q '*landing-name*' -- (functions __tcz_main | string collect); and echo yes; or echo no)
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs

@@ -197,7 +197,7 @@ function __tcz_tmux_flush --description 'drop the per-pass tmux global-@option s
     end
 end
 
-function __tcz_tmux_load --description 'build the per-pass tmux read-side memo from TWO calls: ONE `tmux show -g` for every global @tmux_lives_* option (keyed into per-key globals, key = the option name with the @tmux_lives_ prefix stripped), and ONE `tmux list-sessions -F` for every session-scoped field this pass might need (tick-call-batching task 3): session_name/attached/last_attached/path plus @tmux_lives_claude, @tmux_auto_name, @tmux_lives_display and @tmux_lives_name -- the same format __tcz_snapshot already read for #{@tmux_lives_name} alone, extended. Kept in PARALLEL ARRAYS indexed by row order, not a dynamic `set -g field_$name` -- __tcz_categorize'"'"'s own comment already documents why: a session name can contain a space (silent wrong concatenation) or other characters (an outright `set` error), and neither fails loudly. @tmux_lives_name stays LAST and greedy: it is written by an EXTERNAL app (e.g. neurotto), so unlike the other three (all written only by tmux-lives itself, via __tcz_slugify or a plain/`project · task` composition) it may contain a literal tab -- only one field in a tab-separated row can safely be greedy, and this is the one the pre-task-3 format already treated that way. No-op once loaded (per pass).'
+function __tcz_tmux_load --description 'build the per-pass tmux read-side memo from TWO calls: ONE `tmux show -g` for every global @tmux_lives_* option (keyed into per-key globals, key = the option name with the @tmux_lives_ prefix stripped), and ONE `tmux list-sessions -F` for every session-scoped field this pass might need (tick-call-batching task 3): session_name/attached/last_attached/path/created plus @tmux_lives_claude, @tmux_auto_name, @tmux_lives_display and @tmux_lives_name -- the same format __tcz_snapshot already read for #{@tmux_lives_name} alone, extended. Kept in PARALLEL ARRAYS indexed by row order, not a dynamic `set -g field_$name` -- __tcz_categorize'"'"'s own comment already documents why: a session name can contain a space (silent wrong concatenation) or other characters (an outright `set` error), and neither fails loudly. @tmux_lives_name stays LAST and greedy: it is written by an EXTERNAL app (e.g. neurotto), so unlike the other three (all written only by tmux-lives itself, via __tcz_slugify or a plain/`project · task` composition) it may contain a literal tab -- only one field in a tab-separated row can safely be greedy, and this is the one the pre-task-3 format already treated that way. No-op once loaded (per pass).'
     set -q __tcz_tmux_loaded; and return
     set -g __tcz_tmux_loaded 1
     for line in (tmux show -g 2>/dev/null)
@@ -206,22 +206,23 @@ function __tcz_tmux_load --description 'build the per-pass tmux read-side memo f
         set -g __tcz_tmux_g_$m[2] (__tcz_tmux_unquote $m[3])
     end
     set -l TAB (printf '\t')
-    set -l sfmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{@tmux_lives_claude}\t#{@tmux_auto_name}\t#{@tmux_lives_display}\t#{@tmux_lives_name}')
+    set -l sfmt (printf '#{session_name}\t#{session_attached}\t#{session_last_attached}\t#{session_path}\t#{session_created}\t#{@tmux_lives_claude}\t#{@tmux_auto_name}\t#{@tmux_lives_display}\t#{@tmux_lives_name}')
     for line in (tmux list-sessions -F $sfmt 2>/dev/null)
-        set -l f (string split -m 7 $TAB -- $line)   # name is last; keep an embedded tab whole
-        test (count $f) -ge 8; or continue
+        set -l f (string split -m 8 $TAB -- $line)   # name is last; keep an embedded tab whole
+        test (count $f) -ge 9; or continue
         set -ga __tcz_tmux_sess_names $f[1]
         set -ga __tcz_tmux_sess_attached $f[2]
         set -ga __tcz_tmux_sess_lastattached $f[3]
         # Field 4 (#{session_path}) has no accessor any more — naming reads the
         # active pane's cwd instead — but it stays in sfmt and stays captured
         # here BECAUSE the split is positional: removing it would renumber
-        # fields 5-8 onto the wrong accessors, silently.
+        # fields 5-9 onto the wrong accessors, silently.
         set -ga __tcz_tmux_sess_path $f[4]
-        set -ga __tcz_tmux_sess_claude $f[5]
-        set -ga __tcz_tmux_sess_auto $f[6]
-        set -ga __tcz_tmux_sess_display $f[7]
-        set -ga __tcz_tmux_sess_name $f[8]
+        set -ga __tcz_tmux_sess_created $f[5]
+        set -ga __tcz_tmux_sess_claude $f[6]
+        set -ga __tcz_tmux_sess_auto $f[7]
+        set -ga __tcz_tmux_sess_display $f[8]
+        set -ga __tcz_tmux_sess_name $f[9]
     end
 end
 
@@ -271,7 +272,7 @@ end
 # for exactly that reason, so this follows suit rather than being "left
 # defined". The FORMAT FIELD and the $__tcz_tmux_sess_path array it fills stay
 # (see __tcz_tmux_load): field 4 of sfmt is positional, and dropping it would
-# silently renumber fields 5-8 onto the wrong accessors.
+# silently renumber fields 5-9 onto the wrong accessors.
 
 function __tcz_tmux_activepath --argument-names session --description 'memoized active-pane cwd for <session> this pass (project-from-pane-cwd design, 2026-08-19/20) -- the cwd of the active pane of <session>'"'"'s active window, i.e. the one you'"'"'d see if you attached. Populated by __tcz_snapshot'"'"'s own pane walk as a side effect (zero extra tmux calls: the SAME list-panes row __tcz_snapshot already fetches for category aggregation carries #{pane_current_path}), re-keyed by __tcz_categorize on a successful rename exactly like __tcz_tmux_sess_names. Empty when no __tcz_snapshot has run yet this pass (the on-attach -> __tcz_retitle path has no preceding categorize/snapshot call) or when <session> is outside a narrowed snapshot'"'"'s one-session scope -- callers fall back to a live per-session lookup in that case, same pattern as @tmux_lives_display.'
     set -l i (contains -i -- "$session" $__tcz_tmux_activepath_names)
@@ -1266,11 +1267,19 @@ function __tcz_landing_evict --argument-names pane session --description 'a wind
     return 0
 end
 
-function __tcz_landing_sweep --description 'kill landing sessions nobody is attached to (reads the per-pass session memo only, so a clean pass costs zero tmux calls)'
+function __tcz_landing_sweep --description 'kill landing sessions nobody is attached to, except ones created in the last 10 s (reads the per-pass session memo only, so a clean pass costs zero tmux calls)'
     __tcz_tmux_load
+    set -l now
     for i in (seq (count $__tcz_tmux_sess_names))
         __tcz_is_landing $__tcz_tmux_sess_names[$i]; or continue
-        test "$__tcz_tmux_sess_attached[$i]" = 0; and tmux kill-session -t "=$__tcz_tmux_sess_names[$i]" 2>/dev/null
+        test "$__tcz_tmux_sess_attached[$i]" = 0; or continue
+        # landing-new creates the session detached and the shell attaches a moment
+        # later: a session that young is on its way to a client, not abandoned.
+        # The clock is read only once a clientless candidate exists.
+        test -n "$now"; or set now (set -q tmux_auto_now; and echo $tmux_auto_now; or date +%s)
+        set -l created $__tcz_tmux_sess_created[$i]
+        string match -qr '^\d+$' -- "$created"; and test (math "$now - $created") -lt 10; and continue
+        tmux kill-session -t "=$__tcz_tmux_sess_names[$i]" 2>/dev/null
     end
 end
 
@@ -4956,10 +4965,6 @@ function __tcz_main
             # pins $HOME, and it does so at its own call site — do not add an
             # argv passthrough here.
             __tcz_new_general
-        case landing-name
-            # Pure: the shell side passes the taken names in, so this makes
-            # no tmux call itself (Task 7's __tmux_landing_argv).
-            __tcz_free_name _landing $argv[2..]
         case landing-new
             __tcz_landing_new $argv[2]
         case landing
@@ -4977,7 +4982,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-name|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

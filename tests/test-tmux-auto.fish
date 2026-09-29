@@ -23,10 +23,41 @@ set -g FAIL 0
 set -g sock test-autotmux-$fish_pid
 set -g plugindir (path resolve (status dirname)/..)
 
-# Route every bare `tmux` call (in the harness AND in the sourced functions) to the test
-# server, pinned config-free so a fresh server start never loads ~/.tmux.conf.
+# ---- isolation prologue ---------------------------------------------------
+# This shell runs inside the user's live tmux, and any SUBPROCESS that calls a
+# bare `tmux` (a categorizer verb, a child fish) would reach his real server.
+# So isolation is structural rather than a per-test convention:
+#   - PATH: a `tmux` script pinned to this suite's -L socket ahead of the real one
+#   - TMUX / TMUX_PANE erased: TMUX outranks -L and TMUX_TMPDIR for a bare call
+#   - tmux_categorize_script: a recorder stub; a test that needs the real script
+#     opts in explicitly ($real_cat_path)
+#   - claude-project discovery seams: temp paths; the real cache is bracketed
+set -g __tac_realtmux (command -s tmux)
+if test -z "$__tac_realtmux"
+    echo "FATAL: no tmux on PATH; refusing to run" >&2
+    exit 1
+end
+set -g __tac_shim $TMUX_LIVES_TEST_UVARS/shim
+mkdir -p $__tac_shim
+printf '#!/bin/sh\nexec %s -L %s -f /dev/null "$@"\n' $__tac_realtmux $sock > $__tac_shim/tmux
+chmod +x $__tac_shim/tmux
+set -gx PATH $__tac_shim $PATH
+set -e TMUX
+set -e TMUX_PANE
+set -g real_cat_path $plugindir/functions/tmux-categorize.fish
+set -g __tac_cat_stub $TMUX_LIVES_TEST_UVARS/cat-stub.fish
+printf '#!/usr/bin/env fish\nprintf "%%s\\n" "$argv" >> %s/cat-calls.log\n' $TMUX_LIVES_TEST_UVARS > $__tac_cat_stub
+set -g __tac_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
+set -g __tac_real_proj_cache_before (test -e "$__tac_real_proj_cache"; and echo yes; or echo no)
+set -g __tac_real_proj_cache_mtime_before (test -e "$__tac_real_proj_cache"; and path mtime -- "$__tac_real_proj_cache"; or echo none)
+set -gx tmux_lives_claude_projects_dir $TMUX_LIVES_TEST_UVARS/claude-projects
+set -gx tmux_lives_project_cache $TMUX_LIVES_TEST_UVARS/projects.tsv
+
+# Every bare `tmux` in the harness AND in the sourced functions lands on the test
+# server (the PATH script above adds -L and -f /dev/null, so a fresh server never
+# loads ~/.tmux.conf). Kept as a function so tests can wrap it with `functions -c`.
 function tmux
-    command tmux -L $sock -f /dev/null $argv
+    command tmux $argv
 end
 
 function t --description 'assert: t <desc> <expected> <actual>'
@@ -45,8 +76,16 @@ end
 
 # Load the functions WITHOUT firing the startup trigger (TMUX_AUTO=0 disables it).
 set -gx TMUX_AUTO 0
-set -gx tmux_categorize_script $plugindir/functions/tmux-categorize.fish
+set -gx tmux_categorize_script $__tac_cat_stub
 source $plugindir/conf.d/tmux.fish
+
+# Self-check: a subprocess's bare `tmux` really is pinned to this suite's socket
+# (and not the user's live one), or every isolation claim above is vacuous.
+cleanup
+set -l iso_sock (env -u TMUX sh -c 'tmux new-session -d -s iso-probe && tmux display-message -p -t iso-probe "#{socket_path}"')
+t "isolation: a subprocess's bare tmux hits this suite's own socket" "$sock" (path basename -- "$iso_sock")
+t "isolation: TMUX is erased for the whole suite" 0 (set -q TMUX; and echo 1; or echo 0)
+cleanup
 
 # ---------------------------------------------------------------------
 # Selection (pure): __tmux_pick_candidates_from reads "attached last_attached name"
@@ -68,12 +107,17 @@ t "pick_session: no idle detached -> empty" "" (__tmux_pick_session)
 cleanup
 
 # pick_session must never return a landing session. Both are idle bare shells
-# and this tmux's MRU tiebreak (equal, never-attached last_attached) sorts
-# "_landing-9" ahead of "shellL" -- created in this order, unfixed code picks
-# the landing session deterministically.
+# that were never attached, so their MRU keys tie at 0 and sort falls back to
+# comparing the whole line ascending: "_landing-9" ahead of "shellL" whatever
+# the creation order. Unfixed code therefore picks the landing session.
 tmux new-session -d -s _landing-9
 tmux new-session -d -s shellL
 t "pick_session: never returns a landing session" "shellL" (__tmux_pick_session)
+cleanup
+# The only idle candidate is a landing session: nothing is picked at all.
+tmux new-session -d -s _landing-9
+tmux new-session -d -s progL 'sleep 1000'
+t "pick_session: a landing session as the only idle candidate -> empty" "" (__tmux_pick_session)
 cleanup
 
 # ---------------------------------------------------------------------
@@ -116,10 +160,9 @@ set -e TMUX; set -e TMUX_PANE
 set -g __tac_collides 0
 set -g __tac_rdir /tmp/test-tac-rdir-$fish_pid
 mkdir -p $__tac_rdir
-# Non-regression: this loop's __tmux_lives_close calls exercise the pre-landing
-# direct-kill path deliberately. Left at the default (on), close would shell
-# out to the categorizer's session-close verb, which is a real subprocess
-# that would reach the LIVE tmux server, not this loop's -L $sock.
+# Non-regression: this loop's __tmux_lives_close calls assert the pre-landing
+# direct path (detach-on-destroy on the exact session, then kill), which only
+# runs with landing off. (Isolation no longer depends on this: see the prologue.)
 set -g tmux_lives_landing off
 for order in target-first target-last
     # busy "claude", idle-shell "other"
@@ -214,6 +257,17 @@ set -gx tmux_auto_now 0
 __tmux_prune
 t "prune: fresh sessions untouched" "idleB,progA" (tmux list-sessions -F '#{session_name}' 2>/dev/null | sort | string join ',')
 set -e tmux_auto_now
+cleanup
+
+# Scenario B2: a stale, detached, idle landing session is not prune's business
+# (the tick sweep owns landing sessions).
+cleanup
+tmux new-session -d -s _landing-4
+set -gx tmux_auto_now (math (date +%s) + 8640000)   # +100 days: stale
+__tmux_prune
+set -e tmux_auto_now
+t "prune: a stale idle landing session survives" yes \
+    (tmux has-session -t "=_landing-4" 2>/dev/null; and echo yes; or echo no)
 cleanup
 
 # Scenario C: a same-pass race -- the session vanishes between the idle check
@@ -396,6 +450,9 @@ functions -e __tmux_restore; functions -c __tl_restore_bak __tmux_restore
 
 # ---------------------------------------------------------------------
 # new: collision errors; inside tmux creates + switches; no-name -> general session.
+# Opts IN to the real categorizer (the `slug` verb): the suite default is a stub.
+# Safe: the script's own bare tmux calls land on the suite socket (prologue).
+set -g tmux_categorize_script $real_cat_path
 cleanup
 tmux new-session -d -s foo
 set -e TMUX
@@ -507,11 +564,12 @@ t "attach: missing errors (rc1)"  "1" (__tmux_lives_attach nope 2>/dev/null; ech
 t "attach: no name errors (rc1)"  "1" (__tmux_lives_attach 2>/dev/null; echo $status)
 set -e TMUX
 cleanup
+set -g tmux_categorize_script $__tac_cat_stub
 
 # ---------------------------------------------------------------------
 # close: kills the current session; outside tmux errors. Non-regression: run
-# with landing OFF -- with the default (on) close shells out to session-close
-# instead (tested separately below with a recorder stub).
+# with landing OFF, the direct-kill path these assertions describe. With the
+# default (on) close delegates to session-close (tested separately below).
 cleanup
 set -g tmux_lives_landing off
 t "close: outside tmux errors (rc1)" "1" (begin; set -e TMUX; __tmux_lives_close 2>/dev/null; echo $status; end)
@@ -529,9 +587,8 @@ set -e tmux_lives_landing
 cleanup
 
 # close (landing on, the default): delegate to the categorizer's session-close
-# verb -- Task 6 already built and tested __tcz_session_close for this. Stub
-# the categorizer script so the call is recorded instead of reaching the live
-# tmux server.
+# verb -- Task 6 already built and tested __tcz_session_close for this. The
+# categorizer is stubbed so the call is recorded rather than performed.
 cleanup
 tmux new-session -d -s cur2
 set -gx TMUX fake
@@ -545,6 +602,11 @@ __tmux_lives_close
 t "close (landing on): delegates to session-close"       "session-close" (head -1 $cl_rec 2>/dev/null)
 t "close (landing on): passes the current session name"  "cur2"          (sed -n 2p $cl_rec 2>/dev/null)
 t "close (landing on): the kill itself is session-close's job, not ours" "yes" (tmux has-session -t =cur2 2>/dev/null; and echo yes; or echo no)
+# A session-close that FAILS (categorizer broken or missing) must not strand the
+# user in a session they asked to close: fall back to the direct kill.
+printf '#!/usr/bin/env fish\nexit 1\n' > $cl_stub
+__tmux_lives_close
+t "close (landing on): a failing session-close falls back to the direct kill" "no" (tmux has-session -t =cur2 2>/dev/null; and echo yes; or echo no)
 set -g tmux_categorize_script $real_cat3
 rm -f $cl_stub $cl_rec
 functions -e __tmux_lives_current_session
@@ -752,12 +814,12 @@ set -e _tl_plugindir
 rm -rf $ptydir
 
 # ---------------------------------------------------------------------
-# Landing (Task 7): identity, kill switch, argv, and the two exec sites that
-# can only be proven by inspecting source -- exec replaces the process, so it
-# cannot be driven behaviourally here.
+# Landing (Task 7): identity and kill switch.
 # ---------------------------------------------------------------------
 set -l sl1 (__tmux_is_landing _landing-1; echo $status)
 t "is_landing (shell side)" 0 "$sl1"
+set -l sl2 (__tmux_is_landing landing-1; echo $status)
+t "is_landing (shell side): look-alike without the underscore" 1 "$sl2"
 set -e tmux_lives_landing
 set -l le1 (__tmux_landing_enabled; echo $status)
 t "landing enabled by default" 0 "$le1"
@@ -765,13 +827,6 @@ set -g tmux_lives_landing off
 set -l le2 (__tmux_landing_enabled; echo $status)
 t "landing off honoured" 1 "$le2"
 set -e tmux_lives_landing
-set -l la (__tmux_landing_argv)
-t "landing argv creates and attaches" 1 (string match -q -- '-u new-session -s _landing-* -c * *--no-config*landing' "$la"; and echo 1; or echo 0)
-set -l ab (functions __tmux_autostart | string collect)
-t "autostart execs the landing argv when enabled" 1 (string match -q '*__tmux_landing_enabled*exec tmux (__tmux_landing_argv)*' -- "$ab"; and echo 1; or echo 0)
-set -l picker_src2 (functions __tmux_lives_picker | string collect)
-t "picker outside tmux execs the landing argv when enabled" 1 \
-    (string match -q '*__tmux_landing_enabled*exec tmux (__tmux_landing_argv)*' -- "$picker_src2"; and echo 1; or echo 0)
 
 # The kill-switch rule must agree with the install side's
 # __tmux_lives_landing_enabled (+ its unset-defaults-on __tmux_lives_key),
@@ -791,6 +846,86 @@ for v in on off UNSET no
     t "landing rule agrees with the install side ($v)" "$install_side" "$shell_side"
 end
 set -e tmux_lives_landing
+
+# ---------------------------------------------------------------------
+# The exec sites, behaviourally. __tmux_autostart and the outside-tmux picker
+# REPLACE the process, so each runs for real in a child fish against
+#   - a recorder `tmux` first on PATH: it appends its argv, joined with "|" so
+#     a mis-split argv shows, to a log and never runs tmux (every call
+#     succeeds, so the server looks up and restore is skipped), and
+#   - a stub categorizer whose `landing-new` prints a fixed name.
+# The LAST recorded call is the exec. `env -u TMUX` keeps the child from
+# tmux's own idea of a server; the recorder means there is no server anyway.
+# ---------------------------------------------------------------------
+set -g ex_root $TMUX_LIVES_TEST_UVARS/exec
+set -g ex_bin $ex_root/bin
+set -g ex_log $ex_root/tmux-calls.log
+set -g ex_cat $ex_root/cat-stub.fish
+mkdir -p $ex_bin
+printf '#!/bin/sh\nIFS="|"\necho "$*" >> %s\nexit 0\n' $ex_log > $ex_bin/tmux
+chmod +x $ex_bin/tmux
+printf '#!/usr/bin/env fish\nswitch "$argv[1]"\n    case landing-new\n        switch "$TL_STUB_MODE"\n            case empty\n            case junk\n                echo boom\n            case \'*\'\n                echo _landing-7\n        end\n    case new-general\n        echo gen-4\nend\n' > $ex_cat
+
+function __tac_exec --argument-names landing catscript mode --description '__tac_exec <landing: unset|on|off|..> <categorizer> <stub mode> <fn args...>: run the call in a child fish against the recorder tmux; print the last recorded tmux call'
+    set -l call $argv[4..]
+    rm -f $ex_log; touch $ex_log
+    set -l lenv
+    test "$landing" = unset; or set lenv tmux_lives_landing=$landing
+    env -u TMUX -u TMUX_PANE PATH=(string join : $ex_bin $PATH) TMUX_AUTO=0 \
+        tmux_categorize_script=$catscript TL_STUB_MODE=$mode $lenv \
+        fish --no-config -c "source $plugindir/conf.d/tmux.fish; $call" >/dev/null 2>&1
+    tail -n 1 $ex_log
+end
+function __tac_exec_log_landing --description 'yes if any recorded tmux call mentions a landing session'
+    string match -q '*_landing*' -- (cat $ex_log | string collect); and echo yes; or echo no
+end
+
+set -l a_unset (__tac_exec unset $ex_cat name __tmux_autostart)
+t "autostart (landing unset): attaches the landing session it created" "-u|attach-session|-t|=_landing-7" "$a_unset"
+set -l a_on (__tac_exec on $ex_cat name __tmux_autostart)
+t "autostart (landing on): attaches the landing session it created" "-u|attach-session|-t|=_landing-7" "$a_on"
+set -l a_off (__tac_exec off $ex_cat name __tmux_autostart)
+t "autostart (landing off): the legacy new-session, no landing" "-u|new-session" "$a_off"
+t "autostart (landing off): nothing landing was ever touched" no (__tac_exec_log_landing)
+set -l a_no (__tac_exec no $ex_cat name __tmux_autostart)
+t "autostart (garbage switch value): off, the legacy new-session" "-u|new-session" "$a_no"
+# Nothing usable from the categorizer: never exec a command line built from
+# empty or junk output -- fall through to the legacy path.
+set -l a_missing (__tac_exec on /nonexistent/cat.fish name __tmux_autostart)
+t "autostart (categorizer missing): falls through to the legacy new-session" "-u|new-session" "$a_missing"
+t "autostart (categorizer missing): no landing command exec'd" no (__tac_exec_log_landing)
+set -l a_empty (__tac_exec on $ex_cat empty __tmux_autostart)
+t "autostart (landing-new prints nothing): falls through to the legacy new-session" "-u|new-session" "$a_empty"
+set -l a_junk (__tac_exec on $ex_cat junk __tmux_autostart)
+t "autostart (landing-new prints junk): falls through to the legacy new-session" "-u|new-session" "$a_junk"
+t "autostart (landing-new prints junk): no attach built from it" no (string match -q '*boom*' -- (cat $ex_log | string collect); and echo yes; or echo no)
+
+set -l p_unset (__tac_exec unset $ex_cat name __tmux_lives_picker)
+t "picker outside tmux (landing unset): attaches the landing session it created" "-u|attach-session|-t|=_landing-7" "$p_unset"
+set -l p_on (__tac_exec on $ex_cat name __tmux_lives_picker)
+t "picker outside tmux (landing on): attaches the landing session it created" "-u|attach-session|-t|=_landing-7" "$p_on"
+set -l p_off (__tac_exec off $ex_cat name __tmux_lives_picker)
+t "picker outside tmux (landing off): the legacy take + popup, no landing" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*" "$p_off"; and echo 1; or echo 0)
+t "picker outside tmux (landing off): nothing landing was ever touched" no (__tac_exec_log_landing)
+set -l p_empty (__tac_exec on $ex_cat empty __tmux_lives_picker)
+t "picker outside tmux (landing-new prints nothing): falls through to the legacy path" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*" "$p_empty"; and echo 1; or echo 0)
+# -t/--take is the user explicitly asking to take a session over: the legacy path.
+set -l p_take (__tac_exec on $ex_cat name __tmux_lives_picker -t)
+t "picker outside tmux -t (landing on): legacy take-over, popup carries --take" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*popup '' --take" "$p_take"; and echo 1; or echo 0)
+t "picker outside tmux -t (landing on): no landing was created" no (__tac_exec_log_landing)
+set -l p_take2 (__tac_exec on $ex_cat name __tmux_lives_picker --take)
+t "picker outside tmux --take (landing on): legacy take-over" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*popup '' --take" "$p_take2"; and echo 1; or echo 0)
+functions -e __tac_exec __tac_exec_log_landing
+
+# ---------------------------------------------------------------------
+# Hygiene: nothing this suite made outside its own throwaway dir, and the real
+# project-discovery cache untouched (existence AND mtime).
+# ---------------------------------------------------------------------
+set -l __tac_after (test -e "$__tac_real_proj_cache"; and echo yes; or echo no)
+set -l __tac_mtime_after (test -e "$__tac_real_proj_cache"; and path mtime -- "$__tac_real_proj_cache"; or echo none)
+t "isolation: real project cache existence unchanged by this suite" "$__tac_real_proj_cache_before" "$__tac_after"
+t "isolation: real project cache mtime unchanged by this suite" "$__tac_real_proj_cache_mtime_before" "$__tac_mtime_after"
+cleanup
 
 # ---------------------------------------------------------------------
 if test $FAIL -eq 0

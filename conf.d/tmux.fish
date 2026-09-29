@@ -58,6 +58,7 @@ function __tmux_prune --description 'Kill detached, idle-shell sessions older th
         test "$f[1]" = 0; or continue                 # detached
         string match -qr '^[0-9]+$' -- "$f[2]"; or continue
         test "$f[2]" -lt "$cutoff"; or continue       # stale
+        __tmux_is_landing "$f[3]"; and continue       # the tick sweep owns landing sessions
         __tmux_session_is_idle "$f[3]"; or continue   # idle shell only
         tmux kill-session -t "=$f[3]" 2>/dev/null
     end
@@ -194,13 +195,12 @@ function __tmux_landing_enabled --description 'true iff landing is on: unset tmu
     test "$tmux_lives_landing" = on
 end
 
-function __tmux_landing_argv --description 'tmux argv that creates AND attaches a new landing session'
-    set -l names (tmux list-sessions -F '#{session_name}' 2>/dev/null)
-    set -l name (fish --no-config $tmux_categorize_script landing-name $names)
-    # Printed one token per line so a caller's unquoted (__tmux_landing_argv)
-    # expands to separate argv words for tmux -- the trailing 4 words are the
-    # pane's shell command, same shape as __tcz_landing_cmd.
-    printf '%s\n' -u new-session -s "$name" -c $HOME fish --no-config $tmux_categorize_script landing
+function __tmux_landing_create --description 'Create a detached landing session through the categorizer and print its name; prints nothing on any failure.'
+    # landing-new retries names, so two logins racing for _landing-1 both get a
+    # session. Empty or malformed output means "no landing": callers then fall
+    # back rather than exec a tmux command line built from it.
+    set -l name (fish --no-config $tmux_categorize_script landing-new 2>/dev/null)
+    test (count $name) -eq 1; and __tmux_is_landing "$name"; and echo $name
 end
 
 # ---- orchestrator ----
@@ -209,14 +209,15 @@ function __tmux_ensure_server --description 'Start the tmux server, restoring th
     __tmux_restore
 end
 
-function __tmux_autostart --description 'Restore (first login after reboot), then land: a fresh landing session when enabled, else categorize/prune/pick-or-create as before'
+function __tmux_autostart --description 'Restore (first login after reboot), then land: attach a fresh landing session when enabled and one could be created, else categorize/prune/pick-or-create as before'
     command -q tmux; or return
     if not tmux has-session 2>/dev/null     # no server yet → first login after a reboot
         __tmux_restore
     end
     if __tmux_landing_enabled
         __tmux_prune
-        exec tmux (__tmux_landing_argv)
+        set -l landing (__tmux_landing_create)
+        test -n "$landing"; and exec tmux -u attach-session -t "=$landing"
     end
     __tmux_categorize
     __tmux_prune
@@ -248,10 +249,12 @@ function __tmux_lives_picker --description 'Open the categorized session switche
             fish --no-config $tmux_categorize_script open-switcher "$client" $take
         return
     end
-    # Outside tmux: with landing on, landing IS the picker -- attach a fresh one.
+    # Outside tmux: with landing on, landing IS the picker -- attach a fresh
+    # one. -t/--take asks to take a session over, so it keeps the legacy path.
     __tmux_ensure_server
-    if __tmux_landing_enabled
-        exec tmux (__tmux_landing_argv)
+    if test -z "$take"; and __tmux_landing_enabled
+        set -l landing (__tmux_landing_create)
+        test -n "$landing"; and exec tmux -u attach-session -t "=$landing"
     end
     __tmux_categorize
     set -l target (__tmux_pick_session)
@@ -426,9 +429,8 @@ function __tmux_lives_close --description 'Kill the current session and return t
     if __tmux_landing_enabled
         # One subprocess, one tested helper (Task 6's __tcz_session_close):
         # moves every client attached to $cur to its own landing session,
-        # then kills $cur.
-        fish --no-config $tmux_categorize_script session-close "$cur" >/dev/null 2>&1
-        return
+        # then kills $cur. If the helper fails, fall through to the direct kill.
+        fish --no-config $tmux_categorize_script session-close "$cur" >/dev/null 2>&1; and return
     end
     tmux set-option -t "=$cur:" detach-on-destroy on 2>/dev/null
     tmux kill-session -t "=$cur" 2>/dev/null
