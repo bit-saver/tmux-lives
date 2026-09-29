@@ -9812,6 +9812,10 @@ function __tcg_client_on --argument-names name --description 'poll (≤ 5 s) for
     end
     return 1
 end
+function __tcg_ready --argument-names target glob --description 'poll for the chooser (<glob>), then wait out the app'"'"'s settle window: input in its first second after the first paint is drained'
+    __tcg_screen_has $target $glob 80; or return 1
+    sleep 1.5
+end
 
 # q / Esc do nothing; Enter on a live row moves the client there.
 fresh_server
@@ -9819,7 +9823,7 @@ set -l la1 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la1" /dev/null >/dev/null 2>&1 &
 set -l lapids (jobs -p)
 __tcg_client_on $la1 >/dev/null
-set -l ladrawn (__tcg_screen_has "=$la1:" '*new shell*' 80; and echo 1; or echo 0)
+set -l ladrawn (__tcg_ready "=$la1:" '*new shell*'; and echo 1; or echo 0)
 t "app: draws the chooser (a new shell row)" 1 "$ladrawn"
 command tmux -L $sock send-keys -t "=$la1:" q
 command tmux -L $sock send-keys -t "=$la1:" Escape
@@ -9847,7 +9851,7 @@ set -l lav (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$lav" /dev/null >/dev/null 2>&1 &
 set -l lavpids (jobs -p)
 __tcg_client_on $lav >/dev/null
-__tcg_screen_has "=$lav:" '*▐*' 80 >/dev/null
+__tcg_ready "=$lav:" '*▐*'
 # A no-op move restarts the app's 3 s read, so no refresh can land between the
 # kill and the Enter (sent in one tmux call).
 command tmux -L $sock send-keys -t "=$lav:" k
@@ -9869,7 +9873,7 @@ set -l la2 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la2" /dev/null >/dev/null 2>&1 &
 set -l la2pids (jobs -p)
 __tcg_client_on $la2 >/dev/null
-__tcg_screen_has "=$la2:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$la2:" '*new shell*'
 set -l la2sel 0
 for i in (seq 6)
     __tcg_screen_has "=$la2:" '*▐ new shell*' 5; and set la2sel 1; and break
@@ -9901,7 +9905,7 @@ set -l la3 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la3" /dev/null >/dev/null 2>&1 &
 set -l la3pids (jobs -p)
 __tcg_client_on $la3 >/dev/null
-__tcg_screen_has "=$la3:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$la3:" '*new shell*'
 command tmux -L $sock send-keys -t "=$la3:" x
 set -l la3ask (__tcg_screen_has "=$la3:" '*kill 0 ?*' 30; and echo 1; or echo 0)
 command tmux -L $sock send-keys -t "=$la3:" n
@@ -9943,7 +9947,7 @@ set -l la4 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la4" /dev/null >/dev/null 2>&1 &
 set -l la4pids (jobs -p)
 __tcg_client_on $la4 >/dev/null
-__tcg_screen_has "=$la4:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$la4:" '*new shell*'
 set -l la4sel 0
 for i in (seq 6)
     __tcg_screen_has "=$la4:" "*▐ tcz-lp-proj-$fish_pid*" 5; and set la4sel 1; and break
@@ -10043,7 +10047,7 @@ command tmux -L $sock new-session -d -s _landing-7 -c $HOME fish --no-config -c 
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-7" /dev/null >/dev/null 2>&1 &
 set -l fmpids (jobs -p)
 __tcg_client_on _landing-7 >/dev/null
-__tcg_screen_has "=_landing-7:" '*new shell*' 80 >/dev/null
+__tcg_ready "=_landing-7:" '*new shell*'
 for i in (seq 6)
     __tcg_screen_has "=_landing-7:" "*▐ tcz-fm-proj-$fish_pid*" 5; and break
     command tmux -L $sock send-keys -t "=_landing-7:" j
@@ -10100,7 +10104,7 @@ set -l rsl (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$rsl" /dev/null >/dev/null 2>&1 &
 set -l rspids (jobs -p)
 __tcg_client_on $rsl >/dev/null
-__tcg_screen_has "=$rsl:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$rsl:" '*new shell*'
 set -l rsn1 (command tmux -L $sock list-sessions | count)
 command tmux -L $sock send-keys -t "=$rsl:" r
 sleep 1
@@ -10135,7 +10139,7 @@ sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =vx
 set -l xpids (jobs -p)
 __tcg_client_on $xl >/dev/null
 set -l xB (__tcg_client_on vx)
-__tcg_screen_has "=$xl:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$xl:" '*new shell*'
 for i in (seq 6)
     __tcg_screen_has "=$xl:" '*▐ vx*' 5; and break
     command tmux -L $sock send-keys -t "=$xl:" j
@@ -10222,7 +10226,7 @@ set -l hk (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$hk" /dev/null >/dev/null 2>&1 &
 set -l hkpids (jobs -p)
 __tcg_client_on $hk >/dev/null
-__tcg_screen_has "=$hk:" '*▐ s1*' 80 >/dev/null
+__tcg_ready "=$hk:" '*▐ s1*'
 command tmux -L $sock send-keys -t "=$hk:" j j j j
 set -l hk1 (__tcg_screen_has "=$hk:" '*▐ s2*' 20; and echo 1; or echo 0)
 sleep 0.5
@@ -10400,7 +10404,7 @@ set -l m7 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$m7" /dev/null >/dev/null 2>&1 &
 set -l m7pids (jobs -p)
 __tcg_client_on $m7 >/dev/null
-__tcg_screen_has "=$m7:" '*new shell*' 80 >/dev/null
+__tcg_ready "=$m7:" '*new shell*'
 printf '{"cwd":"/tmp"}\n' > $pj/-m7/s.jsonl
 chmod 000 $pj/-m7/s.jsonl
 if test -r $pj/-m7/s.jsonl
@@ -10434,7 +10438,7 @@ set -l ha (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ha" /dev/null >/dev/null 2>&1 &
 set -l hapids (jobs -p)
 __tcg_client_on $ha >/dev/null
-__tcg_screen_has "=$ha:" '*▐ s1*' 80 >/dev/null
+__tcg_ready "=$ha:" '*▐ s1*'
 command tmux -L $sock send-keys -t "=$ha:" Down Down Down Down
 set -l ha1 (__tcg_screen_has "=$ha:" '*▐ s2*' 20; and echo 1; or echo 0)
 sleep 0.5
@@ -10445,7 +10449,109 @@ set -l ha2 (__tcg_screen_has "=$ha:" '*│ zz*' 50; and echo 1; or echo 0)
 t "app: ... and the next idle refresh still arrives" 1 "$ha2"
 for p in $hapids; kill $p 2>/dev/null; end
 cleanup
-functions -e __tcg_screen_has __tcg_client_on
+
+# --- typeahead: typed-ahead or pasted text never acts in the chooser ---
+# ShellFish types `cd "<dir>"` + Enter into every new tab; the app read it as keys and `d` detached the tab.
+# - bytes go in through the client's keyboard (send-keys would skip the client): a FIFO held open read-write, so EOF never comes
+# - the client starts on a plain session and moves onto a new landing in one tmux call, as commandeer does
+function __tcg_kbd_client --argument-names fifo name --description 'background a pty client attached to =<name> whose keyboard is the FIFO <fifo>'
+    rm -f $fifo; mkfifo $fifo
+    bash -c 'exec 3<>"$1"; exec env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$2" /dev/null <&3 >/dev/null 2>&1' _ $fifo $name &
+end
+function __tcg_type --argument-names fifo text --description 'type <text> (printf escapes) on the keyboard <fifo>; opened read-write, so it never blocks once the client is gone'
+    printf $text | bash -c 'exec 4<>"$1"; exec cat >&4' _ $fifo
+end
+function __tcg_where --argument-names landing --description '"<the client'"'"'s session> <1 if =landing exists, else 0>"'
+    set -l on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    set -l alive 0
+    command tmux -L $sock has-session -t "=$landing" 2>/dev/null; and set alive 1
+    echo "$on $alive"
+end
+set -l tyk /tmp/tcz-tyk-$fish_pid
+
+# The reproduction: after the settle window, one burst `cd "/Users/x"` + CR.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tya (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tya:" '*new shell*'
+__tcg_type $tyk 'cd "/Users/x"\r'
+sleep 2
+set -l tyaw (__tcg_where $tya)
+t "typeahead: ShellFish's cd \"<dir>\" + Enter, typed as one burst, leaves the tab on its landing" "$tya 1" "$tyaw"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# A burst whose last byte is Enter: the Enter is part of the burst, not a choice.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyb (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tyb:" '*new shell*'
+__tcg_type $tyk 'ab\r'
+sleep 2
+set -l tybw (__tcg_where $tyb)
+t "typeahead: a burst ending in Enter (ab + CR) does not switch the tab" "$tyb 1" "$tybw"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# A move burst followed by text: the move steps once; the text read past it is a burst of its own, drained.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tye (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tye:" '*new shell*'
+__tcg_type $tyk 'jcd\r'
+sleep 2
+set -l tyew (__tcg_where $tye)
+set -l tyemoved (__tcg_screen_has "=$tye:" '*▐ new shell*' 1; and echo 1; or echo 0)
+t "typeahead: j then cd + CR in one burst moves one row and nothing else" "$tye 1 1" "$tyew $tyemoved"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# The settle window: lone keys typed in several chunks during the app's first second are drained, even ones that would act.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyc (__tcz_landing_new (__tcg_client_on 0))
+__tcg_screen_has "=$tyc:" '*new shell*' 80 >/dev/null
+__tcg_type $tyk c; sleep 0.3
+__tcg_type $tyk d; sleep 0.3
+__tcg_type $tyk '\r'; sleep 1
+set -l tycw (__tcg_where $tyc)
+t "typeahead: lone keys typed in the first second (c, d, CR) are drained" "$tyc 1" "$tycw"
+sleep 1.5
+__tcg_type $tyk d
+for i in (seq 30)
+    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
+    test -z "$cl"; and break
+    sleep 0.1
+end
+set -l tycw2 (__tcg_where $tyc)
+t "typeahead (non-regression): after a quiet second the settle window ends and a lone d detaches" " 0" "$tycw2"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# Non-regression: a lone d typed after the settle window detaches.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyd (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tyd:" '*new shell*'
+__tcg_type $tyk d
+for i in (seq 30)
+    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
+    test -z "$cl"; and break
+    sleep 0.1
+end
+set -l tydw (__tcg_where $tyd)
+t "typeahead (non-regression): a lone d typed on the keyboard detaches the tab and removes its landing" " 0" "$tydw"
+for p in $typids; kill $p 2>/dev/null; end
+rm -f $tyk
+cleanup
+functions -e __tcg_kbd_client __tcg_type __tcg_where
+
+functions -e __tcg_screen_has __tcg_client_on __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs

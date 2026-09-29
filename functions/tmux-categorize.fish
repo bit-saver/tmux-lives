@@ -1578,6 +1578,15 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     __tcz_popup_emit $frame (__tcz_popup_truncate "$legend" (math $cols - 1))
 end
 
+function __tcz_tty_drain --description 'discard every byte already pending on stdin, without blocking'
+    set -l n 1
+    while test "$n" -gt 0
+        stty min 0 time 0 2>/dev/null
+        set n 0
+        dd bs=4096 count=1 2>/dev/null | wc -c | string trim | read n
+    end
+end
+
 function __tcz_landing --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash)'
     set -l self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
@@ -1590,6 +1599,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l stale 1                    # re-snapshot on the next turn
     set -l pass 0                     # 0 = the idle-project list is due
     set -l pending ''                 # a key the held-key drain read past
+    set -l settle 1                   # drain all input until a quiet second after the first paint
     while true
         # Live sessions re-snapshot every 3 s idle and after an action; the
         # idle-project list only every 10th pass and after an action (running
@@ -1623,19 +1633,30 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
         set -l tok $pending
         set pending ''
         if test -z "$tok"
+            set -l wait 30
+            test $settle -eq 1; and set wait 10
             # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
-            stty min 0 time 30 2>/dev/null
+            stty min 0 time $wait 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
+            test "$tok" = timeout; and set settle 0
         end
-        if contains -- $tok up down pgup pgdn
-            # Held keys: discard queued repeats, one step per frame. A
-            # different key read past is kept for the next turn.
-            while true
-                stty min 0 time 0 2>/dev/null
-                set -l k2 (__tcz_popup_readkey timeout)
-                contains -- $k2 up down pgup pgdn; and continue
+        if test "$tok" != timeout
+            # A key acts only alone. More input already pending means typed-ahead or pasted text (ShellFish
+            # types `cd "<dir>"` + Enter into every new tab): drain it all, act on none. Held moves are the
+            # exception, except in the settle window.
+            stty min 0 time 0 2>/dev/null
+            set -l k2 (__tcz_popup_readkey timeout)
+            if test $settle -eq 0; and contains -- $tok up down pgup pgdn
+                # Held keys: discard queued repeats, one step per frame. A different key read past is
+                # kept for the next turn, where this same check applies to it.
+                while contains -- $k2 up down pgup pgdn
+                    stty min 0 time 0 2>/dev/null
+                    set k2 (__tcz_popup_readkey timeout)
+                end
                 test "$k2" = timeout; or set pending $k2
-                break
+            else if test $settle -eq 1; or test "$k2" != timeout
+                __tcz_tty_drain
+                set tok drained
             end
         end
         set -l n (count $model)

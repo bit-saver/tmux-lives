@@ -9,8 +9,7 @@ coexistence, and a generated OKLCH theme engine for the status bar and tab colou
 
 ## ⚠ This file is pruned, not append-only
 
-This file was 231 KB on 2026-09-02 (~58k tokens per session) because each cycle appended a forensic
-narrative and nothing removed one. It was cut to the current state plus the rules that still bind.
+This file was 231 KB on 2026-09-02 because each cycle appended a narrative and none was removed.
 
 **When you write here, you also prune here.** Before adding a cycle narrative, delete the narrative it
 supersedes. A paragraph describing an engine that no longer exists in the codebase is not history worth
@@ -42,7 +41,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | Path | What |
 |---|---|
 | `conf.d/tmux.fish` | Shell-side: autostart, session creation, `tmux-lives <verb>` dispatcher, the `--on-variable` reload handler, the Alt+S shell keybind |
-| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6; the v5 engine was deleted 2026-09-14), post-update note |
+| `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6), post-update note |
 | `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
 | `tests/test-*.fish` | The gate — 9 suites |
 | `tests/tick-rate-ab.fish`, `tests/truncate-perf.fish` | Hand-run, not `test-*`: tick-rate-ab samples a live pty window; truncate-perf times `__tcz_popup_truncate` |
@@ -366,8 +365,7 @@ engine key is a **cksum of the install file's own bytes** (`__tmux_lives_engine_
 self-invalidates the moment the theme engine's code changes — no version constant to bump by hand. Lives
 at `tmux_lives_render_cache_dir` (seam), else `$XDG_CACHE_HOME/tmux-lives`, else `$HOME/.cache/tmux-lives`.
 A miss renders, appends one line, and prunes stale-engine files. **Never fails a render over the cache**
-— an unreadable engine key or an uncreatable directory falls straight back to the raw renderer. Callers:
-see "v6 is wired…", above; warm-vs-cold numbers: "Performance" under the picker, below.
+— an unreadable engine key or an uncreatable directory falls straight back to the raw renderer.
 
 ## The picker (theme + session)
 
@@ -551,6 +549,9 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 - **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s, the idle-project list every
   10th pass (cache `projects.tsv`; seams `tmux_lives_claude_projects_dir`, `tmux_lives_project_cache`);
   `d` detaches, `q`/Esc are no-ops (one token in `__tcz_popup_readkey`).
+- **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
+  types `cd "<dir>"`⏎ into each new tab), drained unless a held move; all input is drained until a quiet
+  second after the first paint (settle). Tests send keys after it (`__tcg_ready`).
 
 **Harness facts learned:**
 - A `script` pty client needs `env SHELL=/bin/sh` (zsh mangles `=name`) and a long-lived silent stdin
@@ -566,8 +567,7 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 
 ## Current state — 2026-09-29
 
-`main`'s last **code** commit `5076e04` (OSC 0 titles) is deployed on both machines since 2026-09-27.
-**The landing session** (`feat/landing-session`): review fixes landed; awaits merge and the user's `fisher update`; delete its plan once it ships.
+**The landing session** (`main` `7528599`) is deployed on both machines; delete its plan.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
