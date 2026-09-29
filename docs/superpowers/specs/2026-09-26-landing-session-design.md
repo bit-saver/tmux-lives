@@ -60,8 +60,8 @@ Measured the same way on tmux 3.7b (macwork), 2026-09-26: identical — the hook
 
 - **Create** — `__tcz_landing_new [client]`: pick `_landing-N`, `new-session -d -s _landing-N -c $HOME` running the app; with a client, `switch-client -c <client> -t =_landing-N` in the same tmux invocation (so the sweep can never see it clientless). Two tabs can pick the same free name at once: the loser retries with a fresh name, and a failed switch removes only the session this call created, by its id.
 - **Leave** — after the app switches its client elsewhere, it kills its own session once no tab is left on it.
-- **Sweep** — the status tick kills any `_landing-*` session with no attached client, covering tabs that closed or detached while on landing (≤ 15 s). It spares landing sessions younger than 10 s: `landing-new` creates detached and the shell attaches a moment later. It reads the per-pass session memo, so a pass with no clientless landing session costs zero tmux calls.
-- **Respawn** — the app never exits on its own; an exit or crash is caught by `pane-died` rule 1.
+- **Sweep** — the status tick kills any `_landing-*` session with no attached client, covering tabs that closed or detached while on landing (up to ~25 s: the 15 s tick plus the 10 s young-session guard). It spares landing sessions younger than 10 s: `landing-new` creates detached and the shell attaches a moment later. It reads the per-pass session memo, so a pass with no clientless landing session costs zero tmux calls.
+- **Respawn** — the app never exits on its own; an exit or crash is caught by `pane-died` rule 1. After a `fisher update`, `__tmux_lives_landing_respawn` (called from `_tmux_lives_post_update`) respawns every live landing pane so it runs the new code.
 - **Misuse** — a new window or split inside a landing session (landing-guarded `after-new-window` / `after-split-window` hooks, `landing-evict`) is removed, and the client gets a new general session in `$HOME` instead: asking landing for a shell gives you a real session. The now-clientless landing session is left to the sweep.
 
 ## The landing app
@@ -92,7 +92,7 @@ Switching: `switch-client -c <my client> -t =<target>`, where my client is `list
 - **Not `~/.claude.json`** — 176 KB of JSON, fish has no JSON parser, and macOS has no `jq` by default.
 - **Not running** — drop a project when a live pane runs claude with that folder (or its git root) as its cwd.
 - **Order** — newest transcript first; show a relative age.
-- **Cost** — about one fork per directory to read a transcript head. Cache `dir|mtime|folder` lines in `$XDG_CACHE_HOME/tmux-lives/projects.tsv` (seam `tmux_lives_project_cache`; the transcript root has its own seam, `tmux_lives_claude_projects_dir`); re-read a directory only when its newest transcript's mtime changes, and rewrite the cache only when something changed. The file shares its directory with the theme render cache, whose prune deletes only its own `<digits>-<hex6>.tsv` files.
+- **Cost** — about one fork per directory to read a transcript head. Cache tab-separated `dir`, `mtime`, `folder` lines in `$XDG_CACHE_HOME/tmux-lives/projects.tsv` (seam `tmux_lives_project_cache`; the transcript root has its own seam, `tmux_lives_claude_projects_dir`); re-read a directory only when its newest transcript's mtime changes, and rewrite the cache only when something changed. The file shares its directory with the theme render cache, whose prune deletes only its own `<digits>-<hex6>.tsv` files.
 - **Start** — `new-session -d -c <folder>` (the categorizer names it from the folder, as for any session, so it is addressed by its session id), `send-keys 'claude --continue' Enter`, switch, and leave once no tab is left on the landing. The shell stays after Claude exits, as today. `r` sends `claude --resume` instead.
 
 ## Exclusions everywhere else
@@ -101,7 +101,7 @@ Landing sessions (by reserved name) are excluded from:
 
 - categorize, rename, `@tmux_lives_display` / `@tmux_lives_claude` writes;
 - snapshot and overview (popup picker, fallback menu);
-- `__tmux_pick_session`, `__tcz_pick_general`, `prune` and idle-kill, restore disposal;
+- `__tmux_pick_session`, `__tcz_pick_general`, `prune`, `clear` and idle-kill, restore disposal;
 - tab titles — a landing tab gets the fixed title `[<h>] landing`.
 
 tmux-resurrect has no per-session exclusion, so snapshots will contain landing sessions. On restore, tmux-lives kills any restored `_landing-*` session (by name — options are not restored).
@@ -122,12 +122,13 @@ Tab colour is untouched.
 
 ## Testing
 
-- Isolated `-L … -f /dev/null` servers with real pty clients (`script -qfec`), as the existing attach-hook tests do.
-- Close path: the last pane exits → the client lands on a new `_landing-N` and never on another session (a `client-session-changed` log shows only the landing session), and the closed session is gone; a non-last pane exits → only that pane goes, client unmoved; the landing app exits → respawned.
-- Entry points: `__tcz_commandeer` and autostart create a landing session (autostart's `exec` stubbed).
-- Discovery: a fixture projects directory (seam) with slugs, transcripts and mtimes — cwd extraction, the exists-locally filter, running-exclusion, ordering, cache hit and miss.
-- Exclusions: categorize, snapshot, pickers, prune and restore ignore `_landing-*`.
-- Kill switch `off`: every existing suite stays green unchanged.
+- Isolated `-L … -f /dev/null` servers with real pty clients (`script`, run with `env SHELL=/bin/sh` and a long-lived silent stdin), as the existing attach-hook tests do. Every suite that can start a landing app exports the discovery seams, so no test reads `~/.claude/projects` or writes `~/.cache/tmux-lives`.
+- Close path: the last pane exits → the client lands on a new `_landing-N` and never on another session, and the closed session is gone; a non-last pane exits → only that pane goes, client unmoved; the landing app exits → respawned; a session name with an apostrophe still closes (`#{q:}`); the `|| kill-pane` fallback closes the pane when the handler cannot run.
+- Entry points: `__tcz_commandeer` creates and switches in one call; autostart and the outside-tmux picker are run in a child fish against a recorder `tmux` on `PATH` and a stub categorizer, and the last recorded call is the `exec` (landing on, off, no name, categorizer missing, `picker -t`). `test-tmux-auto.fish` pins bare `tmux` to its own socket by construction.
+- The app: real-client tests drive it with keystrokes (`Enter`, `d`, `x`, `q`/Esc no-ops) and the diff emitter is asserted to write nothing on an unchanged frame.
+- Discovery: a fixture projects directory (seam) with slugs, transcripts and mtimes — cwd extraction, the exists-locally filter, running-exclusion, ordering, cache hit and miss, no rewrite when nothing changed.
+- Exclusions: categorize, snapshot, pickers, prune, clear and restore ignore `_landing-*`; the sweep spares young sessions and costs zero tmux calls when clean (`test-tmux-tick-calls.fish`).
+- Kill switch `off`: the pre-existing close tests run with landing off and every existing suite stays green unchanged; install-side tests cover the fragment render, `setup landing`, teardown restore and the post-update respawn.
 
 ## Open items
 

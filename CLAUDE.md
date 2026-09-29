@@ -28,12 +28,10 @@ belongs in a memory file or a spec, with a pointer from here.
 
 - Never `cp` a change into `~/.config/fish/{conf.d,functions}/`, and never edit `~/.tmux.conf` or set
   universal variables to ship something.
-- `fisher install`/`update` also *hang* in the Claude bash sandbox (parallel fetch needs job control),
-  regardless.
+- `fisher install`/`update` also *hang* in the Claude bash sandbox (parallel fetch needs job control).
 - If a change needs live verification, push it and ask for a `fisher update`.
-- ✅ **Temporary test edits to a live file are allowed** for observation, on one strict condition:
-  restore it **byte-identical** afterwards and prove it with a `diff` — clean restore via
-  `git show <installed-commit>:<path> > <live-path>`.
+- ✅ **Temporary test edits to a live file are allowed** for observation, if restored **byte-identical**
+  afterwards and proved with a `diff` — restore via `git show <installed-commit>:<path> > <live-path>`.
 
 See memory `[[deploy_via_fisher_update_only]]`.
 
@@ -63,13 +61,12 @@ functions/tmux-categorize.fish}`, tracked in `fish_plugins` + `_fisher_plugins`.
 
 `~/.tmux.conf` **sources a managed fragment** — its last lines are
 `source-file ~/.config/tmux/tmux-lives.conf` then the TPM run-line. All tmux-lives wiring (categorize
-tick, key binds, ShellFish commandeer + `client-attached` hooks, `LC_TERMINAL` passthrough,
-resurrect/continuum declarations, theme `@options`, the status-format) lives in that **rendered
-fragment** and is `tmux-lives setup`-managed — not hand-edited, not hardcoded in `~/.tmux.conf`.
+tick, key binds, ShellFish commandeer (`client-session-changed`) + `client-attached` hooks, `LC_TERMINAL`
+passthrough, resurrect/continuum declarations, theme `@options`, the status-format) lives in that
+**rendered fragment**, `tmux-lives setup`-managed — never hand-edited or hardcoded in `~/.tmux.conf`.
 
-Getting new fragment wiring live = `fisher update` then any `setup` action, or just `fisher update`
-alone (`_tmux_lives_post_update` re-renders the fragment when one exists); `tmux-lives setup install` is
-the from-scratch path.
+New fragment wiring goes live on `fisher update` alone (`_tmux_lives_post_update` re-renders the fragment
+when one exists); `tmux-lives setup install` is the from-scratch path.
 
 **Two user-owned config surfaces** the fragment respects: `~/.tmux-lives.conf` (general user config,
 sourced at fragment load and re-applied on non-ShellFish attach; `setup conf edit|add|reset`) and
@@ -142,25 +139,28 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
 
 Every `tests/test-*.fish` opens with an identical **self-re-exec guard**: it mints a throwaway dir,
 points `XDG_CONFIG_HOME` at it, and relaunches the suite under it. **Fish binds its universal store at
-process startup, so the redirect cannot be applied from inside a running test** — re-exec is the only
-mechanism, and it **fails closed** on mktemp failure.
+process startup**, so re-exec is the only mechanism, and it **fails closed** on mktemp failure.
 
 Load-bearing details, each of which was a bug once:
 - Mode is preserved across the re-exec via `test (count $fish_function_path) -gt 0`.
   **`set -q __fish_initialized` is a trap** — it is itself a universal, so in the child's fresh store it
   reads unset under plain fish too, misclassifying every run as `--no-config`.
-- The interpreter is pinned with `set -l fish_bin (status fish-path)` — a command substitution in
-  command position is a fish syntax error.
-- `test-generic.fish` greps every suite for the **anchor line** `if not set -q TMUX_LIVES_TEST_UVARS`,
-  not the bare variable name (a comment mentioning the name defeated the first version).
+- The interpreter is pinned with `set -l fish_bin (status fish-path)` (a command substitution in command
+  position is a syntax error).
+- `test-generic.fish` greps every suite for the **anchor line** `if not set -q TMUX_LIVES_TEST_UVARS`, not
+  the bare name (a comment mentioning it defeated the first version).
 
-**Known isolation holes, unfixed:** the `tmux_lives_funcs_file` seam is a *variable*, so the
-`XDG_CONFIG_HOME` redirect misses it; `test-tmux-auto.fish`'s `tmux` shim is a fish **function**, invisible
-to subprocesses — one call site returns the user's **real** sessions, saved only by `TMUX=fake` failing to
-connect. Coincidence, not isolation: stub directly. See `[[tmux_test_isolation]]`.
+**Known isolation hole, unfixed:** the `tmux_lives_funcs_file` seam is a *variable*, so the
+`XDG_CONFIG_HOME` redirect misses it. `test-tmux-auto.fish`'s old hole (a fish-function `tmux` shim that
+subprocesses cannot see) is closed structurally: a PATH shim pinned to the suite's `-L` socket with
+`-f /dev/null`, `TMUX`/`TMUX_PANE` erased, a recorder categorizer stub. Copy that prologue into any new
+suite. See `[[tmux_test_isolation]]`.
 
-**A third $HOME seam, guarded:** `tmux_lives_render_cache_dir` — both suites set it. ⚠ The directory is
-shared (the landing app keeps `projects.tsv` there): its prune deletes only `<digits>-<hex6>.tsv` files.
+**A third $HOME seam, guarded:** `tmux_lives_render_cache_dir` — the categorize and install suites set it.
+⚠ The directory is shared (the landing app keeps `projects.tsv` there): its prune deletes only
+`<digits>-<hex6>.tsv` files. Any suite that can start a landing app must export
+`tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` (auto, categorize, install do; install once
+wrote the real `projects.tsv`).
 
 ---
 
@@ -179,14 +179,13 @@ walk via `__tcz_git_root`, then that root's basename, else the path's own basena
 
 - `test -e`, **not `-d`** — in a linked worktree or a submodule `.git` is a regular *file*, and this
   project uses `git worktree` for isolated builds.
-- **Never** a `git rev-parse` subprocess — per-session forks are what burned four cores on macOS.
-- A generic walk result (`$HOME`, `/`, `/tmp`, `/var/tmp`) is treated as "no repo found" and falls back
-  to the path's own basename — otherwise a dotfiles repo at `$HOME/.git` would collide every
-  non-project directory into `name` / `name-2` / `name-3`.
+- **Never** a `git rev-parse` subprocess — per-session forks burned four cores on macOS.
+- A generic walk result (`$HOME`, `/`, `/tmp`, `/var/tmp`) counts as "no repo found" and falls back to
+  the path's own basename — else a dotfiles repo at `$HOME/.git` collides every non-project directory.
 - `session_path` is **strictly dominated**: it equals the pane path until a `cd` and is stale after one.
 
 Sessions are born in the **invoking shell's cwd**, except `__tcz_commandeer`, which pins `$HOME` at its
-call site (not inside `__tcz_new_general`'s other, real-cwd caller) — reached via `client-attached` →
+call site (not inside `__tcz_new_general`'s other, real-cwd caller) — reached via `client-session-changed` →
 `run-shell`, which executes at the tmux **server's** cwd, wherever the server was started.
 
 Restored claude breadcrumbs **are stamped** (`@tmux_auto_name`) — unstamped, a name froze at save time
@@ -197,8 +196,7 @@ Duplicate displays get a **bracketed ordinal** — `Sonos [1]` / `Sonos [2]` (a 
 as an iteration count), every member numbered, ordered by **sorted session name**.
 
 **Known, deliberately not fixed:** `__tcz_snapshot`/`__tcz_overview` consult only the `@tmux_lives_name`
-claim, never ownership — a hand-named session still renders its *project* in the picker while every
-other surface shows its own name.
+claim, never ownership — a hand-named session still renders its *project* in the picker.
 
 ---
 
@@ -217,8 +215,7 @@ be dropped or we paint two clocks. Driven by a plain `run-shell`, which is **syn
 
 `set -ga update-environment` is guarded per name with `show -gv` + `grep -qx` — **`show -gv` prints one
 name per line**, so `-x` is exact and load-bearing (a substring match lets `LC_TERMINAL_VERSION` satisfy
-the `LC_TERMINAL` check), and `&&` makes it **fail closed** (a bare `! tmux … | grep` misreads "absent"
-whenever tmux is unreachable).
+the `LC_TERMINAL` check), and `&&` makes it **fail closed** (a bare `! tmux … | grep` misreads "absent").
 
 **Two batching layers, both one snapshot per pass, flushed at the top of `__tcz_main`:**
 
@@ -279,8 +276,8 @@ DECRQM, so it's immune); the probe uses `sort -V` (a numeric compare gets 3.10 >
 (no `setup` setter — known wart).
 
 ⚠ **Three testing traps here** (unknown feature names accepted silently, vacuous parse tests on a
-malformed `source-file` line, and a quote-mutation that still worked because tmux concatenates adjacent
-quoted strings) — see `[[shellfish_cursor_flicker]]` for what to check.
+malformed `source-file` line, quote-mutations that still work because tmux concatenates adjacent quoted
+strings) — see `[[shellfish_cursor_flicker]]`.
 
 ---
 
@@ -450,12 +447,11 @@ macwork session until 2026-09-16.
   ceiling relocates the single destination and costs a style they want.
 - **Hue placement is NOT what makes a palette work**, refuted three ways. Do not build another
   hue-placement rule.
-- **Cohesion is a curve, not uniformity.** Forcing one hue family produced a palette judged *less*
-  cohesive — the liked palette's tiny `sep` separators carry the **highest chroma in the whole palette**,
-  and flattening crushed it. **Never hand-assign a role colour** — always sample the ramp.
+- **Cohesion is a curve, not uniformity.** Forcing one hue family read as *less* cohesive — the liked
+  palette's tiny `sep` separators carry its **highest chroma**, and flattening crushed it. **Never
+  hand-assign a role colour** — always sample the ramp.
 - **ShellFish's tab bar is the optimization target**, not the tmux status bar (`tabs` ≈ 1.8× `bar` by
-  area on the real screen) — every colour mockup renders both a ShellFish and a cmux view; ShellFish
-  decides, cmux gets a veto for "actively bad".
+  area) — every colour mockup renders a ShellFish and a cmux view; ShellFish decides, cmux may veto.
 - **Colour/UI mockups must be a faithful facsimile of the real widget**, not abstract swatches.
 
 ---
@@ -518,9 +514,9 @@ macwork session until 2026-09-16.
   *above* it and pair it with a positive count. **Modifying a pre-existing guard is the highest-risk edit
   in the file** — a retarget can silently shrink its capture and print a false pass unconditionally.
 - **A rendered-output fixture can't pin an invariant the engine itself hunts for and relocates** — assert
-  the table directly from source (`awk`-extracting the relevant block), with a vacuity guard.
-- **Never `git checkout` to revert a mutation** while work is uncommitted — it reverts to HEAD. Restore
-  from a file copy taken immediately beforehand and prove byte-identity with `diff`.
+  the table from source (`awk`-extract the block), with a vacuity guard.
+- **Never `git checkout` to revert a mutation** with uncommitted work — it reverts to HEAD. Restore from a
+  file copy taken beforehand and prove byte-identity with `diff`.
 - **A mutation battery proves the mutations you chose were caught, not that your assertions are awake** —
   and the recurring shape, confirmed ten times, is that **an invariant one stage establishes is not one a
   later stage is obliged to preserve.** A fixed order is necessary, not sufficient.
@@ -529,7 +525,7 @@ macwork session until 2026-09-16.
 
 ## Landing session
 
-Built on `feat/landing-session`, rehearsed live 2026-09-29. Spec:
+Built on `feat/landing-session`, rehearsed on a throwaway server 2026-09-29. Spec:
 `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
 Every automatic entry (login, outside-tmux `picker`, new ShellFish tab) and every closing tab lands on a
 per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell).
@@ -541,11 +537,12 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 - **Close path** = global `remain-on-exit on` + a `pane-died` hook → `session-close` (`__tcz_session_close`:
   land every client, then kill; shared with `close` and the app's `x`). Hook is `#{q:…}`-quoted (an
   apostrophe in a session name once left a pane dead forever) with a `|| tmux kill-pane` fallback.
-  **`detach-on-destroy off` is refuted** (MRU session first). Both options are global: `off` and teardown
-  restore them.
+  **`detach-on-destroy off` is refuted** (MRU session first). `remain-on-exit` and the three hooks are
+  server-global: `off` and teardown restore them.
 - **Creation** — `__tcz_landing_new [client]` retries a lost name race; a failed switch kills only its own
   session, by id. Login/`picker` run `landing-new` then `exec tmux attach-session`, falling through to the
-  legacy path on no name; `picker -t` keeps take-over.
+  legacy path on no name; `picker -t` keeps take-over. `fisher update` respawns every live landing pane
+  (`__tmux_lives_landing_respawn`).
 - **Sweep** — the tick kills clientless `_landing-*` from the loaded memo (zero tmux calls when none);
   ⚠ it **spares any under 10 s old**: `landing-new` creates detached and the shell attaches later.
 - **Excluded from** categorize/rename, snapshot+overview, both general-picks, `prune`, `clear`, tab titles
@@ -570,9 +567,7 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 ## Current state — 2026-09-29
 
 `main`'s last **code** commit `5076e04` (OSC 0 titles) is deployed on both machines since 2026-09-27.
-**The landing session is built on `feat/landing-session`** (Tasks 1-8, reviewed) and awaits the whole-branch
-review, merge, and the user's `fisher update`; delete its plan once it ships. Deferred review minors are
-in the SDD ledger, `.superpowers/sdd/2026-09-26-landing-session/progress.md`.
+**The landing session is built on `feat/landing-session`** and awaits the whole-branch review, merge, and the user's `fisher update`; delete its plan once it ships.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
@@ -599,6 +594,8 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
   first: rocket's `config.fish` calls `setbarcolor 99AA33` (no `#`). Not investigated.
 - **iTerm2 tabs read "… — macwork" over ssh** — iTerm2's own Host component; user to choose: untick Host,
   or tmux-lives sends `OSC 1337 RemoteHost`.
+- **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
+  (`has-session` guard).
 - `close`'s help row still says "and exit" (a test pins it); with landing on the tab lands instead.
 - `README.md`'s Retired settings line about `--polarity`/`--range` — inherited, unverified.
 
@@ -611,6 +608,6 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 - **git** — `git log --diff-filter=D -- <path>` finds the commit that removed any deleted doc.
 - **The memory store** (`~/.claude/projects/-home-bitsaver-workspace-tmux-lives/memory/`), indexed by
   `MEMORY.md` — the durable knowledge layer; **prefer adding depth there over growing this file.**
-- **claude-mem:** this project was extracted from `~/.config/fish`; history through **2026-06-17** is
-  labelled `fish`, not `tmux-lives` — query `project: "fish"` too (terms: tmux, auto-tmux, categorize,
-  shellfish, resurrect). New observations from this repo are tagged `tmux-lives`.
+- **claude-mem:** history through **2026-06-17** is labelled `fish` (this project was extracted from
+  `~/.config/fish`), not `tmux-lives` — query `project: "fish"` too (terms: tmux, auto-tmux, categorize,
+  shellfish, resurrect). Newer observations are tagged `tmux-lives`.
