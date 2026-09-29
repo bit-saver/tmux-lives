@@ -507,6 +507,12 @@ t "start: client switched by id" 1 (string match -q '*switch-client -c cl1 -t $9
 rm -f $LREC
 ```
 
+Plus an **end-to-end test of the running loop** on the test server — the loop is terminal-shaped, and only a harness proves it. Attach a real pty client to a landing session made by `__tcz_landing_new` (the stdin-pipe `script` idiom from the Task 3 tests: `script` must not see stdin EOF, or it forwards Ctrl-D into the pane), wait until the app has drawn (poll `capture-pane -p` for the `new shell` row), then drive it with `send-keys -t '=_landing-N:'`:
+- `q` then `Escape`: the landing session and the app are still alive 1 s later (never exits on its own);
+- move to the `new shell` row (`End`-free: send `j` until the pointer reaches it, or build the fixture so it is row 1) and `Enter`: the client is now on a `gen-*` session and the landing session is gone;
+- on a fresh landing + client, `d`: the client is detached and the landing session is gone.
+Each must FAIL against Task 1's placeholder `__tcz_landing` (prove it). Kill every client you start.
+
 Plus a `__tcz_landing_model` test on a real `-L` server with one claude-shim session and fixture projects under the suite-wide `$tmux_lives_claude_projects_dir` (Task 5; clean them up after, never erase the variable): assert the live row, a project row for an idle fixture folder, no project row for the folder the shim session runs in, and the trailing `new` row. Plus a draw test: a model whose row 1 is `new` renders without calling capture-pane (stub `__tcz_popup_preview` to append to a recorder; assert it was not called).
 
 - [ ] **Step 2: Implement** `__tcz_client_device`, `__tcz_landing_model`, the list-lines and draw extensions, `__tcz_landing_info`, `__tcz_landing_start`, then the loop — it **replaces** the placeholder body of `__tcz_landing` from Task 1 (the `case landing` verb already exists):
