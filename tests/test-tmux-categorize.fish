@@ -10545,6 +10545,59 @@ end
 set -l tydw (__tcg_where $tyd)
 t "typeahead (non-regression): a lone d typed on the keyboard detaches the tab and removes its landing" " 0" "$tydw"
 for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# A burst whose Enter straggles in 50 ms behind the text is still one burst.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyf (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tyf:" '*new shell*'
+__tcg_type $tyk 'cd "/Users/x"'; sleep 0.05; __tcg_type $tyk '\r'
+sleep 2
+set -l tyfw (__tcg_where $tyf)
+t "typeahead: cd \"<dir>\" with its Enter 50 ms behind leaves the tab on its landing" "$tyf 1" "$tyfw"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# CR LF is one Return, not a burst: it opens the selected row.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyg (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tyg:" '*new shell*'
+__tcg_type $tyk '\r\n'
+for i in (seq 30)
+    set -l on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    test "$on" = 0; and break
+    sleep 0.1
+end
+set -l tygw (__tcg_where $tyg)
+t "typeahead: CR LF is one Enter: the tab moves to the selected row and its landing goes" "0 0" "$tygw"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# The settle window closes 2 s after the first paint even while keys keep coming: of five j taps 0.7 s
+# apart from +0.4 s, the first two or three are drained and the rest act, so the pointer ends on s3 or s4.
+fresh_server
+for n in s1 s2 s3 s4 s5
+    command tmux -L $sock new-session -d -s $n -c /tmp
+end
+command tmux -L $sock kill-session -t =0
+__tcg_kbd_client $tyk s1
+set -l typids (jobs -p)
+set -l tyh (__tcz_landing_new (__tcg_client_on s1))
+__tcg_screen_has "=$tyh:" '*▐ s1*' 80 >/dev/null
+sleep 0.4
+for i in 1 2 3 4 5
+    __tcg_type $tyk j
+    test $i -lt 5; and sleep 0.7
+end
+sleep 1.5
+set -l tyhat (command tmux -L $sock capture-pane -p -t "=$tyh:" | string match -rg '▐ (s[0-9]|new shell)')
+t "typeahead: the settle window ends 2 s after the first paint, so later taps act (pointer on s3 or s4)" 1 (string match -qr '^s[34]$' -- "$tyhat"; and echo 1; or echo 0)
+echo "# settle bound: pointer on [$tyhat]"
+for p in $typids; kill $p 2>/dev/null; end
 rm -f $tyk
 cleanup
 functions -e __tcg_kbd_client __tcg_type __tcg_where
@@ -10554,7 +10607,9 @@ functions -e __tcg_kbd_client __tcg_type __tcg_where
 fresh_server
 set -l ilrec /tmp/tcz-ilrec-$fish_pid
 rm -f $ilrec
-set -l ilcmd "set -g tmux_categorize_test 1; source $lcat; set -g tmux_lives_landing_idle_after 2; set -g tmux_lives_landing_idle_refresh 6; functions -c __tcz_landing_model __il_bak; function __tcz_landing_model; date +%s%3N >> $ilrec; __il_bak \$argv; end; __tcz_landing"
+set -l ilpc /tmp/tcz-ilpc-$fish_pid
+rm -f $ilpc
+set -l ilcmd "set -g tmux_categorize_test 1; source $lcat; set -g tmux_lives_landing_idle_after 2; set -g tmux_lives_landing_idle_refresh 6; functions -c __tcz_landing_model __il_bak; function __tcz_landing_model; date +%s%3N >> $ilrec; __il_bak \$argv; end; functions -c __tcz_claude_projects __ilp_bak; function __tcz_claude_projects; date +%s%3N >> $ilpc; __ilp_bak; end; __tcz_landing"
 command tmux -L $sock new-session -d -s _landing-6 -c $HOME fish --no-config -c "$ilcmd"
 sleep 40 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-6" /dev/null >/dev/null 2>&1 &
 set -l ilpids (jobs -p)
@@ -10584,8 +10639,13 @@ if test (count $ilm) -ge 6
     test $ilgap -ge 2500; and test $ilgap -le 4500; and set ilfast 1
 end
 t "idle: a key refreshes at once and the next refresh is on the 3 s cadence" "1 1" "$ilwoke $ilfast"
+set -l ilpcwoke 0
+for ts in (cat $ilpc 2>/dev/null)
+    test $ts -ge $ilkey; and test (math "$ts - $ilkey") -lt 1000; and set ilpcwoke 1
+end
+t "idle: the key that wakes an idle tab re-reads the project list too" 1 "$ilpcwoke"
 for p in $ilpids; kill $p 2>/dev/null; end
-rm -f $ilrec
+rm -f $ilrec $ilpc
 cleanup
 functions -e __tcg_screen_has __tcg_client_on __tcg_ready
 
@@ -10645,28 +10705,30 @@ t "isolation: real cache dir existence unchanged by this suite" "$__tcg_real_rc_
 rm -rf "$tmux_lives_claude_projects_dir" "$tmux_lives_project_cache"
 set -e tmux_lives_claude_projects_dir
 set -e tmux_lives_project_cache
-function __tcg_proj_leaks --argument-names cache root --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a /tmp folder ending -$fish_pid), then "checked"'
-    if test -z "$root"; or test -z "$fish_pid"
-        echo "refusing: no seam root or pid to match on"; return
+function __tcg_proj_leaks --argument-names cache root fre --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a folder matching <fre>, this suite'"'"'s own fixtures), then "checked"'
+    if test -z "$root"; or test -z "$fre"; or test -z "$fish_pid"
+        echo "refusing: no seam root, fixture pattern or pid to match on"; return
     end
     for f in $cache $cache.*
         test -f $f; or continue
         test $f = $cache; or string match -rq '\.[A-Za-z0-9]{6}$' -- $f; or continue
-        test -r $f; or begin; echo "$f: unreadable"; continue; end
-        while read -l line
+        # A production temp can vanish between the glob and the read: skip it, but report one it cannot read.
+        test -r $f; or begin; test -e $f; and echo "$f: unreadable"; continue; end
+        cat $f 2>/dev/null | while read -l line
             set -l r (string split \t -- $line)
-            string match -q -- "$root/*" "$r[1]"; or string match -rq -- "^/tmp/.*-$fish_pid(/|\$)" "$r[3]"; or continue
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[3]"; or continue
             echo "$f: $line"
-        end < $f
+        end
     end
     echo checked
 end
+set -l __tcg_proj_fre "^/tmp/tc[zg]-[^/]*-$fish_pid(/|\$)"
 # Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
 set -l lk /tmp/tcg-leakprobe-$fish_pid.tsv
-printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n' > $lk
+printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n' $fish_pid > $lk
 printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tcz-y-%s\n' $__tcg_proj_root $fish_pid > $lk.Ab12Cd
-set -l lkout (__tcg_proj_leaks $lk $__tcg_proj_root)
-t "isolation: the leak check finds this run's two rows in a stray temp and passes the real one" "3 checked" "$(count $lkout) $lkout[-1]"
+set -l lkout (__tcg_proj_leaks $lk $__tcg_proj_root $__tcg_proj_fre)
+t "isolation: the leak check finds this run's two rows in a stray temp and passes real ones, even a /tmp one ending in this pid" "3 checked" "$(count $lkout) $lkout[-1]"
 rm -f $lk $lk.Ab12Cd
 set -l __tcg_rows_after (count (cat "$__tcg_real_proj_cache" 2>/dev/null))
 set -l __tcg_emptied unknown
@@ -10675,7 +10737,7 @@ if string match -qr '^[0-9]+$' -- "$__tcg_real_proj_rows_before"
     test $__tcg_real_proj_rows_before -gt 0; and test $__tcg_rows_after -eq 0; and set __tcg_emptied yes
 end
 t "isolation: the real project cache was not emptied or removed by this suite" no "$__tcg_emptied"
-set -l __tcg_leaks (__tcg_proj_leaks "$__tcg_real_proj_cache" "$__tcg_proj_root")
+set -l __tcg_leaks (__tcg_proj_leaks "$__tcg_real_proj_cache" "$__tcg_proj_root" $__tcg_proj_fre)
 t "isolation: the real project cache and its temps hold no row from this suite" checked "$__tcg_leaks"
 functions -e __tcg_proj_leaks
 

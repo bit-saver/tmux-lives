@@ -157,8 +157,8 @@ suite. See `[[tmux_test_isolation]]`.
 ⚠ The directory is shared (the landing app keeps `projects.tsv` there): its prune deletes only
 `<digits>-<hex6>.tsv` files. Any suite that can start a landing app must export
 `tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` (auto, categorize, install do; install once
-wrote the real `projects.tsv`). Real-cache brackets check this run's **footprint** (seam rows, `-$fish_pid`
-folders, an emptied file), never an mtime: the user's landing apps rewrite `projects.tsv` mid-run.
+wrote the real `projects.tsv`). Real-cache brackets check this run's **footprint** (seam rows, its own
+fixture folders, an emptied file), never an mtime: the user's landing apps rewrite `projects.tsv` mid-run.
 
 ---
 
@@ -547,16 +547,16 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
   window opened inside landing to a `gen-N` in `$HOME`.
 - **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s (15 s after a minute with no
   key; seams `tmux_lives_landing_idle_after`/`_idle_refresh`), the idle-project list every 10th pass
-  (cache `projects.tsv`; seams `tmux_lives_claude_projects_dir`, `tmux_lives_project_cache`);
+  (cache `projects.tsv`; seams in "Test isolation");
   `d` detaches, `q`/Esc are no-ops (one token in `__tcz_popup_readkey`).
 - **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
-  types `cd "<dir>"`⏎ into each new tab), drained unless a held move; all input is drained until a quiet
-  second after the first paint (settle). Tests send keys after it (`__tcg_ready`).
+  types `cd "<dir>"`⏎ into each new tab), drained to a 0.3 s gap unless a held move; CR LF is one ⏎. All
+  input is drained until a quiet second after the first paint, 2 s at most (settle; tests: `__tcg_ready`).
 
 **Harness facts learned:**
 - A `script` pty client needs `env SHELL=/bin/sh` (zsh mangles `=name`) and a long-lived silent stdin
-  (`sleep N |`, or a FIFO whose writer stays open, so `printf '\002c' > fifo` sends a real `prefix c`); a
-  bare `script` forwards EOF as Ctrl-D and detaches within ~100 ms.
+  (`sleep N |`, or a FIFO held open read-write, whose writes are keystrokes: `__tcg_kbd_client`); a bare
+  `script` forwards EOF as Ctrl-D and detaches within ~100 ms.
 - `pane-died` is **window-scoped** (`show-hooks -gw`, not `-g`); `show-hooks` lists *unset* hook names, so
   assert on the `[N]` form. Test servers need `-f /dev/null` or the live fragment's hooks fire in them.
 - A throwaway-server rehearsal needs `HOME` redirected, the fragment's `run '~/.tmux/plugins/tpm/tpm'` line
@@ -567,7 +567,8 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 
 ## Current state — 2026-09-29
 
-**The landing session** (`main` `7528599`) is deployed on both machines.
+**The landing session** (`main` `7528599`) is deployed on both machines; its type-ahead fix and idle cadence
+(`fix/landing-typeahead`) await merge and `fisher update`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
@@ -610,4 +611,4 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
   `MEMORY.md` — the durable knowledge layer; **prefer adding depth there over growing this file.**
 - **claude-mem:** history through **2026-06-17** is labelled `fish` (this project was extracted from
   `~/.config/fish`), not `tmux-lives` — query `project: "fish"` too (terms: tmux, auto-tmux, categorize,
-  shellfish, resurrect). Newer observations are tagged `tmux-lives`.
+  shellfish, resurrect).

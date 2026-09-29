@@ -988,28 +988,30 @@ functions -e __tac_exec __tac_exec_log_landing
 #   or whose folder is one of this run's /tmp fixtures, or
 # - a cache that had rows and now has none: this suite's seam root is empty, so a leak writes an empty file.
 # ---------------------------------------------------------------------
-function __tac_proj_leaks --argument-names cache root --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a /tmp folder ending -$fish_pid), then "checked"'
-    if test -z "$root"; or test -z "$fish_pid"
-        echo "refusing: no seam root or pid to match on"; return
+function __tac_proj_leaks --argument-names cache root fre --description 'print each row of <cache>, or of a temp beside it, that this run wrote (transcript dir under <root>, the seam, or a folder matching <fre>, this suite'"'"'s own fixtures), then "checked"'
+    if test -z "$root"; or test -z "$fre"; or test -z "$fish_pid"
+        echo "refusing: no seam root, fixture pattern or pid to match on"; return
     end
     for f in $cache $cache.*
         test -f $f; or continue
         test $f = $cache; or string match -rq '\.[A-Za-z0-9]{6}$' -- $f; or continue
-        test -r $f; or begin; echo "$f: unreadable"; continue; end
-        while read -l line
+        # A production temp can vanish between the glob and the read: skip it, but report one it cannot read.
+        test -r $f; or begin; test -e $f; and echo "$f: unreadable"; continue; end
+        cat $f 2>/dev/null | while read -l line
             set -l r (string split \t -- $line)
-            string match -q -- "$root/*" "$r[1]"; or string match -rq -- "^/tmp/.*-$fish_pid(/|\$)" "$r[3]"; or continue
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[3]"; or continue
             echo "$f: $line"
-        end < $f
+        end
     end
     echo checked
 end
+set -l __tac_proj_fre "^/tmp/(tl|tac|test)-[^/]*-$fish_pid(/|\$)"
 # Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
 set -l lk $TMUX_LIVES_TEST_UVARS/leakprobe.tsv
-printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n' > $lk
+printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n' $fish_pid > $lk
 printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tac-y-%s\n' $__tac_proj_root $fish_pid > $lk.Ab12Cd
-set -l lkout (__tac_proj_leaks $lk $__tac_proj_root)
-t "isolation: the leak check finds this run's two rows in a stray temp and passes the real one" "3 checked" "$(count $lkout) $lkout[-1]"
+set -l lkout (__tac_proj_leaks $lk $__tac_proj_root $__tac_proj_fre)
+t "isolation: the leak check finds this run's two rows in a stray temp and passes real ones, even a /tmp one ending in this pid" "3 checked" "$(count $lkout) $lkout[-1]"
 rm -f $lk $lk.Ab12Cd
 set -l __tac_rows_after (count (cat "$__tac_real_proj_cache" 2>/dev/null))
 set -l __tac_emptied unknown
@@ -1018,7 +1020,7 @@ if string match -qr '^[0-9]+$' -- "$__tac_real_proj_rows_before"
     test $__tac_real_proj_rows_before -gt 0; and test $__tac_rows_after -eq 0; and set __tac_emptied yes
 end
 t "isolation: the real project cache was not emptied or removed by this suite" no "$__tac_emptied"
-set -l __tac_leaks (__tac_proj_leaks "$__tac_real_proj_cache" "$__tac_proj_root")
+set -l __tac_leaks (__tac_proj_leaks "$__tac_real_proj_cache" "$__tac_proj_root" $__tac_proj_fre)
 t "isolation: the real project cache and its temps hold no row from this suite" checked "$__tac_leaks"
 functions -e __tac_proj_leaks
 cleanup

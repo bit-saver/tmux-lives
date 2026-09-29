@@ -1578,12 +1578,24 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     __tcz_popup_emit $frame (__tcz_popup_truncate "$legend" (math $cols - 1))
 end
 
-function __tcz_tty_drain --description 'discard every byte already pending on stdin, without blocking'
+function __tcz_tty_drain --description 'discard input until 0.3 s pass with none: a burst whose tail straggles in over several reads is one burst'
     set -l n 1
     while test "$n" -gt 0
-        stty min 0 time 0 2>/dev/null
+        # VMIN 0 still returns at once while bytes flow; only the final, empty read waits.
+        stty min 0 time 3 2>/dev/null
         set n 0
         dd bs=4096 count=1 2>/dev/null | wc -c | string trim | read n
+    end
+end
+
+function __tcz_now_ms --description 'milliseconds on a clock for short intervals: /proc/uptime where it exists (no fork), else perl, else whole seconds'
+    if test -r /proc/uptime
+        read -l up rest < /proc/uptime
+        math "round($up * 1000)"
+    else if command -q perl
+        perl -MTime::HiRes=time -e 'printf("%d\n", time() * 1000)'
+    else
+        math (date +%s) '*' 1000
     end
 end
 
@@ -1599,7 +1611,8 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l stale 1                    # re-snapshot on the next turn
     set -l pass 0                     # 0 = the idle-project list is due
     set -l pending ''                 # a key the held-key drain read past
-    set -l settle 1                   # drain all input until a quiet second after the first paint
+    set -l settle 1                   # drain all input until a quiet second after the first paint, 2 s at most
+    set -l settle_t0                  # the first paint, on __tcz_now_ms
     # Idle cadence: once idle_after seconds pass with no key, refresh every idle_refresh seconds (test
     # seams; 60 and 15). `idle` counts read timeouts in deciseconds, so it never runs ahead of the clock.
     set -l idle 0; set -l idle_after 600; set -l slow 150
@@ -1643,6 +1656,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             set -l wait 30
             if test $settle -eq 1
                 set wait 10
+                test -n "$settle_t0"; or set settle_t0 (__tcz_now_ms)
             else if test $idle -ge $idle_after
                 set wait $slow
             end
@@ -1653,9 +1667,12 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 set settle 0
                 test $idle -lt $idle_after; and set idle (math $idle + $wait)
             else
-                # Any key wakes an idle tab: refresh now, then back to 3 s.
-                test $idle -ge $idle_after; and set stale 1
+                # Any key wakes an idle tab: refresh now (project list too), then back to 3 s.
+                test $idle -ge $idle_after; and set stale 1; and set pass 0
                 set idle 0
+                # Keys that keep coming cannot hold the settle window open past 2 s. The clock is read
+                # only here and at the first paint, never on the idle path.
+                test $settle -eq 1; and test (math (__tcz_now_ms) - $settle_t0) -ge 2000; and set settle 0
             end
         end
         if test "$tok" != timeout
@@ -1663,7 +1680,20 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             # types `cd "<dir>"` + Enter into every new tab): drain it all, act on none. Held moves are the
             # exception, except in the settle window.
             stty min 0 time 0 2>/dev/null
-            set -l k2 (__tcz_popup_readkey timeout)
+            set -l k2
+            if test "$tok" = enter
+                # CR LF is one Return: an LF right behind the Enter is part of it, not a burst.
+                set -l b ''
+                dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read b
+                set k2 timeout
+                test -n "$b"; and set k2 other
+                if test "$b" = 0a
+                    stty min 0 time 0 2>/dev/null
+                    set k2 (__tcz_popup_readkey timeout)
+                end
+            else
+                set k2 (__tcz_popup_readkey timeout)
+            end
             if test $settle -eq 0; and contains -- $tok up down pgup pgdn
                 # Held keys: discard queued repeats, one step per frame. A different key read past is
                 # kept for the next turn, where this same check applies to it.
