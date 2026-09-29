@@ -593,6 +593,8 @@ The `kill` arm mirrors the popup's (C `__tcz_popup`, the `kill` arm); the model 
 - `__tmux_lives_close`: when enabled → for each `tmux list-clients -t "=$cur" -F '#{client_name}'`, `fish --no-config $tmux_categorize_script landing-new $c`; then kill the session.
 - Exclusions: `__tmux_pick_session` and `__tmux_lives_clear` skip landing; `__tmux_dispose_restored` **kills** any `_landing-*` session.
 
+⚠ Isolation, learned in Tasks 4 and 6: any test that can start a real landing app (a session made by `landing-new`, or a pane-died/close path that creates one) runs discovery. Export `tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` suite-wide at the top of `tests/test-tmux-auto.fish` (before any server starts, as the categorize and install suites now do) and bracket the real cache file in its hygiene. Any subprocess that calls plain `tmux` (e.g. `fish --no-config $tmux_categorize_script landing-new …`) escapes the suite's in-process `tmux` function shim and would reach the **live** server — route such calls through the suite's recorder stub (`pk_stub` pattern, ~296-311), never the real categorizer.
+
 - [ ] **Step 1: Failing tests** in `tests/test-tmux-auto.fish` (the suite's function-shim `tmux` reaches only in-process calls — stub the categorizer script with the suite's recorder pattern where a subprocess is involved):
 
 ```fish
@@ -626,7 +628,7 @@ Plus: `__tmux_pick_session` on the test server never returns a `_landing-*` sess
 - [ ] **Step 1: Full gate**, both modes (two foreground calls). Expected 9/9 ALL PASS; record the new install counts.
 - [ ] **Step 2: Rehearsal** (no live server): export `tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` to a fixture dir first (the server's panes inherit them — never let the rehearsal read the real store or write the real cache), then start `tmux -L tl-rehearse -f <rendered fragment with the repo's cat path>` with a real pty client, and walk it: landing appears; Enter on a live session switches; `d` detaches; a session whose last pane exits lands the client on a fresh landing; `prefix c` inside landing evicts to a `gen-*`; an idle fixture project starts `claude --continue` (use the suite's fake claude on PATH). Record what you saw; kill the server; unlink the socket.
 - [ ] **Step 3: Docs.** README: a "Landing page" section (what it is, keys, `setup landing on|off|status`). CLAUDE.md: replace nothing historical; add a short "Landing session" section (identity by name, close path mechanism, kill switch, exclusions list) and update the gate counts; stay within the ~40 KB budget (measure with `wc -c`, prune an equal amount if over).
-- [ ] **Step 4: Commit** `docs(landing): README, CLAUDE.md`, then finish the branch (merge to `main`, push). The user deploys with `fisher update`; ask them to smoke-test on both machines.
+- [ ] **Step 4: Commit** `docs(landing): README, CLAUDE.md`. Do **not** merge — the controller runs the whole-branch review first, then finishes the branch. The user deploys with `fisher update`.
 
 ---
 
