@@ -567,8 +567,8 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 
 ## Current state — 2026-09-29
 
-**The landing session** (`main` `7528599`) is deployed on both machines; its type-ahead fix and idle cadence
-(`fix/landing-typeahead`) await merge and `fisher update`.
+**The landing session** (`7528599`) is deployed on both machines; its type-ahead fix and idle cadence are
+merged on `main` and await the user's `fisher update`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
