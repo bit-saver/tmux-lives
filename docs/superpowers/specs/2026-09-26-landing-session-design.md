@@ -1,6 +1,6 @@
 # Landing Session — Design
 
-Status: shipped in `main` `7528599` and deployed on rocket and macwork. Approved 2026-09-26. Its plan was deleted once it shipped (git keeps it).
+Status: shipped in `main` `7528599` and deployed on rocket and macwork; the type-ahead fix and idle cadence are in `main` `8f39db7`. Approved 2026-09-26. **Chooser v2 approved 2026-10-01, not yet built:** interactive-only discovery with worktree/subfolder mapping and the generic-folder list, four project groups, the 21-day `older (N)` row, `n` for a new shell, the legend border, and held-arrow scrolling without per-step preview capture (plan `docs/superpowers/plans/2026-10-01-landing-chooser-v2.md`).
 
 ## Problem
 
@@ -72,12 +72,15 @@ Layout — the popup picker's renderer, full pane:
    - `[here]` — already attached from this device;
    - `[attached]` — attached from another device only.
    Device identity = the SSH client address in the client's environment (`SSH_CONNECTION`, first field): macwork `192.168.68.35`, iPad `10.0.30.120` on rocket; no `SSH_CONNECTION` = `local`. Read via the existing `__tcz_pid_environ` (`/proc` on Linux, `ps eww` on macOS).
-2. **Claude projects — not running** — next section. Row: project name, age of its last conversation.
-3. **New shell** — a new general session in `$HOME`.
+2. **Claude projects — not running** — next section, split into groups by where the project lives, in this order: `projects` (`~/projects/*`), `workspace` (`~/workspace/*`, rocket only), `work` (`~/Work/*`), `other` (everything else — `~/.claude`, `~/.config/fish`, `~/.hammerspoon/…`, `~/docker/…`). A group with no rows is not shown. Row: project name, age of its last conversation; newest first within a group.
+3. **Older** — projects whose last interactive conversation is more than 21 days old are hidden; one final row, `older (N)`, reveals them in their groups (Enter on it). The reveal lasts until the app restarts.
+
+A border line separates the key legend from the list and the preview above it.
 
 Keys:
-- `↑↓` / `jk` move.
-- `Enter` — attach (live) · `claude --continue` (project) · new shell.
+- `↑↓` / `jk` move; PgUp/PgDn page. While a move key is held, only the list repaints; the preview is captured once input has been quiet for ~150 ms (the capture is what made each held step slow).
+- `Enter` — attach (live) · `claude --continue` (project) · reveal older.
+- `n` — a new general session in `$HOME` (replaces the former "new shell" row).
 - `r` — on a project row, start `claude --resume` (Claude's own conversation picker).
 - `x` — kill a live session (the picker's confirm). Its attached tabs land first (`session-close`), as for any closing session.
 - `d` — detach this tab from tmux, then kill this (now clientless) landing session. (`q` and Esc are one token in the shared key reader, and Esc must not detach — so both are no-ops here.)
@@ -90,9 +93,10 @@ Switching: `switch-client -c <my client> -t =<target>`, where my client is `list
 
 ## Claude project discovery
 
-- **Source** — the directories under `~/.claude/projects/`. For each: its newest `*.jsonl` transcript; the first `"cwd":"…"` value in it is the project's real folder (the directory name is a lossy slug). Measured on rocket: 73 directories, 30 resolve to a folder that exists locally — the rest are macwork paths (the store syncs across machines) or deleted folders. Keep only folders that exist.
+- **Source** — the directories under `~/.claude/projects/`. For each: its newest **interactive** `*.jsonl` transcript — `"entrypoint":"cli"`, or no `entrypoint` field (older files). Headless runs (`sdk-cli`, `sdk-py`: `claude -p`, review harnesses) and GUI apps (`claude-desktop`, `claude-vscode`) never make a project: on 2026-10-01 they were the source of every wrong row (`tmp`, `~`, a watchface worktree, `~/Work`). The first `"cwd":"…"` value in that transcript is the project's real folder (the directory name is a lossy slug). Keep only folders that exist.
+- **Folder → project** — a git worktree counts as its main repository (`<folder>/.git` is a file whose `gitdir:` reads `<repo>/.git/worktrees/<name>`; parsed, no fork), and a folder inside a git repo counts as the repo's root. Never a project: `$HOME`, `/`, temp folders (`/tmp`, `/var/tmp`, `/private/tmp`, `/private/var/tmp`, `/var/folders/*`, `$TMPDIR`) and the group roots themselves (`~/projects`, `~/workspace`, `~/Work`). The same generic list serves `__tcz_project_name`, which missed macOS's `/private/tmp`.
 - **Not `~/.claude.json`** — 176 KB of JSON, fish has no JSON parser, and macOS has no `jq` by default.
-- **Not running** — drop a project when a live pane runs claude with that folder (or its git root) as its cwd.
+- **Not running** — drop a project when a live pane runs claude with that folder (or its git root) as its cwd, or — for a project that is not a git repo (e.g. `~/Work/myEMS`, whose `api/` and `web/` are separate repos) — anywhere inside it.
 - **Order** — newest transcript first; show a relative age.
 - **Cost** — about one fork per directory to read a transcript head. Cache tab-separated `dir`, `mtime`, `folder` lines in `$XDG_CACHE_HOME/tmux-lives/projects.tsv` (seam `tmux_lives_project_cache`; the transcript root has its own seam, `tmux_lives_claude_projects_dir`); re-read a directory only when its newest transcript's mtime changes, and rewrite the cache only when something changed. The file shares its directory with the theme render cache, whose prune deletes only its own `<digits>-<hex6>.tsv` files.
 - **Start** — `new-session -d -c <folder>` (the categorizer names it from the folder, as for any session, so it is addressed by its session id), `send-keys 'claude --continue' Enter`, switch, and leave once no tab is left on the landing. The shell stays after Claude exits, as today. `r` sends `claude --resume` instead.
