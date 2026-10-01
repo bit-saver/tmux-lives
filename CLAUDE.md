@@ -591,11 +591,9 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 ### Open
 
 - **Chooser v2** — approved 2026-10-01, spec updated, not built (see the spec's Status line).
-- **Theme picker top border flickers while scrolling** (user, 2026-10-01) — not reproduced in 959 frames on
-  3.3a/3.7b; candidates: stray stderr scrolling the popup, or the client shrinking while it is open (size
-  read once). Awaiting the user's host + "does the tab strip move up" answer.
-- **iTerm2 real host** — the user wants tmux-lives to send `OSC 1337 RemoteHost` (iTerm2's settings did not
-  help); deferred ("not now", 2026-10-01). Then: the workspace-TUI sidebar, agreed for after chooser v2.
+- **Theme picker top border flickers on scroll** (2026-10-01) — not reproduced (959 frames, 3.3a+3.7b);
+  suspects: stray stderr, or the client shrinking (size read once). Awaiting the user's observations.
+- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: after v2.
 - **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
   (`has-session` guard).
 - `close`'s help row still says "and exit" (a test pins it); with landing on the tab lands instead.
