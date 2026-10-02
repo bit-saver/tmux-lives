@@ -592,8 +592,8 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 
 ### Open
 
-- **Theme picker top border flickers on scroll** (2026-10-01) — not reproduced (959 frames, 3.3a+3.7b);
-  suspects: stray stderr, or the client shrinking (size read once). Awaiting the user's observations.
+- **Theme picker border loss** (picker shifts up) → v2 plan Task 8. 20 s scroll lockups (10-02) did not
+  reproduce: suspects iPad network jitter and a busy pane redrawn under the popup.
 - **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: after v2.
 - **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
   (`has-session` guard).

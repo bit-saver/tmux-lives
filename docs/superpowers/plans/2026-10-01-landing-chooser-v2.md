@@ -3053,6 +3053,22 @@ git commit -m "docs: landing chooser v2 -- README, CLAUDE.md, spec status" -m "R
 
 ---
 
+### Task 8: Theme picker — survive a shrinking client and stray output (added 2026-10-02)
+
+**Why (controller note, not drafted against code yet — pre-flight it fully before dispatch).** The user saw the theme picker's top border vanish while scrolling and recalls the whole picker shifting **up** a line. Not reproduced in 959 frames on 3.3a and 3.7b with default or his real settings; two mechanisms reproduce exactly this:
+1. **Text written into the popup outside the emitter** (e.g. a fish error) scrolls the popup up one line; partial paints never repaint row 1, so the border stays gone until the 0.7 s settle repaint.
+2. **The client shrinks below the popup's height while it is open** (on the iPad: the on-screen keyboard or ShellFish's key bar appearing): tmux shrinks the popup and drops its top rows, while the picker keeps painting the height it read once from `stty size` (~:3520).
+
+**Files:** Modify `functions/tmux-categorize.fish` — `__tcz_theme_picker` (and the session switcher `__tcz_popup`, which reads its size once ~:2365 and is exposed the same way). Test: `tests/test-tmux-categorize.fish`.
+
+**Required:**
+- Re-read `stty size` on every loop pass (as `__tcz_landing` already does) and force a full repaint (`__tcz_pe_force 1`) whenever rows or columns change; recompute `WIN` from the new rows (`WIN = rows - STATIC`, gated on `STATIC_EDIT` as today — a popup too short for the edit zone must keep today's behaviour).
+- Keep the picker's own stderr out of the popup (redirect the picker loop's stderr like the landing app's `sh -c 'exec fish … 2>/dev/null'` wrapper, or force a full repaint after any write that bypassed the emitter) — pick the smaller change and say why.
+- Tests (each must FAIL today): (a) an e2e on an isolated `-L` server with a real pty client: open the picker in a `display-popup`, shrink the client (`resize-window`/client size change) while open, step Down — the captured popup's first row is the top border afterwards; (b) a stray write into the popup (a probe that makes the picker emit one line of stderr) is followed by a full repaint so row 1 is the border again within one step. Measure display columns AND row count per frame (a row-count-only proof is blind to width).
+- Also recorded for context: a separate report (2026-10-02) of 20 s lockups while scrolling did NOT reproduce with his real settings; suspects are network jitter (ShellFish RTT ~50 ±26 ms vs 2.7 ms min) and tmux 3.3a redrawing a busy pane under an open popup (233 KB/s to the client). Not in scope here; a picker-side timing probe lived at `/tmp/claude-1000/thp-probe/` (may not survive a reboot).
+
+---
+
 ## Self-review (run while planning)
 
 - **Spec coverage.** Interactive-only transcripts via `entrypoint` → Task 2. Worktree and subfolder → main repo → Tasks 1, 2. The generic list incl. macOS `/private/tmp`, shared with `__tcz_project_name` → Task 1. Group roots never a project → Tasks 1, 2. Non-repo busy rule → Task 3. Four groups in order, empty ones hidden → Task 5. 21 days, `older (N)`, reveal until restart → Task 5. `n` and no new-shell row → Task 4. Legend border → Task 4. Held-arrow preview deferral with a measured before/after → Task 6. Cache invalidation without touching the render cache → Task 2. README, CLAUDE.md within budget, spec Status → Task 7.
