@@ -47,7 +47,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` holds only in-flight plans (none now) — **plans are deleted once
+`docs/superpowers/plans/` holds only in-flight plans (now: landing chooser v2) — **plans are deleted once
 their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
