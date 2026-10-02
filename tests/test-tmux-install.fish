@@ -34,7 +34,7 @@ set -gx tmux_lives_render_cache_dir $__til_rc_dir
 # ~/.claude/projects or writes the real projects cache; checked at the end for
 # this run's footprint (not its mtime: the user's own landing apps rewrite it).
 set -g __til_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __til_real_proj_rows_before (count (cat "$__til_real_proj_cache" 2>/dev/null))
+set -g __til_real_proj_rows_before (cat "$__til_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -gx tmux_lives_claude_projects_dir /tmp/til-projects-$fish_pid
 set -g __til_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache /tmp/til-projcache-$fish_pid.tsv
@@ -5136,7 +5136,7 @@ function __til_proj_leaks --argument-names cache root fre --description 'print e
         test -r $f; or begin; test -e $f; and echo "$f: unreadable"; continue; end
         cat $f 2>/dev/null | while read -l line
             set -l r (string split \t -- $line)
-            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[3]"; or continue
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[-1]"; or continue
             echo "$f: $line"
         end
     end
@@ -5145,12 +5145,12 @@ end
 set -l __til_proj_fre "^/tmp/t(li|il|ml|cz)-[^/]*-$fish_pid(/|\$)"
 # Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
 set -l lk /tmp/til-leakprobe-$fish_pid.tsv
-printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n' $fish_pid > $lk
-printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tli-y-%s\n' $__til_proj_root $fish_pid > $lk.Ab12Cd
+printf '# tmux-lives projects v2\n/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n/home/u/.claude/projects/-v2\t5\t5\t/home/u/v2\n' $fish_pid > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tli-y-%s\n/home/u/.claude/projects/-z\t6\t6\t/tmp/tli-z-%s\n' $__til_proj_root $fish_pid $fish_pid > $lk.Ab12Cd
 set -l lkout (__til_proj_leaks $lk $__til_proj_root $__til_proj_fre)
-t "isolation: the leak check finds this run's two rows in a stray temp and passes real ones, even a /tmp one ending in this pid" "3 checked" "$(count $lkout) $lkout[-1]"
+t "isolation: the leak check finds this run's three rows (old and v2 shapes) in a stray temp and passes real ones, even a /tmp one ending in this pid" "4 checked" "$(count $lkout) $lkout[-1]"
 rm -f $lk $lk.Ab12Cd
-set -l __til_rows_after (count (cat "$__til_real_proj_cache" 2>/dev/null))
+set -l __til_rows_after (cat "$__til_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -l __til_emptied unknown
 if string match -qr '^[0-9]+$' -- "$__til_real_proj_rows_before"
     set __til_emptied no

@@ -55,7 +55,7 @@ set -gx tmux_lives_render_cache_dir $__tcg_rc_dir
 # Removed in the hygiene section at the end, which checks the real cache for
 # this run's footprint. Not its mtime: the user's own landing apps rewrite it.
 set -g __tcg_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __tcg_real_proj_rows_before (count (cat "$__tcg_real_proj_cache" 2>/dev/null))
+set -g __tcg_real_proj_rows_before (cat "$__tcg_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -gx tmux_lives_claude_projects_dir /tmp/tcg-projects-$fish_pid
 set -g __tcg_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache /tmp/tcg-projcache-$fish_pid.tsv
@@ -9763,7 +9763,9 @@ set -l rows (__tcz_claude_projects)
 t "projects: gone folder dropped" 2 (count $rows)
 t "projects: newest first" "/tmp/tcz-proj-b-$fish_pid" (string split -f1 \t -- $rows[1])
 t "projects: cwd read past a non-cwd first line" "/tmp/tcz-proj-a-$fish_pid" (string split -f1 \t -- $rows[2])
-t "projects: cache written" 3 (count (cat $tmux_lives_project_cache))
+set -l pjrows (cat $tmux_lives_project_cache | string match -v -- '#*')
+set -l pjhead (head -n 1 $tmux_lives_project_cache)
+t "projects: cache written, one row per directory under its v2 header" "3 # tmux-lives projects v2" "$(count $pjrows) $pjhead"
 # s2 is written now, an hour newer than s1, so -b's newest mtime changes
 printf '{"cwd":"/tmp/tcz-proj-a-%s"}\n' $fish_pid > $pj/-b/s2.jsonl
 set -l rows2 (__tcz_claude_projects)
@@ -9779,7 +9781,7 @@ t "projects: warm call does not rewrite an unchanged cache" "$cache_mtime_before
 # ... but a vanished source directory (the set of directories changed) DOES.
 rm -rf $pj/-a
 __tcz_claude_projects >/dev/null
-set -l cache_rows_after_removal (cat $tmux_lives_project_cache)
+set -l cache_rows_after_removal (cat $tmux_lives_project_cache | string match -v -- '#*')
 set -l gone_dir_rows (string match -r -- "^$pj/-a\t" $cache_rows_after_removal)
 t "projects: a removed directory rewrites the cache" 2 (count $cache_rows_after_removal)
 t "projects: the removed directory's row is gone from the cache" 0 (count $gone_dir_rows)
@@ -9789,6 +9791,97 @@ set -l a3 (__tcz_age 172800); t "age: days" 2d "$a3"
 set -l a4 (__tcz_age 20); t "age: just now" now "$a4"
 set -l a5 (__tcz_age 2419200); t "age: weeks" 4w "$a5"
 rm -rf $pj /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid $tmux_lives_project_cache
+
+# --- chooser v2: discovery reads interactive conversations only and maps folders to projects ---
+# Fixture directories: -mixed (an old interactive conversation in a, a newer headless run in b),
+# -headless (headless and GUI runs only), -wt (a worktree of repo), -sub (a folder inside repo),
+# -gen (a transcript whose cwd is /tmp), -tmp (named after /tmp: never read, whatever it holds).
+set -l pj $tmux_lives_claude_projects_dir
+set -l dv /tmp/tcz-dv-$fish_pid
+rm -rf $pj $dv; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-mixed $pj/-headless $pj/-wt $pj/-sub $pj/-gen $pj/-tmp
+mkdir -p $dv/a $dv/b $dv/c $dv/e $dv/repo/.git/worktrees/w1 $dv/repo/src/deep $dv/w1
+printf 'gitdir: %s/repo/.git/worktrees/w1\n' $dv > $dv/w1/.git
+printf '{"type":"summary"}\n{"entrypoint":"cli","cwd":"%s/a"}\n' $dv > $pj/-mixed/old.jsonl
+printf '{"entrypoint":"sdk-cli","cwd":"%s/b"}\n' $dv > $pj/-mixed/new.jsonl
+printf '{"entrypoint":"sdk-py","cwd":"%s/c"}\n' $dv > $pj/-headless/1.jsonl
+printf '{"entrypoint":"claude-desktop","cwd":"%s/c"}\n' $dv > $pj/-headless/2.jsonl
+printf '{"entrypoint":"claude-vscode","cwd":"%s/c"}\n' $dv > $pj/-headless/3.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/w1"}\n' $dv > $pj/-wt/s.jsonl
+printf '{"cwd":"%s/repo/src/deep"}\n' $dv > $pj/-sub/s.jsonl
+printf '{"entrypoint":"cli","cwd":"/tmp"}\n' > $pj/-gen/s.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/e"}\n' $dv > $pj/-tmp/s.jsonl
+touch -d '3 hours ago' $pj/-mixed/old.jsonl
+touch -d '1 hour ago' $pj/-mixed/new.jsonl
+touch -d '2 hours ago' $pj/-wt/s.jsonl
+touch -d '4 hours ago' $pj/-sub/s.jsonl
+set -g __tcg_dvawk /tmp/tcz-dv-awk-$fish_pid
+rm -f $__tcg_dvawk
+function awk --description 'test recorder: count discovery awk runs'
+    echo run >> $__tcg_dvawk
+    command awk $argv
+end
+set -l dvrows (__tcz_claude_projects)
+set -l dvcold (count (cat $__tcg_dvawk 2>/dev/null))
+rm -f $__tcg_dvawk
+set -l dvrows2 (__tcz_claude_projects)
+set -l dvwarm (count (cat $__tcg_dvawk 2>/dev/null))
+functions -e awk
+rm -f $__tcg_dvawk; set -e __tcg_dvawk
+set -l dvfolders (string split -f1 \t -- $dvrows)
+t "discovery: interactive conversations only, each folder mapped to its project, newest first" "$dv/repo $dv/a" "$dvfolders"
+set -l dvam (string match -- "$dv/a"\t'*' $dvrows | string split -f2 \t)
+set -l dvrm (string match -- "$dv/repo"\t'*' $dvrows | string split -f2 \t)
+set -l dvam_want (path mtime -- $pj/-mixed/old.jsonl)
+set -l dvrm_want (path mtime -- $pj/-wt/s.jsonl)
+t "discovery: a project's age is its newest interactive conversation (not a newer headless run; dedupe keeps the newest)" "$dvam_want $dvrm_want" "$dvam $dvrm"
+t "discovery: one awk per directory read cold, none warm; the /tmp directory is never read" "5 0" "$dvcold $dvwarm"
+t "discovery (non-regression): a warm call returns the same rows" "$dvrows" "$dvrows2"
+set -l dvtmprow (string match -- "$pj/-tmp"\t'*' < $tmux_lives_project_cache)
+set -l dvhead (head -n 1 $tmux_lives_project_cache)
+t "discovery: the cache opens with its v2 header and has no row for the skipped directory" "# tmux-lives projects v2|" "$dvhead|$dvtmprow"
+
+# A cache without the v2 header is discarded whole, even a row whose key still matches.
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-old $dv/right $dv/wrong
+printf '{"cwd":"%s/right"}\n' $dv > $pj/-old/s.jsonl
+printf '%s\t%s\t%s\n' $pj/-old (path mtime -- $pj/-old/s.jsonl) $dv/wrong > $tmux_lives_project_cache
+set -l dvold (__tcz_claude_projects | string split -f1 \t)
+set -l dvhead2 (head -n 1 $tmux_lives_project_cache)
+t "discovery: a cache from before v2 is discarded, not trusted" "$dv/right|# tmux-lives projects v2" "$dvold|$dvhead2"
+
+# A group root is no project; directories named after a group root or $HOME are never read.
+rm -rf $pj; rm -f $tmux_lives_project_cache
+set -g __tcg_dv_home_save $HOME
+set -g HOME $dv/home
+mkdir -p $HOME/projects/p1 $HOME/Work/w1
+set -l dvslug_root (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME/projects)
+set -l dvslug_home (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME)
+mkdir -p $pj/-groot $pj/$dvslug_root $pj/$dvslug_home $pj/-work
+printf '{"cwd":"%s/projects"}\n' $HOME > $pj/-groot/s.jsonl
+printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_root/s.jsonl
+printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_home/s.jsonl
+printf '{"cwd":"%s/Work/w1"}\n' $HOME > $pj/-work/s.jsonl
+set -l dvgr (__tcz_claude_projects | string split -f1 \t)
+set -g HOME $__tcg_dv_home_save
+set -e __tcg_dv_home_save
+t "discovery: a group root is no project; directories named after it or \$HOME are never read" "$dv/home/Work/w1" "$dvgr"
+
+# An unreadable transcript is skipped; the others in its directory still count.
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-locked $dv/d
+printf '{"entrypoint":"cli","cwd":"%s/d"}\n' $dv > $pj/-locked/b.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/e"}\n' $dv > $pj/-locked/a.jsonl
+touch -d '5 hours ago' $pj/-locked/b.jsonl
+chmod 000 $pj/-locked/a.jsonl
+if test -r $pj/-locked/a.jsonl
+    echo "SKIP: discovery's unreadable transcript needs a non-root run"
+else
+    set -l dvlk (__tcz_claude_projects 2>&1 | string split -f1 \t)
+    t "discovery: an unreadable newest transcript is skipped, silently, and an older one still counts" "$dv/d" "$dvlk"
+end
+chmod 600 $pj/-locked/a.jsonl
+rm -rf $pj $dv; rm -f $tmux_lives_project_cache
 
 # --- landing: claude project discovery — running-pane cwds ---
 # __tcz_claude_projects is not itself the running-pane filter (that combination
@@ -10346,14 +10439,14 @@ t "app: a key read past a move burst still acts (j then Enter opens s2)" s2 "$hk
 for p in $hkpids; kill $p 2>/dev/null; end
 cleanup
 
-# --- landing fix round 1: a dotfiles repo at $HOME never marks $HOME busy ---
+# --- chooser v2: a claude below a $HOME dotfiles repo marks nothing else busy ---
 fresh_server
 set -l bh /tmp/tcz-bh-$fish_pid
-mkdir -p $bh/.git $bh/sub
+mkdir -p $bh/.git $bh/sub $bh/proj
 set -l pj $tmux_lives_claude_projects_dir
 rm -rf $pj; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-home
-printf '{"cwd":"%s"}\n' $bh > $pj/-home/s.jsonl
+mkdir -p $pj/-proj
+printf '{"cwd":"%s"}\n' $bh/proj > $pj/-proj/s.jsonl
 command tmux -L $sock new-session -d -s bhc -c $bh/sub "$shimdir/claude --enable-auto-mode"
 sleep 0.5
 set -l bhm
@@ -10361,8 +10454,8 @@ begin
     set -lx HOME $bh
     set bhm (__tcz_landing_model x)
 end
-set -l bhlisted (string match -q -- $bh\t'*' $bhm; and echo listed; or echo hidden)
-t "model: a claude below a \$HOME dotfiles repo does not hide the \$HOME project" listed "$bhlisted"
+set -l bhlisted (string match -q -- $bh/proj\t'*' $bhm; and echo listed; or echo hidden)
+t "model (non-regression): a claude below a \$HOME dotfiles repo leaves a project beside it listed" listed "$bhlisted"
 rm -rf $pj $tmux_lives_project_cache $bh
 cleanup
 
@@ -10493,35 +10586,27 @@ cleanup
 
 # --- final fix M-7: stderr from the app loop never reaches its screen ---
 # The diff painter never repaints an unchanged row, so error text would stay.
-# Trigger: a transcript nobody can read makes discovery's `head` fail on stderr.
+# Trigger: a `sort` first on the app's PATH that writes to stderr inside a pane (every refresh sorts).
 fresh_server
-set -l pj $tmux_lives_claude_projects_dir
-rm -rf $pj; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-m7
-set -l m7 (__tcz_landing_new)
+set -l m7bin /tmp/tcz-m7-bin-$fish_pid
+rm -rf $m7bin; mkdir -p $m7bin
+printf '#!/bin/sh\nif [ -n "$TMUX_PANE" ]; then touch %s/ran; echo "M7 stderr from the app loop" >&2; fi\nexec /usr/bin/sort "$@"\n' $m7bin > $m7bin/sort
+chmod +x $m7bin/sort
+set -l m7
+begin
+    set -lx PATH $m7bin $PATH         # tmux gives a new pane the PATH of the client that created it
+    set m7 (__tcz_landing_new)
+end
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$m7" /dev/null >/dev/null 2>&1 &
 set -l m7pids (jobs -p)
 __tcg_client_on $m7 >/dev/null
 __tcg_ready "=$m7:" '*new shell*'
-printf '{"cwd":"/tmp"}\n' > $pj/-m7/s.jsonl
-chmod 000 $pj/-m7/s.jsonl
-if test -r $pj/-m7/s.jsonl
-    echo "SKIP: M-7 needs an unreadable file (running as root?)"
-else
-    # r on a live row does nothing except re-read the project list next pass.
-    command tmux -L $sock send-keys -t "=$m7:" r
-    set -l m7read 0
-    for i in (seq 50)
-        test -e $tmux_lives_project_cache; and string match -q -- '*-m7*' < $tmux_lives_project_cache; and set m7read 1; and break
-        sleep 0.1
-    end
-    sleep 0.5
-    set -l m7err (command tmux -L $sock capture-pane -p -t "=$m7:" | string match -e 'Permission denied' | count)
-    t "M-7: a failing command in the app loop leaves no text on its screen" "1 0" "$m7read $m7err"
-end
+sleep 3.5                             # past one idle refresh: the first paint covers the first pass's text
+set -l m7ran (test -e $m7bin/ran; and echo 1; or echo 0)
+set -l m7err (command tmux -L $sock capture-pane -p -t "=$m7:" | string match -e 'M7 stderr' | count)
+t "M-7: a failing command in the app loop leaves no text on its screen" "1 0" "$m7ran $m7err"
 for p in $m7pids; kill $p 2>/dev/null; end
-chmod 600 $pj/-m7/s.jsonl
-rm -rf $pj $tmux_lives_project_cache
+rm -rf $m7bin
 cleanup
 
 # --- final fix: held arrow keys (the ESC path) drain too ---
@@ -10816,7 +10901,7 @@ function __tcg_proj_leaks --argument-names cache root fre --description 'print e
         test -r $f; or begin; test -e $f; and echo "$f: unreadable"; continue; end
         cat $f 2>/dev/null | while read -l line
             set -l r (string split \t -- $line)
-            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[3]"; or continue
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[-1]"; or continue
             echo "$f: $line"
         end
     end
@@ -10825,12 +10910,12 @@ end
 set -l __tcg_proj_fre "^/tmp/tc[zg]-[^/]*-$fish_pid(/|\$)"
 # Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
 set -l lk /tmp/tcg-leakprobe-$fish_pid.tsv
-printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n' $fish_pid > $lk
-printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tcz-y-%s\n' $__tcg_proj_root $fish_pid > $lk.Ab12Cd
+printf '# tmux-lives projects v2\n/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n/home/u/.claude/projects/-v2\t5\t5\t/home/u/v2\n' $fish_pid > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tcz-y-%s\n/home/u/.claude/projects/-z\t6\t6\t/tmp/tcz-z-%s\n' $__tcg_proj_root $fish_pid $fish_pid > $lk.Ab12Cd
 set -l lkout (__tcg_proj_leaks $lk $__tcg_proj_root $__tcg_proj_fre)
-t "isolation: the leak check finds this run's two rows in a stray temp and passes real ones, even a /tmp one ending in this pid" "3 checked" "$(count $lkout) $lkout[-1]"
+t "isolation: the leak check finds this run's three rows (old and v2 shapes) in a stray temp and passes real ones, even a /tmp one ending in this pid" "4 checked" "$(count $lkout) $lkout[-1]"
 rm -f $lk $lk.Ab12Cd
-set -l __tcg_rows_after (count (cat "$__tcg_real_proj_cache" 2>/dev/null))
+set -l __tcg_rows_after (cat "$__tcg_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -l __tcg_emptied unknown
 if string match -qr '^[0-9]+$' -- "$__tcg_real_proj_rows_before"
     set __tcg_emptied no

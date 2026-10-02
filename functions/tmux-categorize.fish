@@ -1342,55 +1342,92 @@ function __tcz_claude_project_cache --description 'pure: path to the discovery c
     end
 end
 
-function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per real project folder that still exists locally. Each directory under __tcz_claude_projects_dir is a lossy slug; its real folder is the first "cwd":"..." value in its NEWEST *.jsonl transcript. Caches dir/mtime/folder rows in __tcz_claude_project_cache, re-reading a directory only when its newest transcript mtime moved, and REWRITING the cache only when something actually changed (a re-read happened, or the directory set itself moved) -- a fully warm, unchanged call forks nothing per project and skips the cache write too. See the commit message for the measured fork counts. Never fails discovery over a cache write it could not make.'
+# The discovery cache's first line. A cache without it is ignored whole: its rows mean something else.
+set -g __tcz_proj_cache_head '# tmux-lives projects v2'
+
+function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per Claude project that still exists, from INTERACTIVE conversations only. Each directory under __tcz_claude_projects_dir is a lossy slug: its project comes from its newest transcript whose first cwd line says "entrypoint":"cli" or has no entrypoint (older files) -- that line'"'"'s "cwd", mapped by __tcz_claude_project_of. Headless runs (sdk-cli, sdk-py) and GUI apps (claude-desktop, claude-vscode) never make a project, and a directory named after a generic folder or a group root is never read. Caches dir/key/mtime/cwd rows in __tcz_claude_project_cache under a version header, re-reading a directory only when its newest transcript of any kind changed, and rewriting the cache only when something did. Never fails discovery over a cache write it could not make.'
     set -l root (__tcz_claude_projects_dir)
     set -l cache (__tcz_claude_project_cache)
     set -l TAB (printf '\t')
 
-    set -l cdirs; set -l cmtimes; set -l cfolders
+    # Rows: dir, its newest transcript's mtime (the key), the newest interactive one's mtime, that one's cwd.
+    set -l cdirs; set -l ckeys; set -l cias; set -l ccwds
     if test -r "$cache"
+        set -l head 1
         while read -l line
-            set -l f (string split -m 2 $TAB -- $line)
-            test (count $f) -eq 3; or continue
-            set -a cdirs $f[1]; set -a cmtimes $f[2]; set -a cfolders $f[3]
+            if test $head -eq 1
+                test "$line" = "$__tcz_proj_cache_head"; or break
+                set head 0
+                continue
+            end
+            set -l f (string split -m 3 $TAB -- $line)
+            test (count $f) -eq 4; or continue
+            set -a cdirs $f[1]; set -a ckeys $f[2]; set -a cias $f[3]; set -a ccwds $f[4]
         end < $cache
     end
 
-    # One row per source directory, whether or not its folder still exists --
-    # this is exactly what gets written back to the cache, so a directory
-    # whose folder was deleted stays cached instead of being re-read forever.
-    # <changed> tracks whether the cache is stale: set on any re-read below,
-    # or (after the loop) when the directory SET itself moved -- a directory
-    # can vanish with no replacement, which the loop never visits to notice.
-    set -l ddirs; set -l dmtimes; set -l dfolders
+    # Directories named after a folder that is never a project are not read at all:
+    # rocket's /tmp one holds a thousand headless transcripts. Claude names a directory
+    # by turning every character but a letter or digit into a dash.
+    set -l skip
+    for g in / $HOME /tmp /var/tmp /private/tmp /private/var/tmp $TMPDIR (__tcz_landing_group_roots)
+        set -a skip (string replace -ra '[^A-Za-z0-9]' '-' -- (string replace -r '(.)/+$' '$1' -- $g))
+    end
+
+    # One row per source directory, project or not: that is what gets cached, so a
+    # directory with no interactive conversation is not re-read until it changes.
+    # <changed>: a re-read happened, or the directory set itself moved.
+    set -l ddirs; set -l dkeys; set -l dias; set -l dcwds
     set -l changed 0
     for dir in $root/*/
         set dir (string replace -r '/+$' '' -- $dir)
+        set -l base (path basename -- $dir)
+        contains -- $base $skip; and continue
+        string match -q -- '-var-folders-*' $base; and continue
+        string match -q -- '-private-var-folders-*' $base; and continue
         set -l files $dir/*.jsonl
         test (count $files) -gt 0; or continue
         set -l mtimes (path mtime -- $files)
-        set -l newest $files[1]; set -l newestmtime $mtimes[1]
-        # Counters, not seq: this loop runs per directory on every landing refresh.
-        set -l i 0
+        set -l key $mtimes[1]
         for m in $mtimes
-            set i (math $i + 1)
-            test "$m" -gt "$newestmtime"; or continue
-            set newest $files[$i]; set newestmtime $m
+            test "$m" -gt "$key"; and set key $m
         end
 
         set -l idx (contains -i -- "$dir" $cdirs)
-        set -l folder
-        if test -n "$idx"; and test "$cmtimes[$idx]" = "$newestmtime"
-            set folder $cfolders[$idx]
+        set -l ia ''; set -l cwd ''
+        if test -n "$idx"; and test "$ckeys[$idx]" = "$key"
+            set ia $cias[$idx]; set cwd $ccwds[$idx]
         else
             set changed 1
-            # The only fork in this function: read the transcript head and take
-            # the FIRST "cwd" match -- an earlier summary line can lack one.
-            set -l m (head -c 200000 -- $newest | string match -rg '"cwd":"([^"]+)"')
-            set folder $m[1]
+            # The only fork here: one awk reads every transcript up to its first cwd line and
+            # prints "file\tcwd" for the interactive ones. getline, not awk's main loop: a file
+            # that cannot be read is skipped, where the main loop would abort the whole run.
+            set -l hits (awk '
+                BEGIN {
+                    for (i = 1; i < ARGC; i++) {
+                        f = ARGV[i]
+                        while ((getline line < f) > 0) {
+                            if (index(line, "\"cwd\":\"") == 0) continue
+                            e = ""
+                            if (match(line, /"entrypoint":"[^"]*"/)) e = substr(line, RSTART + 14, RLENGTH - 15)
+                            if (e == "" || e == "cli") {
+                                match(line, /"cwd":"[^"]*"/)
+                                print f "\t" substr(line, RSTART + 7, RLENGTH - 8)
+                            }
+                            break
+                        }
+                        close(f)
+                    }
+                }' $files)
+            for hit in $hits
+                set -l h (string split -m 1 $TAB -- $hit)
+                set -l k (contains -i -- "$h[1]" $files)
+                test -n "$k"; or continue
+                test -n "$ia"; and test "$mtimes[$k]" -le "$ia"; and continue
+                set ia $mtimes[$k]; set cwd "$h[2]"
+            end
         end
-
-        set -a ddirs $dir; set -a dmtimes $newestmtime; set -a dfolders "$folder"
+        set -a ddirs $dir; set -a dkeys $key; set -a dias "$ia"; set -a dcwds "$cwd"
     end
     test (count $ddirs) -eq (count $cdirs); or set changed 1
 
@@ -1402,10 +1439,13 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         # and mv -- a landing app whose session closes -- leaves one).
         set -l tmp (mktemp "$cache.XXXXXX" 2>/dev/null)
         if test -n "$tmp"
-            set -l i 0
-            for d in $ddirs
-                set i (math $i + 1)
-                printf '%s\t%s\t%s\n' $d $dmtimes[$i] $dfolders[$i]
+            begin
+                printf '%s\n' $__tcz_proj_cache_head
+                set -l i 0
+                for d in $ddirs
+                    set i (math $i + 1)
+                    printf '%s\t%s\t%s\t%s\n' $d $dkeys[$i] "$dias[$i]" "$dcwds[$i]"
+                end
             end > $tmp
             if mv $tmp "$cache" 2>/dev/null
                 set -l strays $cache.*       # a glob in `set`: no match is no error
@@ -1415,18 +1455,20 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         end
     end
 
-    # Dedupe by folder (two source directories can resolve to the same real
-    # folder), keep the newest mtime, drop anything that no longer exists.
+    # Each conversation's folder -> its project (__tcz_claude_project_of); dedupe,
+    # keeping the newest; drop a project whose folder no longer exists.
     set -l ufolders; set -l umtimes
     set -l i 0
-    for folder in $dfolders
+    for cwd in $dcwds
         set i (math $i + 1)
-        test -n "$folder"; and test -d "$folder"; or continue
-        set -l j (contains -i -- "$folder" $ufolders)
+        test -n "$cwd"; or continue
+        set -l proj (__tcz_claude_project_of $cwd)
+        test -n "$proj"; and test -d "$proj"; or continue
+        set -l j (contains -i -- "$proj" $ufolders)
         if test -n "$j"
-            test "$dmtimes[$i]" -gt "$umtimes[$j]"; and set umtimes[$j] $dmtimes[$i]
+            test "$dias[$i]" -gt "$umtimes[$j]"; and set umtimes[$j] $dias[$i]
         else
-            set -a ufolders $folder; set -a umtimes $dmtimes[$i]
+            set -a ufolders $proj; set -a umtimes $dias[$i]
         end
     end
 

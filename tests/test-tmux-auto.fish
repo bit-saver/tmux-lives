@@ -49,7 +49,7 @@ set -g __tac_cat_stub $TMUX_LIVES_TEST_UVARS/cat-stub.fish
 printf '#!/usr/bin/env fish\nprintf "%%s\\n" "$argv" >> %s/cat-calls.log\n' $TMUX_LIVES_TEST_UVARS > $__tac_cat_stub
 # Checked at the end for this run's footprint (not its mtime: the user's own landing apps rewrite it).
 set -g __tac_real_proj_cache "$HOME/.cache/tmux-lives/projects.tsv"
-set -g __tac_real_proj_rows_before (count (cat "$__tac_real_proj_cache" 2>/dev/null))
+set -g __tac_real_proj_rows_before (cat "$__tac_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -gx tmux_lives_claude_projects_dir $TMUX_LIVES_TEST_UVARS/claude-projects
 set -g __tac_proj_root $tmux_lives_claude_projects_dir
 set -gx tmux_lives_project_cache $TMUX_LIVES_TEST_UVARS/projects.tsv
@@ -999,7 +999,7 @@ function __tac_proj_leaks --argument-names cache root fre --description 'print e
         test -r $f; or begin; test -e $f; and echo "$f: unreadable"; continue; end
         cat $f 2>/dev/null | while read -l line
             set -l r (string split \t -- $line)
-            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[3]"; or continue
+            string match -q -- "$root/*" "$r[1]"; or string match -rq -- $fre "$r[-1]"; or continue
             echo "$f: $line"
         end
     end
@@ -1008,12 +1008,12 @@ end
 set -l __tac_proj_fre "^/tmp/(tl|tac|test)-[^/]*-$fish_pid(/|\$)"
 # Positive control: a stray temp holding one row from the seam and one fixture folder, beside a real row.
 set -l lk $TMUX_LIVES_TEST_UVARS/leakprobe.tsv
-printf '/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n' $fish_pid > $lk
-printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tac-y-%s\n' $__tac_proj_root $fish_pid > $lk.Ab12Cd
+printf '# tmux-lives projects v2\n/home/u/.claude/projects/-real\t1\t/home/u/real\n/home/u/.claude/projects/-tmp\t4\t/tmp/claude-1000/x/scratchpad-%s\n/home/u/.claude/projects/-v2\t5\t5\t/home/u/v2\n' $fish_pid > $lk
+printf '%s/-x\t2\t/elsewhere\n/home/u/.claude/projects/-y\t3\t/tmp/tac-y-%s\n/home/u/.claude/projects/-z\t6\t6\t/tmp/tac-z-%s\n' $__tac_proj_root $fish_pid $fish_pid > $lk.Ab12Cd
 set -l lkout (__tac_proj_leaks $lk $__tac_proj_root $__tac_proj_fre)
-t "isolation: the leak check finds this run's two rows in a stray temp and passes real ones, even a /tmp one ending in this pid" "3 checked" "$(count $lkout) $lkout[-1]"
+t "isolation: the leak check finds this run's three rows (old and v2 shapes) in a stray temp and passes real ones, even a /tmp one ending in this pid" "4 checked" "$(count $lkout) $lkout[-1]"
 rm -f $lk $lk.Ab12Cd
-set -l __tac_rows_after (count (cat "$__tac_real_proj_cache" 2>/dev/null))
+set -l __tac_rows_after (cat "$__tac_real_proj_cache" 2>/dev/null | string match -v -- '#*' | count)
 set -l __tac_emptied unknown
 if string match -qr '^[0-9]+$' -- "$__tac_real_proj_rows_before"
     set __tac_emptied no
