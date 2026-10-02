@@ -496,6 +496,106 @@ set -e __tcz_grhome_save2
 rm -rf $grbase
 set -e grbase
 
+# --- chooser v2: one generic-folder list (__tcz_generic_dir) for naming, discovery and the busy check ---
+set -l gd_had_tmpdir (set -q TMPDIR; and echo 1; or echo 0)
+set -l gd_tmpdir_save "$TMPDIR"
+set -l gdt /tmp/tcz-gd-$fish_pid
+rm -rf $gdt; mkdir -p $gdt/tmpdir/.git $gdt/tmpdir/sub
+set -gx TMPDIR $gdt/tmpdir/
+set -l gd1 (__tcz_project_name /private/tmp)
+set -l gd2 (__tcz_project_name /private/var/tmp)
+set -l gd3 (__tcz_project_name /var/folders/ab/cd1234/T)
+set -l gd4 (__tcz_project_name /var/folders/ab/cd1234/T/scratch)
+set -l gd5 (__tcz_project_name $gdt/tmpdir)
+set -l gd6 (__tcz_project_name $gdt/tmpdir/sub)
+set -l gd7 (__tcz_project_name /tmp/tcz-gd-plain)
+if test $gd_had_tmpdir = 1; set -gx TMPDIR $gd_tmpdir_save; else; set -e TMPDIR; end
+rm -rf $gdt
+t "generic: macOS /private/tmp is not a project" "" "$gd1"
+t "generic: /private/var/tmp is not a project" "" "$gd2"
+t "generic: a /var/folders temp folder is not a project" "" "$gd3"
+t "generic: nor is anything below /var/folders" "" "$gd4"
+t "generic: \$TMPDIR (trailing slash and all) is not a project" "" "$gd5"
+t "generic: a walk that lands on \$TMPDIR's .git found no repo (own basename)" sub "$gd6"
+t "generic (non-regression): a folder inside /tmp is still a project" tcz-gd-plain "$gd7"
+set -l gdp
+for p in / '' $HOME $HOME/ /tmp/ /var/folders /private/var/folders/x/y
+    __tcz_generic_dir "$p"; and set -a gdp y; or set -a gdp n
+end
+t "generic_dir: /, empty, \$HOME, \$HOME/, /tmp/, /var/folders, below /private/var/folders" "y y y y y y y" "$gdp"
+set -l gdn (functions -q __tcz_generic_dir; and echo defined; or echo undefined)
+for p in /tmp/x /var/foldersx $HOME/projects /privatetmp
+    __tcz_generic_dir "$p"; and set -a gdn y; or set -a gdn n
+end
+t "generic_dir: a folder inside /tmp, a look-alike, a home subfolder" "defined n n n n" "$gdn"
+set -l gdbody_list (functions __tcz_generic_dir 2>/dev/null | string collect)
+set -l gdbody_name (functions __tcz_project_name | string collect)
+set -l gdbody_model (functions __tcz_landing_model | string collect)
+set -l gdl (string match -q '*/private/tmp*' -- "$gdbody_list"; and echo 1; or echo 0)
+set -l gdn2 (string match -q '*/var/tmp*' -- "$gdbody_name"; and echo 1; or echo 0)
+set -l gdm (string match -q '*/var/tmp*' -- "$gdbody_model"; and echo 1; or echo 0)
+t "generic: the folder list is spelled once (naming and the busy check call __tcz_generic_dir)" "1 0 0" "$gdl $gdn2 $gdm"
+
+# --- chooser v2: a conversation's folder -> its project (__tcz_claude_project_of) ---
+set -l po /tmp/tcz-po-$fish_pid
+rm -rf $po
+mkdir -p $po/repo/.git/worktrees/wt $po/repo/.git/worktrees/wt2 $po/repo/.git/modules/mod $po/repo/sub/deep \
+    $po/wt/src $po/wt2 $po/repo/.claude/worktrees/fade $po/repo/mod/x $po/plain/sub
+printf 'gitdir: %s/repo/.git/worktrees/wt\n' $po > $po/wt/.git
+printf 'gitdir: ../repo/.git/worktrees/wt2\n' > $po/wt2/.git
+printf 'gitdir: %s/repo/.git/worktrees/fade\n' $po > $po/repo/.claude/worktrees/fade/.git
+printf 'gitdir: ../.git/modules/mod\n' > $po/repo/mod/.git
+set -l po1 (__tcz_claude_project_of $po/repo/sub/deep)
+set -l po2 (__tcz_claude_project_of $po/wt/src)
+set -l po3 (__tcz_claude_project_of $po/wt2)
+set -l po4 (__tcz_claude_project_of $po/repo/.claude/worktrees/fade)
+set -l po5 (__tcz_claude_project_of $po/repo/.claude/worktrees/gone)
+set -l po6 (__tcz_claude_project_of $po/repo/mod/x)
+set -l po7 (__tcz_claude_project_of $po/plain/sub)
+t "project_of: a folder inside a repo -> the repo root" $po/repo "$po1"
+t "project_of: a linked worktree -> its main repository" $po/repo "$po2"
+t "project_of: a worktree with a relative gitdir -> its main repository" $po/repo "$po3"
+t "project_of: a worktree kept inside its own repo (.claude/worktrees) -> that repo" $po/repo "$po4"
+t "project_of: a removed worktree's folder walks up to its repo" $po/repo "$po5"
+t "project_of: a submodule is its own project (its gitdir is no worktree)" $po/repo/mod "$po6"
+t "project_of: no repo -> the folder itself" $po/plain/sub "$po7"
+set -l pog
+for p in $po/plain / /tmp /private/tmp $HOME
+    set -l r (__tcz_claude_project_of $p)
+    set -a pog "[$r]"
+end
+t "project_of: generic folders are never projects" "[$po/plain] [] [] [] []" "$pog"
+set -g __tcz_po_home_save $HOME
+set -g HOME $po/home
+mkdir -p $HOME/.git $HOME/projects/foo $HOME/workspace $HOME/Work/myEMS/api/.git $HOME/Work/myEMS/api/src
+set -l poh
+for p in $HOME/projects/foo $HOME/projects $HOME/workspace $HOME/Work $HOME/Work/myEMS $HOME/Work/myEMS/api/src $HOME
+    set -l r (__tcz_claude_project_of $p)
+    set -a poh "[$r]"
+end
+set -g HOME $__tcz_po_home_save
+set -e __tcz_po_home_save
+t "project_of: group roots and a dotfiles \$HOME are never projects; what is inside them is" \
+    "[$po/home/projects/foo] [] [] [] [$po/home/Work/myEMS] [$po/home/Work/myEMS/api] []" "$poh"
+set -g pofork /tmp/tcz-po-forked-$fish_pid
+rm -f $pofork
+function git; touch $pofork; end
+__tcz_claude_project_of $po/wt/src >/dev/null
+functions -e git
+t "project_of (non-regression): never forks a git subprocess" no (test -e $pofork; and echo yes; or echo no)
+rm -f $pofork; set -e pofork
+mkdir -p $po/locked
+printf 'gitdir: %s/repo/.git/worktrees/wt\n' $po > $po/locked/.git
+chmod 000 $po/locked/.git
+if test -r $po/locked/.git
+    echo "SKIP: project_of's unreadable .git needs a non-root run"
+else
+    set -l polk (fish --no-config -c "set -g tmux_categorize_test 1; source $plugindir/functions/tmux-categorize.fish; __tcz_claude_project_of $po/locked" 2>&1)
+    t "project_of: an unreadable .git prints nothing and keeps its folder" $po/locked "$polk"
+end
+chmod 600 $po/locked/.git
+rm -rf $po
+
 set -g dn1 (__tcz_display_name claude  neurotto "Fix the picker lag")
 set -g dn2 (__tcz_display_name claude  neurotto "")
 set -g dn3 (__tcz_display_name claude  ""        "Fix the picker lag")

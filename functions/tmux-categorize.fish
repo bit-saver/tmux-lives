@@ -40,26 +40,51 @@ function __tcz_git_root --argument-names path --description 'pure: walk up from 
     end
 end
 
-function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. Generic dirs ($HOME, /, /tmp, /var/tmp) deliberately yield empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- and a walk result that itself LANDS on a generic directory (a dotfiles repo at $HOME/.git, say) counts as no repo found, so it takes that same basename fallback rather than naming every subdirectory of home after home. The walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
+function __tcz_generic_dir --argument-names path --description 'pure: true when <path> is a folder that is never a project -- /, $HOME, or a temp folder: /tmp, /var/tmp, /private/tmp, /private/var/tmp, $TMPDIR, or anything under /var/folders or /private/var/folders (macOS reports /tmp as /private/tmp). The one list shared by session naming, Claude project discovery and the chooser'"'"'s busy check.'
+    set -l p (string replace -r '/+$' '' -- "$path")
+    test -n "$p"; or return 0                  # "/" collapses to empty
+    contains -- "$p" "$HOME" /tmp /var/tmp /private/tmp /private/var/tmp /var/folders /private/var/folders; and return 0
+    set -l tmpdir (string replace -r '/+$' '' -- "$TMPDIR")
+    test -n "$tmpdir"; and test "$p" = "$tmpdir"; and return 0
+    string match -q -- '/var/folders/*' "$p"; or string match -q -- '/private/var/folders/*' "$p"
+end
+
+function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. A generic folder (__tcz_generic_dir: $HOME, /, the temp folders) deliberately yields empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- and a walk result that itself LANDS on a generic folder (a dotfiles repo at $HOME/.git, say) counts as no repo found, so it takes that same basename fallback rather than naming every subdirectory of home after home. The walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
     test -n "$path"; or return
     set -l p (string replace -r '/+$' '' -- "$path")
-    test -n "$p"; or return              # "/" collapses to empty
-    contains -- "$p" "$HOME" /tmp /var/tmp; and return
+    __tcz_generic_dir "$p"; and return
     set -l root (__tcz_git_root "$p")
-    # A walk result that LANDS on a generic directory counts as "no repo found",
-    # not as a project -- the same exclusion applied to the input path above,
-    # applied again to what the walk returned. With a dotfiles repo at
-    # $HOME/.git (an ordinary setup) every non-repo subdirectory of home would
-    # otherwise resolve to the home directory's own basename, and __tcz_unique
-    # would then collide them into name / name-2 / name-3: materially worse
-    # than the gen-N they replace. Falling back to the OWN basename of <path>
-    # rather than yielding nothing is the consistent reading -- "no repo found
-    # -> basename" is this function's documented fallback. "/" is in this list but
-    # not the input one because the input "/" already collapsed to empty above,
-    # while the walk can genuinely return "/" for a /.git.
-    contains -- "$root" "$HOME" / /tmp /var/tmp; and set root ''
+    # A walk that lands on a generic folder (a dotfiles repo at $HOME/.git) found no
+    # repo: else every non-repo folder under home would be named after home, and
+    # __tcz_unique would collide them into name / name-2 / name-3.
+    test -n "$root"; and __tcz_generic_dir "$root"; and set root ''
     test -n "$root"; and set p "$root"
     path basename -- "$p"
+end
+
+function __tcz_landing_group_roots --description 'pure: the folders whose children make the chooser'"'"'s project groups, in group order -- ~/projects ~/workspace ~/Work. A root itself is never a project.'
+    printf '%s\n' $HOME/projects $HOME/workspace $HOME/Work
+end
+
+function __tcz_claude_project_of --argument-names folder --description 'pure: a Claude conversation'"'"'s folder -> its project folder, or nothing. A folder inside a git repo -> the repo root; a linked worktree -> its main repository (its .git is a file reading `gitdir: <repo>/.git/worktrees/<name>`); never a generic folder (__tcz_generic_dir) or a group root (__tcz_landing_group_roots). No subprocess.'
+    set -l p (string replace -r '/+$' '' -- "$folder")
+    set -l roots (__tcz_landing_group_roots)
+    set -l root (__tcz_git_root "$p")
+    # A repo rooted at a generic folder or a group root (a dotfiles repo at $HOME) is no repo.
+    if test -n "$root"; and not __tcz_generic_dir "$root"; and not contains -- "$root" $roots
+        set p $root
+        # test -r first: a failed `<` redirect prints a warning that 2>/dev/null cannot catch.
+        if test -f "$p/.git"; and test -r "$p/.git"
+            read -l line < "$p/.git"
+            set -l gitdir (string replace -r '^gitdir:\s*' '' -- "$line")
+            string match -q -- '/*' "$gitdir"; or set gitdir "$p/$gitdir"
+            set -l main (string replace -rf '/\.git/worktrees/[^/]+/*$' '' -- (path normalize -- "$gitdir"))
+            test -n "$main"; and set p $main
+        end
+    end
+    __tcz_generic_dir "$p"; and return 1
+    contains -- "$p" $roots; and return 1
+    echo $p
 end
 
 function __tcz_display_name --argument-names category project task --description 'compose what a human reads: "project · task" for a claude session, the project alone for anything else. The task is DELIBERATELY ignored outside the claude category — that is what stops a node dev server reading as `node`. Uses U+00B7, the same separator the status bar already puts between fields. Returns nothing when there is neither a project nor a task, leaving the caller on the tmux name.'
@@ -897,7 +922,7 @@ function __tcz_categorize --argument-names only --description 'rename every owne
         # (project-from-pane-cwd design, 2026-08-19/20) -- never #{session_path}
         # (never better: they agree until a `cd`, and after that the pane path
         # is right), never the running process/category (spec N8). Empty for
-        # $HOME, /, /tmp, /var/tmp (and unreadable/empty paths) by
+        # a generic folder (__tcz_generic_dir) and unreadable/empty paths by
         # __tcz_project_name's own contract. __tcz_tmux_activepath is
         # __tcz_snapshot's OWN pane-walk memo, already fresh for $cur from the
         # $snap_rows call just above -- no extra tmux call, no fork.
@@ -1487,7 +1512,7 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
     for cwd in (__tcz_claude_cwds)
         set -a busy $cwd
         set -l root (__tcz_git_root $cwd)
-        test -n "$root"; and not contains -- "$root" "$HOME" / /tmp /var/tmp; and set -a busy $root
+        test -n "$root"; and not __tcz_generic_dir "$root"; and set -a busy $root
     end
     set -l disc
     if test "$argv[2]" = --
