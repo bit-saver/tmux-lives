@@ -1366,8 +1366,8 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         end < $cache
     end
 
-    # Directories named after a folder that is never a project are not read at all:
-    # rocket's /tmp one holds a thousand headless transcripts. Claude names a directory
+    # Directories named after a folder that is never a project are not read at all: a generic
+    # folder's directory can hold thousands of headless transcripts. Claude names a directory
     # by turning every character but a letter or digit into a dash.
     set -l skip
     for g in / $HOME /tmp /var/tmp /private/tmp /private/var/tmp $TMPDIR (__tcz_landing_group_roots)
@@ -1385,9 +1385,15 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         contains -- $base $skip; and continue
         string match -q -- '-var-folders-*' $base; and continue
         string match -q -- '-private-var-folders-*' $base; and continue
-        set -l files $dir/*.jsonl
+        # Pair each transcript with its mtime as it is read: `path mtime` prints nothing for a
+        # dangling symlink or a file that just vanished, which would shift two parallel lists.
+        set -l files; set -l mtimes
+        for f in $dir/*.jsonl
+            set -l m (path mtime -- $f)
+            test -n "$m"; or continue
+            set -a files $f; set -a mtimes $m
+        end
         test (count $files) -gt 0; or continue
-        set -l mtimes (path mtime -- $files)
         set -l key $mtimes[1]
         for m in $mtimes
             test "$m" -gt "$key"; and set key $m

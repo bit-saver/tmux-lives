@@ -9795,11 +9795,12 @@ rm -rf $pj /tmp/tcz-proj-a-$fish_pid /tmp/tcz-proj-b-$fish_pid $tmux_lives_proje
 # --- chooser v2: discovery reads interactive conversations only and maps folders to projects ---
 # Fixture directories: -mixed (an old interactive conversation in a, a newer headless run in b),
 # -headless (headless and GUI runs only), -wt (a worktree of repo), -sub (a folder inside repo),
-# -gen (a transcript whose cwd is /tmp), -tmp (named after /tmp: never read, whatever it holds).
+# -gen (a transcript whose cwd is /tmp), -tmp and the two -var-folders ones (named after a generic
+# folder: never read, whatever they hold).
 set -l pj $tmux_lives_claude_projects_dir
 set -l dv /tmp/tcz-dv-$fish_pid
 rm -rf $pj $dv; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-mixed $pj/-headless $pj/-wt $pj/-sub $pj/-gen $pj/-tmp
+mkdir -p $pj/-mixed $pj/-headless $pj/-wt $pj/-sub $pj/-gen $pj/-tmp $pj/-var-folders-xx-T $pj/-private-var-folders-xx-T
 mkdir -p $dv/a $dv/b $dv/c $dv/e $dv/repo/.git/worktrees/w1 $dv/repo/src/deep $dv/w1
 printf 'gitdir: %s/repo/.git/worktrees/w1\n' $dv > $dv/w1/.git
 printf '{"type":"summary"}\n{"entrypoint":"cli","cwd":"%s/a"}\n' $dv > $pj/-mixed/old.jsonl
@@ -9811,6 +9812,8 @@ printf '{"entrypoint":"cli","cwd":"%s/w1"}\n' $dv > $pj/-wt/s.jsonl
 printf '{"cwd":"%s/repo/src/deep"}\n' $dv > $pj/-sub/s.jsonl
 printf '{"entrypoint":"cli","cwd":"/tmp"}\n' > $pj/-gen/s.jsonl
 printf '{"entrypoint":"cli","cwd":"%s/e"}\n' $dv > $pj/-tmp/s.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/e"}\n' $dv > $pj/-var-folders-xx-T/s.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/e"}\n' $dv > $pj/-private-var-folders-xx-T/s.jsonl
 touch -d '3 hours ago' $pj/-mixed/old.jsonl
 touch -d '1 hour ago' $pj/-mixed/new.jsonl
 touch -d '2 hours ago' $pj/-wt/s.jsonl
@@ -9835,36 +9838,48 @@ set -l dvrm (string match -- "$dv/repo"\t'*' $dvrows | string split -f2 \t)
 set -l dvam_want (path mtime -- $pj/-mixed/old.jsonl)
 set -l dvrm_want (path mtime -- $pj/-wt/s.jsonl)
 t "discovery: a project's age is its newest interactive conversation (not a newer headless run; dedupe keeps the newest)" "$dvam_want $dvrm_want" "$dvam $dvrm"
-t "discovery: one awk per directory read cold, none warm; the /tmp directory is never read" "5 0" "$dvcold $dvwarm"
+t "discovery: one awk per directory read cold, none warm; the /tmp and var-folders directories are never read" "5 0" "$dvcold $dvwarm"
 t "discovery (non-regression): a warm call returns the same rows" "$dvrows" "$dvrows2"
 set -l dvtmprow (string match -- "$pj/-tmp"\t'*' < $tmux_lives_project_cache)
 set -l dvhead (head -n 1 $tmux_lives_project_cache)
 t "discovery: the cache opens with its v2 header and has no row for the skipped directory" "# tmux-lives projects v2|" "$dvhead|$dvtmprow"
 
-# A cache without the v2 header is discarded whole, even a row whose key still matches.
+# A cache without the v2 header is discarded whole, even rows whose key still matches. The two
+# 4-field rows are what test the header gate (a 3-field row fails the field count anyway); the
+# 3-field row is the real pre-v2 shape and comes first, so a gate that swallows line 1 is caught too.
 rm -rf $pj; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-old $dv/right $dv/wrong
-printf '{"cwd":"%s/right"}\n' $dv > $pj/-old/s.jsonl
-printf '%s\t%s\t%s\n' $pj/-old (path mtime -- $pj/-old/s.jsonl) $dv/wrong > $tmux_lives_project_cache
+mkdir -p $pj/-old1 $pj/-old2 $pj/-old3 $dv/r1 $dv/r2 $dv/r3 $dv/wrong
+printf '{"cwd":"%s/r1"}\n' $dv > $pj/-old1/s.jsonl
+printf '{"cwd":"%s/r2"}\n' $dv > $pj/-old2/s.jsonl
+printf '{"cwd":"%s/r3"}\n' $dv > $pj/-old3/s.jsonl
+touch -d '1 hour ago' $pj/-old1/s.jsonl
+touch -d '2 hours ago' $pj/-old2/s.jsonl
+touch -d '3 hours ago' $pj/-old3/s.jsonl
+set -l dvm1 (path mtime -- $pj/-old1/s.jsonl)
+set -l dvm2 (path mtime -- $pj/-old2/s.jsonl)
+set -l dvm3 (path mtime -- $pj/-old3/s.jsonl)
+printf '%s\t%s\t%s\n' $pj/-old3 $dvm3 $dv/wrong > $tmux_lives_project_cache
+printf '%s\t%s\t%s\t%s\n' $pj/-old1 $dvm1 $dvm1 $dv/wrong >> $tmux_lives_project_cache
+printf '%s\t%s\t%s\t%s\n' $pj/-old2 $dvm2 $dvm2 $dv/wrong >> $tmux_lives_project_cache
 set -l dvold (__tcz_claude_projects | string split -f1 \t)
 set -l dvhead2 (head -n 1 $tmux_lives_project_cache)
-t "discovery: a cache from before v2 is discarded, not trusted" "$dv/right|# tmux-lives projects v2" "$dvold|$dvhead2"
+t "discovery: a cache without the v2 header is discarded whole, even 4-field rows whose key matches" "$dv/r1 $dv/r2 $dv/r3|# tmux-lives projects v2" "$dvold|$dvhead2"
 
 # A group root is no project; directories named after a group root or $HOME are never read.
 rm -rf $pj; rm -f $tmux_lives_project_cache
-set -g __tcg_dv_home_save $HOME
-set -g HOME $dv/home
-mkdir -p $HOME/projects/p1 $HOME/Work/w1
-set -l dvslug_root (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME/projects)
-set -l dvslug_home (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME)
-mkdir -p $pj/-groot $pj/$dvslug_root $pj/$dvslug_home $pj/-work
-printf '{"cwd":"%s/projects"}\n' $HOME > $pj/-groot/s.jsonl
-printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_root/s.jsonl
-printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_home/s.jsonl
-printf '{"cwd":"%s/Work/w1"}\n' $HOME > $pj/-work/s.jsonl
-set -l dvgr (__tcz_claude_projects | string split -f1 \t)
-set -g HOME $__tcg_dv_home_save
-set -e __tcg_dv_home_save
+set -l dvgr
+begin
+    set -lx HOME $dv/home
+    mkdir -p $HOME/projects/p1 $HOME/Work/w1
+    set -l dvslug_root (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME/projects)
+    set -l dvslug_home (string replace -ra '[^A-Za-z0-9]' '-' -- $HOME)
+    mkdir -p $pj/-groot $pj/$dvslug_root $pj/$dvslug_home $pj/-work
+    printf '{"cwd":"%s/projects"}\n' $HOME > $pj/-groot/s.jsonl
+    printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_root/s.jsonl
+    printf '{"cwd":"%s/projects/p1"}\n' $HOME > $pj/$dvslug_home/s.jsonl
+    printf '{"cwd":"%s/Work/w1"}\n' $HOME > $pj/-work/s.jsonl
+    set dvgr (__tcz_claude_projects | string split -f1 \t)
+end
 t "discovery: a group root is no project; directories named after it or \$HOME are never read" "$dv/home/Work/w1" "$dvgr"
 
 # An unreadable transcript is skipped; the others in its directory still count.
@@ -9881,6 +9896,22 @@ else
     t "discovery: an unreadable newest transcript is skipped, silently, and an older one still counts" "$dv/d" "$dvlk"
 end
 chmod 600 $pj/-locked/a.jsonl
+
+# A dangling transcript symlink is skipped without shifting the others: `path mtime` prints nothing for it.
+rm -rf $pj; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-dangle $dv/g
+ln -s $dv/nowhere.jsonl $pj/-dangle/a-dangling.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/g"}\n' $dv > $pj/-dangle/b.jsonl
+printf '{"entrypoint":"sdk-cli","cwd":"%s/c"}\n' $dv > $pj/-dangle/c.jsonl
+printf '{"entrypoint":"cli","cwd":"%s/g"}\n' $dv > $pj/-dangle/d.jsonl
+touch -d '5 hours ago' $pj/-dangle/b.jsonl
+touch -d '1 hour ago' $pj/-dangle/c.jsonl
+touch -d '6 hours ago' $pj/-dangle/d.jsonl
+set -l dgrows (__tcz_claude_projects 2>$dv/dg.err)
+set -l dgerr (cat $dv/dg.err | count)
+set -l dgrow (string split \t -- $dgrows[1])
+set -l dgwant (path mtime -- $pj/-dangle/b.jsonl)
+t "discovery: a dangling transcript symlink shifts nothing: the project's age is its newest interactive conversation, with no stderr" "$dv/g $dgwant 0" "$dgrow[1] $dgrow[2] $dgerr"
 rm -rf $pj $dv; rm -f $tmux_lives_project_cache
 
 # --- landing: claude project discovery — running-pane cwds ---
