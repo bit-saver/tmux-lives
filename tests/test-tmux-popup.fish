@@ -149,13 +149,12 @@ set -g LHERE (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 
 set -l lhw (string length --visible -- (vis "$LHERE[2]"))
 set -l lhe (string match -qr '\[here\]$' -- (vis "$LHERE[2]"); and echo 1; or echo 0)
 t "list_lines: a [here] row is flush-right at listwidth" "40 1" "$lhw $lhe"
-set -g LLAND (printf '/p/x\tproject\t0\t0\tx · 2d\nnew\tnew\t0\t0\tnew shell\n' | __tcz_popup_list_lines 40 9 '')
+set -g LLAND (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 9 '')
 t "list_lines: project rule is colour 5" 1 (string match -q '*38;5;5m╭── idle claude *' -- "$LLAND[1]"; and echo 1; or echo 0)
 set -l lpw (string length --visible -- (vis "$LLAND[1]"))
 set -l lpf (string match -qr '^╭── idle claude ─+$' -- (vis "$LLAND[1]"); and echo 1; or echo 0)
 t "list_lines: the idle claude rule fills to listwidth" "40 1" "$lpw $lpf"
 t "list_lines: project row border is colour 5" 1 (string match -q '*38;5;5m│*' -- "$LLAND[2]"; and echo 1; or echo 0)
-t "list_lines: new rule is colour 8" 1 (string match -q '*38;5;8m╭── new ─*' -- "$LLAND[3]"; and echo 1; or echo 0)
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -243,8 +242,7 @@ set -e __tcz_pd_top
 
 # --- landing: the painter skips an unchanged frame and diffs a changed one ---
 set -g LPM (printf '/tmp/tcz-pa\tproject\t0\t%s\tpa · 2h' (math (date +%s) - 7200)) \
-    (printf '/tmp/tcz-pb\tproject\t0\t%s\tpb · 5h' (math (date +%s) - 18000)) \
-    (printf 'new\tnew\t0\t0\tnew shell')
+    (printf '/tmp/tcz-pb\tproject\t0\t%s\tpb · 5h' (math (date +%s) - 18000))
 functions -c __tcz_popup_frame __tcp_frame_bak
 set -g FREC /tmp/tcz-frec-$fish_pid
 set -g LPOUT /tmp/tcz-lpout-$fish_pid
@@ -254,9 +252,13 @@ function __tcz_popup_frame
     __tcp_frame_bak $argv
 end
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 2 24 80 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
 set -l lp1 (test (wc -c < $LPOUT) -gt 0; and echo 1; or echo 0)
-__tcz_landing_paint 2 24 80 -- $LPM > $LPOUT
+set -l lprows (count $__tcz_pe_prev)
+set -l lpborder (string match -q '*─┴─*' -- "$__tcz_pe_prev[23]"; and echo 1; or echo 0)
+set -l lplegend (string match -q '*n*new*r*resume*' -- (vis "$__tcz_pe_prev[24]"); and echo 1; or echo 0)
+t "paint: 24 rows -- the frame, a border with ┴ under the divider, then the legend with n new" "24 1 1" "$lprows $lpborder $lplegend"
+__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
 set -l lp2rc $status
 set -l lp2bytes (wc -c < $LPOUT | string trim)
 set -l lpbuilt (count (cat $FREC 2>/dev/null))
@@ -264,8 +266,8 @@ t "paint: an unchanged frame is neither rebuilt nor emitted" "1 1 0 1" "$lp1 $lp
 # A move between two project rows: only the rows that differ are emitted.
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 0 24 80 -- $LPM > /dev/null
-set -l fa (__tcp_frame_bak 0 33 46 23 '' -- $LPM)
-set -l fb (__tcp_frame_bak 1 33 46 23 '' -- $LPM)
+set -l fa (__tcp_frame_bak 0 33 46 22 '' -- $LPM)
+set -l fb (__tcp_frame_bak 1 33 46 22 '' -- $LPM)
 set -l fdiff
 for i in (seq (count $fb))
     test "$fa[$i]" = "$fb[$i]"; or set -a fdiff $i
@@ -273,7 +275,7 @@ end
 __tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
 set -l lpemitted (string match -rag '\e\[([0-9]+);1H' -- (cat $LPOUT))
 set -l lpfull (string match -q '*'(printf '\e[H')'*' -- (cat $LPOUT | string collect); and echo 1; or echo 0)
-set -l lpsome (test (count $fdiff) -gt 0 -a (count $fdiff) -lt 23; and echo 1; or echo 0)
+set -l lpsome (test (count $fdiff) -gt 0 -a (count $fdiff) -lt 22; and echo 1; or echo 0)
 set -l lpsame (test "$lpemitted" = "$fdiff"; and echo 1; or echo 0)
 t "paint: a move between two project rows emits only the changed rows" "1 1 0" "$lpsome $lpsame $lpfull"
 functions -e __tcz_popup_frame
@@ -282,8 +284,8 @@ functions -e __tcp_frame_bak
 rm -f $FREC $LPOUT
 set -e __tcz_lp_key
 
-# --- landing: the preview column for project and new rows ---
-# __tcz_popup_preview is stubbed to a recorder: a project/new row must never
+# --- landing: the preview column for project rows ---
+# __tcz_popup_preview is stubbed to a recorder: a project row must never
 # reach capture-pane, and this suite must never reach a real tmux server.
 functions -c __tcz_popup_preview __tcp_preview_bak
 set -g PREC /tmp/tcz-prec-$fish_pid
@@ -291,17 +293,16 @@ rm -f $PREC
 function __tcz_popup_preview
     echo $argv >> $PREC
 end
-set -g LDnew (printf 'new\tnew\t0\t0\tnew shell')
 set -g LDlive (printf 'alpha\tgeneral\t0\t0\talpha')
 set -g LDproj (printf '/tmp/tcz-some/proj\tproject\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
-__tcz_popup_draw 0 20 30 8 '' -- $LDnew $LDlive >/dev/null
-set -l prec_new (cat $PREC 2>/dev/null)
-t "draw: a new row never calls capture-pane" "" "$prec_new"
-set -l dproj (__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDnew | string join \n)
+__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive >/dev/null
+set -l prec_proj (cat $PREC 2>/dev/null)
+t "draw: a project row never calls capture-pane" "" "$prec_proj"
+set -l dproj (__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive | string join \n)
 set dproj (vis "$dproj" | string join \n)
 t "draw: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
 rm -f $PREC
-__tcz_popup_draw 1 20 30 8 '' -- $LDnew $LDlive >/dev/null
+__tcz_popup_draw 1 20 30 8 '' -- $LDproj $LDlive >/dev/null
 set -l prec_live (cat $PREC 2>/dev/null)
 t "draw: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
 rm -f $PREC
@@ -316,9 +317,6 @@ set li1 (vis "$li1")
 t "landing_info: project shows its folder" 1 (string match -q '*/p/x*' -- "$li1"; and echo 1; or echo 0)
 t "landing_info: project shows its age" 1 (string match -q '*2h*' -- "$li1"; and echo 1; or echo 0)
 t "landing_info: project names both keys" 1 (string match -q '*--continue*--resume*' -- "$li1"; and echo 1; or echo 0)
-set -l li2 (__tcz_landing_info (printf 'new\tnew\t0\t0\tnew shell') 40 8)
-set li2 (vis "$li2")
-t "landing_info: new shell shows a hint" 1 (string match -q '*shell*' -- "$li2"; and echo 1; or echo 0)
 set -l li3 (__tcz_landing_info (printf '/a/very/long/folder/path/that/overflows\tproject\t0\t%s\tpath · 2h' $linow) 12 2)
 t "landing_info: never more than h lines" 2 (count $li3)
 set -l li3w 0
@@ -347,6 +345,26 @@ t "readkey h=left"   left  (printf 'h'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey l=right"  right (printf 'l'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey CSI left"  left  (printf '\e[D' | __tcz_popup_readkey 2>/dev/null)
 t "readkey CSI right" right (printf '\e[C' | __tcz_popup_readkey 2>/dev/null)
+
+# n: the landing app's new-shell key. The reader is shared, so the other two pickers must
+# have no case for it (it stays a harmless no-op there, as `other` was). Bodies captured first.
+set -l rkn (printf 'n' | __tcz_popup_readkey 2>/dev/null)
+t "readkey n=n (landing: a new shell)" n "$rkn"
+set -l rkpop (functions __tcz_popup | string collect)
+set -l rkthp (functions __tcz_theme_picker | string collect)
+set -l rkland (functions __tcz_landing | string collect)
+set -l rkg1 (string match -qr '\bcase .*\bn\b' -- "$rkland"; and echo 1; or echo 0)
+set -l rkg2 (string match -qr '\bcase n\b' -- "$rkpop"; and echo 1; or echo 0)
+set -l rkg3 (string match -qr '\bcase n\b' -- "$rkthp"; and echo 1; or echo 0)
+t "readkey n: the landing loop has a case for n; the session switcher and theme picker have none" "1 0 0" "$rkg1 $rkg2 $rkg3"
+
+# --- landing: the border between the list and the legend ---
+set -l lb1 (vis (__tcz_landing_border 33 46 80))
+set -l lb2 (vis (__tcz_landing_border 50 0 50))
+set -l lb3 (vis (__tcz_landing_border 58 1 60))
+t "border: cols-1 wide with ┴ under the divider (col 34 at 80 cols)" "79 ┴" "$(string length -- "$lb1") $(string sub -s 34 -l 1 -- "$lb1")"
+t "border: no preview, no ┴" "49 0" "$(string length -- "$lb2") $(string match -q '*┴*' -- "$lb2"; and echo 1; or echo 0)"
+t "border: a one-column preview still draws the whole rule" "59 ┴" "$(string length -- "$lb3") $(string sub -s 59 -l 1 -- "$lb3")"
 
 # ---------------------------------------------------------------------
 # command modal — pure helpers

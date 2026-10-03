@@ -1514,7 +1514,7 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects, then new shell. Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects (n starts a new shell; there is no row for it). Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
     set -l TAB (printf '\t')
     set -l cpids; set -l csess
     set -l me; set -l meact -1
@@ -1583,7 +1583,6 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         test -n "$now"; or set now (date +%s)
         printf '%s\tproject\t0\t%s\t%s · %s\n' $f[1] $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2]))
     end
-    printf 'new\tnew\t0\t0\tnew shell\n'
 end
 
 function __tcz_landing_client --argument-names self --description 'the client a landing session serves: the most recently active one attached to <self> (a tab can share it through a GUI session list or a hand attach)'
@@ -1605,7 +1604,7 @@ function __tcz_landing_new_shell --argument-names client --description 'a new ge
     return 1
 end
 
-function __tcz_landing_info --argument-names row w h --description 'the preview column for a project or new-shell row: what Enter does, clipped to <w> cols and <h> lines'
+function __tcz_landing_info --argument-names row w h --description 'the preview column for a project row: what Enter does, clipped to <w> cols and <h> lines'
     set -l f (string split -m 4 \t -- "$row")
     set -l MUT (__tcz_theme muted); set -l RST (__tcz_theme reset)
     set -l lines
@@ -1616,8 +1615,6 @@ function __tcz_landing_info --argument-names row w h --description 'the preview 
             set -l age (__tcz_age (math (date +%s) - $f[4]))
             test "$age" = now; or set age "$age ago"
             set lines '' " $dir" " $MUT""last conversation $age$RST" '' ' ⏎ claude --continue' ' r claude --resume'
-        case new
-            set lines '' ' new shell' " $MUT""a new session in ~$RST"
     end
     set -l n 0
     for l in $lines
@@ -1638,14 +1635,14 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> -- <model lines...>: paint the landing frame, legend last, through the diff emitter. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> -- <model lines...>: paint the landing frame, then a border, then the key legend, through the diff emitter. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
     set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]
     set -e argv[1..4]
     set -l model $argv
     set -l lay (__tcz_popup_layout $cols | string split ' ')
     set -l cap
     set -l f (string split -m 2 \t -- $model[(math $sel + 1)])
-    if test $lay[2] -gt 0; and not contains -- "$f[2]" project new
+    if test $lay[2] -gt 0; and test -n "$f[1]"; and test "$f[2]" != project
         set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
     end
     set -l key (string join \n -- $sel $rows $cols $model $cap | string collect)
@@ -1653,9 +1650,21 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
         return 1
     end
     set -g __tcz_lp_key "$key"
-    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 1) '' -- $model)
-    set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open r resume x kill d detach)
-    __tcz_popup_emit $frame (__tcz_popup_truncate "$legend" (math $cols - 1))
+    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) '' -- $model)
+    set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open n new r resume x kill d detach)
+    __tcz_popup_emit $frame (__tcz_landing_border $lay[1] $lay[2] $cols) (__tcz_popup_truncate "$legend" (math $cols - 1))
+end
+
+function __tcz_landing_border --argument-names listw prevw cols --description 'pure: the rule between the landing list and its key legend: <cols> - 1 wide (as the legend), with ┴ under the list/preview divider when there is a preview'
+    set -l w (math $cols - 1)
+    set -l line (string repeat -n $w ─)
+    if test $prevw -gt 0; and test $listw -lt $w
+        # Quoted: a zero-width repeat is an empty list, which would empty an unquoted concatenation.
+        set -l left (string repeat -n $listw ─)
+        set -l right (string repeat -n (math $w - $listw - 1) ─)
+        set line "$left┴$right"
+    end
+    printf '\e[38;5;240m%s\e[0m' "$line"
 end
 
 function __tcz_tty_drain --description 'discard input until 0.3 s pass with none: a burst whose tail straggles in over several reads is one burst'
@@ -1717,6 +1726,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 set sel (math $at - 1)
             else if test $sel -ge (count $model)
                 set sel (math (count $model) - 1)
+                test $sel -lt 0; and set sel 0          # an empty list: no row, never -1
             end
             set stale 0
         end
@@ -1799,22 +1809,20 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             case pgup
                 set sel (math "max(0, $sel - max(1, $rows - 3))")
             case pgdn
-                set sel (math "min($n - 1, $sel + max(1, $rows - 3))")
-            case enter r
+                test $n -gt 0; and set sel (math "min($n - 1, $sel + max(1, $rows - 3))")
+            case enter r n
                 set stale 1; set pass 0
                 set -l client (__tcz_landing_client "$self")
                 test -n "$client"; or continue
-                switch $row[2]
-                    case project
-                        set -l how continue
-                        test $tok = r; and set how resume
-                        __tcz_landing_start $row[1] $how $client
-                    case new
-                        test $tok = enter; or continue
-                        __tcz_landing_new_shell $client
-                    case '*'
-                        test $tok = enter; or continue
-                        tmux switch-client -c $client -t "=$row[1]" 2>/dev/null
+                if test $tok = n
+                    __tcz_landing_new_shell $client
+                else if test "$row[2]" = project
+                    set -l how continue
+                    test $tok = r; and set how resume
+                    __tcz_landing_start $row[1] $how $client
+                else
+                    test $tok = enter; and test -n "$row[1]"; or continue
+                    tmux switch-client -c $client -t "=$row[1]" 2>/dev/null
                 end
                 # Leave once no tab is left here. A failed move leaves this tab
                 # here, and killing an attached landing session would detach it.
@@ -1968,7 +1976,6 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         test "$cat" = running; and set c 6
         test "$cat" = general; and set c 2
         test "$cat" = project; and set c 5      # landing: idle Claude projects
-        test "$cat" = new; and set c 8          # landing: new shell
         set -l BORD (printf '\e[38;5;%sm' $c)   # category left-border (non-bold)
         # category rule (full width to listwidth)
         if test "$cat" != "$group"
@@ -2102,7 +2109,7 @@ function __tcz_legend_row --argument-names pitch --description 'pure: one aligne
     printf '%s' "$out"
 end
 
-function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|t|z|c|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
+function __tcz_popup_readkey --argument-names mode --description 'read one keystroke -> up|down|pgup|pgdn|left|right|v|w|V|s|S|e|E|d|D|o|O|p|P|m|M|a|r|b|t|z|c|n|tab|enter|cancel|kill|timeout|other; with mode=timeout an empty read returns timeout instead of cancel'
     # Read RAW bytes with an inline `dd | … | read` pipeline. Why not simpler:
     #  - fish `read` on the tty runs fish's line editor and SWALLOWS arrow escape
     #    sequences (treats them as cursor-move), so they never reach us.
@@ -2137,6 +2144,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
         case 72; echo r; return                      # r (theme-picker: reset knobs)
         case 7a; echo z; return                      # z (theme-picker: shake)
         case 63; echo c; return                      # c (theme-picker: retired — unused, harmless no-op)
+        case 6e; echo n; return                      # n (landing: a new shell; no case in the other pickers)
         case 09; echo tab; return                    # TAB (theme-picker: switch lists)
         case 71; echo cancel; return                # q
         case 78; echo kill; return                  # x
@@ -2254,7 +2262,7 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     if test $prevw -gt 0
         set -l selrow $model[(math $sel + 1)]
         set -l f (string split -m 2 $TAB -- $selrow)
-        if contains -- "$f[2]" project new
+        if test "$f[2]" = project
             set right (__tcz_landing_info "$selrow" $prevw $rows)
         else
             set right (__tcz_popup_preview "$f[1]" $prevw $rows)

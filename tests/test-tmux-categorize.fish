@@ -10013,7 +10013,9 @@ set -l lmrepo empty-model
 test (count $lm) -gt 0; and set lmrepo (string match -q -- $lmr\t'*' $lm; and echo listed; or echo hidden)
 set -l lmrdisc (contains -- $lmr $lmdisc; and echo discovered; or echo undiscovered)
 t "model: a project whose repo runs claude in a subdirectory is hidden" "discovered hidden" "$lmrdisc $lmrepo"
-t "model: the last row is new shell" (printf 'new\tnew\t0\t0\tnew shell') "$lm[-1]"
+set -l lmnew (string match -- 'new'\t'new'\t'*' $lm)
+set -l lmrows (count $lm)
+t "model: no new-shell row (n starts one), in a model that has rows" "0 1" "$(count $lmnew) $(test $lmrows -gt 0; and echo 1; or echo 0)"
 for p in $lmpids; kill $p 2>/dev/null; end
 rm -rf $pj $tmux_lives_project_cache $lmi $lmb $lmr
 cleanup
@@ -10045,13 +10047,13 @@ set -l la1 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la1" /dev/null >/dev/null 2>&1 &
 set -l lapids (jobs -p)
 __tcg_client_on $la1 >/dev/null
-set -l ladrawn (__tcg_ready "=$la1:" '*new shell*'; and echo 1; or echo 0)
-t "app: draws the chooser (a new shell row)" 1 "$ladrawn"
+set -l ladrawn (__tcg_ready "=$la1:" '*d detach*'; and echo 1; or echo 0)
+t "app: draws the chooser (its key legend)" 1 "$ladrawn"
 command tmux -L $sock send-keys -t "=$la1:" q
 command tmux -L $sock send-keys -t "=$la1:" Escape
 sleep 1
 set -l laalive 0
-command tmux -L $sock has-session -t "=$la1" 2>/dev/null; and __tcg_screen_has "=$la1:" '*new shell*' 1; and set laalive 1
+command tmux -L $sock has-session -t "=$la1" 2>/dev/null; and __tcg_screen_has "=$la1:" '*d detach*' 1; and set laalive 1
 t "app: q and Esc leave it running and drawing" 1 "$laalive"
 command tmux -L $sock send-keys -t "=$la1:" Enter
 set -l laon ''
@@ -10067,7 +10069,8 @@ for p in $lapids; kill $p 2>/dev/null; end
 cleanup
 
 # Enter on a session that vanished after the last snapshot: the switch fails,
-# so the app must keep its own session (killing it would detach the tab).
+# so the app must keep its own session (killing it would detach the tab). The
+# list is then empty; the pointer must come back once a session appears.
 fresh_server
 set -l lav (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$lav" /dev/null >/dev/null 2>&1 &
@@ -10081,43 +10084,30 @@ sleep 1
 command tmux -L $sock kill-session -t =0 \; send-keys -t "=$lav:" Enter
 sleep 1
 set -l lavon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-set -l lavdraw (__tcg_screen_has "=$lav:" '*▐ new shell*' 50; and echo 1; or echo 0)
-t "app: Enter on a vanished session keeps the tab on its landing session, still drawing" "$lav 1" "$lavon $lavdraw"
+command tmux -L $sock new-session -d -s zz -c /tmp
+set -l lavdraw (__tcg_screen_has "=$lav:" '*▐ zz*' 50; and echo 1; or echo 0)
+t "app: Enter on a vanished session keeps the tab on its landing; from the empty list the pointer comes back" "$lav 1" "$lavon $lavdraw"
 for p in $lavpids; kill $p 2>/dev/null; end
 cleanup
 
-# Enter on new shell: the client lands on a fresh gen-N. A live session
-# literally named `new` sits above it, so the pointer must follow its row by
-# target AND category.
+# n: a new general session in $HOME for this tab; its landing session goes.
 fresh_server
-command tmux -L $sock new-session -d -s new -c /tmp
 set -l la2 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la2" /dev/null >/dev/null 2>&1 &
 set -l la2pids (jobs -p)
 __tcg_client_on $la2 >/dev/null
-__tcg_ready "=$la2:" '*new shell*'
-set -l la2sel 0
-for i in (seq 6)
-    __tcg_screen_has "=$la2:" '*▐ new shell*' 5; and set la2sel 1; and break
-    command tmux -L $sock send-keys -t "=$la2:" j
-end
-t "app: j moves the pointer to new shell" 1 "$la2sel"
-# A session created now sorts above new shell; after the next refresh the
-# pointer must still be on new shell, not on whatever took its index.
-command tmux -L $sock new-session -d -s zz -c /tmp
-set -l la2zz (__tcg_screen_has "=$la2:" '*│ zz*' 50; and echo 1; or echo 0)
-set -l la2kept (__tcg_screen_has "=$la2:" '*▐ new shell*' 1; and echo 1; or echo 0)
-t "app: after a refresh adds a row above it, the pointer stays on new shell (beside a live session named new)" "1 1" "$la2zz $la2kept"
-command tmux -L $sock send-keys -t "=$la2:" Enter
+__tcg_ready "=$la2:" '*d detach*'
+command tmux -L $sock send-keys -t "=$la2:" n
 set -l la2on ''
 for i in (seq 30)
     set la2on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
     string match -q 'gen-*' -- "$la2on"; and break
     sleep 0.1
 end
-t "app: Enter on new shell lands the client on a gen session" 1 (string match -q 'gen-*' -- "$la2on"; and echo 1; or echo 0)
+set -l la2gen (string match -q 'gen-*' -- "$la2on"; and echo 1; or echo 0)
+set -l la2cwd (command tmux -L $sock display-message -p -t "=$la2on:" '#{pane_current_path}' 2>/dev/null)
 set -l la2gone (command tmux -L $sock has-session -t "=$la2" 2>/dev/null; and echo 0; or echo 1)
-t "app: ... and its landing session is gone" 1 "$la2gone"
+t "app: n lands the client on a new gen session in \$HOME and its landing session goes" "1 $HOME 1" "$la2gen $la2cwd $la2gone"
 for p in $la2pids; kill $p 2>/dev/null; end
 cleanup
 
@@ -10127,7 +10117,7 @@ set -l la3 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la3" /dev/null >/dev/null 2>&1 &
 set -l la3pids (jobs -p)
 __tcg_client_on $la3 >/dev/null
-__tcg_ready "=$la3:" '*new shell*'
+__tcg_ready "=$la3:" '*d detach*'
 command tmux -L $sock send-keys -t "=$la3:" x
 set -l la3ask (__tcg_screen_has "=$la3:" '*kill 0 ?*' 30; and echo 1; or echo 0)
 command tmux -L $sock send-keys -t "=$la3:" n
@@ -10169,7 +10159,7 @@ set -l la4 (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la4" /dev/null >/dev/null 2>&1 &
 set -l la4pids (jobs -p)
 __tcg_client_on $la4 >/dev/null
-__tcg_ready "=$la4:" '*new shell*'
+__tcg_ready "=$la4:" '*d detach*'
 set -l la4sel 0
 for i in (seq 6)
     __tcg_screen_has "=$la4:" "*▐ tcz-lp-proj-$fish_pid*" 5; and set la4sel 1; and break
@@ -10198,7 +10188,7 @@ set -l iz (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$iz" /dev/null >/dev/null 2>&1 &
 set -l izpids (jobs -p)
 __tcg_client_on $iz >/dev/null
-__tcg_screen_has "=$iz:" '*new shell*' 80 >/dev/null
+__tcg_screen_has "=$iz:" '*d detach*' 80 >/dev/null
 sleep 0.5
 set -l izout /tmp/tcz-izout-$fish_pid; rm -f $izout
 command tmux -L $sock pipe-pane -o -t "=$iz:" "cat >> $izout"
@@ -10264,12 +10254,14 @@ set -l pj $tmux_lives_claude_projects_dir
 rm -rf $pj; rm -f $tmux_lives_project_cache
 mkdir -p $pj/-fm $fmf
 printf '{"cwd":"%s"}\n' $fmf > $pj/-fm/s.jsonl
-set -l fmcmd "set -g tmux_categorize_test 1; source $lcat; function __tcz_landing_start; return 1; end; function __tcz_landing_new_shell; return 1; end; __tcz_landing"
+set -l fmrec /tmp/tcz-fmrec-$fish_pid
+rm -f $fmrec
+set -l fmcmd "set -g tmux_categorize_test 1; source $lcat; function __tcz_landing_start; echo start >> $fmrec; return 1; end; function __tcz_landing_new_shell; echo shell >> $fmrec; return 1; end; __tcz_landing"
 command tmux -L $sock new-session -d -s _landing-7 -c $HOME fish --no-config -c "$fmcmd"
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-7" /dev/null >/dev/null 2>&1 &
 set -l fmpids (jobs -p)
 __tcg_client_on _landing-7 >/dev/null
-__tcg_ready "=_landing-7:" '*new shell*'
+__tcg_ready "=_landing-7:" '*d detach*'
 for i in (seq 6)
     __tcg_screen_has "=_landing-7:" "*▐ tcz-fm-proj-$fish_pid*" 5; and break
     command tmux -L $sock send-keys -t "=_landing-7:" j
@@ -10277,16 +10269,13 @@ end
 command tmux -L $sock send-keys -t "=_landing-7:" Enter
 sleep 1
 set -l fmon1 (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-for i in (seq 6)
-    __tcg_screen_has "=_landing-7:" '*▐ new shell*' 5; and break
-    command tmux -L $sock send-keys -t "=_landing-7:" j
-end
-command tmux -L $sock send-keys -t "=_landing-7:" Enter
+command tmux -L $sock send-keys -t "=_landing-7:" n
 sleep 1
 set -l fmon2 (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-t "app: a failed project start or new shell keeps the tab on its landing" "_landing-7 _landing-7" "$fmon1 $fmon2"
+set -l fmcalls (cat $fmrec 2>/dev/null | string join ' ')
+t "app: a failed project start or new shell keeps the tab on its landing (both movers reached)" "_landing-7 _landing-7 start shell" "$fmon1 $fmon2 $fmcalls"
 for p in $fmpids; kill $p 2>/dev/null; end
-rm -rf $pj $tmux_lives_project_cache $fmf
+rm -rf $pj $tmux_lives_project_cache $fmf $fmrec
 cleanup
 
 # --- landing fix round 1: idle refreshes reuse the project list; an action re-reads it ---
@@ -10300,7 +10289,7 @@ command tmux -L $sock new-session -d -s _landing-8 -c $HOME fish --no-config -c 
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-8" /dev/null >/dev/null 2>&1 &
 set -l pcpids (jobs -p)
 __tcg_client_on _landing-8 >/dev/null
-__tcg_screen_has "=_landing-8:" '*new shell*' 80 >/dev/null
+__tcg_screen_has "=_landing-8:" '*d detach*' 80 >/dev/null
 sleep 6.8                             # two idle refreshes (3 s each)
 set -l pcreads1 (count (cat $pcrec 2>/dev/null))
 set -l pcmodels (count (cat $pcmod 2>/dev/null))
@@ -10326,7 +10315,7 @@ set -l rsl (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$rsl" /dev/null >/dev/null 2>&1 &
 set -l rspids (jobs -p)
 __tcg_client_on $rsl >/dev/null
-__tcg_ready "=$rsl:" '*new shell*'
+__tcg_ready "=$rsl:" '*d detach*'
 set -l rsn1 (command tmux -L $sock list-sessions | count)
 command tmux -L $sock send-keys -t "=$rsl:" r
 sleep 1
@@ -10361,7 +10350,7 @@ sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =vx
 set -l xpids (jobs -p)
 __tcg_client_on $xl >/dev/null
 set -l xB (__tcg_client_on vx)
-__tcg_ready "=$xl:" '*new shell*'
+__tcg_ready "=$xl:" '*d detach*'
 for i in (seq 6)
     __tcg_screen_has "=$xl:" '*▐ vx*' 5; and break
     command tmux -L $sock send-keys -t "=$xl:" j
@@ -10403,7 +10392,7 @@ for who in A B C
 end
 set -l tlpids (jobs -p)
 set -l tlA $tlnames[1]; set -l tlB $tlnames[2]; set -l tlC $tlnames[3]
-__tcg_screen_has "=$tl:" '*new shell*' 80 >/dev/null
+__tcg_screen_has "=$tl:" '*d detach*' 80 >/dev/null
 function __tcg_on --argument-names client --description 'the session <client> is on, or nothing'
     command tmux -L $sock list-clients -F '#{client_name} #{session_name}' 2>/dev/null | string match -- "$client *" | string split -f2 ' '
 end
@@ -10455,7 +10444,7 @@ sleep 0.5
 set -l hk1b (__tcg_screen_has "=$hk:" '*▐ s2*' 1; and echo 1; or echo 0)
 t "app: a burst of j moves exactly one row" "1 1" "$hk1 $hk1b"
 command tmux -L $sock send-keys -t "=$hk:" NPage
-set -l hk2 (__tcg_screen_has "=$hk:" '*▐ new shell*' 20; and echo 1; or echo 0)
+set -l hk2 (__tcg_screen_has "=$hk:" '*▐ s5*' 20; and echo 1; or echo 0)
 command tmux -L $sock send-keys -t "=$hk:" PPage
 set -l hk3 (__tcg_screen_has "=$hk:" '*▐ s1*' 20; and echo 1; or echo 0)
 t "app: PgDn and PgUp move by pages" "1 1" "$hk2 $hk3"
@@ -10657,7 +10646,7 @@ end
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$m7" /dev/null >/dev/null 2>&1 &
 set -l m7pids (jobs -p)
 __tcg_client_on $m7 >/dev/null
-__tcg_ready "=$m7:" '*new shell*'
+__tcg_ready "=$m7:" '*d detach*'
 sleep 3.5                             # past one idle refresh: the first paint covers the first pass's text
 set -l m7ran (test -e $m7bin/ran; and echo 1; or echo 0)
 set -l m7err (command tmux -L $sock capture-pane -p -t "=$m7:" | string match -e 'M7 stderr' | count)
@@ -10714,7 +10703,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tya (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tya:" '*new shell*'
+__tcg_ready "=$tya:" '*d detach*'
 __tcg_type $tyk 'cd "/Users/x"\r'
 sleep 2
 set -l tyaw (__tcg_where $tya)
@@ -10727,7 +10716,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tyb (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tyb:" '*new shell*'
+__tcg_ready "=$tyb:" '*d detach*'
 __tcg_type $tyk 'ab\r'
 sleep 2
 set -l tybw (__tcg_where $tyb)
@@ -10737,14 +10726,15 @@ cleanup
 
 # A move burst followed by text: the move steps once; the text read past it is a burst of its own, drained.
 fresh_server
+command tmux -L $sock new-session -d -s t2 -c /tmp
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tye (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tye:" '*new shell*'
+__tcg_ready "=$tye:" '*d detach*'
 __tcg_type $tyk 'jcd\r'
 sleep 2
 set -l tyew (__tcg_where $tye)
-set -l tyemoved (__tcg_screen_has "=$tye:" '*▐ new shell*' 1; and echo 1; or echo 0)
+set -l tyemoved (__tcg_screen_has "=$tye:" '*▐ t2*' 1; and echo 1; or echo 0)
 t "typeahead: j then cd + CR in one burst moves one row and nothing else" "$tye 1 1" "$tyew $tyemoved"
 for p in $typids; kill $p 2>/dev/null; end
 cleanup
@@ -10754,7 +10744,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tyc (__tcz_landing_new (__tcg_client_on 0))
-__tcg_screen_has "=$tyc:" '*new shell*' 80 >/dev/null
+__tcg_screen_has "=$tyc:" '*d detach*' 80 >/dev/null
 __tcg_type $tyk c; sleep 0.3
 __tcg_type $tyk d; sleep 0.3
 __tcg_type $tyk '\r'; sleep 1
@@ -10777,7 +10767,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tyd (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tyd:" '*new shell*'
+__tcg_ready "=$tyd:" '*d detach*'
 __tcg_type $tyk d
 for i in (seq 30)
     set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
@@ -10794,7 +10784,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tyf (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tyf:" '*new shell*'
+__tcg_ready "=$tyf:" '*d detach*'
 __tcg_type $tyk 'cd "/Users/x"'; sleep 0.05; __tcg_type $tyk '\r'
 sleep 2
 set -l tyfw (__tcg_where $tyf)
@@ -10807,7 +10797,7 @@ fresh_server
 __tcg_kbd_client $tyk 0
 set -l typids (jobs -p)
 set -l tyg (__tcz_landing_new (__tcg_client_on 0))
-__tcg_ready "=$tyg:" '*new shell*'
+__tcg_ready "=$tyg:" '*d detach*'
 __tcg_type $tyk '\r\n'
 for i in (seq 30)
     set -l on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
@@ -10836,7 +10826,7 @@ for i in 1 2 3 4 5
     test $i -lt 5; and sleep 0.7
 end
 sleep 1.5
-set -l tyhat (command tmux -L $sock capture-pane -p -t "=$tyh:" | string match -rg '▐ (s[0-9]|new shell)')
+set -l tyhat (command tmux -L $sock capture-pane -p -t "=$tyh:" | string match -rg '▐ (s[0-9])')
 t "typeahead: the settle window ends 2 s after the first paint, so later taps act (pointer on s3 or s4)" 1 (string match -qr '^s[34]$' -- "$tyhat"; and echo 1; or echo 0)
 echo "# settle bound: pointer on [$tyhat]"
 for p in $typids; kill $p 2>/dev/null; end
@@ -10856,7 +10846,7 @@ command tmux -L $sock new-session -d -s _landing-6 -c $HOME fish --no-config -c 
 sleep 40 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-6" /dev/null >/dev/null 2>&1 &
 set -l ilpids (jobs -p)
 __tcg_client_on _landing-6 >/dev/null
-__tcg_screen_has "=_landing-6:" '*new shell*' 80 >/dev/null
+__tcg_screen_has "=_landing-6:" '*d detach*' 80 >/dev/null
 for i in (seq 200)
     test (count (cat $ilrec 2>/dev/null)) -ge 4; and break
     sleep 0.1
