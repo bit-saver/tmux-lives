@@ -127,8 +127,7 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   fish) — do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge by the
   absence of `FAIL` lines. Only `test-tmux-install.fish`, `test-generic.fish` (3) and
-  `test-tmux-status.fish` (4) report numbers; `test-tmux-popup.fish`'s timing assertion is now the
-  hand-run `tests/truncate-perf.fish`.
+  `test-tmux-status.fish` (4) report numbers.
 - Sweep leaked `-L` sockets from `/tmp/tmux-1000/` after heavy runs. **Never touch `default`**; leave
   `neurotest*` alone. Killing a tmux server does **not** unlink its socket file.
 
@@ -148,17 +147,16 @@ Load-bearing details, each of which was a bug once:
   the bare name (a comment mentioning it defeated the first version).
 
 **Known isolation hole, unfixed:** the `tmux_lives_funcs_file` seam is a *variable*, so the
-`XDG_CONFIG_HOME` redirect misses it. `test-tmux-auto.fish`'s old hole (a fish-function `tmux` shim that
-subprocesses cannot see) is closed structurally: a PATH shim pinned to the suite's `-L` socket with
-`-f /dev/null`, `TMUX`/`TMUX_PANE` erased, a recorder categorizer stub. Copy that prologue into any new
-suite. See `[[tmux_test_isolation]]`.
+`XDG_CONFIG_HOME` redirect misses it. `test-tmux-auto.fish` closes the shim hole structurally: a PATH shim
+pinned to the suite's `-L` socket with `-f /dev/null`, `TMUX`/`TMUX_PANE` erased, a recorder categorizer
+stub. Copy that prologue into any new suite. See `[[tmux_test_isolation]]`.
 
 **A third $HOME seam, guarded:** `tmux_lives_render_cache_dir` — the categorize and install suites set it.
 ⚠ The directory is shared (the landing app keeps `projects.tsv` there): its prune deletes only
 `<digits>-<hex6>.tsv` files. Any suite that can start a landing app must export
-`tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` (auto, categorize, install do; install once
-wrote the real `projects.tsv`). Real-cache brackets check this run's **footprint** (seam rows, its own
-fixture folders, an emptied file), never an mtime: the user's landing apps rewrite `projects.tsv` mid-run.
+`tmux_lives_claude_projects_dir` / `tmux_lives_project_cache` (auto, categorize, install do). Real-cache
+brackets check this run's **footprint** (seam rows, its own fixture folders — a row's last field — no data
+rows left under the v2 header), never an mtime: the user's landing apps rewrite `projects.tsv` mid-run.
 
 ---
 
@@ -178,8 +176,8 @@ walk via `__tcz_git_root`, then that root's basename, else the path's own basena
 - `test -e`, **not `-d`** — in a linked worktree or a submodule `.git` is a regular *file*, and this
   project uses `git worktree` for isolated builds.
 - **Never** a `git rev-parse` subprocess — per-session forks burned four cores on macOS.
-- A generic walk result (`$HOME`, `/`, `/tmp`, `/var/tmp`) counts as "no repo found" and falls back to
-  the path's own basename — else a dotfiles repo at `$HOME/.git` collides every non-project directory.
+- A generic walk result (`__tcz_generic_dir`) counts as "no repo found" and falls back to the path's own
+  basename — else a dotfiles repo at `$HOME/.git` collides every non-project directory.
 - `session_path` is **strictly dominated**: it equals the pane path until a `cd` and is stale after one.
 
 Sessions are born in the **invoking shell's cwd**, except `__tcz_commandeer`, which pins `$HOME` at its
@@ -267,11 +265,10 @@ from `LC_TERMINAL`.
 | #2 | **Only** inside an actively-working Claude pane | `terminal-features xterm*:sync` |
 
 #2's mechanism: tmux picks synchronized-output support **per client, at attach, from its own terminal
-identification, and never asks the client** — `tmux info` shows `Sync: [missing]` for ShellFish and
-present for Ghostty on the **same server/session/TERM**. Gated to **tmux ≥3.7** (3.3a never answers
-DECRQM, so it's immune); the probe uses `sort -V` (a numeric compare gets 3.10 > 3.7 wrong). Universal
-`tmux_lives_sync_terminals`, fragment argv[18]; it and `tmux_lives_cursor_style` are **`set -U`-only**
-(no `setup` setter — known wart).
+identification, and never asks the client** (`tmux info`: `Sync: [missing]` for ShellFish, present for
+Ghostty). Gated to **tmux ≥3.7** (3.3a never answers DECRQM, so it's immune); the probe uses `sort -V` (a
+numeric compare gets 3.10 > 3.7 wrong). Universal `tmux_lives_sync_terminals`, fragment argv[18]; it and
+`tmux_lives_cursor_style` are **`set -U`-only** (no `setup` setter — known wart).
 
 ⚠ **Three testing traps here** (unknown feature names accepted silently, vacuous parse tests on a
 malformed `source-file` line, quote-mutations that still work because tmux concatenates adjacent quoted
@@ -281,13 +278,13 @@ strings) — see `[[shellfish_cursor_flicker]]`.
 
 ## Theme engine — where it actually stands
 
-**v6 is wired and live in production code.** Every v5 call site is gone. `__tmux_lives_render_fragment`
+**v6 is wired and live in production code.** `__tmux_lives_render_fragment`
 and `__tmux_lives_theme_roll` still call `__tmux_lives_theme_render` directly — the fragment runs at
 setup/update time and must never let a cache miss break a live apply, and `theme_roll` samples a fresh
 recipe per attempt so there is nothing to cache. `__tmux_lives_theme_apply_live`,
 `__tmux_lives_theme_list`, and the picker (`__tcz_theme_picker`) instead call the file-cached front,
-`__tmux_lives_theme_render_cached` (see "The render cache", below). The v5 engine is **deleted**
-(2026-09-14); only `__tmux_lives_theme_relationships` survives, because `__tmux_lives_migrate_v4`'s reset
+`__tmux_lives_theme_render_cached` (see "The render cache", below). The v5 engine is **deleted**;
+only `__tmux_lives_theme_relationships` survives, because `__tmux_lives_migrate_v4`'s reset
 branch still calls it.
 
 A theme is now a **catalog scheme NAME resolving to a five-field recipe** (`mode Lspan peakC peakPos
@@ -297,9 +294,6 @@ label, never persisted as such.
 ```
 tmux-lives setup theme <scheme>|list|off
 ```
-
-`--place`/`--mode`/`--phase` all now **error**: "was removed in v6 — a scheme is now a recipe ... chosen
-by name; see 'tmux-lives setup theme list'".
 
 **Catalog: 42 rows, 14 curated.** `__tmux_lives_theme_catalog_v6` is the complete 7-mode × 6-arrangement
 grid — one tuned recipe per cell, curation only *removes*. `_v6_default` flags the 14 curated rows (two
@@ -347,8 +341,8 @@ Reverse-engineered from palettes the user had already praised, then confirmed 7/
 ### Still open
 
 **All six arrangements place `text` at ramp index 1 or 7** (both ends of the chroma curve), so at
-`peakPos ≈ 0.5`, `text` renders at C 0.011–0.013, below v5's pinned 0.030. Not blocking — a curated
-recipe can avoid a mid-ramp `peakPos` if it matters in practice.
+`peakPos ≈ 0.5`, `text` renders at C 0.011–0.013. Not blocking — a curated recipe can avoid a mid-ramp
+`peakPos` if it matters.
 
 ### OKLCH facts that make an assertion unsatisfiable if guessed
 
@@ -379,21 +373,24 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
 - `WIN = rows - STATIC` (`STATIC_IDLE 17` / `STATIC_EDIT 22`), gated on the **stricter** `STATIC_EDIT`
   (25 popup rows = 30 client rows) — an idle-only floor once admitted a 20-row popup that overflowed
   the instant `b` was pressed.
+- Both pickers re-read `stty size` every pass and full-repaint on a change (tmux 3.3a shrinks an open popup
+  with a shrinking client and grows it back). Below its floor, or under 52 columns, the theme picker shows
+  the too-small message: only Esc acts (it still reverts a preview). It runs under a process-level
+  `2>/dev/null` re-exec (`__tcz_thp_quiet`): fish's own errors bypass an in-process redirect.
 
 **Performance — four layers, all measured (`[[popup_geometry_and_perf]]`):**
 1. **Construction** cost is the **number of fish command substitutions**, not any one builder (a call
    inside `(…)` is 19× a plain call) — fixed by memoizing the row/static/swatch builders behind **one**
    helper (`__tcz_thp_reload`), which also makes a bare-integer row cache key legal.
 2. **Emission.** `__tcz_popup_emit` diffs against `__tcz_pe_prev` and emits only changed rows in a sync
-   wrapper, full-painting only when forced or the row **count** differs — a big win in a keypress burst,
-   a small loss on isolated ones (break-even ≈ 1 key/0.7s). The session switcher is deliberately **out
-   of scope** — its cursor move changes nearly every row.
+   wrapper, full-painting only when forced or the row **count** differs (a win in a keypress burst, a
+   small loss on isolated keys). The session switcher is deliberately **out of scope** — its cursor
+   move changes nearly every row.
 3. **Input.** One rule on every held-key path: **discard, one step per frame.** ⚠ `stty min 0 time 0`
    must be re-asserted **inside** every drain loop (readkey's CSI branch leaves the tty blocking), and
    the arrow poll must never escalate its timeout or autorepeat outpaces it and the picker stalls.
-4. **Rendering.** Colour-decode is memoized per process and the gamut clamp no longer forks `seq`
-   (**~0.88ms/call, 759 calls/render**); warm, served from the render cache (above), the scheme list
-   build is **17–19ms** vs. seconds cold.
+4. **Rendering.** Colour-decode is memoized per process and the gamut clamp no longer forks `seq`; warm,
+   served from the render cache (above), the scheme list build is **17–19ms** vs. seconds cold.
 
 **tmux 3.3a DROPS app-sent DECSET 2026** (a bogus `?9999` behaves identically — tmux does not forward
 private modes it doesn't implement), so the sync wrapper never reaches ShellFish there — it paints
@@ -401,13 +398,11 @@ progressively, the symptom is *stuttering*, not a frozen screen.
 
 **Seed editor:** `a` = "show me what this seed does" (rebuild strips, stay in editor); `⏎` = "this is
 the seed — apply it and let me out" — both **local**, no tmux option, no tab OSC; applying the seed is
-not adopting a scheme. Staleness is **derived** from `$stripseed`, not tracked as a flag (a flag can't
-answer "edit, `a`, then `esc`", where the seed reverts but strips still show the abandoned edit) — stale
-strips render faint, and the dim state is part of the row cache key.
+not adopting a scheme. Staleness is **derived** from `$stripseed`, not tracked as a flag (see its
+declaration) — stale strips render faint, and the dim state is part of the row cache key.
 
-**Auto-apply was built, tried live and REJECTED** ("wayyyy too much… everything is so lacking in
-responsivity") — do not re-propose it; a toggle doesn't rescue a feature whose cost is felt unasked.
-See `[[config_vs_adoption]]`.
+**Auto-apply was built, tried live and REJECTED** ("wayyyy too much") — do not re-propose it; a toggle
+doesn't rescue a feature whose cost is felt unasked. See `[[config_vs_adoption]]`.
 
 ---
 
@@ -430,8 +425,8 @@ macwork session until 2026-09-16.
 - **`reattach-to-user-namespace` as `default-command` is a proven no-op** on macOS 26.5.2 — GUI
   window/menu-bar placement is governed by the Aqua **audit session** `asid`, not the bootstrap domain.
   Findings: `docs/macos-gui-namespace-findings.md`.
-- The `-ww` rationale for `ps` **did not survive Mac verification** (no truncation measured); it stays as
-  free insurance. Details: `docs/2026-08-18-verification-pgrep-sysmond-fix-on-macos.md`.
+- The `-ww` rationale for `ps` **did not survive Mac verification**; it stays as free insurance. Details:
+  `docs/2026-08-18-verification-pgrep-sysmond-fix-on-macos.md`.
 
 ---
 
@@ -524,7 +519,7 @@ macwork session until 2026-09-16.
 
 Spec: `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
 Every automatic entry (login, outside-tmux `picker`, new ShellFish tab) and every closing tab lands on a
-per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell).
+per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group).
 
 - **Identity is the NAME**, never a session option: `__tcz_is_landing` (categorizer) and `__tmux_is_landing`
   (shell side) must agree; `__tcz_free_name <prefix> <taken…>` mints `gen-N` and `_landing-N`. **Kill
@@ -546,9 +541,11 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
   and restore (a restored clientless landing is killed by name). `after-new-window`/`-split-window` hooks evict a
   window opened inside landing to a `gen-N` in `$HOME`.
 - **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s (15 s after a minute with no
-  key; seams `tmux_lives_landing_idle_after`/`_idle_refresh`), the idle-project list every 10th pass
-  (cache `projects.tsv`; seams in "Test isolation");
-  `d` detaches, `q`/Esc are no-ops (one token in `__tcz_popup_readkey`).
+  key; seams `tmux_lives_landing_idle_after`/`_idle_refresh`), projects every 10th pass. `n` new shell, `d`
+  detaches, `q`/Esc no-ops (one `__tcz_popup_readkey` token). Held moves skip the capture (`__tcz_pf_keep`).
+- **Projects** — category = group (`__tcz_landing_groups`); 21+ days → `older (N)` (seam
+  `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
+  loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
 - **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
   types `cd "<dir>"`⏎ into each new tab), drained to a 0.3 s gap unless a held move; CR LF is one ⏎. All
   input is drained until a quiet second after the first paint, 2 s at most (settle; tests: `__tcg_ready`).
@@ -565,11 +562,10 @@ per-tab `_landing-N` chooser (live sessions · idle Claude projects · new shell
 
 ---
 
-## Current state — 2026-10-01
+## Current state — 2026-10-03
 
-**The landing session**, with its type-ahead fix and idle cadence, is deployed on both machines (last code
-commit `7ffd278`, verified installed 2026-10-01). **Next: build chooser v2** from
-`docs/superpowers/plans/2026-10-01-landing-chooser-v2.md`, subagent-driven.
+**Landing chooser v2** and the theme-picker hardening are merged on `main` and await the user's
+`fisher update` on both machines, then a real-device smoke test (a new ShellFish tab).
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
@@ -592,9 +588,9 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 
 ### Open
 
-- **Theme picker border loss** (picker shifts up) → v2 plan Task 8. 20 s scroll lockups (10-02) did not
-  reproduce: suspects iPad network jitter and a busy pane redrawn under the popup.
-- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: after v2.
+- **Theme picker 20 s scroll lockups** (10-02) did not reproduce: suspects iPad network jitter and a busy
+  pane redrawn under the popup. An idle picker repaints after a resize only on the next key.
+- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: next.
 - **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
   (`has-session` guard).
 - `close`'s help row still says "and exit" (a test pins it); with landing on the tab lands instead.
