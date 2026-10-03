@@ -2564,12 +2564,7 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -l model (__tcz_overview)
     set -l n (count $model)
     test $n -gt 0; or return 0
-    set -l size (stty size 2>/dev/null | string split ' ')
-    set -l rows $size[1]; set -l cols $size[2]
-    test -n "$rows"; and test "$rows" -gt 0 2>/dev/null; or set rows 24
-    test -n "$cols"; and test "$cols" -gt 0 2>/dev/null; or set cols 80
-    set -l lay (string split ' ' (__tcz_popup_layout $cols))
-    set -l listw $lay[1]; set -l prevw $lay[2]
+    set -l rows 24; set -l cols 80
     # start on the current session if present
     set -l sel 0
     for i in (seq $n)
@@ -2591,7 +2586,14 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     printf '\e[?25l\e[2J'
     set -l result ''
     while true
-        __tcz_popup_draw $sel $listw $prevw (math $rows - 1) "$current" -- $model
+        # Follow the tty: a client that shrinks under the open popup shrinks it too.
+        set -l sz (stty size 2>/dev/null)
+        if string match -qr '^[1-9][0-9]* [1-9][0-9]*$' -- "$sz"
+            set sz (string split ' ' -- $sz)
+            set rows $sz[1]; set cols $sz[2]
+        end
+        set -l lay (string split ' ' (__tcz_popup_layout $cols))
+        __tcz_popup_draw $sel $lay[1] $lay[2] (math $rows - 1) "$current" -- $model
         printf '\e[%s;1H\e[K%s' $rows (__tcz_legend_row 12 '↑↓' move '⏎' switch x kill esc close)
         switch (__tcz_popup_readkey)
             case up
@@ -3721,6 +3723,7 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
     set -l STATIC_EDIT 22
     set -l dims (stty size 2>/dev/null | string split ' ')
     set -l rows 26
+    set -l cols (math "$IW + 2")       # the loop reads the real width
     test (count $dims) -ge 1; and test -n "$dims[1]"; and set rows $dims[1]
     # The picker always OPENS idle (editing is 0 above, before this block runs),
     # so the initial WIN (what the first, idle draw actually uses) is computed
@@ -3836,6 +3839,38 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         end
     end
     while true
+        # BEGIN size-follow
+        # A client that shrinks under the open popup shrinks it too, dropping its top rows: read the
+        # tty every pass and repaint whole at a new size.
+        set -l sz (stty size 2>/dev/null)
+        if string match -qr '^[1-9][0-9]* [1-9][0-9]*$' -- "$sz"; and test "$sz" != "$rows $cols"
+            set sz (string split ' ' -- $sz)
+            set rows $sz[1]; set cols $sz[2]
+            set WIN (math "$rows - $STATIC_IDLE")
+            test "$editing" = 1; and set WIN (math "$rows - $STATIC_EDIT")
+            set -g __tcz_pe_force 1
+        end
+        # END size-follow
+        if test (math "$rows - $STATIC_EDIT") -lt 3; or test $cols -lt (math "$IW + 2")
+            # Too small for the frame: the open-time message instead, polled so growth repaints without
+            # a key. Only Esc/q acts, closing the normal way: a live preview is reverted first.
+            set -l msg ' tmux-lives: window too short for the theme picker' " (needs "(math "$STATIC_EDIT + 3")" rows, has $rows)"
+            test $cols -lt (math "$IW + 2"); and set msg ' tmux-lives: window too narrow for the theme picker' " (needs "(math "$IW + 2")" columns, has $cols)"
+            test $rows -lt 2; and set msg $msg[1]
+            set -l out
+            for l in $msg
+                set -a out (__tcz_popup_truncate "$l" $cols)
+            end
+            __tcz_popup_emit $out
+            stty min 0 time 5 2>/dev/null
+            set -l k (__tcz_popup_readkey timeout)
+            stty min 1 time 0 2>/dev/null
+            test "$k" = cancel; or continue
+            if test $previewed -ne 0; or test "$seed" != "$anch_seed"
+                __tcz_thp_apply_and_recolor "$anch_seed"
+            end
+            break
+        end
         # BEGIN stale-derive
         # Staleness is derived, not tracked — see $stripseed's declaration.
         set seeddirty 0
@@ -5205,7 +5240,14 @@ function __tcz_main
         case popup
             __tcz_popup $argv[2..]
         case theme-picker
-            __tcz_theme_picker $argv[2..]
+            # fish writes its own errors to the process's stderr, past any in-process redirect, and in
+            # a popup they scroll the frame: re-exec once with stderr closed.
+            if set -q __tcz_thp_quiet
+                __tcz_theme_picker $argv[2..]
+            else
+                set -lx __tcz_thp_quiet 1
+                exec sh -c 'exec fish --no-config "$0" theme-picker "$@" 2>/dev/null' $__tcz_self $argv[2..]
+            end
         case scratch
             __tcz_scratch $argv[2..]
         case scratch-resize

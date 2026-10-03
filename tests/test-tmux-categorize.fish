@@ -6564,7 +6564,7 @@ t "wiring: picker body extraction is non-empty" 1 (test -n "$__t10_body"; and ec
 set -g __t10_bodylines (string split \n -- "$__t10_body")
 
 set -g __t10_calls (string match -r '__tcz_popup_emit ' -- $__t10_bodylines | count)
-t "wiring: picker calls the emitter at both its frames" 2 $__t10_calls
+t "wiring: picker calls the emitter at all three of its screens (the frame, hex entry, too small)" 3 $__t10_calls
 
 set -g __t10_inline (string match -r '2026h' -- $__t10_bodylines | count)
 t "wiring: no inline whole-frame paint remains in the picker" 0 $__t10_inline
@@ -6605,12 +6605,19 @@ t "wiring: the raw self-heal block extraction is non-empty (guard precondition)"
 # collapses to one empty line where it was cut out) — that is a fish LIST
 # already, so piping it straight into the comment filter is correct, no
 # re-collect/re-split needed.
-set -g __t10_outsidestripped (string replace -- "$__t10_healraw" '' "$__t10_rawbody" | string match -rv '^\s*#')
+# Task 8 adds a fifth, a resize (# BEGIN size-follow / # END size-follow): cut out and counted the same way.
+# It is cut first, collected back into one string, so the self-heal cut still sees a multi-line string.
+set -g __t10_sizeraw (string match -r '# BEGIN size-follow(.|\n)*?# END size-follow' -- "$__t10_rawbody" | string collect)
+t "wiring: the raw size-follow block extraction is non-empty (guard precondition)" 1 (test -n "$__t10_sizeraw"; and echo 1; or echo 0)
+set -l __t10_nosize (string replace -- "$__t10_sizeraw" '' "$__t10_rawbody" | string collect)
+set -g __t10_outsidestripped (string replace -- "$__t10_healraw" '' "$__t10_nosize" | string match -rv '^\s*#')
 set -g __t10_healstripped (string split \n -- "$__t10_healraw" | string match -rv '^\s*#')
 set -g __t10_forcecount_out (string match -r '__tcz_pe_force 1' -- $__t10_outsidestripped | count)
 set -g __t10_forcecount_heal (string match -r '__tcz_pe_force 1' -- $__t10_healstripped | count)
+set -l __t10_forcecount_size (string split \n -- "$__t10_sizeraw" | string match -rv '^\s*#' | string match -r '__tcz_pe_force 1' | count)
 t "wiring: the picker forces a whole paint at all three handover sites" 3 $__t10_forcecount_out
 t "wiring: the self-heal block forces its own whole paint (the fourth occurrence, counted separately so a handover regression can't hide behind it)" 1 $__t10_forcecount_heal
+t "wiring: a resize forces its own whole paint (the fifth, counted separately like self-heal)" 1 $__t10_forcecount_size
 
 set -g __t10_prevreset (string match -r 'set -e __tcz_pe_prev' -- $__t10_bodylines | count)
 t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prevreset
@@ -11020,6 +11027,146 @@ t "idle: the key that wakes an idle tab re-reads the project list too" 1 "$ilpcw
 for p in $ilpids; kill $p 2>/dev/null; end
 rm -f $ilrec $ilpc
 cleanup
+
+# --- theme picker and switcher: a client that shrinks under the open popup; fish's own errors ---
+# Both run through the real verb in a pane: a pane's size is what they read, and capture-pane cannot
+# read a popup. The picker sources the engine from $__fish_config_dir: a throwaway config dir holds it.
+set -l tpd /tmp/tcz-tpick-$fish_pid
+mkdir -p $tpd/xdg/fish/conf.d $tpd/functions
+ln -s $plugindir/conf.d/tmux-lives-install.fish $tpd/xdg/fish/conf.d/tmux-lives-install.fish
+function __tcg_cap --argument-names pane --description 'the screen of <pane>, one row per line'
+    command tmux -L $sock capture-pane -p -t $pane 2>/dev/null
+end
+function __tcg_framed --argument-names pane h tries --description 'poll (0.1 s steps) until <pane> shows a whole frame: ╭ on row 1, ╰ on row <h>'
+    for i in (seq $tries)
+        set -l s (__tcg_cap $pane)
+        string match -q '╭*' -- "$s[1]"; and string match -q '╰*' -- "$s[$h]"; and return 0
+        sleep 0.1
+    end
+    return 1
+end
+function __tcg_shape --argument-names pane --description '"<rows that are frame rows exactly 52 wide> <the selected scheme>" on <pane>'
+    set -l s (__tcg_cap $pane)
+    set -l ok 0
+    for r in $s
+        string match -qr '^[╭│├╰]' -- $r; and test (string length --visible -- $r) -eq 52; and set ok (math $ok + 1)
+    end
+    echo $ok (string match -rg '^│▌[▇ ]+ (\S.*?)\s*│$' -- $s)
+end
+
+# (a) Shrink above the floor, below it, narrower than the frame, and back.
+fresh_server
+set -l tpw (command tmux -L $sock new-session -d -s thp -x 52 -y 40 -P -F '#{window_id} #{pane_id}' env XDG_CONFIG_HOME=$tpd/xdg fish --no-config $lcat theme-picker | string split ' ')
+set -l tpp $tpw[2]
+set -l tpa1 (__tcg_framed $tpp 40 300; and echo 1; or echo 0)      # a cold render cache takes seconds
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 30
+sleep 0.3
+command tmux -L $sock send-keys -t $tpp Down
+set -l tpa2 (__tcg_framed $tpp 30 30; and echo 1; or echo 0)
+set -l tpa3 (__tcg_shape $tpp)
+t "theme picker: shrunk from 40 to 30 rows, one step repaints the whole frame at 30 (╭ row 1, ╰ row 30, 30 frame rows 52 wide, the step landed)" "1 1 30 mono bright" "$tpa1 $tpa2 $tpa3"
+# The key that wakes it after a resize was pressed on the old frame and still acts (to analogous centre);
+# keys while the message shows do nothing.
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 20
+sleep 0.3
+command tmux -L $sock send-keys -t $tpp Down
+__tcg_screen_has $tpp '*window too short*' 30
+command tmux -L $sock send-keys -t $tpp Down
+sleep 0.5
+set -l tpb (__tcg_cap $tpp)
+set -l tpbframe (string match -r '^[╭│├╰]' -- $tpb | count)
+t "theme picker: below the floor it shows the open-time message and no frame, and a key leaves it there" " tmux-lives: window too short for the theme picker| (needs 25 rows, has 20)|0" "$tpb[1]|$tpb[2]|$tpbframe"
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 34
+set -l tpc1 (__tcg_framed $tpp 34 30; and echo 1; or echo 0)
+set -l tpc2 (__tcg_shape $tpp)
+t "theme picker: grown back above the floor, the frame returns without a key (╭ row 1, ╰ row 34, 34 frame rows; the key sent under the message did nothing)" "1 34 analogous centre" "$tpc1 $tpc2"
+command tmux -L $sock resize-window -t $tpw[1] -x 40 -y 34
+sleep 0.3
+command tmux -L $sock send-keys -t $tpp Down
+__tcg_screen_has $tpp '*too narrow*' 30
+set -l tpn (__tcg_cap $tpp)
+set -l tpnw 0
+for r in $tpn; test (string length --visible -- $r) -gt $tpnw; and set tpnw (string length --visible -- $r); end
+t "theme picker: narrower than its frame it says so, cut to the pane's 40 columns" " tmux-lives: window too narrow for the …| (needs 52 columns, has 40)|40" "$tpn[1]|$tpn[2]|$tpnw"
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 34
+__tcg_framed $tpp 34 30
+# In the seed editor the fixed part of the frame is taller: a resize there sizes the list for it.
+command tmux -L $sock send-keys -t $tpp b
+__tcg_screen_has $tpp '*channel*' 30
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 30
+sleep 0.3
+command tmux -L $sock send-keys -t $tpp Down
+set -l tpe1 (__tcg_framed $tpp 30 30; and echo 1; or echo 0)
+set -l tpe2 (__tcg_shape $tpp)
+t "theme picker: resized in the seed editor, the frame is still exactly 30 rows (╭ row 1, ╰ row 30, 30 frame rows)" "1 30 analogous split" "$tpe1 $tpe2"
+command tmux -L $sock send-keys -t $tpp b
+__tcg_screen_has $tpp '*b seed*' 30
+# Below the floor Enter must not save what cannot be seen; Esc leaves through the normal close, which
+# reverts a live preview first.
+command tmux -L $sock send-keys -t $tpp a
+set -l tpprev ''
+for i in (seq 50)
+    set tpprev (command tmux -L $sock show -gv @tmux_lives_bar_bg 2>/dev/null)
+    test -n "$tpprev"; and break
+    sleep 0.1
+end
+set -l tpwant (__tmux_lives_theme_render_cached '#3a3a3a' mono 0.55 0.11 0.50 deep)[1]
+command tmux -L $sock resize-window -t $tpw[1] -x 52 -y 20
+sleep 0.3
+command tmux -L $sock send-keys -t $tpp Down
+__tcg_screen_has $tpp '*window too short*' 30
+command tmux -L $sock send-keys -t $tpp Enter
+sleep 0.5
+set -l tpstill (__tcg_screen_has $tpp '*window too short*' 1; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t $tpp Escape
+set -l tpgone 0
+for i in (seq 50)
+    contains -- $tpp (command tmux -L $sock list-panes -a -F '#{pane_id}' 2>/dev/null); or begin; set tpgone 1; break; end
+    sleep 0.1
+end
+set -l tpafter (command tmux -L $sock show -gv @tmux_lives_bar_bg 2>/dev/null)
+set -l tpd1 (test -n "$tpwant"; and test "$tpprev" != "$tpwant"; and echo 1; or echo 0)
+t "theme picker: below the floor Enter does nothing, and Esc reverts the live preview to the opening theme and closes" "1 1 1 $tpwant" "$tpd1 $tpstill $tpgone $tpafter"
+cleanup
+
+# (b) Stray output: a copy of the categorizer whose loop raises a fish error after every paint. fish writes
+# its own errors past any in-process redirect, so only a process-level one keeps them off the screen.
+set -l tpcopy $tpd/functions/tmux-categorize.fish
+string replace -- '__tcz_popup_emit $lines' '__tcz_popup_emit $lines; __tcg_probe_nosuchcmd' < $lcat > $tpcopy
+set -l tpinj (string match -e '__tcg_probe_nosuchcmd' < $tpcopy | count)
+fresh_server
+set -l tsw (command tmux -L $sock new-session -d -s thq -x 52 -y 40 -P -F '#{window_id} #{pane_id}' env XDG_CONFIG_HOME=$tpd/xdg fish --no-config $tpcopy theme-picker | string split ' ')
+__tcg_screen_has $tsw[2] '*esc close*' 300
+command tmux -L $sock send-keys -t $tsw[2] Down
+sleep 1.5                                       # past the self-heal repaint, which the error would follow again
+set -l tss (__tcg_cap $tsw[2])
+set -l tssleak (string match -e 'nosuchcmd' -- $tss | count)
+set -l tsstop (string sub -l 1 -- "$tss[1]")
+set -l tsssel (string match -rg '^│▌[▇ ]+ (\S.*?)\s*│$' -- $tss)
+t "theme picker: a fish error in its loop never reaches the screen (injected once; ╭ on row 1 after a step; no error text; the step landed)" "1 ╭ 0 mono bright" "$tpinj $tsstop $tssleak $tsssel"
+cleanup
+
+# (c) The session switcher: the same shrink, 120x40 to 80x30. At 80 columns the list is 33 wide.
+fresh_server
+set -l sww (command tmux -L $sock new-session -d -s sw -x 120 -y 40 -c /tmp -P -F '#{window_id} #{pane_id}' fish --no-config $lcat popup | string split ' ')
+__tcg_screen_has $sww[2] '*esc close*' 50
+command tmux -L $sock resize-window -t $sww[1] -x 80 -y 30
+sleep 0.3
+command tmux -L $sock send-keys -t $sww[2] Down
+sleep 0.5
+set -l sws (__tcg_cap $sww[2])
+set -l swleg (string match -e 'esc close' -- $sws | count)
+set -l swdiv 0
+for r in $sws[1..29]
+    test (string sub -s 34 -l 1 -- $r) = '│'; and set swdiv (math $swdiv + 1)
+end
+set -l swtop (string match -qr '^╭── ' -- "$sws[1]"; and echo 1; or echo 0)
+set -l swlast (string match -q '*esc close*' -- "$sws[30]"; and echo 1; or echo 0)
+t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1, the legend on row 30 only, the divider at column 34 on all 29 list rows)" "1 1 1 29" "$swtop $swlast $swleg $swdiv"
+command tmux -L $sock send-keys -t $sww[2] Escape
+cleanup
+rm -rf $tpd
+functions -e __tcg_cap __tcg_framed __tcg_shape
 functions -e __tcg_screen_has __tcg_client_on __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
