@@ -10051,6 +10051,7 @@ set -l gmrows (printf '%s\t%s' $gm/oa (math $gmnow - 60)) \
     (printf '%s\t%s' $HOME/workspace/wa (math $gmnow - 180)) \
     (printf '%s\t%s' $HOME/projects/pa (math $gmnow - 240)) \
     (printf '%s\t%s' $HOME/projects/pold (math "$gmnow - 30 * 86400")) \
+    (printf '%s\t%s' $gm/ovis (math "$gmnow - 20 * 86400")) \
     (printf '%s\t%s' $gm/oold (math "$gmnow - 22 * 86400"))
 set -l gmm (__tcz_landing_model x -- $gmrows)
 set -l gmall (__tcz_landing_model x --all -- $gmrows)
@@ -10062,9 +10063,9 @@ set -e __tcg_gm_home_save
 set -l gms1 (__tcg_gm_shape $gmm)
 set -l gms2 (__tcg_gm_shape $gmall)
 set -l gms3 (__tcg_gm_shape $gmseam)
-t "model: projects by group in order (projects, workspace, work, other); 21+ days old behind one older row" "projects:pa workspace:wa work:ka other:oa older:2" "$gms1"
-t "model: --all lists the old ones in their groups, newest first, and no older row" "projects:pa projects:pold workspace:wa work:ka other:oa other:oold" "$gms2"
-t "model: the age limit is a seam (tmux_lives_landing_older_after, seconds)" "other:oa older:5" "$gms3"
+t "model: projects by group in order (projects, workspace, work, other); 21+ days old behind one older row, a 20-day-old one stays" "projects:pa workspace:wa work:ka other:oa other:ovis older:2" "$gms1"
+t "model: --all lists the old ones in their groups, newest first, and no older row" "projects:pa projects:pold workspace:wa work:ka other:oa other:ovis other:oold" "$gms2"
+t "model: the age limit is a seam (tmux_lives_landing_older_after, seconds)" "other:oa older:6" "$gms3"
 functions -e __tcg_gm_shape
 cleanup
 
@@ -10161,14 +10162,21 @@ cleanup
 
 # The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
 # A live session literally named `older` sits above it: the pointer follows rows by target AND category.
+# HOME is redirected (exported before the server starts, so the landing pane inherits it) so the hidden project
+# is in an EARLIER group (~/projects) than the visible one (/tmp: other): the revealed row sits above the older
+# row's old slot, and a pointer that did not move cannot pass for one that did.
+set -l olhome /tmp/tcz-olh-$fish_pid
+set -l olhome_save $HOME
+mkdir -p $olhome/projects/ph
+set -gx HOME $olhome
 fresh_server
 command tmux -L $sock new-session -d -s older -c /tmp
 set -l pj $tmux_lives_claude_projects_dir
 set -l ol /tmp/tcz-ol-$fish_pid
 rm -rf $pj $ol; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-fresh $pj/-stale $ol/tcz-ol-fresh-$fish_pid $ol/tcz-ol-stale-$fish_pid
+mkdir -p $pj/-fresh $pj/-stale $ol/tcz-ol-fresh-$fish_pid
 printf '{"cwd":"%s/tcz-ol-fresh-%s"}\n' $ol $fish_pid > $pj/-fresh/s.jsonl
-printf '{"cwd":"%s/tcz-ol-stale-%s"}\n' $ol $fish_pid > $pj/-stale/s.jsonl
+printf '{"cwd":"%s/projects/ph"}\n' $olhome > $pj/-stale/s.jsonl
 touch -d '30 days ago' $pj/-stale/s.jsonl
 set -l ola (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ola" /dev/null >/dev/null 2>&1 &
@@ -10176,8 +10184,9 @@ set -l olpids (jobs -p)
 __tcg_client_on $ola >/dev/null
 __tcg_ready "=$ola:" '*d detach*'
 set -l olrow (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 1; or echo 0)
-set -l olhid (__tcg_screen_has "=$ola:" "*tcz-ol-stale-$fish_pid*" 1; and echo 0; or echo 1)
-t "app: a project 21+ days old hides behind an older (1) row" "1 1" "$olrow $olhid"
+set -l olfresh (__tcg_screen_has "=$ola:" "*tcz-ol-fresh-$fish_pid*" 1; and echo 1; or echo 0)
+set -l olhid (__tcg_screen_has "=$ola:" '*ph · *' 1; and echo 0; or echo 1)
+t "app: a project 21+ days old hides behind an older (1) row; a fresh one stays listed" "1 1 1" "$olrow $olfresh $olhid"
 for i in (seq 8)
     __tcg_screen_has "=$ola:" '*▐ older (1)*' 5; and break
     command tmux -L $sock send-keys -t "=$ola:" j
@@ -10187,12 +10196,13 @@ set -l olzz (__tcg_screen_has "=$ola:" '*│ zz*' 50; and echo 1; or echo 0)
 set -l olkept (__tcg_screen_has "=$ola:" '*▐ older (1)*' 1; and echo 1; or echo 0)
 t "app: after a refresh adds a row above it, the pointer stays on the older row (beside a live session named older)" "1 1" "$olzz $olkept"
 command tmux -L $sock send-keys -t "=$ola:" Enter
-set -l olshow (__tcg_screen_has "=$ola:" "*▐ tcz-ol-stale-$fish_pid*" 30; and echo 1; or echo 0)
+set -l olshow (__tcg_screen_has "=$ola:" '*▐ ph · *' 30; and echo 1; or echo 0)
 set -l olgone (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 0; or echo 1)
 set -l olon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-t "app: Enter on the older row reveals it, pointer on it, the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
+t "app: Enter on the older row reveals it, pointer on it (the first row added, above the visible one), the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
 for p in $olpids; kill $p 2>/dev/null; end
-rm -rf $pj $ol $tmux_lives_project_cache
+set -gx HOME $olhome_save
+rm -rf $pj $ol $olhome $tmux_lives_project_cache
 cleanup
 
 # x asks first (n keeps, y kills); d detaches the tab and removes the landing session.

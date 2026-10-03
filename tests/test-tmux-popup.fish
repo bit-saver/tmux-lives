@@ -162,6 +162,12 @@ set -l lol8 (string match -q '*38;5;8m╭─*' -- "$LLAND[5]"; and echo 1; or ec
 set -l lolp (string match -qr '^╭─+$' -- (vis "$LLAND[5]"); and echo 1; or echo 0)
 set -l lolr (string match -q '*older (3)*' -- (vis "$LLAND[6]"); and echo 1; or echo 0)
 t "list_lines: the older row sits under a plain color-8 rule and reads older (N)" "1 1 1" "$lol8 $lolp $lolr"
+# [1] general rule [2] a live session named older [3] older rule [4] older (3): the older row is told by category, never by name
+set -g LOLDN (printf 'older\tgeneral\t0\t0\tolder\nolder\tolder\t0\t3\tolder (3)\n' | __tcz_popup_list_lines 40 9 '')
+set -l lon1 (string match -q '*38;5;2m╭── general *' -- "$LOLDN[1]"; and echo 1; or echo 0)
+set -l lon2 (string match -q '*38;5;2m│*' -- "$LOLDN[2]"; and echo 1; or echo 0)
+set -l lon3 (string match -qr '^╭─+$' -- (vis "$LOLDN[3]"); and echo 1; or echo 0)
+t "list_lines: a live session named older keeps its category's rule and color; only the older category gets the plain rule" "1 1 1" "$lon1 $lon2 $lon3"
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -314,6 +320,10 @@ rm -f $PREC
 __tcz_popup_draw 1 20 30 8 '' -- $LDproj $LDlive >/dev/null
 set -l prec_live (cat $PREC 2>/dev/null)
 t "draw: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
+rm -f $PREC
+__tcz_popup_draw 0 20 30 8 '' -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/null
+set -l prec_lvo (cat $PREC 2>/dev/null)
+t "draw: a live session named older still previews its session (the older row is told by category, not name)" "older 30 8" "$prec_lvo"
 rm -f $PREC
 functions -e __tcz_popup_preview
 functions -c __tcp_preview_bak __tcz_popup_preview
