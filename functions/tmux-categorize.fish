@@ -5241,7 +5241,7 @@ function __tcz_main
             __tcz_popup $argv[2..]
         case theme-picker
             # fish writes its own errors to the process's stderr, past any in-process redirect, and in
-            # a popup they scroll the frame: re-exec once with stderr closed.
+            # a popup they scroll the frame: re-exec once with stderr redirected to /dev/null.
             if set -q __tcz_thp_quiet
                 __tcz_theme_picker $argv[2..]
             else

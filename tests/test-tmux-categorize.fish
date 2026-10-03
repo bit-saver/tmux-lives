@@ -11101,7 +11101,8 @@ set -l tpe2 (__tcg_shape $tpp)
 t "theme picker: resized in the seed editor, the frame is still exactly 30 rows (╭ row 1, ╰ row 30, 30 frame rows)" "1 30 analogous split" "$tpe1 $tpe2"
 command tmux -L $sock send-keys -t $tpp b
 __tcg_screen_has $tpp '*b seed*' 30
-# Below the floor Enter must not save what cannot be seen; Esc leaves through the normal close, which
+# Below the floor: the Down that wakes the picker acts on the frame it last showed, as any waking key does;
+# the Enter pressed while the message shows does nothing, and Esc leaves through the normal close, which
 # reverts a live preview first.
 command tmux -L $sock send-keys -t $tpp a
 set -l tpprev ''
@@ -11147,22 +11148,29 @@ t "theme picker: a fish error in its loop never reaches the screen (injected onc
 cleanup
 
 # (c) The session switcher: the same shrink, 120x40 to 80x30. At 80 columns the list is 33 wide.
+# Only two shell sessions, sw (the switcher) and zz, never attached: the list is sw then zz whatever the
+# suite's cwd is called, so the step moves to zz, whose pane is the preview.
 fresh_server
+command tmux -L $sock new-session -d -s zz -c /tmp sh -c "printf 'ZZ-PREVIEW\n'; exec sh"
+command tmux -L $sock kill-session -t =0
 set -l sww (command tmux -L $sock new-session -d -s sw -x 120 -y 40 -c /tmp -P -F '#{window_id} #{pane_id}' fish --no-config $lcat popup | string split ' ')
 __tcg_screen_has $sww[2] '*esc close*' 50
+set -l sw0 (__tcg_cap $sww[2] | string match -rg '^▐ (\S+)')
 command tmux -L $sock resize-window -t $sww[1] -x 80 -y 30
 sleep 0.3
 command tmux -L $sock send-keys -t $sww[2] Down
-sleep 0.5
+__tcg_screen_has $sww[2] '*ZZ-PREVIEW*' 30
 set -l sws (__tcg_cap $sww[2])
-set -l swleg (string match -e 'esc close' -- $sws | count)
+set -l swsel (string match -rg '^▐ (\S+)' -- $sws)
 set -l swdiv 0
+set -l swinlist 0
 for r in $sws[1..29]
     test (string sub -s 34 -l 1 -- $r) = '│'; and set swdiv (math $swdiv + 1)
+    string match -q '*↑↓*' -- (string sub -l 33 -- $r); and set swinlist (math $swinlist + 1)
 end
 set -l swtop (string match -qr '^╭── ' -- "$sws[1]"; and echo 1; or echo 0)
-set -l swlast (string match -q '*esc close*' -- "$sws[30]"; and echo 1; or echo 0)
-t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1, the legend on row 30 only, the divider at column 34 on all 29 list rows)" "1 1 1 29" "$swtop $swlast $swleg $swdiv"
+set -l swlast (string match -qr '^ ↑↓ move .*esc close' -- "$sws[30]"; and echo 1; or echo 0)
+t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1; the legend on row 30, not in the list on rows 1-29; the divider at column 34 on all 29 list rows; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swtop $swlast $swinlist $swdiv $sw0>$swsel"
 command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd
