@@ -540,9 +540,10 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
 - **Excluded from** categorize/rename, snapshot+overview, both general-picks, `prune`, `clear`, tab titles
   and restore (a restored clientless landing is killed by name). `after-new-window`/`-split-window` hooks evict a
   window opened inside landing to a `gen-N` in `$HOME`.
-- **App** — diff-painted (an idle refresh writes nothing); live rows every 3 s (15 s after a minute with no
-  key; seams `tmux_lives_landing_idle_after`/`_idle_refresh`), projects every 10th pass. `n` new shell, `d`
-  detaches, `q`/Esc no-ops (one `__tcz_popup_readkey` token). Held moves skip the capture (`__tcz_pf_keep`).
+- **App** — diff-painted (idle refresh: no write); live rows every 3 s (15 s once idle; seams
+  `tmux_lives_landing_idle_after`/`_idle_refresh`), projects every 10th pass. `n` new shell, `d` detaches,
+  `q`/Esc no-ops (one `__tcz_popup_readkey` token). Held moves: no capture, `__tcz_pf_keep` reuses the last
+  preview.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → `older (N)` (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.

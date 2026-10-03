@@ -140,3 +140,4 @@ Tab colour is untouched.
 ## Open items
 
 - Measure what ShellFish does when its tmux client exits (reconnect into a new springboard, or close the tab). Informs the "killed some other way" path, not the design.
+- Enter on a project row runs `claude --continue` in the mapped project folder (the repo root, or a worktree's main repository), while Claude keys conversations by exact cwd: when the newest interactive conversation ran in a subfolder or in a worktree that still exists, `--continue` resumes a different conversation than the row's age describes. None is affected on rocket's data as of 2026-10-03.
