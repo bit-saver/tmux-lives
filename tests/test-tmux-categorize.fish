@@ -10470,6 +10470,32 @@ t "app: a key read past a move burst still acts (j then Enter opens s2)" s2 "$hk
 for p in $hkpids; kill $p 2>/dev/null; end
 cleanup
 
+# --- chooser v2: which projects count as running (the busy check) ---
+# Projects go to the model directly (-- rows); the claude panes run the suite's fake claude.
+fresh_server
+set -l bz /tmp/tcz-bz-$fish_pid
+rm -rf $bz
+mkdir -p $bz/nonrepo/api/.git $bz/nonrepo/api/src $bz/repo/.git/worktrees/w $bz/repo/vendor/lib/.git $bz/w/src $bz/quiet
+printf 'gitdir: %s/repo/.git/worktrees/w\n' $bz > $bz/w/.git
+command tmux -L $sock new-session -d -s bz1 -c $bz/nonrepo/api/src "$shimdir/claude --enable-auto-mode"
+command tmux -L $sock new-session -d -s bz2 -c $bz/w/src "$shimdir/claude --enable-auto-mode"
+sleep 0.5
+set -l bznow (date +%s)
+set -l bzm (__tcz_landing_model x -- (printf '%s\t%s' $bz/nonrepo $bznow) (printf '%s\t%s' $bz/repo $bznow) (printf '%s\t%s' $bz/quiet $bznow))
+set -l bznr (string match -q -- "$bz/nonrepo"\t'*' $bzm; and echo listed; or echo hidden)
+set -l bzwt (string match -q -- "$bz/repo"\t'*' $bzm; and echo listed; or echo hidden)
+set -l bzq (string match -q -- "$bz/quiet"\t'*' $bzm; and echo listed; or echo hidden)
+t "busy: a project that is no git repo runs when claude works anywhere below it (its api/ is a repo of its own)" "hidden listed" "$bznr $bzq"
+t "busy: a repo runs when claude works in a linked worktree of it" "hidden listed" "$bzwt $bzq"
+command tmux -L $sock kill-session -t =bz2
+command tmux -L $sock new-session -d -s bz3 -c $bz/repo/vendor/lib "$shimdir/claude --enable-auto-mode"
+sleep 0.5
+set -l bzm2 (__tcz_landing_model x -- (printf '%s\t%s' $bz/repo $bznow))
+set -l bzrepo (string match -q -- "$bz/repo"\t'*' $bzm2; and echo listed; or echo hidden)
+t "busy (non-regression): a claude in a repo nested inside a repo project leaves that project listed" listed "$bzrepo"
+rm -rf $bz
+cleanup
+
 # --- chooser v2: a claude below a $HOME dotfiles repo marks nothing else busy ---
 fresh_server
 set -l bh /tmp/tcz-bh-$fish_pid

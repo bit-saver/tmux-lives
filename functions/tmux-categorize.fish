@@ -1553,14 +1553,14 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         end
         printf '%s\t%s\t%s\t%s\t%s\n' $f[1] $f[2] $mark $f[4] "$f[5]"
     end
-    # A project is running when a claude pane sits in its folder, or below it
-    # in a repo rooted there. A generic root ($HOME via a dotfiles repo, /,
-    # /tmp) is no project -- the same rule __tcz_project_name applies.
-    set -l busy
-    for cwd in (__tcz_claude_cwds)
-        set -a busy $cwd
-        set -l root (__tcz_git_root $cwd)
-        test -n "$root"; and not __tcz_generic_dir "$root"; and set -a busy $root
+    # A project is running when a claude pane works on it:
+    # - in its folder, or anywhere in the repo or worktree that maps to it (__tcz_claude_project_of);
+    # - for a project that is no git repo (~/Work/myEMS, whose api/ and web/ are repos), anywhere below it.
+    set -l cwds (__tcz_claude_cwds)
+    set -l busy $cwds
+    for cwd in $cwds
+        set -l proj (__tcz_claude_project_of $cwd)
+        test -n "$proj"; and set -a busy $proj
     end
     set -l disc
     if test "$argv[2]" = --
@@ -1573,6 +1573,13 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         set -l f (string split -m 1 $TAB -- $line)
         test (count $f) -eq 2; or continue
         contains -- $f[1] $busy; and continue
+        if not test -e "$f[1]/.git"
+            set -l below 0
+            for cwd in $cwds
+                string match -q -- "$f[1]/*" "$cwd"; and set below 1; and break
+            end
+            test $below -eq 1; and continue
+        end
         test -n "$now"; or set now (date +%s)
         printf '%s\tproject\t0\t%s\t%s · %s\n' $f[1] $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2]))
     end
