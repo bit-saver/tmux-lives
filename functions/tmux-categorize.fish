@@ -1575,7 +1575,9 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
     end
     set -l after (__tcz_landing_older_after)
     set -l now
-    set -l pgroups; set -l prows
+    set -l roots (__tcz_landing_group_roots)
+    set -l gidx (seq (count $roots))
+    set -l prows
     set -l nold 0
     for line in $disc
         set -l f (string split -m 1 $TAB -- $line)
@@ -1589,28 +1591,28 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             test $below -eq 1; and continue
         end
         test -n "$now"; or set now (date +%s)
-        if test $all -eq 0; and test (math $now - $f[2]) -gt $after
+        set -l secs (math $now - $f[2])
+        if test $all -eq 0; and test $secs -gt $after
             set nold (math $nold + 1)
             continue
         end
-        set -l g (__tcz_landing_group $f[1])
-        set -a pgroups $g
-        set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $f[1] $g $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2])))
+        # __tcz_landing_group's rule, inlined: a command substitution per project costs more than the match.
+        set -l g other
+        for i in $gidx
+            string match -q -- "$roots[$i]/*" "$f[1]"; and set g $__tcz_landing_groups[$i]; and break
+        end
+        set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $f[1] $g $f[2] (path basename -- $f[1]) (__tcz_age $secs))
     end
     # Groups in their fixed order; within one, discovery's newest-first order holds.
     for g in $__tcz_landing_groups
-        set -l i 0
-        for r in $prows
-            set i (math $i + 1)
-            test "$pgroups[$i]" = $g; and printf '%s\n' $r
-        end
+        string match -- "*$TAB$g$TAB*" $prows
     end
     test $nold -gt 0; and printf 'older\tolder\t0\t%s\tolder (%s)\n' $nold $nold
 end
 
 function __tcz_landing_group --argument-names folder --description 'pure: the chooser group of a project folder -- projects, workspace or work for a folder below ~/projects, ~/workspace or ~/Work (__tcz_landing_group_roots, in order), else other'
     set -l roots (__tcz_landing_group_roots)
-    for i in 1 2 3
+    for i in (seq (count $roots))
         string match -q -- "$roots[$i]/*" "$folder"; and echo $__tcz_landing_groups[$i]; and return 0
     end
     echo other

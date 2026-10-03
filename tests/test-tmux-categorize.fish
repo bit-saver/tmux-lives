@@ -10074,6 +10074,28 @@ t "model: projects by group in order (projects, workspace, work, other); 21+ day
 t "model: --all lists the old ones in their groups, newest first, and no older row" "projects:pa projects:pold workspace:wa work:ka other:oa other:ovis other:oold" "$gms2"
 t "model: the age limit is a seam (tmux_lives_landing_older_after, seconds)" "other:oa older:6" "$gms3"
 functions -e __tcg_gm_shape
+
+# The model matches the group roots inline (a command substitution per project costs more), so it can drift
+# from __tcz_landing_group: both must give the same answer, including for a root itself and look-alikes of one.
+set -g __tcg_lp_home_save $HOME
+set -g HOME /h
+set -l lpdirs /h/projects/a /h/projects/a/b /h/workspace/w /h/Work/k /h/projects /h/Work /h/projectsx/y /h/work/k /tmp/y
+set -l lprows
+for d in $lpdirs
+    set -a lprows (printf '%s\t%s' $d (date +%s))
+end
+set -l lpm (__tcz_landing_model x -- $lprows)
+set -l lpmodel
+set -l lpfn
+for d in $lpdirs
+    set -l lprow (string match -- $d\t'*' $lpm)
+    set -a lpmodel (string split -f2 \t -- "$lprow")
+    set -a lpfn (__tcz_landing_group $d)
+end
+set -g HOME $__tcg_lp_home_save
+set -e __tcg_lp_home_save
+set -l lpwant projects projects workspace work other other other other other
+t "model (non-regression): a project's group is __tcz_landing_group's answer, a group root itself and look-alikes included" "$lpwant $lpwant" "$lpmodel $lpfn"
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
