@@ -265,27 +265,27 @@ function __tcz_popup_frame
     __tcp_frame_bak $argv
 end
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
 set -l lp1 (test (wc -c < $LPOUT) -gt 0; and echo 1; or echo 0)
 set -l lprows (count $__tcz_pe_prev)
 set -l lpborder (string match -q '*─┴─*' -- "$__tcz_pe_prev[23]"; and echo 1; or echo 0)
 set -l lplegend (string match -q '*n*new*r*resume*' -- (vis "$__tcz_pe_prev[24]"); and echo 1; or echo 0)
 t "paint: 24 rows -- the frame, a border with ┴ under the divider, then the legend with n new" "24 1 1" "$lprows $lpborder $lplegend"
-__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
 set -l lp2rc $status
 set -l lp2bytes (wc -c < $LPOUT | string trim)
 set -l lpbuilt (count (cat $FREC 2>/dev/null))
 t "paint: an unchanged frame is neither rebuilt nor emitted" "1 1 0 1" "$lp1 $lp2rc $lp2bytes $lpbuilt"
 # A move between two project rows: only the rows that differ are emitted.
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 0 24 80 -- $LPM > /dev/null
+__tcz_landing_paint 0 24 80 0 -- $LPM > /dev/null
 set -l fa (__tcp_frame_bak 0 33 46 22 '' -- $LPM)
 set -l fb (__tcp_frame_bak 1 33 46 22 '' -- $LPM)
 set -l fdiff
 for i in (seq (count $fb))
     test "$fa[$i]" = "$fb[$i]"; or set -a fdiff $i
 end
-__tcz_landing_paint 1 24 80 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
 set -l lpemitted (string match -rag '\e\[([0-9]+);1H' -- (cat $LPOUT))
 set -l lpfull (string match -q '*'(printf '\e[H')'*' -- (cat $LPOUT | string collect); and echo 1; or echo 0)
 set -l lpsome (test (count $fdiff) -gt 0 -a (count $fdiff) -lt 22; and echo 1; or echo 0)
@@ -325,6 +325,46 @@ __tcz_popup_draw 0 20 30 8 '' -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/nu
 set -l prec_lvo (cat $PREC 2>/dev/null)
 t "draw: a live session named older still previews its session (the older row is told by category, not name)" "older 30 8" "$prec_lvo"
 rm -f $PREC
+functions -e __tcz_popup_preview
+functions -c __tcp_preview_bak __tcz_popup_preview
+functions -e __tcp_preview_bak
+
+# --- landing: a held move rebuilds the list only; the preview catches up when input is quiet ---
+# __tcz_popup_preview and tmux are stubbed to recorders: this suite never reaches a tmux server.
+functions -c __tcz_popup_preview __tcp_preview_bak
+set -g PREC2 /tmp/tcz-prec2-$fish_pid
+set -g TREC /tmp/tcz-trec-$fish_pid
+rm -f $PREC2 $TREC; touch $PREC2 $TREC
+function __tcz_popup_preview
+    echo $argv[1] >> $PREC2
+    printf 'PV-%s\n' $argv[1]
+end
+set -g HM (printf 'alpha\tgeneral\t0\t0\talpha') (printf 'beta\tgeneral\t0\t0\tbeta')
+set -g __tcz_pf_keep 0
+set -l hf1 (__tcz_popup_frame 0 20 30 8 '' -- $HM | string join \n)
+set -g __tcz_pf_keep 1
+set -l hf2 (__tcz_popup_frame 1 20 30 8 '' -- $HM | string join \n)
+set -g __tcz_pf_keep 0
+set -l hf3 (__tcz_popup_frame 1 20 30 8 '' -- $HM | string join \n)
+set -l hcalls (cat $PREC2 | string join ,)
+set -l hkept (string match -q '*PV-alpha*' -- "$hf2"; and string match -q '*▐ beta*' -- (vis "$hf2"); and echo 1; or echo 0)
+set -l hnew (string match -q '*PV-beta*' -- "$hf3"; and echo 1; or echo 0)
+t "frame: with __tcz_pf_keep the pointer moves and the preview column is reused, not captured" "alpha,beta 1 1" "$hcalls $hkept $hnew"
+function tmux; echo $argv >> $TREC; end
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+__tcz_landing_paint 0 24 80 0 -- $HM > /dev/null
+rm -f $PREC2 $TREC; touch $PREC2 $TREC
+__tcz_landing_paint 1 24 80 1 -- $HM > /dev/null
+set -l hpheld (cat $TREC | string match -e capture-pane | count)
+set -l hpprev (cat $PREC2 | count)
+__tcz_landing_paint 1 24 80 0 -- $HM > /dev/null
+set -l hpquiet $status
+set -l hpafter (cat $TREC | string match -e capture-pane | count)
+set -l hpprev2 (cat $PREC2 | count)
+functions -e tmux
+t "paint: a held move captures nothing and keeps the preview; the quiet repaint of that row is not skipped, and captures" "0 0 0 1 1" "$hpheld $hpprev $hpquiet $hpafter $hpprev2"
+rm -f $PREC2 $TREC
+set -e __tcz_lp_key
 functions -e __tcz_popup_preview
 functions -c __tcp_preview_bak __tcz_popup_preview
 functions -e __tcp_preview_bak

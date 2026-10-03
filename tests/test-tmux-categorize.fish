@@ -10775,6 +10775,51 @@ t "app: ... and the next idle refresh still arrives" 1 "$ha2"
 for p in $hapids; kill $p 2>/dev/null; end
 cleanup
 
+# --- chooser v2: a held arrow repaints the list only; the preview catches up once input is quiet ---
+# 80 sessions whose panes each print MARK-<name>; the app records a timestamp per capture-pane call.
+# Down is sent every ~20 ms, like key autorepeat. The rate line is the before/after measurement.
+fresh_server
+for i in (seq -w 1 80)
+    command tmux -L $sock new-session -d -s h$i -c /tmp sh -c "printf 'MARK-h$i\n'; exec sleep 600"
+end
+command tmux -L $sock kill-session -t =0
+set -l hrec /tmp/tcz-hrec-$fish_pid
+rm -f $hrec
+set -l hcmd "set -g tmux_categorize_test 1; source $lcat; function tmux; contains -- capture-pane \$argv; and date +%s%3N >> $hrec; command tmux \$argv; end; __tcz_landing"
+command tmux -L $sock new-session -d -s _landing-5 -c $HOME fish --no-config -c "$hcmd"
+sleep 40 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =_landing-5" /dev/null >/dev/null 2>&1 &
+set -l hpids (jobs -p)
+__tcg_client_on _landing-5 >/dev/null
+__tcg_ready "=_landing-5:" '*▐ h01*'
+set -l ht0 (date +%s%3N)
+for i in (seq 60)
+    command tmux -L $sock send-keys -t "=_landing-5:" Down
+    sleep 0.02
+end
+set -l ht1 (date +%s%3N)
+sleep 1
+set -l hsel (command tmux -L $sock capture-pane -p -t "=_landing-5:" | string match -rg '▐ (h[0-9]+)')
+set -l hshown (__tcg_screen_has "=_landing-5:" "*MARK-$hsel*" 20; and echo 1; or echo 0)
+set -l hduring 0; set -l hafter 0
+for ts in (cat $hrec 2>/dev/null)
+    test $ts -ge $ht0; or continue
+    if test $ts -le $ht1
+        set hduring (math $hduring + 1)
+    else
+        set hafter (math $hafter + 1)
+    end
+end
+set -l hsteps (math (string replace h '' -- "$hsel") - 1)
+echo "# hold: $hsteps rows in "(math $ht1 - $ht0)" ms = "(math --scale 1 "$hsteps * 1000 / ($ht1 - $ht0)")" rows/s; captures during the hold $hduring, after $hafter"
+set -l hquiet (test $hduring -le 2; and echo 1; or echo 0)
+set -l hcaught (test $hafter -ge 1; and echo 1; or echo 0)
+t "app: holding Down captures no preview until input is quiet (2 stragglers allowed), then captures" "1 1" "$hquiet $hcaught"
+set -l hselok (string match -qr '^h[0-9]+$' -- "$hsel"; and echo 1; or echo 0)
+t "app (non-regression): after release the preview shows the row the pointer is on" "1 1" "$hselok $hshown"
+for p in $hpids; kill $p 2>/dev/null; end
+rm -f $hrec
+cleanup
+
 # --- typeahead: typed-ahead or pasted text never acts in the chooser ---
 # ShellFish types `cd "<dir>"` + Enter into every new tab; the app read it as keys and `d` detached the tab.
 # - bytes go in through the client's keyboard (send-keys would skip the client): a FIFO held open read-write, so EOF never comes

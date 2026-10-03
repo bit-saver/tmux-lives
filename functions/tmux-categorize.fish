@@ -1678,22 +1678,25 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> -- <model lines...>: paint the landing frame, then a border, then the key legend, through the diff emitter. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
-    set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]
-    set -e argv[1..4]
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> -- <model lines...>: paint the landing frame, then a border, then the key legend, through the diff emitter. <hold> = 1 while a move key is held: only the list is rebuilt -- no capture, the preview column kept as it was. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
+    set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]; set -l hold $argv[4]
+    set -e argv[1..5]
     set -l model $argv
     set -l lay (__tcz_popup_layout $cols | string split ' ')
     set -l cap
     set -l f (string split -m 2 \t -- $model[(math $sel + 1)])
-    if test $lay[2] -gt 0; and test -n "$f[1]"; and not contains -- "$f[2]" $__tcz_landing_groups older
+    if test "$hold" != 1; and test $lay[2] -gt 0; and test -n "$f[1]"; and not contains -- "$f[2]" $__tcz_landing_groups older
         set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
     end
-    set -l key (string join \n -- $sel $rows $cols $model $cap | string collect)
+    # <hold> is in the key: the quiet repaint after a hold, same row, must not be skipped.
+    set -l key (string join \n -- $sel $rows $cols $hold $model $cap | string collect)
     if test "$__tcz_pe_force" != 1; and set -q __tcz_lp_key; and test "$key" = "$__tcz_lp_key"
         return 1
     end
     set -g __tcz_lp_key "$key"
+    set -g __tcz_pf_keep $hold
     set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) '' -- $model)
+    set -g __tcz_pf_keep 0
     set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open n new r resume x kill d detach)
     __tcz_popup_emit $frame (__tcz_landing_border $lay[1] $lay[2] $cols) (__tcz_popup_truncate "$legend" (math $cols - 1))
 end
@@ -1743,6 +1746,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l stale 1                    # re-snapshot on the next turn
     set -l pass 0                     # 0 = the idle-project list is due
     set -l pending ''                 # a key the held-key drain read past
+    set -l hold 0                     # 1 after a move: repaint the list only until input is quiet
     set -l all                        # --all once the older row was opened: until the app restarts
     set -l shown                      # the targets listed when it was opened, to find the first revealed row
     set -l settle 1                   # drain all input until a quiet second after the first paint, 2 s at most
@@ -1797,7 +1801,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             set size "$rows $cols"
             set -g __tcz_pe_force 1
         end
-        __tcz_landing_paint $sel $rows $cols -- $model
+        __tcz_landing_paint $sel $rows $cols $hold -- $model
         set -l tok $pending
         set pending ''
         if test -z "$tok"
@@ -1805,13 +1809,19 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             if test $settle -eq 1
                 set wait 10
                 test -n "$settle_t0"; or set settle_t0 (__tcz_now_ms)
+            else if test $hold -eq 1
+                set wait 2                # 0.2 s with no key ends a hold (stty counts tenths)
             else if test $idle -ge $idle_after
                 set wait $slow
             end
             # readkey's Esc path leaves the tty blocking: re-arm the timeout every time.
             stty min 0 time $wait 2>/dev/null
             set tok (__tcz_popup_readkey timeout)
-            if test "$tok" = timeout
+            if test "$tok" = timeout; and test $hold -eq 1
+                # Input went quiet after a move: repaint with the preview, without a refresh.
+                set hold 0
+                set tok quiet
+            else if test "$tok" = timeout
                 set settle 0
                 test $idle -lt $idle_after; and set idle (math $idle + $wait)
             else
@@ -1823,7 +1833,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 test $settle -eq 1; and test (math (__tcz_now_ms) - $settle_t0) -ge 2000; and set settle 0
             end
         end
-        if test "$tok" != timeout
+        if not contains -- $tok timeout quiet
             # A key acts only alone. More input already pending means typed-ahead or pasted text (ShellFish
             # types `cd "<dir>"` + Enter into every new tab): drain it all, act on none. Held moves are the
             # exception, except in the settle window.
@@ -1855,6 +1865,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 set tok drained
             end
         end
+        contains -- $tok up down pgup pgdn; and set hold 1
         set -l n (count $model)
         set -l row (string split \t -- $model[(math $sel + 1)])
         switch $tok
@@ -2292,7 +2303,7 @@ function __tcz_popup_emit --description 'Paint a popup frame differentially: emi
     set -g __tcz_pe_partial 1
 end
 
-function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> -- <model lines...>: the frame as <rows> lines, each ending in erase-to-EOL. An overflowing list scrolls only to keep the selection in view; the window top persists in __tcz_pd_top across calls.'
+function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> -- <model lines...>: the frame as <rows> lines, each ending in erase-to-EOL. An overflowing list scrolls only to keep the selection in view; the window top persists in __tcz_pd_top across calls. With __tcz_pf_keep = 1 the preview column is the last one built (__tcz_pf_right) when its size still matches: the landing app'"'"'s held moves.'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
     set -l model $argv
@@ -2325,12 +2336,18 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     set -g __tcz_pd_top $top
     set -l right
     if test $prevw -gt 0
-        set -l selrow $model[(math $sel + 1)]
-        set -l f (string split -m 2 $TAB -- $selrow)
-        if contains -- "$f[2]" $__tcz_landing_groups older
-            set right (__tcz_landing_info "$selrow" $prevw $rows)
+        if test "$__tcz_pf_keep" = 1; and test "$__tcz_pf_rdims" = "$prevw $rows"
+            set right $__tcz_pf_right
         else
-            set right (__tcz_popup_preview "$f[1]" $prevw $rows)
+            set -l selrow $model[(math $sel + 1)]
+            set -l f (string split -m 2 $TAB -- $selrow)
+            if contains -- "$f[2]" $__tcz_landing_groups older
+                set right (__tcz_landing_info "$selrow" $prevw $rows)
+            else
+                set right (__tcz_popup_preview "$f[1]" $prevw $rows)
+            end
+            set -g __tcz_pf_right $right
+            set -g __tcz_pf_rdims "$prevw $rows"
         end
     end
     set -l blankL (string repeat -n $listw ' ')
