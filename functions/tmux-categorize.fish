@@ -14,6 +14,8 @@ set -g __tcz_self (path resolve (status filename))
 # the diff painter never repaints an unchanged row, so error text would stay on
 # screen. A redirect inside fish cannot do this -- fish's own errors bypass it.
 set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' $__tcz_self
+# The chooser's project groups, in display order: a project row's category is its group.
+set -g __tcz_landing_groups projects workspace work other
 
 function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9-])'
     # Callers must pass slugs with -- / -t "=$slug" style protection when handing them to tmux
@@ -1514,7 +1516,10 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects (n starts a new shell; there is no row for it). Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (claude/running/general; mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects by group (the category is the group, __tcz_landing_groups), newest first within one. A project whose last conversation is older than __tcz_landing_older_after is left out and counted in one final row "older\tolder\t0\t<N>\tolder (N)"; --all lists those in their groups instead. n starts a new shell; there is no row for it. Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
+    set -e argv[1]
+    set -l all 0
+    test "$argv[1]" = --all; and set all 1; and set -e argv[1]
     set -l TAB (printf '\t')
     set -l cpids; set -l csess
     set -l me; set -l meact -1
@@ -1563,12 +1568,15 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         test -n "$proj"; and set -a busy $proj
     end
     set -l disc
-    if test "$argv[2]" = --
-        set disc $argv[3..]
+    if test "$argv[1]" = --
+        set disc $argv[2..]
     else
         set disc (__tcz_claude_projects)
     end
+    set -l after (__tcz_landing_older_after)
     set -l now
+    set -l pgroups; set -l prows
+    set -l nold 0
     for line in $disc
         set -l f (string split -m 1 $TAB -- $line)
         test (count $f) -eq 2; or continue
@@ -1581,7 +1589,38 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             test $below -eq 1; and continue
         end
         test -n "$now"; or set now (date +%s)
-        printf '%s\tproject\t0\t%s\t%s · %s\n' $f[1] $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2]))
+        if test $all -eq 0; and test (math $now - $f[2]) -gt $after
+            set nold (math $nold + 1)
+            continue
+        end
+        set -l g (__tcz_landing_group $f[1])
+        set -a pgroups $g
+        set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $f[1] $g $f[2] (path basename -- $f[1]) (__tcz_age (math $now - $f[2])))
+    end
+    # Groups in their fixed order; within one, discovery's newest-first order holds.
+    for g in $__tcz_landing_groups
+        set -l i 0
+        for r in $prows
+            set i (math $i + 1)
+            test "$pgroups[$i]" = $g; and printf '%s\n' $r
+        end
+    end
+    test $nold -gt 0; and printf 'older\tolder\t0\t%s\tolder (%s)\n' $nold $nold
+end
+
+function __tcz_landing_group --argument-names folder --description 'pure: the chooser group of a project folder -- projects, workspace or work for a folder below ~/projects, ~/workspace or ~/Work (__tcz_landing_group_roots, in order), else other'
+    set -l roots (__tcz_landing_group_roots)
+    for i in 1 2 3
+        string match -q -- "$roots[$i]/*" "$folder"; and echo $__tcz_landing_groups[$i]; and return 0
+    end
+    echo other
+end
+
+function __tcz_landing_older_after --description 'pure: seconds after which an idle project hides behind the chooser'"'"'s older row: the seam tmux_lives_landing_older_after, else 21 days'
+    if string match -qr '^[0-9]+$' -- "$tmux_lives_landing_older_after"
+        echo $tmux_lives_landing_older_after
+    else
+        echo 1814400
     end
 end
 
@@ -1604,17 +1643,21 @@ function __tcz_landing_new_shell --argument-names client --description 'a new ge
     return 1
 end
 
-function __tcz_landing_info --argument-names row w h --description 'the preview column for a project row: what Enter does, clipped to <w> cols and <h> lines'
+function __tcz_landing_info --argument-names row w h --description 'the preview column for a project row or the older row: what Enter does, clipped to <w> cols and <h> lines'
     set -l f (string split -m 4 \t -- "$row")
     set -l MUT (__tcz_theme muted); set -l RST (__tcz_theme reset)
     set -l lines
-    switch "$f[2]"
-        case project
-            set -l dir $f[1]
-            string match -q -- "$HOME/*" $dir; and set dir "~"(string sub -s (math (string length -- $HOME) + 1) -- $dir)
-            set -l age (__tcz_age (math (date +%s) - $f[4]))
-            test "$age" = now; or set age "$age ago"
-            set lines '' " $dir" " $MUT""last conversation $age$RST" '' ' ⏎ claude --continue' ' r claude --resume'
+    if contains -- "$f[2]" $__tcz_landing_groups
+        set -l dir $f[1]
+        string match -q -- "$HOME/*" $dir; and set dir "~"(string sub -s (math (string length -- $HOME) + 1) -- $dir)
+        set -l age (__tcz_age (math (date +%s) - $f[4]))
+        test "$age" = now; or set age "$age ago"
+        set lines '' " $dir" " $MUT""last conversation $age$RST" '' ' ⏎ claude --continue' ' r claude --resume'
+    else if test "$f[2]" = older
+        set -l noun projects
+        test "$f[4]" = 1; and set noun project
+        set -l over (__tcz_age (__tcz_landing_older_after))
+        set lines '' " $f[4] older $noun" " $MUT""last conversation over $over ago$RST" '' ' ⏎ show them'
     end
     set -l n 0
     for l in $lines
@@ -1642,7 +1685,7 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     set -l lay (__tcz_popup_layout $cols | string split ' ')
     set -l cap
     set -l f (string split -m 2 \t -- $model[(math $sel + 1)])
-    if test $lay[2] -gt 0; and test -n "$f[1]"; and test "$f[2]" != project
+    if test $lay[2] -gt 0; and test -n "$f[1]"; and not contains -- "$f[2]" $__tcz_landing_groups older
         set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
     end
     set -l key (string join \n -- $sel $rows $cols $model $cap | string collect)
@@ -1700,6 +1743,8 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l stale 1                    # re-snapshot on the next turn
     set -l pass 0                     # 0 = the idle-project list is due
     set -l pending ''                 # a key the held-key drain read past
+    set -l all                        # --all once the older row was opened: until the app restarts
+    set -l shown                      # the targets listed when it was opened, to find the first revealed row
     set -l settle 1                   # drain all input until a quiet second after the first paint, 2 s at most
     set -l settle_t0                  # the first paint, on __tcz_now_ms
     # Idle cadence: once idle_after seconds pass with no key, refresh every idle_refresh seconds (test
@@ -1720,13 +1765,26 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             set pass (math "($pass + 1) % 10")
             # The pointer follows its row (target and category) when rows shift.
             set -l keep (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model[(math $sel + 1)])
-            set model (__tcz_landing_model "$self" -- $disc)
+            set model (__tcz_landing_model "$self" $all -- $disc)
             set -l at (contains -i -- "$keep" (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model))
             if test -n "$at"
                 set sel (math $at - 1)
             else if test $sel -ge (count $model)
                 set sel (math (count $model) - 1)
                 test $sel -lt 0; and set sel 0          # an empty list: no row, never -1
+            end
+            if set -q shown[1]
+                # The older row was opened: the pointer goes to the first project it revealed.
+                set -l i 0
+                for r in $model
+                    set i (math $i + 1)
+                    set -l rf (string split -m 2 \t -- $r)
+                    contains -- "$rf[2]" $__tcz_landing_groups; or continue
+                    contains -- "$rf[1]" $shown; and continue
+                    set sel (math $i - 1)
+                    break
+                end
+                set shown
             end
             set stale 0
         end
@@ -1811,12 +1869,18 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             case pgdn
                 test $n -gt 0; and set sel (math "min($n - 1, $sel + max(1, $rows - 3))")
             case enter r n
+                if test $tok = enter; and test "$row[2]" = older
+                    set all --all
+                    set shown (string split -f1 \t -- $model)
+                    set stale 1
+                    continue
+                end
                 set stale 1; set pass 0
                 set -l client (__tcz_landing_client "$self")
                 test -n "$client"; or continue
                 if test $tok = n
                     __tcz_landing_new_shell $client
-                else if test "$row[2]" = project
+                else if contains -- "$row[2]" $__tcz_landing_groups
                     set -l how continue
                     test $tok = r; and set how resume
                     __tcz_landing_start $row[1] $how $client
@@ -1975,14 +2039,15 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         set -l c 208
         test "$cat" = running; and set c 6
         test "$cat" = general; and set c 2
-        test "$cat" = project; and set c 5      # landing: idle Claude projects
+        contains -- "$cat" $__tcz_landing_groups; and set c 5    # landing: idle Claude projects, by group
+        test "$cat" = older; and set c 8                         # landing: the older row
         set -l BORD (printf '\e[38;5;%sm' $c)   # category left-border (non-bold)
         # category rule (full width to listwidth)
         if test "$cat" != "$group"
             set group "$cat"
             set -l hdr (printf '\e[1;38;5;%sm' $c)
             set -l word "── $cat "
-            test "$cat" = project; and set word "── idle claude "
+            test "$cat" = older; and set word ──       # a plain rule: the row says what it is
             set -l wl (string length -- "$word")
             set -l lead (math "1 + $wl")            # corner + word
             if test $lead -ge $listwidth
@@ -2262,7 +2327,7 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     if test $prevw -gt 0
         set -l selrow $model[(math $sel + 1)]
         set -l f (string split -m 2 $TAB -- $selrow)
-        if test "$f[2]" = project
+        if contains -- "$f[2]" $__tcz_landing_groups older
             set right (__tcz_landing_info "$selrow" $prevw $rows)
         else
             set right (__tcz_popup_preview "$f[1]" $prevw $rows)

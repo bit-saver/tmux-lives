@@ -9999,7 +9999,7 @@ set -l lmrr (string match -- 'lmr'\t'*' $lm)
 t "model: a live row with no client -> mark 0" "lmr claude 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
 t "model: rows listed, none of them a landing session" 1 (test (count $lm) -gt 0; and not string match -q -- '_landing-*' $lm; and echo 1; or echo 0)
 set -l lmir (string match -- $lmi\t'*' $lm)
-t "model: an idle project row" "project 0 tcz-lm-idle-$fish_pid · 2h" (string split -f2,3,5 \t -- "$lmir" | string join ' ')
+t "model: an idle project row (its category is its group)" "other 0 tcz-lm-idle-$fish_pid · 2h" (string split -f2,3,5 \t -- "$lmir" | string join ' ')
 set -l lmimt (string split -f4 \t -- "$lmir")
 t "model: a project row carries its transcript mtime" (path mtime -- $pj/-idle/s.jsonl) "$lmimt"
 # Each hidden-row check also proves discovery DID find the folder and the model
@@ -10018,6 +10018,54 @@ set -l lmrows (count $lm)
 t "model: no new-shell row (n starts one), in a model that has rows" "0 1" "$(count $lmnew) $(test $lmrows -gt 0; and echo 1; or echo 0)"
 for p in $lmpids; kill $p 2>/dev/null; end
 rm -rf $pj $tmux_lives_project_cache $lmi $lmb $lmr
+cleanup
+
+# --- chooser v2: projects grouped by where they live; old ones behind one row ---
+set -g __tcg_lg_home_save $HOME
+set -g HOME /h
+set -l lgs (for p in /h/projects/a /h/projects/a/b /h/workspace/w /h/Work/k /h/projects /h/x /tmp/y; __tcz_landing_group $p; end)
+set -g HOME $__tcg_lg_home_save
+set -e __tcg_lg_home_save
+t "group: by where the project lives (below ~/projects, ~/workspace, ~/Work), else other" "projects projects workspace work other other other" "$lgs"
+
+function __tcg_gm_shape --description 'model rows -> "<category>:<folder basename>" per project row, "older:<N>" for the older row; live rows left out'
+    for r in $argv
+        set -l f (string split \t -- $r)
+        switch $f[2]
+            case claude running general
+                continue
+            case older
+                echo "older:$f[4]"
+            case '*'
+                echo "$f[2]:"(path basename -- $f[1])
+        end
+    end
+end
+fresh_server
+set -g __tcg_gm_home_save $HOME
+set -l gm /tmp/tcz-gm-$fish_pid
+set -g HOME $gm/home
+set -l gmnow (date +%s)
+set -l gmrows (printf '%s\t%s' $gm/oa (math $gmnow - 60)) \
+    (printf '%s\t%s' $HOME/Work/ka (math $gmnow - 120)) \
+    (printf '%s\t%s' $HOME/workspace/wa (math $gmnow - 180)) \
+    (printf '%s\t%s' $HOME/projects/pa (math $gmnow - 240)) \
+    (printf '%s\t%s' $HOME/projects/pold (math "$gmnow - 30 * 86400")) \
+    (printf '%s\t%s' $gm/oold (math "$gmnow - 22 * 86400"))
+set -l gmm (__tcz_landing_model x -- $gmrows)
+set -l gmall (__tcz_landing_model x --all -- $gmrows)
+set -g tmux_lives_landing_older_after 100
+set -l gmseam (__tcz_landing_model x -- $gmrows)
+set -e tmux_lives_landing_older_after
+set -g HOME $__tcg_gm_home_save
+set -e __tcg_gm_home_save
+set -l gms1 (__tcg_gm_shape $gmm)
+set -l gms2 (__tcg_gm_shape $gmall)
+set -l gms3 (__tcg_gm_shape $gmseam)
+t "model: projects by group in order (projects, workspace, work, other); 21+ days old behind one older row" "projects:pa workspace:wa work:ka other:oa older:2" "$gms1"
+t "model: --all lists the old ones in their groups, newest first, and no older row" "projects:pa projects:pold workspace:wa work:ka other:oa other:oold" "$gms2"
+t "model: the age limit is a seam (tmux_lives_landing_older_after, seconds)" "other:oa older:5" "$gms3"
+functions -e __tcg_gm_shape
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
@@ -10109,6 +10157,42 @@ set -l la2cwd (command tmux -L $sock display-message -p -t "=$la2on:" '#{pane_cu
 set -l la2gone (command tmux -L $sock has-session -t "=$la2" 2>/dev/null; and echo 0; or echo 1)
 t "app: n lands the client on a new gen session in \$HOME and its landing session goes" "1 $HOME 1" "$la2gen $la2cwd $la2gone"
 for p in $la2pids; kill $p 2>/dev/null; end
+cleanup
+
+# The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
+# A live session literally named `older` sits above it: the pointer follows rows by target AND category.
+fresh_server
+command tmux -L $sock new-session -d -s older -c /tmp
+set -l pj $tmux_lives_claude_projects_dir
+set -l ol /tmp/tcz-ol-$fish_pid
+rm -rf $pj $ol; rm -f $tmux_lives_project_cache
+mkdir -p $pj/-fresh $pj/-stale $ol/tcz-ol-fresh-$fish_pid $ol/tcz-ol-stale-$fish_pid
+printf '{"cwd":"%s/tcz-ol-fresh-%s"}\n' $ol $fish_pid > $pj/-fresh/s.jsonl
+printf '{"cwd":"%s/tcz-ol-stale-%s"}\n' $ol $fish_pid > $pj/-stale/s.jsonl
+touch -d '30 days ago' $pj/-stale/s.jsonl
+set -l ola (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ola" /dev/null >/dev/null 2>&1 &
+set -l olpids (jobs -p)
+__tcg_client_on $ola >/dev/null
+__tcg_ready "=$ola:" '*d detach*'
+set -l olrow (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 1; or echo 0)
+set -l olhid (__tcg_screen_has "=$ola:" "*tcz-ol-stale-$fish_pid*" 1; and echo 0; or echo 1)
+t "app: a project 21+ days old hides behind an older (1) row" "1 1" "$olrow $olhid"
+for i in (seq 8)
+    __tcg_screen_has "=$ola:" '*▐ older (1)*' 5; and break
+    command tmux -L $sock send-keys -t "=$ola:" j
+end
+command tmux -L $sock new-session -d -s zz -c /tmp
+set -l olzz (__tcg_screen_has "=$ola:" '*│ zz*' 50; and echo 1; or echo 0)
+set -l olkept (__tcg_screen_has "=$ola:" '*▐ older (1)*' 1; and echo 1; or echo 0)
+t "app: after a refresh adds a row above it, the pointer stays on the older row (beside a live session named older)" "1 1" "$olzz $olkept"
+command tmux -L $sock send-keys -t "=$ola:" Enter
+set -l olshow (__tcg_screen_has "=$ola:" "*▐ tcz-ol-stale-$fish_pid*" 30; and echo 1; or echo 0)
+set -l olgone (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 0; or echo 1)
+set -l olon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+t "app: Enter on the older row reveals it, pointer on it, the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
+for p in $olpids; kill $p 2>/dev/null; end
+rm -rf $pj $ol $tmux_lives_project_cache
 cleanup
 
 # x asks first (n keeps, y kills); d detaches the tab and removes the landing session.

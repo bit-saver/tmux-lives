@@ -142,19 +142,26 @@ t "list_lines: mark 2 renders [here]" 1 (string match -q '*[here]*' -- "$here"; 
 set -l att (printf 'alpha\tclaude\t1\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
 set att (vis "$att" | string join \n)
 t "list_lines: mark 1 still [attached] (non-regression)" 1 (string match -q '*[attached]*' -- "$att"; and echo 1; or echo 0)
-set -l pr (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
+set -l pr (printf '/p/x\tother\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
 set pr (vis "$pr" | string join \n)
-t "list_lines: project rule" 1 (string match -q '*── idle claude*' -- "$pr"; and echo 1; or echo 0)
+t "list_lines: a project group's rule reads the group's name" 1 (string match -q '*── other *' -- "$pr"; and echo 1; or echo 0)
 set -g LHERE (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 1 '')
 set -l lhw (string length --visible -- (vis "$LHERE[2]"))
 set -l lhe (string match -qr '\[here\]$' -- (vis "$LHERE[2]"); and echo 1; or echo 0)
 t "list_lines: a [here] row is flush-right at listwidth" "40 1" "$lhw $lhe"
-set -g LLAND (printf '/p/x\tproject\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 9 '')
-t "list_lines: project rule is colour 5" 1 (string match -q '*38;5;5m╭── idle claude *' -- "$LLAND[1]"; and echo 1; or echo 0)
+# [1] projects rule [2] a [3] other rule [4] b [5] older rule [6] older (3)
+set -g LLAND (printf '/h/projects/a\tprojects\t0\t0\ta · 2d\n/h/x/b\tother\t0\t0\tb · 3d\nolder\tolder\t0\t3\tolder (3)\n' | __tcz_popup_list_lines 40 9 '')
+t "list_lines: a project group's rule is color 5" 1 (string match -q '*38;5;5m╭── projects *' -- "$LLAND[1]"; and echo 1; or echo 0)
 set -l lpw (string length --visible -- (vis "$LLAND[1]"))
-set -l lpf (string match -qr '^╭── idle claude ─+$' -- (vis "$LLAND[1]"); and echo 1; or echo 0)
-t "list_lines: the idle claude rule fills to listwidth" "40 1" "$lpw $lpf"
+set -l lpf (string match -qr '^╭── projects ─+$' -- (vis "$LLAND[1]"); and echo 1; or echo 0)
+t "list_lines: the group rule fills to listwidth" "40 1" "$lpw $lpf"
 t "list_lines: project row border is colour 5" 1 (string match -q '*38;5;5m│*' -- "$LLAND[2]"; and echo 1; or echo 0)
+set -l lpo (string match -qr '^╭── other ─+$' -- (vis "$LLAND[3]"); and echo 1; or echo 0)
+t "list_lines (non-regression): the next group opens its own rule" 1 "$lpo"
+set -l lol8 (string match -q '*38;5;8m╭─*' -- "$LLAND[5]"; and echo 1; or echo 0)
+set -l lolp (string match -qr '^╭─+$' -- (vis "$LLAND[5]"); and echo 1; or echo 0)
+set -l lolr (string match -q '*older (3)*' -- (vis "$LLAND[6]"); and echo 1; or echo 0)
+t "list_lines: the older row sits under a plain color-8 rule and reads older (N)" "1 1 1" "$lol8 $lolp $lolr"
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -241,8 +248,8 @@ t "frame: the window scrolls up once the pointer passes its top" 1 (string match
 set -e __tcz_pd_top
 
 # --- landing: the painter skips an unchanged frame and diffs a changed one ---
-set -g LPM (printf '/tmp/tcz-pa\tproject\t0\t%s\tpa · 2h' (math (date +%s) - 7200)) \
-    (printf '/tmp/tcz-pb\tproject\t0\t%s\tpb · 5h' (math (date +%s) - 18000))
+set -g LPM (printf '/tmp/tcz-pa\tother\t0\t%s\tpa · 2h' (math (date +%s) - 7200)) \
+    (printf '/tmp/tcz-pb\tother\t0\t%s\tpb · 5h' (math (date +%s) - 18000))
 functions -c __tcz_popup_frame __tcp_frame_bak
 set -g FREC /tmp/tcz-frec-$fish_pid
 set -g LPOUT /tmp/tcz-lpout-$fish_pid
@@ -294,10 +301,12 @@ function __tcz_popup_preview
     echo $argv >> $PREC
 end
 set -g LDlive (printf 'alpha\tgeneral\t0\t0\talpha')
-set -g LDproj (printf '/tmp/tcz-some/proj\tproject\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
+set -g LDproj (printf '/tmp/tcz-some/proj\tother\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
+set -g LDold (printf 'older\tolder\t0\t2\tolder (2)')
 __tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive >/dev/null
+__tcz_popup_draw 0 20 30 8 '' -- $LDold $LDlive >/dev/null
 set -l prec_proj (cat $PREC 2>/dev/null)
-t "draw: a project row never calls capture-pane" "" "$prec_proj"
+t "draw: a project row or the older row never calls capture-pane" "" "$prec_proj"
 set -l dproj (__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive | string join \n)
 set dproj (vis "$dproj" | string join \n)
 t "draw: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
@@ -312,12 +321,15 @@ functions -e __tcp_preview_bak
 
 # --- landing: __tcz_landing_info ---
 set -l linow (date +%s)
-set -l li1 (__tcz_landing_info (printf '/p/x\tproject\t0\t%s\tx · 2h' (math $linow - 7200)) 40 8)
+set -l li1 (__tcz_landing_info (printf '/p/x\tother\t0\t%s\tx · 2h' (math $linow - 7200)) 40 8)
 set li1 (vis "$li1")
 t "landing_info: project shows its folder" 1 (string match -q '*/p/x*' -- "$li1"; and echo 1; or echo 0)
 t "landing_info: project shows its age" 1 (string match -q '*2h*' -- "$li1"; and echo 1; or echo 0)
 t "landing_info: project names both keys" 1 (string match -q '*--continue*--resume*' -- "$li1"; and echo 1; or echo 0)
-set -l li3 (__tcz_landing_info (printf '/a/very/long/folder/path/that/overflows\tproject\t0\t%s\tpath · 2h' $linow) 12 2)
+set -l li4 (__tcz_landing_info (printf 'older\tolder\t0\t3\tolder (3)') 40 8)
+set li4 (vis "$li4")
+t "landing_info: the older row says how many, how old, and what Enter does" 1 (string match -q '*3 older projects*over 3w ago*show them*' -- "$li4"; and echo 1; or echo 0)
+set -l li3 (__tcz_landing_info (printf '/a/very/long/folder/path/that/overflows\tother\t0\t%s\tpath · 2h' $linow) 12 2)
 t "landing_info: never more than h lines" 2 (count $li3)
 set -l li3w 0
 for l in $li3
