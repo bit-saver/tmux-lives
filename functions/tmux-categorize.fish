@@ -1725,6 +1725,12 @@ function __tcz_tty_drain --description 'discard input until 0.3 s pass with none
     end
 end
 
+function __tcz_tty_size --description 'the tty'"'"'s rows and columns, one per line; nothing (status 1) when stty cannot tell'
+    set -l sz (stty size 2>/dev/null)
+    string match -qr '^[1-9][0-9]* [1-9][0-9]*$' -- "$sz"; or return 1
+    string split ' ' -- $sz
+end
+
 function __tcz_now_ms --description 'milliseconds on a clock for short intervals: /proc/uptime where it exists (no fork), else perl, else whole seconds'
     if test -r /proc/uptime
         read -l up rest < /proc/uptime
@@ -1794,11 +1800,8 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             end
             set stale 0
         end
-        set -l sz (stty size 2>/dev/null | string split ' ')
         set -l rows 24; set -l cols 80
-        if string match -qr '^[1-9][0-9]*$' -- "$sz[1]"; and string match -qr '^[1-9][0-9]*$' -- "$sz[2]"
-            set rows $sz[1]; set cols $sz[2]
-        end
+        set -l sz (__tcz_tty_size); and set rows $sz[1]; and set cols $sz[2]
         if test "$rows $cols" != "$size"
             set size "$rows $cols"
             set -g __tcz_pe_force 1
@@ -2589,11 +2592,7 @@ function __tcz_popup --argument-names client --description 'two-pane session swi
     set -l result ''
     while true
         # Follow the tty: a client that shrinks under the open popup shrinks it too.
-        set -l sz (stty size 2>/dev/null)
-        if string match -qr '^[1-9][0-9]* [1-9][0-9]*$' -- "$sz"
-            set sz (string split ' ' -- $sz)
-            set rows $sz[1]; set cols $sz[2]
-        end
+        set -l sz (__tcz_tty_size); and set rows $sz[1]; and set cols $sz[2]
         set -l lay (string split ' ' (__tcz_popup_layout $cols))
         __tcz_popup_draw $sel $lay[1] $lay[2] (math $rows - 1) "$current" -- $model
         printf '\e[%s;1H\e[K%s' $rows (__tcz_legend_row 12 '↑↓' move '⏎' switch x kill esc close)
@@ -3844,9 +3843,8 @@ function __tcz_theme_picker --argument-names client --description 'interactive t
         # BEGIN size-follow
         # A client that shrinks under the open popup shrinks it too, dropping its top rows: read the
         # tty every pass and repaint whole at a new size.
-        set -l sz (stty size 2>/dev/null)
-        if string match -qr '^[1-9][0-9]* [1-9][0-9]*$' -- "$sz"; and test "$sz" != "$rows $cols"
-            set sz (string split ' ' -- $sz)
+        set -l sz (__tcz_tty_size)
+        if set -q sz[1]; and test "$sz" != "$rows $cols"
             set rows $sz[1]; set cols $sz[2]
             set WIN (math "$rows - $STATIC_IDLE")
             test "$editing" = 1; and set WIN (math "$rows - $STATIC_EDIT")
