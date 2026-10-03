@@ -1596,7 +1596,7 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             set nold (math $nold + 1)
             continue
         end
-        # __tcz_landing_group's rule, inlined: a command substitution per project costs more than the match.
+        # The group of the first root the folder is below, else other.
         set -l g other
         for i in $gidx
             string match -q -- "$roots[$i]/*" "$f[1]"; and set g $__tcz_landing_groups[$i]; and break
@@ -1608,14 +1608,6 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         string match -- "*$TAB$g$TAB*" $prows
     end
     test $nold -gt 0; and printf 'older\tolder\t0\t%s\tolder (%s)\n' $nold $nold
-end
-
-function __tcz_landing_group --argument-names folder --description 'pure: the chooser group of a project folder -- projects, workspace or work for a folder below ~/projects, ~/workspace or ~/Work (__tcz_landing_group_roots, in order), else other'
-    set -l roots (__tcz_landing_group_roots)
-    for i in (seq (count $roots))
-        string match -q -- "$roots[$i]/*" "$folder"; and echo $__tcz_landing_groups[$i]; and return 0
-    end
-    echo other
 end
 
 function __tcz_landing_older_after --description 'pure: seconds after which an idle project hides behind the chooser'"'"'s older row: the seam tmux_lives_landing_older_after, else 21 days'

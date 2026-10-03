@@ -10028,13 +10028,6 @@ rm -rf $pj $tmux_lives_project_cache $lmi $lmb $lmr
 cleanup
 
 # --- chooser v2: projects grouped by where they live; old ones behind one row ---
-set -g __tcg_lg_home_save $HOME
-set -g HOME /h
-set -l lgs (for p in /h/projects/a /h/projects/a/b /h/workspace/w /h/Work/k /h/projects /h/x /tmp/y; __tcz_landing_group $p; end)
-set -g HOME $__tcg_lg_home_save
-set -e __tcg_lg_home_save
-t "group: by where the project lives (below ~/projects, ~/workspace, ~/Work), else other" "projects projects workspace work other other other" "$lgs"
-
 function __tcg_gm_shape --description 'model rows -> "<category>:<folder basename>" per project row, "older:<N>" for the older row; live rows left out'
     for r in $argv
         set -l f (string split \t -- $r)
@@ -10075,27 +10068,23 @@ t "model: --all lists the old ones in their groups, newest first, and no older r
 t "model: the age limit is a seam (tmux_lives_landing_older_after, seconds)" "other:oa older:6" "$gms3"
 functions -e __tcg_gm_shape
 
-# The model matches the group roots inline (a command substitution per project costs more), so it can drift
-# from __tcz_landing_group: both must give the same answer, including for a root itself and look-alikes of one.
+# A group root itself and look-alikes of one (projectsx, lowercase work) are no group's.
 set -g __tcg_lp_home_save $HOME
 set -g HOME /h
-set -l lpdirs /h/projects/a /h/projects/a/b /h/workspace/w /h/Work/k /h/projects /h/Work /h/projectsx/y /h/work/k /tmp/y
+set -l lpdirs /h/projects/a /h/projects/a/b /h/workspace/w /h/Work/k /h/projects /h/Work /h/projectsx/y /h/work/k /h/x /tmp/y
 set -l lprows
 for d in $lpdirs
     set -a lprows (printf '%s\t%s' $d (date +%s))
 end
 set -l lpm (__tcz_landing_model x -- $lprows)
 set -l lpmodel
-set -l lpfn
 for d in $lpdirs
     set -l lprow (string match -- $d\t'*' $lpm)
     set -a lpmodel (string split -f2 \t -- "$lprow")
-    set -a lpfn (__tcz_landing_group $d)
 end
 set -g HOME $__tcg_lp_home_save
 set -e __tcg_lp_home_save
-set -l lpwant projects projects workspace work other other other other other
-t "model (non-regression): a project's group is __tcz_landing_group's answer, a group root itself and look-alikes included" "$lpwant $lpwant" "$lpmodel $lpfn"
+t "model: a project's group is where it lives (below ~/projects, ~/workspace, ~/Work), else other -- a group root itself and look-alikes included" "projects projects workspace work other other other other other other" "$lpmodel"
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
