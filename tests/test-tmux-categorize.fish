@@ -10167,6 +10167,59 @@ t "app: n lands the client on a new gen session in \$HOME and its landing sessio
 for p in $la2pids; kill $p 2>/dev/null; end
 cleanup
 
+# The empty chooser (no live session, no project): the pointer stays on 0, never -1; n still starts a shell.
+# - the poll waits for a refresh to draw the empty list (legend, no pointer) before a key is sent
+function __tcg_wait_empty --argument-names target --description 'poll (≤ 8 s) until <target> draws the chooser with no pointer: nothing is listed'
+    for i in (seq 80)
+        set -l scr (command tmux -L $sock capture-pane -p -t $target 2>/dev/null)
+        string match -q '*d detach*' -- $scr; and not string match -q '*▐*' -- $scr; and return 0
+        sleep 0.1
+    end
+    return 1
+end
+fresh_server
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+set -l la5 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la5" /dev/null >/dev/null 2>&1 &
+set -l la5pids (jobs -p)
+__tcg_client_on $la5 >/dev/null
+__tcg_ready "=$la5:" '*▐*'
+command tmux -L $sock kill-session -t =0
+set -l la5empty (__tcg_wait_empty "=$la5:"; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$la5:" NPage
+sleep 0.5
+command tmux -L $sock new-session -d -s zz -c /tmp
+set -l la5draw (__tcg_screen_has "=$la5:" '*▐ zz*' 80; and echo 1; or echo 0)
+t "app (non-regression): PgDn on an empty chooser keeps the pointer on 0: a session that appears is drawn selected" "1 1" "$la5empty $la5draw"
+for p in $la5pids; kill $p 2>/dev/null; end
+cleanup
+
+fresh_server
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+set -l la6 (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$la6" /dev/null >/dev/null 2>&1 &
+set -l la6pids (jobs -p)
+__tcg_client_on $la6 >/dev/null
+__tcg_ready "=$la6:" '*▐*'
+command tmux -L $sock kill-session -t =0
+set -l la6empty (__tcg_wait_empty "=$la6:"; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$la6:" n
+set -l la6on ''
+for i in (seq 30)
+    set la6on (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    string match -q 'gen-*' -- "$la6on"; and break
+    sleep 0.1
+end
+set -l la6gen (string match -q 'gen-*' -- "$la6on"; and echo 1; or echo 0)
+set -l la6cwd (command tmux -L $sock display-message -p -t "=$la6on:" '#{pane_current_path}' 2>/dev/null)
+set -l la6gone (command tmux -L $sock has-session -t "=$la6" 2>/dev/null; and echo 0; or echo 1)
+t "app (non-regression): n on an empty chooser lands the client on a new gen session in \$HOME and its landing session goes" "1 1 $HOME 1" "$la6empty $la6gen $la6cwd $la6gone"
+for p in $la6pids; kill $p 2>/dev/null; end
+cleanup
+functions -e __tcg_wait_empty
+
 # The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
 # A live session literally named `older` sits above it: the pointer follows rows by target AND category.
 # HOME is redirected (exported before the server starts, so the landing pane inherits it). The list goes from
@@ -10869,6 +10922,24 @@ __tcg_type $tyk 'ab\r'
 sleep 2
 set -l tybw (__tcg_where $tyb)
 t "typeahead: a burst ending in Enter (ab + CR) does not switch the tab" "$tyb 1" "$tybw"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# n is the one key that acts and leaves the landing: a burst that starts with it (npm run dev + CR) must not.
+# The sessions listed are the landing and the fixture's own, so a gen-* count of 0 is not a dead server's.
+fresh_server
+__tcg_kbd_client $tyk 0
+set -l typids (jobs -p)
+set -l tyn (__tcz_landing_new (__tcg_client_on 0))
+__tcg_ready "=$tyn:" '*d detach*'
+__tcg_type $tyk 'npm run dev\r'
+sleep 2
+set -l tynw (__tcg_where $tyn)
+set -l tynsess (command tmux -L $sock list-sessions -F '#{session_name}')
+set -l tynall (count $tynsess)
+set -l tyngen (string match -r -- '^gen-' $tynsess | count)
+set -l tynup (__tcg_screen_has "=$tyn:" '*d detach*' 1; and echo 1; or echo 0)
+t "typeahead: a burst starting with n (npm run dev + CR) starts no shell and leaves the tab on its running landing" "$tyn 1 2 0 1" "$tynw $tynall $tyngen $tynup"
 for p in $typids; kill $p 2>/dev/null; end
 cleanup
 
