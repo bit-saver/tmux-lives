@@ -10162,21 +10162,23 @@ cleanup
 
 # The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
 # A live session literally named `older` sits above it: the pointer follows rows by target AND category.
-# HOME is redirected (exported before the server starts, so the landing pane inherits it) so the hidden project
-# is in an EARLIER group (~/projects) than the visible one (/tmp: other): the revealed row sits above the older
-# row's old slot, and a pointer that did not move cannot pass for one that did.
+# HOME is redirected (exported before the server starts, so the landing pane inherits it). The list goes from
+# [pv (projects), fresh (other), older (1)] to [pv, ph (workspace, the one revealed), fresh]: the revealed row
+# sits above the older row's old slot (a pointer that did not move cannot pass) and below the first project row
+# (a pointer sent to the first project row, not the first row the reveal added, cannot pass).
 set -l olhome /tmp/tcz-olh-$fish_pid
 set -l olhome_save $HOME
-mkdir -p $olhome/projects/ph
+mkdir -p $olhome/projects/pv $olhome/workspace/ph
 set -gx HOME $olhome
 fresh_server
 command tmux -L $sock new-session -d -s older -c /tmp
 set -l pj $tmux_lives_claude_projects_dir
 set -l ol /tmp/tcz-ol-$fish_pid
 rm -rf $pj $ol; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-fresh $pj/-stale $ol/tcz-ol-fresh-$fish_pid
+mkdir -p $pj/-fresh $pj/-pv $pj/-stale $ol/tcz-ol-fresh-$fish_pid
 printf '{"cwd":"%s/tcz-ol-fresh-%s"}\n' $ol $fish_pid > $pj/-fresh/s.jsonl
-printf '{"cwd":"%s/projects/ph"}\n' $olhome > $pj/-stale/s.jsonl
+printf '{"cwd":"%s/projects/pv"}\n' $olhome > $pj/-pv/s.jsonl
+printf '{"cwd":"%s/workspace/ph"}\n' $olhome > $pj/-stale/s.jsonl
 touch -d '30 days ago' $pj/-stale/s.jsonl
 set -l ola (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$ola" /dev/null >/dev/null 2>&1 &
@@ -10184,9 +10186,9 @@ set -l olpids (jobs -p)
 __tcg_client_on $ola >/dev/null
 __tcg_ready "=$ola:" '*d detach*'
 set -l olrow (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 1; or echo 0)
-set -l olfresh (__tcg_screen_has "=$ola:" "*tcz-ol-fresh-$fish_pid*" 1; and echo 1; or echo 0)
+set -l olfresh (__tcg_screen_has "=$ola:" "*tcz-ol-fresh-$fish_pid*" 1; and __tcg_screen_has "=$ola:" '*pv · *' 1; and echo 1; or echo 0)
 set -l olhid (__tcg_screen_has "=$ola:" '*ph · *' 1; and echo 0; or echo 1)
-t "app: a project 21+ days old hides behind an older (1) row; a fresh one stays listed" "1 1 1" "$olrow $olfresh $olhid"
+t "app: a project 21+ days old hides behind an older (1) row; the fresh ones stay listed" "1 1 1" "$olrow $olfresh $olhid"
 for i in (seq 8)
     __tcg_screen_has "=$ola:" '*▐ older (1)*' 5; and break
     command tmux -L $sock send-keys -t "=$ola:" j
@@ -10199,7 +10201,7 @@ command tmux -L $sock send-keys -t "=$ola:" Enter
 set -l olshow (__tcg_screen_has "=$ola:" '*▐ ph · *' 30; and echo 1; or echo 0)
 set -l olgone (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 0; or echo 1)
 set -l olon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-t "app: Enter on the older row reveals it, pointer on it (the first row added, above the visible one), the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
+t "app: Enter on the older row reveals it, pointer on it (the first row the reveal added, between two visible projects), the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
 for p in $olpids; kill $p 2>/dev/null; end
 set -gx HOME $olhome_save
 rm -rf $pj $ol $olhome $tmux_lives_project_cache
