@@ -1354,7 +1354,7 @@ end
 # The discovery cache's first line. A cache without it is ignored whole: its rows mean something else.
 set -g __tcz_proj_cache_head '# tmux-lives projects v2'
 
-function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first -- one per Claude project that still exists, from INTERACTIVE conversations only. Each directory under __tcz_claude_projects_dir is a lossy slug: its project comes from its newest transcript whose first cwd line says "entrypoint":"cli" or has no entrypoint (older files) -- that line'"'"'s "cwd", mapped by __tcz_claude_project_of. Headless runs (sdk-cli, sdk-py) and GUI apps (claude-desktop, claude-vscode) never make a project, and a directory named after a generic folder or a group root is never read. Caches dir/key/mtime/cwd rows in __tcz_claude_project_cache under a version header, re-reading a directory only when its newest transcript of any kind changed, and rewriting the cache only when something did. Never fails discovery over a cache write it could not make.'
+function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch seconds), newest first: one per existing Claude project, from interactive conversations only ("entrypoint":"cli", or none in older files) -- the cwd of each directory'"'"'s newest such transcript, mapped by __tcz_claude_project_of. Cached in __tcz_claude_project_cache; a directory is re-read only when its newest transcript changed. Never fails over a cache write.'
     set -l root (__tcz_claude_projects_dir)
     set -l cache (__tcz_claude_project_cache)
     set -l TAB (printf '\t')
@@ -1524,7 +1524,7 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (claude/running/general; mark 2 = a client from my device is on it, 1 = some client is, 0 = none), then idle Claude projects by group (the category is the group, __tcz_landing_groups), newest first within one. A project whose last conversation is older than __tcz_landing_older_after is left out and counted in one final row "older\tolder\t0\t<N>\tolder (N)"; --all lists those in their groups instead. n starts a new shell; there is no row for it. Given "--", the discovery rows ("folder\tmtime") are taken as passed instead of read here.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is), then idle projects by group, then "older (N)" for those past __tcz_landing_older_after (--all lists them instead). "--" passes the discovery rows in.'
     set -e argv[1]
     set -l all 0
     test "$argv[1]" = --all; and set all 1; and set -e argv[1]
@@ -2308,11 +2308,12 @@ function __tcz_popup_emit --description 'Paint a popup frame differentially: emi
     set -g __tcz_pe_partial 1
 end
 
-function __tcz_popup_list_memo --argument-names listw current --description '__tcz_popup_list_memo <listw> <current> -- <model lines...>: the parts of a frame'"'"'s list that do not depend on the pointer, rebuilt only when an input changes (key __tcz_pf_lkey): __tcz_pf_left, the list with no row selected; __tcz_pf_rrow / __tcz_pf_rline, each drawn row and its line there; __tcz_pf_wline / __tcz_pf_wfirst, __tcz_popup_frame'"'"'s window walk after each model row'
+function __tcz_popup_list_memo --argument-names listw current --description '__tcz_popup_list_memo <listw> <current> -- <model lines...>: the pointer-free parts of __tcz_popup_frame'"'"'s list, in __tcz_pf_* globals, rebuilt only when an input changes'
     set -e argv[1..3]                  # argv[3] is the literal '--' separator
     set -l key (string join \n -- $listw "$current" $argv | string collect)
     set -q __tcz_pf_lkey; and test "$key" = "$__tcz_pf_lkey"; and return 0
     set -l TAB (printf '\t')
+    # The list with no row selected.
     set -g __tcz_pf_left (printf '%s\n' $argv | __tcz_popup_list_lines $listw -1 "$current")
     # Drawn rows counted as __tcz_popup_list_lines reads them: whole lines of 5+ fields, a rule per new category.
     set -g __tcz_pf_rrow; set -g __tcz_pf_rline
