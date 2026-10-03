@@ -1757,7 +1757,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l hold 0                     # 1 after a move: repaint the list only until input is quiet
     set -l all                        # --all once the older row was opened: until the app restarts
     set -l shown                      # the targets listed when it was opened, to find the first revealed row
-    set -l settle 1                   # drain all input until a quiet second after the first paint, 2 s at most
+    set -l settle 1                   # only moves act until a quiet second after the first paint, 2 s at most
     set -l settle_t0                  # the first paint, on __tcz_now_ms
     # Idle cadence: once idle_after seconds pass with no key, refresh every idle_refresh seconds (test
     # seams; 60 and 15). `idle` counts read timeouts in deciseconds, so it never runs ahead of the clock.
@@ -1811,11 +1811,11 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
         set pending ''
         if test -z "$tok"
             set -l wait 30
-            if test $settle -eq 1
-                set wait 10
-                test -n "$settle_t0"; or set settle_t0 (__tcz_now_ms)
-            else if test $hold -eq 1
+            test $settle -eq 1; and test -z "$settle_t0"; and set settle_t0 (__tcz_now_ms)
+            if test $hold -eq 1
                 set wait 2                # 0.2 s with no key ends a hold (stty counts tenths)
+            else if test $settle -eq 1
+                set wait 10
             else if test $idle -ge $idle_after
                 set wait $slow
             end
@@ -1840,8 +1840,8 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
         end
         if not contains -- $tok timeout quiet
             # A key acts only alone. More input already pending means typed-ahead or pasted text (ShellFish
-            # types `cd "<dir>"` + Enter into every new tab): drain it all, act on none. Held moves are the
-            # exception, except in the settle window.
+            # types `cd "<dir>"` + Enter into every new tab): drain it all, act on none. Moves are the
+            # exception, in the settle window too: they never leave the landing, and do not end the window.
             stty min 0 time 0 2>/dev/null
             set -l k2
             if test "$tok" = enter
@@ -1857,7 +1857,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             else
                 set k2 (__tcz_popup_readkey timeout)
             end
-            if test $settle -eq 0; and contains -- $tok up down pgup pgdn
+            if contains -- $tok up down pgup pgdn
                 # Held keys: discard queued repeats, one step per frame. A different key read past is
                 # kept for the next turn, where this same check applies to it.
                 while contains -- $k2 up down pgup pgdn

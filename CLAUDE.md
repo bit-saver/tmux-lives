@@ -548,8 +548,9 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
 - **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
-  types `cd "<dir>"`⏎ into each new tab), drained to a 0.3 s gap unless a held move; CR LF is one ⏎. All
-  input is drained until a quiet second after the first paint, 2 s at most (settle; tests: `__tcg_ready`).
+  types `cd "<dir>"`⏎ into each new tab), drained to a 0.3 s gap unless a held move; CR LF is one ⏎. Every
+  non-move key is drained until a quiet second after the first paint, 2 s at most (settle; tests:
+  `__tcg_ready`); moves act in it and do not end it.
 
 **Harness facts learned:**
 - A `script` pty client needs `env SHELL=/bin/sh` (zsh mangles `=name`) and a long-lived silent stdin

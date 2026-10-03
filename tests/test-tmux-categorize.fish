@@ -10912,6 +10912,17 @@ function __tcg_where --argument-names landing --description '"<the client'"'"'s 
     command tmux -L $sock has-session -t "=$landing" 2>/dev/null; and set alive 1
     echo "$on $alive"
 end
+function __tcg_room --argument-names fifo --description 'a fresh server with s1..s5 (each pane prints MARK-<name>) and a keyboard client on s1'
+    fresh_server
+    for n in s1 s2 s3 s4 s5
+        command tmux -L $sock new-session -d -s $n -c /tmp sh -c "printf 'MARK-$n\n'; exec sleep 600"
+    end
+    command tmux -L $sock kill-session -t =0
+    __tcg_kbd_client $fifo s1
+end
+function __tcg_at --argument-names landing --description 'the session the landing pointer is on'
+    command tmux -L $sock capture-pane -p -t "=$landing:" | string match -rg '▐ (s[0-9])'
+end
 set -l tyk /tmp/tcz-tyk-$fish_pid
 
 # The reproduction: after the settle window, one burst `cd "/Users/x"` + CR.
@@ -10996,6 +11007,62 @@ t "typeahead (non-regression): after a quiet second the settle window ends and a
 for p in $typids; kill $p 2>/dev/null; end
 cleanup
 
+# Moves act in the settle window (one step per frame); every other key is still drained. t0 = the first paint.
+# Tapped: Down at +0.1 s and +0.35 s moves the pointer two rows.
+__tcg_room $tyk
+set -l typids (jobs -p)
+set -l tys (__tcz_landing_new (__tcg_client_on s1))
+__tcg_screen_has "=$tys:" '*▐ s1*' 80 >/dev/null
+sleep 0.1
+__tcg_type $tyk '\e[B'; sleep 0.25
+__tcg_type $tyk '\e[B'
+set -l tysat (__tcg_screen_has "=$tys:" '*▐ s3*' 8; and echo 1; or echo 0)
+t "typeahead: tapped Down in the settle window moves the pointer two rows" 1 "$tysat"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# Held: Down every ~33 ms from +0.1 s; the pointer has moved off s1 by the 12th key, with the run still going.
+__tcg_room $tyk
+set -l typids (jobs -p)
+set -l tys (__tcz_landing_new (__tcg_client_on s1))
+__tcg_screen_has "=$tys:" '*▐ s1*' 80 >/dev/null
+sleep 0.1
+set -l tysheld ''
+for i in (seq 24)
+    __tcg_type $tyk '\e[B'; sleep 0.033
+    test $i -eq 12; and set tysheld (__tcg_at $tys)
+end
+t "typeahead: a held Down in the settle window moves the pointer while it is held (s2..s5 by key 12)" 1 (string match -qr '^s[2-5]$' -- "$tysheld"; and echo 1; or echo 0)
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# A move does not end the window: Down at +0.1 s, then a lone CR at +0.5 s is drained.
+__tcg_room $tyk
+set -l typids (jobs -p)
+set -l tys (__tcz_landing_new (__tcg_client_on s1))
+__tcg_screen_has "=$tys:" '*▐ s1*' 80 >/dev/null
+sleep 0.1
+__tcg_type $tyk '\e[B'; sleep 0.4
+__tcg_type $tyk '\r'; sleep 1
+set -l tysw (__tcg_where $tys)
+set -l tysat (__tcg_at $tys)
+t "typeahead: a move in the settle window does not end it: a lone CR at +0.5 s is drained, the pointer stays on s2" "$tys 1 s2" "$tysw $tysat"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
+# The preview follows a move in the window ~0.2 s after input goes quiet, not after the window's own second.
+__tcg_room $tyk
+set -l typids (jobs -p)
+set -l tys (__tcz_landing_new (__tcg_client_on s1))
+__tcg_screen_has "=$tys:" '*▐ s1*' 80 >/dev/null
+sleep 0.1
+set -l tyspre (__tcg_screen_has "=$tys:" '*MARK-s2*' 1; and echo 1; or echo 0)
+__tcg_type $tyk '\e[B'
+set -l tysprev (__tcg_screen_has "=$tys:" '*MARK-s2*' 7; and echo 1; or echo 0)
+t "typeahead: after a move in the settle window the moved-to pane shows in the preview within 0.7 s (it was not there before)" "0 1" "$tyspre $tysprev"
+for p in $typids; kill $p 2>/dev/null; end
+cleanup
+
 # Non-regression: a lone d typed after the settle window detaches.
 fresh_server
 __tcg_kbd_client $tyk 0
@@ -11043,30 +11110,30 @@ t "typeahead: CR LF is one Enter: the tab moves to the selected row and its land
 for p in $typids; kill $p 2>/dev/null; end
 cleanup
 
-# The settle window closes 2 s after the first paint even while keys keep coming: of five j taps 0.7 s
-# apart from +0.4 s, the first two or three are drained and the rest act, so the pointer ends on s3 or s4.
-fresh_server
-for n in s1 s2 s3 s4 s5
-    command tmux -L $sock new-session -d -s $n -c /tmp
-end
-command tmux -L $sock kill-session -t =0
-__tcg_kbd_client $tyk s1
+# The settle window closes 2 s after the first paint even while keys keep coming: lone d taps at +0.3, +0.9
+# and +1.5 s are drained (gaps under a second), the one at +2.3 s acts.
+__tcg_room $tyk
 set -l typids (jobs -p)
 set -l tyh (__tcz_landing_new (__tcg_client_on s1))
 __tcg_screen_has "=$tyh:" '*▐ s1*' 80 >/dev/null
-sleep 0.4
-for i in 1 2 3 4 5
-    __tcg_type $tyk j
-    test $i -lt 5; and sleep 0.7
+sleep 0.3
+__tcg_type $tyk d; sleep 0.6
+__tcg_type $tyk d; sleep 0.6
+__tcg_type $tyk d; sleep 0.8
+set -l tyhmid (__tcg_where $tyh)
+__tcg_type $tyk d
+for i in (seq 30)
+    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
+    test -z "$cl"; and break
+    sleep 0.1
 end
-sleep 1.5
-set -l tyhat (command tmux -L $sock capture-pane -p -t "=$tyh:" | string match -rg '▐ (s[0-9])')
-t "typeahead: the settle window ends 2 s after the first paint, so later taps act (pointer on s3 or s4)" 1 (string match -qr '^s[34]$' -- "$tyhat"; and echo 1; or echo 0)
-echo "# settle bound: pointer on [$tyhat]"
+set -l tyhend (__tcg_where $tyh)
+t "typeahead: lone d taps below 2 s are drained, so the tab is still on its landing after the third" "$tyh 1" "$tyhmid"
+t "typeahead: the settle window ends 2 s after the first paint even while keys keep coming, so the d at +2.3 s detaches" " 0" "$tyhend"
 for p in $typids; kill $p 2>/dev/null; end
 rm -f $tyk
 cleanup
-functions -e __tcg_kbd_client __tcg_type __tcg_where
+functions -e __tcg_kbd_client __tcg_type __tcg_where __tcg_room __tcg_at
 
 # --- idle: a landing idle past its threshold refreshes on the slow cadence ---
 # Seams: idle after 2 s, then every 6 s. The model builder records each refresh.
