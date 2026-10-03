@@ -529,12 +529,16 @@ for p in /tmp/x /var/foldersx $HOME/projects /privatetmp
 end
 t "generic_dir: a folder inside /tmp, a look-alike, a home subfolder" "defined n n n n" "$gdn"
 set -l gdbody_list (functions __tcz_generic_dir 2>/dev/null | string collect)
+set -l gdbody_disc (functions __tcz_claude_projects | string collect)
 set -l gdbody_name (functions __tcz_project_name | string collect)
 set -l gdbody_model (functions __tcz_landing_model | string collect)
-set -l gdl (string match -q '*/private/tmp*' -- "$gdbody_list"; and echo 1; or echo 0)
+# The list is the global __tcz_generic_folders: __tcz_generic_dir and discovery's skip read it, and no body spells a folder.
+set -l gdl (contains -- /private/tmp $__tcz_generic_folders; and string match -q '*$__tcz_generic_folders*' -- "$gdbody_list"; and echo 1; or echo 0)
+set -l gdd (string match -q '*$__tcz_generic_folders*' -- "$gdbody_disc"; and echo 1; or echo 0)
+set -l gdl2 (string match -q '*/private/tmp*' -- "$gdbody_list" "$gdbody_disc"; and echo 1; or echo 0)
 set -l gdn2 (string match -q '*/var/tmp*' -- "$gdbody_name"; and echo 1; or echo 0)
 set -l gdm (string match -q '*/var/tmp*' -- "$gdbody_model"; and echo 1; or echo 0)
-t "generic: the folder list is spelled once (naming and the busy check call __tcz_generic_dir)" "1 0 0" "$gdl $gdn2 $gdm"
+t "generic: the folder list is spelled once (naming and the busy check call __tcz_generic_dir; it and discovery read __tcz_generic_folders)" "1 1 0 0 0" "$gdl $gdd $gdl2 $gdn2 $gdm"
 
 # --- chooser v2: a conversation's folder -> its project (__tcz_claude_project_of) ---
 set -l po /tmp/tcz-po-$fish_pid

@@ -16,6 +16,10 @@ set -g __tcz_self (path resolve (status filename))
 set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' $__tcz_self
 # The chooser's project groups, in display order: a project row's category is its group.
 set -g __tcz_landing_groups projects workspace work other
+# Folders that are never a project, with $HOME and $TMPDIR (macOS reports /tmp as /private/tmp),
+# and trees no folder below which is one either. Read by __tcz_generic_dir and discovery's skip.
+set -g __tcz_generic_folders / /tmp /var/tmp /private/tmp /private/var/tmp
+set -g __tcz_generic_trees /var/folders /private/var/folders
 
 function __tcz_slugify --description 'argv -> tmux-safe session name ([A-Za-z0-9-])'
     # Callers must pass slugs with -- / -t "=$slug" style protection when handing them to tmux
@@ -42,13 +46,16 @@ function __tcz_git_root --argument-names path --description 'pure: walk up from 
     end
 end
 
-function __tcz_generic_dir --argument-names path --description 'pure: true when <path> is a folder that is never a project -- /, $HOME, or a temp folder: /tmp, /var/tmp, /private/tmp, /private/var/tmp, $TMPDIR, or anything under /var/folders or /private/var/folders (macOS reports /tmp as /private/tmp). The one list shared by session naming, Claude project discovery and the chooser'"'"'s busy check.'
+function __tcz_generic_dir --argument-names path --description 'pure: true when <path> is a folder that is never a project -- $HOME, $TMPDIR, one of __tcz_generic_folders, or one of __tcz_generic_trees or anything below it. Shared by session naming, Claude project discovery and the chooser'"'"'s busy check.'
     set -l p (string replace -r '/+$' '' -- "$path")
     test -n "$p"; or return 0                  # "/" collapses to empty
-    contains -- "$p" "$HOME" /tmp /var/tmp /private/tmp /private/var/tmp /var/folders /private/var/folders; and return 0
+    contains -- "$p" "$HOME" $__tcz_generic_folders $__tcz_generic_trees; and return 0
     set -l tmpdir (string replace -r '/+$' '' -- "$TMPDIR")
     test -n "$tmpdir"; and test "$p" = "$tmpdir"; and return 0
-    string match -q -- '/var/folders/*' "$p"; or string match -q -- '/private/var/folders/*' "$p"
+    for t in $__tcz_generic_trees
+        string match -q -- "$t/*" "$p"; and return 0
+    end
+    return 1
 end
 
 function __tcz_project_name --argument-names path --description 'the active pane'"'"'s cwd -> project name, or NOTHING when the directory carries no project meaning. A generic folder (__tcz_generic_dir: $HOME, /, the temp folders) deliberately yields empty so the caller falls back to gen-N rather than naming a session after your home directory or `tmp`. Otherwise: the basename of the nearest git root at or above <path> (__tcz_git_root, stopping at $HOME or /), else <path>'"'"'s own basename when no repo is found -- and a walk result that itself LANDS on a generic folder (a dotfiles repo at $HOME/.git, say) counts as no repo found, so it takes that same basename fallback rather than naming every subdirectory of home after home. The walk exists for exactly one measured case (a pane sitting in a subdirectory of a repo whose own basename is useless, e.g. .../pingy-android/user) and is a no-op everywhere else. Spaces are PRESERVED: this feeds the display layer, and the safe tmux name is slugified separately by the caller.'
@@ -1372,9 +1379,11 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
     # folder's directory can hold thousands of headless transcripts. Claude names a directory
     # by turning every character but a letter or digit into a dash.
     set -l skip
-    for g in / $HOME /tmp /var/tmp /private/tmp /private/var/tmp $TMPDIR (__tcz_landing_group_roots)
+    for g in $__tcz_generic_folders $HOME $TMPDIR (__tcz_landing_group_roots)
         set -a skip (string replace -ra '[^A-Za-z0-9]' '-' -- (string replace -r '(.)/+$' '$1' -- $g))
     end
+    # A directory below a generic tree: a slug is letters, digits and dashes, safe in a regex as it is.
+    set -l below '^('(string join '|' -- (string replace -ra '[^A-Za-z0-9]' '-' -- $__tcz_generic_trees))')-'
 
     # One row per source directory, project or not: that is what gets cached, so a
     # directory with no interactive conversation is not re-read until it changes.
@@ -1385,8 +1394,7 @@ function __tcz_claude_projects --description 'lines "folder\tmtime" (epoch secon
         set dir (string replace -r '/+$' '' -- $dir)
         set -l base (path basename -- $dir)
         contains -- $base $skip; and continue
-        string match -q -- '-var-folders-*' $base; and continue
-        string match -q -- '-private-var-folders-*' $base; and continue
+        string match -qr -- $below $base; and continue
         # Pair each transcript with its mtime as it is read: `path mtime` prints nothing for a
         # dangling symlink or a file that just vanished, which would shift two parallel lists.
         set -l files; set -l mtimes
