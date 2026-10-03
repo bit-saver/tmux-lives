@@ -253,6 +253,81 @@ set -l s03 (__tcz_popup_frame 3 20 0 8 '' -- $SCM)
 t "frame: the window scrolls up once the pointer passes its top" 1 (string match -q '*▐ row4*' -- (vis "$s03[1]"); and echo 1; or echo 0)
 set -e __tcz_pd_top
 
+# --- frame: the list memo draws exactly what a full build draws ---
+# The reference is the frame's list as it was built before the memo: the whole list with the pointer,
+# the window walked from the first row (its own top, __tcp_ref_top). No preview column: the memo is the list's.
+function __tcp_frame_ref --description '__tcp_frame_ref <sel> <listw> <rows> <current> -- <model lines...>'
+    set -l sel $argv[1]; set -l listw $argv[2]; set -l rows $argv[3]; set -l current $argv[4]
+    set -e argv[1..5]
+    set -l TAB (printf '\t')
+    set -l left (printf '%s\n' $argv | __tcz_popup_list_lines $listw $sel "$current")
+    set -l top 0
+    if test (count $left) -gt $rows
+        set -l line 0; set -l first 0; set -l grp ''
+        for row in $argv[1..(math $sel + 1)]
+            set -l c (string split -f2 $TAB -- $row)
+            set first 0
+            if test "$c" != "$grp"
+                set grp $c; set line (math $line + 1); set first $line
+            end
+            set line (math $line + 1)
+        end
+        test $first -eq 0; and set first $line
+        set -q __tcp_ref_top; and set top $__tcp_ref_top
+        test $first -le $top; and set top (math $first - 1)
+        test $line -gt (math $top + $rows); and set top (math $line - $rows)
+        set -l maxtop (math (count $left) - $rows)
+        test $top -gt $maxtop; and set top $maxtop
+        test $top -lt 0; and set top 0
+    end
+    set -g __tcp_ref_top $top
+    set -l blankL (string repeat -n $listw ' ')
+    for r in (seq $rows)
+        set -l li (math $r + $top)
+        set -l lseg $blankL
+        test $li -le (count $left); and set lseg $left[$li]
+        printf '%s\e[K\n' "$lseg"
+    end
+end
+# 15 rows in seven categories; junk has fewer than 5 fields, so it is drawn by neither, but the window walk counts it.
+set -g MM (printf 'c1\tclaude\t0\t0\tc1') (printf 'c2\tclaude\t0\t0\tc2') (printf 'c3\tclaude\t0\t0\tc3') \
+    (printf 'r1\trunning\t1\t0\trunning one') (printf 'cur\tgeneral\t0\t0\tcur') \
+    (printf 'g2\tgeneral\t2\t0\tg2 with a display long enough to be cut') junk
+for i in 1 2 3 4; set -a MM (printf '/p/w%s\tworkspace\t0\t0\tw%s · 2h' $i $i); end
+for i in 1 2 3; set -a MM (printf '/p/o%s\tother\t0\t0\to%s · 3d' $i $i); end
+set -a MM (printf 'older\tolder\t0\t2\tolder (2)')
+functions -c __tcz_popup_list_lines __tcp_ll_bak
+set -g LLREC /tmp/tcz-llrec-$fish_pid
+rm -f $LLREC
+function __tcz_popup_list_lines
+    echo $argv[2] >> $LLREC
+    __tcp_ll_bak $argv
+end
+set -g __tcp_n 0; set -g __tcp_d 0; set -g __tcp_p 0; set -g __tcp_s 0
+function __tcp_memo_cmp --argument-names sel listw current --description 'build one frame both ways and count: compared, differing, with a pointer, scrolled'
+    set -l a (__tcz_popup_frame $sel $listw 0 8 "$current" -- $MM | string collect)
+    set -l b (__tcp_frame_ref $sel $listw 8 "$current" -- $MM | string collect)
+    set -g __tcp_n (math $__tcp_n + 1)
+    test "$a" = "$b"; or set -g __tcp_d (math $__tcp_d + 1)
+    string match -q '*▐*' -- "$a"; and set -g __tcp_p (math $__tcp_p + 1)
+    test "$__tcz_pd_top" -gt 0; and set -g __tcp_s (math $__tcp_s + 1)
+end
+set -e __tcz_pd_top; set -e __tcp_ref_top; set -e __tcz_pf_lkey
+for s in (seq 0 14); __tcp_memo_cmp $s 20 cur; end
+for s in (seq 14 -1 0); __tcp_memo_cmp $s 20 cur; end
+set MM[10] (printf '/p/w3\tworkspace\t0\t0\tw3 · 5h')                 # one row's text changes
+for s in 8 9 10; __tcp_memo_cmp $s 20 cur; end
+for s in 4 5; __tcp_memo_cmp $s 20 ''; end                           # the current session changes
+for s in 0 13 14 3 7; __tcp_memo_cmp $s 26 ''; end                   # the width changes; jumps
+set -l mbuilds (string match -- -1 (cat $LLREC) | count)
+set -l mscrolled (test $__tcp_s -gt 0; and echo 1; or echo 0)
+t "frame: the list memo draws exactly what a full build draws (sweeps, a changed row, current, width, jumps), built once per input" "40 0 37 1 4" "$__tcp_n $__tcp_d $__tcp_p $mscrolled $mbuilds"
+functions -e __tcz_popup_list_lines
+functions -c __tcp_ll_bak __tcz_popup_list_lines
+functions -e __tcp_ll_bak __tcp_memo_cmp __tcp_frame_ref
+rm -f $LLREC
+set -e __tcz_pd_top; set -e __tcp_ref_top
+
 # --- landing: the painter skips an unchanged frame and diffs a changed one ---
 set -g LPM (printf '/tmp/tcz-pa\tother\t0\t%s\tpa · 2h' (math (date +%s) - 7200)) \
     (printf '/tmp/tcz-pb\tother\t0\t%s\tpb · 5h' (math (date +%s) - 18000))

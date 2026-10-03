@@ -2303,6 +2303,40 @@ function __tcz_popup_emit --description 'Paint a popup frame differentially: emi
     set -g __tcz_pe_partial 1
 end
 
+function __tcz_popup_list_memo --argument-names listw current --description '__tcz_popup_list_memo <listw> <current> -- <model lines...>: the parts of a frame'"'"'s list that do not depend on the pointer, rebuilt only when an input changes (key __tcz_pf_lkey): __tcz_pf_left, the list with no row selected; __tcz_pf_rrow / __tcz_pf_rline, each drawn row and its line there; __tcz_pf_wline / __tcz_pf_wfirst, __tcz_popup_frame'"'"'s window walk after each model row'
+    set -e argv[1..3]                  # argv[3] is the literal '--' separator
+    set -l key (string join \n -- $listw "$current" $argv | string collect)
+    set -q __tcz_pf_lkey; and test "$key" = "$__tcz_pf_lkey"; and return 0
+    set -l TAB (printf '\t')
+    set -g __tcz_pf_left (printf '%s\n' $argv | __tcz_popup_list_lines $listw -1 "$current")
+    # Drawn rows counted as __tcz_popup_list_lines reads them: whole lines of 5+ fields, a rule per new category.
+    set -g __tcz_pf_rrow; set -g __tcz_pf_rline
+    set -l line 0; set -l grp ''
+    for row in (printf '%s\n' $argv)
+        set -l f (string split -m 4 $TAB -- $row)
+        test (count $f) -ge 5; or continue
+        if test "$f[2]" != "$grp"
+            set grp "$f[2]"; set line (math $line + 1)
+        end
+        set line (math $line + 1)
+        set -a __tcz_pf_rrow $row; set -a __tcz_pf_rline $line
+    end
+    # The window walk counts every model row: the selected row's line, and its rule's if it opens a group.
+    set -g __tcz_pf_wline; set -g __tcz_pf_wfirst
+    set line 0; set grp ''
+    for row in $argv
+        set -l c (string split -f2 $TAB -- $row)
+        set -l first 0
+        if test "$c" != "$grp"
+            set grp $c; set line (math $line + 1); set first $line
+        end
+        set line (math $line + 1)
+        test $first -eq 0; and set first $line
+        set -a __tcz_pf_wline $line; set -a __tcz_pf_wfirst $first
+    end
+    set -g __tcz_pf_lkey "$key"
+end
+
 function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> -- <model lines...>: the frame as <rows> lines, each ending in erase-to-EOL. An overflowing list scrolls only to keep the selection in view; the window top persists in __tcz_pd_top across calls. With __tcz_pf_keep = 1 the preview column is the last one built (__tcz_pf_right) when its size still matches: the landing app'"'"'s held moves.'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
     set -e argv[1..6]                  # argv[6] is the literal '--' separator
@@ -2310,22 +2344,20 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     set -l TAB (printf '\t')
     set -l DIV (printf '\e[38;5;240m│\e[0m')
     set -l EL (printf '\e[K')
-    set -l left (printf '%s\n' $model | __tcz_popup_list_lines $listw $sel "$current")
+    # The list is built once per model (__tcz_popup_list_memo); a move redraws only the selected row.
+    __tcz_popup_list_memo $listw "$current" -- $model
+    set -l left $__tcz_pf_left
+    set -l si (math $sel + 1)
+    if set -q __tcz_pf_rline[$si]
+        set left[$__tcz_pf_rline[$si]] (printf '%s\n' $__tcz_pf_rrow[$si] | __tcz_popup_list_lines $listw 0 "$current")[-1]
+    end
     # Window: the pointer moves first; the list scrolls only when the
     # selected row (with its rule, if it opens a group) would leave the window.
-    # Line numbering mirrors list_lines: one rule per category change.
     set -l top 0
     if test (count $left) -gt $rows
-        set -l line 0; set -l first 0; set -l grp ''
-        for row in $model[1..(math $sel + 1)]
-            set -l c (string split -f2 $TAB -- $row)
-            set first 0
-            if test "$c" != "$grp"
-                set grp $c; set line (math $line + 1); set first $line
-            end
-            set line (math $line + 1)
-        end
-        test $first -eq 0; and set first $line
+        # A sel past the end walks to the last row, as a range would.
+        set -l k (math "min($si, "(count $__tcz_pf_wline)")")
+        set -l line $__tcz_pf_wline[$k]; set -l first $__tcz_pf_wfirst[$k]
         set -q __tcz_pd_top; and set top $__tcz_pd_top
         test $first -le $top; and set top (math $first - 1)
         test $line -gt (math $top + $rows); and set top (math $line - $rows)
