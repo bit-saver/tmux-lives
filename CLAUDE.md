@@ -566,8 +566,9 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
 
 ## Current state — 2026-10-03
 
-**Landing chooser v2** and the theme-picker hardening are merged on `main` and await the user's
-`fisher update` on both machines, then a real-device smoke test (a new ShellFish tab).
+**Landing chooser v2**, the theme-picker hardening and the settle-window fix (`89661c4`) are deployed on
+both machines and confirmed on a real device (2026-10-04). **Next:** the workspace-TUI sidebar (the user
+is drafting a mockup).
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
