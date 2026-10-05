@@ -47,7 +47,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` holds only in-flight plans (none now) — **plans are deleted once
+`docs/superpowers/plans/` holds only in-flight plans (now: chooser v3) — **plans are deleted once
 their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
@@ -564,12 +564,12 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
 
 ---
 
-## Current state — 2026-10-04
+## Current state — 2026-10-05
 
 Everything through the settle-window fix (`89661c4`, last code commit) is deployed on both machines and
-confirmed on a real device (2026-10-04). **Next: chooser v3** — spec approved 2026-10-05 (landing spec: v3
-layout, "Switch mode"); plan it, then build subagent-driven. Mockups: claude-mock `06`–`12`; generator in
-`artifacts/mockgen/chooser-v3/` (rocket only).
+confirmed on a real device (2026-10-04). **Next: build chooser v3** from
+`docs/superpowers/plans/2026-10-05-landing-chooser-v3.md` (6 tasks, subagent-driven), then the
+workspace-TUI sidebar. Mockups: claude-mock `06`–`12`; generator in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
@@ -593,7 +593,7 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 
 - **Theme picker 20 s scroll lockups** (10-02) did not reproduce: suspects iPad network jitter and a busy
   pane redrawn under the popup. An idle picker repaints after a resize only on the next key.
-- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: after chooser v3.
+- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01.
 - **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
   (`has-session` guard).
 - `close`'s help row still says "and exit" (a test pins it); with landing on the tab lands instead.
