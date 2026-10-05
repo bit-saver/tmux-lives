@@ -566,9 +566,10 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
 
 ## Current state — 2026-10-04
 
-**Landing chooser v2**, the theme-picker hardening and the settle-window fix (`89661c4`) are deployed on
-both machines and confirmed on a real device (2026-10-04). **Next:** the workspace-TUI sidebar (the user
-is drafting a mockup).
+Everything through the settle-window fix (`89661c4`, last code commit) is deployed on both machines and
+confirmed on a real device (2026-10-04). **Next: chooser v3** — spec approved 2026-10-05 (landing spec: v3
+layout, "Switch mode"); plan it, then build subagent-driven. Mockups: claude-mock `06`–`12`; generator in
+`artifacts/mockgen/chooser-v3/` (rocket only).
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
@@ -585,15 +586,14 @@ See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
   `__tmux_lives_theme_floor_role` (swap, then nudge; roles lock). ⚠ Do NOT prefer the dark nudge; the
   chroma cost is ACCEPTED — `[[three_bounds_palette_rule]]`.
 - **Mono-only** — `M` → `__tmux_lives_theme_mono_grid` (36 rows); triples are read out of the catalog.
-- **Titles** — OSC **0** to every attached client (iTerm2's tab label follows only OSC 0/1); colour escapes
-  stay terminal-gated. `client-session-changed` titles a new client before `client-attached` fires, so
-  `__tcz_on_attach` has no retitle (`[[tmux_attach_hook_order]]`). A correct bar proves nothing about the title.
+- **Titles** — OSC **0** to every attached client; colour escapes stay terminal-gated
+  (`[[iterm2_tab_titles]]`, `[[tmux_attach_hook_order]]`). A correct bar proves nothing about the title.
 
 ### Open
 
 - **Theme picker 20 s scroll lockups** (10-02) did not reproduce: suspects iPad network jitter and a busy
   pane redrawn under the popup. An idle picker repaints after a resize only on the next key.
-- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: next.
+- **iTerm2 real host** — wanted (`OSC 1337 RemoteHost`), deferred 2026-10-01. Workspace-TUI sidebar: after chooser v3.
 - **Login hardening pending:** a landing session that vanishes before the attach `exec` ends the SSH login
   (`has-session` guard).
 - `close`'s help row still says "and exit" (a test pins it); with landing on the tab lands instead.
