@@ -153,6 +153,16 @@ set -l Lcs (printf '%s\n' $FX | __tcz_popup_list_lines 40 2 cw)
 t "v3 list: the current session under the pointer: ▐ takes the rail cell, the name stays yellow, [current] goes dim" 1 (string match -qr '^▐ cw +\[current\] │ $' -- (vis $Lcs[7]); and string match -q -- (printf '*\e[38;5;179mcw')'*' $Lcs[7]; and string match -q -- (printf '*\e[2m[current]')'*' $Lcs[7]; and echo 1; or echo 0)
 set -l lrow (__tcz_popup_list_row 40 1 '' $FX[1])
 t "v3 list: the drawer draws a row as the list does (selected, boxed)" "$Ls[3]" "$lrow"
+# Only a live row can be current: the older row and an idle project never take the marker, even when a session shares the name.
+function __tcp_iscur --description '1 when argv[1] carries [current] or the current session'"'"'s ❯, else 0'
+    string match -q -- '*[current]*' "$argv[1]"; or string match -q -- '*❯*' "$argv[1]"; and echo 1; or echo 0
+end
+set -l cgO (__tcp_iscur (vis (__tcz_popup_list_row 40 0 older (printf 'older\tolder\t0\t3\tolder (3)'))))
+set -l cgP (__tcp_iscur (vis (__tcz_popup_list_row 40 0 cp (printf 'cp\tprojects\t0\t0\tcp · 2d'))))
+set -l cgL (__tcp_iscur (vis (__tcz_popup_list_row 40 0 older (printf 'older\tgeneral\t0\t0\tolder'))))
+set -l cgB (__tcp_iscur (vis (__tcz_popup_list_row 40 0 cp (printf 'cp\tclaude/projects\t0\t0\tcp'))))
+t "v3 list: only a live row is current -- not the older row (a session named older is current), not an idle project of the same name; a live row, either section, is" "0 0 1 1" "$cgO $cgP $cgL $cgB"
+functions -e __tcp_iscur
 # Narrow and long: rows truncate with …, a marker that leaves the name no room is dropped, and every line keeps the width.
 set -l LN (printf '%s\n' (printf 'averylongsessionname\tclaude/other\t1\t0\taverylongsessionname') (printf 'averylongsession2\tgeneral\t1\t0\taverylongsession2') | __tcz_popup_list_lines 12 0 '')
 set -l lnw
@@ -327,27 +337,27 @@ function __tcz_popup_frame
     __tcp_frame_bak $argv
 end
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lp1 (test (wc -c < $LPOUT) -gt 0; and echo 1; or echo 0)
 set -l lprows (count $__tcz_pe_prev)
 set -l lpborder (string match -q '*─┴─*' -- "$__tcz_pe_prev[23]"; and echo 1; or echo 0)
 set -l lplegend (string match -q '*n*new*r*resume*' -- (vis "$__tcz_pe_prev[24]"); and echo 1; or echo 0)
 t "paint: 24 rows -- the frame, a border with ┴ under the divider, then the legend with n new" "24 1 1" "$lprows $lpborder $lplegend"
-__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lp2rc $status
 set -l lp2bytes (wc -c < $LPOUT | string trim)
 set -l lpbuilt (count (cat $FREC 2>/dev/null))
 t "paint: an unchanged frame is neither rebuilt nor emitted" "1 1 0 1" "$lp1 $lp2rc $lp2bytes $lpbuilt"
 # A move between two project rows: only the rows that differ are emitted.
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 0 24 80 0 -- $LPM > /dev/null
+__tcz_landing_paint 0 24 80 0 landing '' -- $LPM > /dev/null
 set -l fa (__tcp_frame_bak 0 33 46 22 '' -- $LPM)
 set -l fb (__tcp_frame_bak 1 33 46 22 '' -- $LPM)
 set -l fdiff
 for i in (seq (count $fb))
     test "$fa[$i]" = "$fb[$i]"; or set -a fdiff $i
 end
-__tcz_landing_paint 1 24 80 0 -- $LPM > $LPOUT
+__tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lpemitted (string match -rag '\e\[([0-9]+);1H' -- (cat $LPOUT))
 set -l lpfull (string match -q '*'(printf '\e[H')'*' -- (cat $LPOUT | string collect); and echo 1; or echo 0)
 set -l lpsome (test (count $fdiff) -gt 0 -a (count $fdiff) -lt 22; and echo 1; or echo 0)
@@ -358,6 +368,33 @@ functions -c __tcp_frame_bak __tcz_popup_frame
 functions -e __tcp_frame_bak
 rm -f $FREC $LPOUT
 set -e __tcz_lp_key
+
+# --- paint: the badge, and every row of a 100x30 frame ---
+functions -c __tcz_popup_preview __tcp_preview_bak
+function __tcz_popup_preview; printf 'PV-%s\n' $argv[1]; end
+function tmux; end
+set -g BM (printf 'cp\tclaude/projects\t1\t0\tcp') (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
+    (printf 'g1\tgeneral\t0\t0\tg1') (printf 'g2\tgeneral\t0\t0\tg2')
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+__tcz_landing_paint 0 30 100 0 landing '' -- $BM > /dev/null
+set -l bl $__tcz_pe_prev
+set -l bdiv 0
+for r in $bl[1..28]
+    set -l v (vis "$r")
+    test (string length --visible -- (string sub -l 40 -- "$v")) -eq 40; and test (string sub -s 41 -l 1 -- "$v") = '│'; and set bdiv (math $bdiv + 1)
+end
+t "paint 100x30: 30 rows; the list column is 40 wide with the divider at column 41 on all 28 frame rows" "30 28" "$(count $bl) $bdiv"
+t "paint: the landing legend opens with an orange LANDING badge" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;208m LANDING \e[0m')'*' $bl[30]; and echo 1; or echo 0) $(string match -q -- ' LANDING  ↑↓ move*' (vis $bl[30]); and echo 1; or echo 0)"
+t "paint: no esc close on the landing" 0 (string match -q -- '*esc close*' (vis $bl[30]); and echo 1; or echo 0)
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+__tcz_landing_paint 2 30 100 0 switch g1 -- $BM > /dev/null
+set -l sl $__tcz_pe_prev
+t "paint: the switcher's legend opens with a teal SWITCHING badge and ends with esc close" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;37m SWITCHING \e[0m')'*' $sl[30]; and echo 1; or echo 0) $(string match -q -- ' SWITCHING  ↑↓ move*esc close*' (vis $sl[30]); and echo 1; or echo 0)"
+t "paint: the switcher marks the current session" 1 (string match -q -- '*▐ g1*[current]*' (vis "$sl" | string join \n); and echo 1; or echo 0)
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+functions -e tmux __tcz_popup_preview
+functions -c __tcp_preview_bak __tcz_popup_preview
+functions -e __tcp_preview_bak
 
 # --- landing: the preview column for project rows ---
 # __tcz_popup_preview is stubbed to a recorder: a project row must never
@@ -414,12 +451,12 @@ set -l hnew (string match -q '*PV-beta*' -- "$hf3"; and echo 1; or echo 0)
 t "frame: with __tcz_pf_keep the pointer moves and the preview column is reused, not captured" "alpha,beta 1 1" "$hcalls $hkept $hnew"
 function tmux; echo $argv >> $TREC; end
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 0 24 80 0 -- $HM > /dev/null
+__tcz_landing_paint 0 24 80 0 landing '' -- $HM > /dev/null
 rm -f $PREC2 $TREC; touch $PREC2 $TREC
-__tcz_landing_paint 1 24 80 1 -- $HM > /dev/null
+__tcz_landing_paint 1 24 80 1 landing '' -- $HM > /dev/null
 set -l hpheld (cat $TREC | string match -e capture-pane | count)
 set -l hpprev (cat $PREC2 | count)
-__tcz_landing_paint 1 24 80 0 -- $HM > /dev/null
+__tcz_landing_paint 1 24 80 0 landing '' -- $HM > /dev/null
 set -l hpquiet $status
 set -l hpafter (cat $TREC | string match -e capture-pane | count)
 set -l hpprev2 (cat $PREC2 | count)

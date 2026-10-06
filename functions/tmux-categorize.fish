@@ -1708,9 +1708,10 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> -- <model lines...>: paint the landing frame, then a border, then the key legend, through the diff emitter. <hold> = 1 while a move key is held: only the list is rebuilt -- no capture, the preview column kept as it was. Skips building altogether when nothing shown changed (the rows, the pointer, the size, and for a live row its captured pane): returns 1 then.'
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the frame, a border, then the key legend behind its badge (LANDING; SWITCHING and esc close when <mode> is switch) through the diff emitter. <hold> = 1 while a move key is held: no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
     set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]; set -l hold $argv[4]
-    set -e argv[1..5]
+    set -l mode $argv[5]; set -l current $argv[6]
+    set -e argv[1..7]
     set -l model $argv
     set -l lay (__tcz_popup_layout $cols | string split ' ')
     set -l cap
@@ -1719,15 +1720,22 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
         set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
     end
     # <hold> is in the key: the quiet repaint after a hold, same row, must not be skipped.
-    set -l key (string join \n -- $sel $rows $cols $hold $model $cap | string collect)
+    set -l key (string join \n -- $sel $rows $cols $hold "$mode" "$current" $model $cap | string collect)
     if test "$__tcz_pe_force" != 1; and set -q __tcz_lp_key; and test "$key" = "$__tcz_lp_key"
         return 1
     end
     set -g __tcz_lp_key "$key"
     set -g __tcz_pf_keep $hold
-    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) '' -- $model)
+    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" -- $model)
     set -g __tcz_pf_keep 0
-    set -l legend (__tcz_legend_row 10 '↑↓' move '⏎' open n new r resume x kill d detach)
+    # The badge says which app this is: the lander, or the switcher over a session.
+    set -l badge (printf '\e[1;7;38;5;208m LANDING \e[0m')
+    set -l keys '↑↓' move '⏎' open n new r resume x kill d detach
+    if test "$mode" = switch
+        set badge (printf '\e[1;7;38;5;37m SWITCHING \e[0m')
+        set -a keys esc close
+    end
+    set -l legend "$badge"(__tcz_legend_row 10 $keys)
     __tcz_popup_emit $frame (__tcz_landing_border $lay[1] $lay[2] $cols) (__tcz_popup_truncate "$legend" (math $cols - 1))
 end
 
@@ -1770,9 +1778,26 @@ function __tcz_now_ms --description 'milliseconds on a clock for short intervals
     end
 end
 
-function __tcz_landing --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash)'
-    set -l self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+function __tcz_landing --argument-names mode client --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash). `switch <client> [--take]`: the switcher, the same app in a popup over <client>'"'"'s session -- that session marked [current] under the pointer, no settle window; an action, d, q or Esc closes it.'
+    set -l take ''
+    contains -- --take $argv; and set take --take
+    set -l current ''
+    if test "$mode" = switch
+        # display-popup does not expand a format after `--`: resolve the client from inside the popup.
+        if test -z "$client"; or string match -q '*#{*' -- "$client"
+            set client (tmux display-message -p '#{client_name}' 2>/dev/null)
+        end
+        set current (tmux display-message -c "$client" -p '#{client_session}' 2>/dev/null)
+        test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
+    else
+        set mode landing
+        set client ''
+    end
+    # The session this app serves: its own landing session, or the one the switcher opened over.
+    set -l self $current
+    test $mode = landing; and set self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
     set -l TAB (printf '\t')
+    set -l saved (stty -g 2>/dev/null)
     stty -icanon -echo 2>/dev/null
     printf '\e[?25l\e[2J'
     set -g __tcz_pe_prev
@@ -1786,6 +1811,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
     set -l all                        # --all once the older row was opened: until the app restarts
     set -l shown                      # the targets listed when it was opened, to find the first revealed row
     set -l settle 1                   # only moves act until a quiet second after the first paint, 2 s at most
+    test $mode = switch; and set settle 0     # the switcher opens on a keypress: nothing was typed ahead
     set -l settle_t0                  # the first paint, on __tcz_now_ms
     # Idle cadence: once idle_after seconds pass with no key, refresh every idle_refresh seconds (test
     # seams; 60 and 15). `idle` counts read timeouts in deciseconds, so it never runs ahead of the clock.
@@ -1807,6 +1833,16 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             set -l keep (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model[(math $sel + 1)])
             set model (__tcz_landing_model "$self" $all -- $disc)
             set -l at (contains -i -- "$keep" (string replace -r '^([^\t]*\t[^\t]*)\t.*$' '$1' -- $model))
+            if test -z "$keep"; and test -n "$current"
+                # The switcher opens on the current session: a live row, which the older row can share a name with.
+                set -l i 0
+                for r in $model
+                    set i (math $i + 1)
+                    set -l rf (string split -m 2 \t -- $r)
+                    contains -- "$rf[2]" $__tcz_landing_groups older; and continue
+                    test "$rf[1]" = "$current"; and set at $i; and break
+                end
+            end
             if test -n "$at"
                 set sel (math $at - 1)
             else if test $sel -ge (count $model)
@@ -1834,7 +1870,7 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
             set size "$rows $cols"
             set -g __tcz_pe_force 1
         end
-        __tcz_landing_paint $sel $rows $cols $hold -- $model
+        __tcz_landing_paint $sel $rows $cols $hold $mode "$current" -- $model
         set -l tok $pending
         set pending ''
         if test -z "$tok"
@@ -1920,18 +1956,22 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                     continue
                 end
                 set stale 1; set pass 0
-                set -l client (__tcz_landing_client "$self")
-                test -n "$client"; or continue
+                # My client: the switcher's own, or the lander's tab, read at action time.
+                set -l to $client
+                test -n "$to"; or set to (__tcz_landing_client "$self")
+                test -n "$to"; or continue
                 if test $tok = n
-                    __tcz_landing_new_shell $client
+                    __tcz_landing_new_shell $to
                 else if contains -- "$row[2]" $__tcz_landing_groups
                     set -l how continue
                     test $tok = r; and set how resume
-                    __tcz_landing_start $row[1] $how $client
+                    __tcz_landing_start $row[1] $how $to
                 else
                     test $tok = enter; and test -n "$row[1]"; or continue
-                    tmux switch-client -c $client -t "=$row[1]" 2>/dev/null
+                    __tcz_switch $row[1] $to $take
                 end
+                # The switcher closes once it acted.
+                test $mode = switch; and break
                 # Leave once no tab is left here. A failed move leaves this tab
                 # here, and killing an attached landing session would detach it.
                 set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)
@@ -1947,17 +1987,26 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 if test "$ans" = 79; or test "$ans" = 59   # y / Y
                     # Its tabs land on landing, like any closing session.
                     __tcz_session_close $row[1]
+                    # The switcher's own session is gone and its client landed: nothing is left to switch.
+                    test "$row[1]" = "$current"; and break
                 end
                 set stale 1; set pass 0
             case d
                 set stale 1; set pass 0
-                set -l client (__tcz_landing_client "$self")
-                test -n "$client"; and tmux detach-client -t $client 2>/dev/null
+                set -l to $client
+                test -n "$to"; or set to (__tcz_landing_client "$self")
+                test -n "$to"; and tmux detach-client -t $to 2>/dev/null
+                test $mode = switch; and break
                 # A detached client can linger in the list for a moment: leave it out.
-                set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null | string match -v -- "$client")
+                set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null | string match -v -- "$to")
                 test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
+            case cancel
+                # q and Esc close the switcher; on the lander they do nothing.
+                test $mode = switch; and break
         end
     end
+    stty $saved 2>/dev/null
+    printf '\e[?25h'
 end
 
 function __tcz_commandeer --argument-names client session landing --description 'commandeer <client> <session> [landing]: bounce a fresh ShellFish springboard onto a real session, or -- with <landing> = on -- onto a new landing session (default off = today: bounce to a general session)'
@@ -2075,8 +2124,9 @@ function __tcz_popup_list_row --argument-names listwidth sel current row --descr
     else if test "$cat" = older
         set bc 8
     end
+    # Only a live row can be current: the older row and an idle project are no session.
     set -l iscur 0
-    test -n "$current"; and test "$name" = "$current"; and set iscur 1
+    test -n "$current"; and test "$name" = "$current"; and not contains -- "$cat" $__tcz_landing_groups older; and set iscur 1
     set -l mk ''
     if test $iscur -eq 1
         set mk '[current]'
@@ -5244,6 +5294,12 @@ function __tcz_resize_enter --argument-names client --description 'enter the nat
     tmux display-message -d 0 'scratch:  ←→↑↓ resize · h/w split · x close · esc done' 2>/dev/null
 end
 
+function __tcz_quiet_exec --description 're-exec this verb (argv) once with its stderr to /dev/null, for the verbs that draw in a popup: fish writes its own errors past any in-process redirect, and there they would stay on screen. Returns at once when already quiet.'
+    set -q __tcz_quiet; and return 0
+    set -lx __tcz_quiet 1
+    exec sh -c 'exec fish --no-config "$0" "$@" 2>/dev/null' $__tcz_self $argv
+end
+
 function __tcz_main
     # One PASS = one ps snapshot + one global-@option snapshot. Every verb below
     # is normally reached as a one-shot `fish --no-config <script> <verb>`, where
@@ -5274,14 +5330,8 @@ function __tcz_main
         case popup
             __tcz_popup $argv[2..]
         case theme-picker
-            # fish writes its own errors to the process's stderr, past any in-process redirect, and in
-            # a popup they scroll the frame: re-exec once with stderr redirected to /dev/null.
-            if set -q __tcz_thp_quiet
-                __tcz_theme_picker $argv[2..]
-            else
-                set -lx __tcz_thp_quiet 1
-                exec sh -c 'exec fish --no-config "$0" theme-picker "$@" 2>/dev/null' $__tcz_self $argv[2..]
-            end
+            __tcz_quiet_exec $argv
+            __tcz_theme_picker $argv[2..]
         case scratch
             __tcz_scratch $argv[2..]
         case scratch-resize
@@ -5329,7 +5379,9 @@ function __tcz_main
         case landing-new
             __tcz_landing_new $argv[2]
         case landing
-            __tcz_landing
+            # The landing pane's command already sends stderr nowhere; the switcher's popup does not.
+            test "$argv[2]" = switch; and __tcz_quiet_exec $argv
+            __tcz_landing $argv[2..]
         case pane-died
             # argv[3], the hook's session name, is not trusted (see __tcz_pane_died).
             __tcz_pane_died $argv[2]
