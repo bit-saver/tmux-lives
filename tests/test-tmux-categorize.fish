@@ -5238,17 +5238,18 @@ t "no chevron in the picker"  0 (count (string match -ra '❯' -- "$PK2"))
 # lived in __tcz_theme_picker at all — only in __tcz_thp_row/__tcz_thp_off_row
 # (the off_row builder is already gone, checked above) — so it read 0 at the
 # pre-branch commit too and could never have caught a regression. Re-scoped to
-# the WHOLE FILE, minus the two unrelated legitimate uses of the same accent
-# colour (__tcz_popup_list_lines' switcher pointer, __tcz_modal_legend's
-# launcher accent) via awk range-deletion, so a reintroduction anywhere in the
-# picker actually fails this.
+# the WHOLE FILE, minus the three functions allowed the same accent colour
+# (__tcz_popup_list_row's current-session yellow, the list drawer around it,
+# __tcz_modal_legend's launcher accent) via awk range-deletion, so a
+# reintroduction anywhere in the picker actually fails this.
 set -l without179 (awk '
+    /^function __tcz_popup_list_row/ {skip=1}
     /^function __tcz_popup_list_lines/ {skip=1}
     /^function __tcz_modal_legend/ {skip=1}
     skip && /^end$/ {skip=0; next}
     !skip {print}
 ' $plugindir/functions/tmux-categorize.fish | string collect)
-t "switcher-yellow retired (whole file, minus its two legitimate uses)" 0 (count (string match -ra '38;5;179' -- "$without179"))
+t "switcher-yellow retired (whole file, minus its three legitimate uses)" 0 (count (string match -ra '38;5;179' -- "$without179"))
 
 # ---------------------------------------------------------------------
 # fix round: the three consumers of the OLD linear sel range (preview

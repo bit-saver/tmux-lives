@@ -2065,98 +2065,125 @@ function __tcz_popup_truncate --argument-names text width --description 'truncat
     echo -- "$out$rst…"
 end
 
-function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'overview (stdin) -> ANSI visual list: full-width category rules + session rows (pointer on #selidx, markers flush-right at listwidth)'
-    set -l TAB (printf '\t')
-    set -l RST (printf '\e[0m')
-    set -l FGDEF (printf '\e[39m')      # reset fg only (keeps background)
-    set -l DIMON (printf '\e[2m'); set -l DIMOFF (printf '\e[22m')
-    set -l YEL (printf '\e[38;5;179m')
-    set -l ORG (printf '\e[38;5;208m')
-    set -l SELBG (__tcz_theme sel-bg)
+function __tcz_popup_list_row --argument-names listwidth sel current row --description 'pure: one chooser row, exactly <listwidth> columns. A general row spans the list beside the green rail; any other sits in a box of the claude section, between the orange rail and its box'"'"'s rail two columns in. <sel> = 1: the ▐ pointer in its section'"'"'s color, on a band that stops before a box'"'"'s rail. <current>: the session marked [current].'
+    set -l f (string split -m 4 \t -- "$row")
+    set -l name "$f[1]"; set -l cat "$f[2]"; set -l att "$f[3]"; set -l disp "$f[5]"
+    # Section color (rail, pointer); a boxed row's text stops three columns short: a gap, its box's rail, a blank.
+    set -l sc 208; set -l bc 178; set -l textw (math $listwidth - 5)
+    if test "$cat" = general
+        set sc 2; set bc ''; set textw (math $listwidth - 2)
+    else if test "$cat" = older
+        set bc 8
+    end
+    set -l iscur 0
+    test -n "$current"; and test "$name" = "$current"; and set iscur 1
+    set -l mk ''
+    if test $iscur -eq 1
+        set mk '[current]'
+    else if test "$att" = 2
+        set mk '[here]'
+    else if test "$att" = 1
+        set mk '[attached]'
+    end
+    # The marker sits flush right; it is dropped when the name would get no room.
+    set -l namespace $textw
+    if test -n "$mk"
+        set namespace (math $textw - (string length -- "$mk") - 1)
+        if test $namespace -lt 1
+            set mk ''; set namespace $textw
+        end
+    end
+    test $namespace -lt 1; and set namespace 1
+    set -l shown (__tcz_popup_truncate "$disp" $namespace)
+    set -l pad (math $namespace - (string length --visible -- "$shown"))
+    test $pad -lt 0; and set pad 0
+    set -l pads (string repeat -n $pad ' ')
+    # Idle projects are muted (the name, then its age), the older row gray, the current session yellow.
+    set -l text "$shown"
+    if contains -- "$cat" $__tcz_landing_groups
+        set -l nl (string length -- (string replace -r ' · [^·]*$' '' -- "$disp"))
+        set -l nm (string sub -l $nl -- "$shown")
+        set -l age (string sub -s (math $nl + 1) -- "$shown")
+        set text (printf '\e[38;5;247m%s\e[38;5;243m%s\e[39m' "$nm" "$age")
+    else if test "$cat" = older
+        set text (printf '\e[38;5;8m%s\e[39m' "$shown")
+    else if test $iscur -eq 1
+        set text (printf '\e[38;5;179m%s\e[39m' "$shown")
+    end
+    set -l mkpart ''
+    if test -n "$mk"
+        set mkpart (printf ' \e[2m%s\e[22m' $mk)
+        test $iscur -eq 1; and test "$sel" != 1; and set mkpart (printf ' \e[38;5;179m%s\e[39m' $mk)
+    end
+    # The rail cell: the pointer on the band, the current session's ❯, or the section's rail.
+    set -l lead (printf '\e[38;5;%sm│\e[39m ' $sc)
+    test $iscur -eq 1; and set lead (printf '\e[38;5;179m❯\e[39m ')
+    test "$sel" = 1; and set lead (printf '%s\e[38;5;%sm▐\e[39m ' (__tcz_theme sel-bg) $sc)
+    set -l tail (printf '\e[0m')
+    test -n "$bc"; and set tail (printf ' \e[0m\e[38;5;%sm│\e[0m ' $bc)
+    printf '%s%s%s%s%s\n' "$lead" "$text" "$pads" "$mkpart" "$tail"
+end
+
+function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'landing rows (stdin) -> the chooser list, every line <listwidth> wide: the claude section (an orange rail beside a box per directory and the older box), then general; no bottom borders. Pointer on row #<selidx> (-1: none); <current> marked. Records each drawn row, its line and the first line its window keeps in __tcz_pl_row, __tcz_pl_line and __tcz_pl_first.'
     test -n "$listwidth"; and test "$listwidth" -gt 0 2>/dev/null; or set listwidth 30
     test -n "$selidx"; or set selidx 0
-    set -l group ''
-    set -l idx 0
-    while read -l line
-        set -l f (string split -m 4 $TAB -- $line)
+    set -g __tcz_pl_row; set -g __tcz_pl_line; set -g __tcz_pl_first
+    set -l gap (string repeat -n (math "max(0, $listwidth - 3)") ' ')
+    set -l sect ''; set -l box ''; set -l boxc 178; set -l n 0; set -l idx 0
+    while read -l row
+        set -l f (string split -m 4 \t -- $row)
         test (count $f) -ge 5; or continue
-        set -l name "$f[1]"; set -l cat "$f[2]"; set -l att "$f[3]"; set -l disp "$f[5]"
-        set -l c 208
-        test "$cat" = running; and set c 6
-        test "$cat" = general; and set c 2
-        contains -- "$cat" $__tcz_landing_groups; and set c 5    # landing: idle Claude projects, by group
-        test "$cat" = older; and set c 8                         # landing: the older row
-        set -l BORD (printf '\e[38;5;%sm' $c)   # category left-border (non-bold)
-        # category rule (full width to listwidth)
-        if test "$cat" != "$group"
-            set group "$cat"
-            set -l hdr (printf '\e[1;38;5;%sm' $c)
-            set -l word "── $cat "
-            test "$cat" = older; and set word ──       # a plain rule: the row says what it is
-            set -l wl (string length -- "$word")
-            set -l lead (math "1 + $wl")            # corner + word
-            if test $lead -ge $listwidth
-                printf '%s%s%s\n' $hdr (__tcz_popup_truncate "╭$word" $listwidth) $RST
+        set -l rsect claude; set -l rbox (string replace -r '^claude/' '' -- $f[2])
+        if test "$f[2]" = general
+            set rsect general; set rbox ''
+        end
+        set -l first 0
+        # A box ends one row past its last member: its rail, and no corner.
+        if test -n "$box"; and test "$rbox" != "$box"
+            printf '\e[38;5;208m│\e[0m%s\e[38;5;%sm│\e[0m \n' "$gap" $boxc
+            set n (math $n + 1)
+        end
+        if test "$rsect" != "$sect"
+            set -l c 208
+            test $rsect = general; and set c 2
+            set -l lead "╭── $rsect "
+            set -l fill (math $listwidth - (string length -- "$lead"))
+            if test $fill -gt 0
+                set -l rule (string repeat -n $fill ─)
+                printf '\e[1;38;5;%sm%s%s\e[0m\n' $c "$lead" "$rule"
             else
-                printf '%s╭%s%s%s\n' $hdr "$word" (string repeat -n (math "$listwidth - $lead") ─) $RST
+                set -l cut (__tcz_popup_truncate "$lead" $listwidth)
+                printf '\e[1;38;5;%sm%s\e[0m\n' $c "$cut"
             end
+            set n (math $n + 1); set first $n
         end
-        # marker
-        set -l mk ''
-        if test -n "$current"; and test "$name" = "$current"
-            set mk '[current]'
-        else if test "$att" = 2
-            set mk '[here]'                         # landing: attached from this device
-        else if test "$att" = 1
-            set mk '[attached]'
-        end
-        set -l mlen (string length -- "$mk")
-        # name field width = listwidth - 2 (pointer area) - (gap+marker if any)
-        # If the marker + gap would leave no room for the name, drop the marker
-        # instead of overflowing (guarantees every row is exactly listwidth wide).
-        set -l namespace (math "$listwidth - 2")
-        if test $mlen -gt 0
-            set -l ns_with_mk (math "$namespace - $mlen - 1")
-            if test $ns_with_mk -lt 1
-                set mk ''; set mlen 0
-            else
-                set namespace $ns_with_mk
+        if test -n "$rbox"; and test "$rbox" != "$box"
+            # The box rule runs from the rail's gap to the ╮ two columns in, the name centered in it.
+            set boxc 178; set -l word " $rbox "
+            if test "$rbox" = older
+                set boxc 8; set word ''
             end
+            set -l span (math "max(0, $listwidth - 4)")
+            set word (__tcz_popup_truncate "$word" $span)
+            set -l wl (string length --visible -- "$word")
+            set -l lh (math "floor(($span - $wl) / 2)")
+            set -l lrule (string repeat -n $lh ─)
+            set -l rrule (string repeat -n (math $span - $wl - $lh) ─)
+            printf '\e[38;5;208m│\e[0m \e[1;38;5;%sm%s%s%s╮\e[0m \n' $boxc "$lrule" "$word" "$rrule"
+            set n (math $n + 1)
+            test $first -gt 0; or set first $n
         end
-        test $namespace -lt 1; and set namespace 1
-        set -l shown (__tcz_popup_truncate "$disp" $namespace)
-        set -l pad (math "$namespace - "(string length --visible -- "$shown"))
-        test $pad -lt 0; and set pad 0
-        set -l pads (string repeat -n $pad ' ')
-        set -l gap ''; test $mlen -gt 0; and set gap ' '
-        set -l iscur 0; test -n "$current"; and test "$name" = "$current"; and set iscur 1
-        if test "$idx" = "$selidx"
-            # selected row: full-width background band, fg-only color changes
-            set -l nmpart "$shown$pads"
-            test $iscur -eq 1; and set nmpart "$YEL$shown$FGDEF$pads"
-            set -l mkpart ''
-            test $mlen -gt 0; and set mkpart "$gap$DIMON$mk$DIMOFF"
-            printf '%s%s▐%s %s%s%s\n' $SELBG $ORG $FGDEF "$nmpart" "$mkpart" $RST
-        else
-            set -l bchar │
-            set -l bordc $BORD
-            if test $iscur -eq 1
-                set bchar '❯'                              # current: right chevron in the border
-                set bordc $YEL
-            end
-            set -l nmpart "$shown$pads"
-            test $iscur -eq 1; and set nmpart "$YEL$shown$RST$pads"
-            set -l mkpart ''
-            if test $mlen -gt 0
-                if test $iscur -eq 1
-                    set mkpart "$gap$YEL$mk$RST"           # current: yellow [current], no dim/bold
-                else
-                    set mkpart "$gap$DIMON$mk$RST"
-                end
-            end
-            printf '%s%s%s %s%s\n' $bordc $bchar $RST "$nmpart" "$mkpart"
-        end
+        set sect $rsect; set box $rbox
+        set -l s 0
+        test $idx -eq $selidx; and set s 1
+        __tcz_popup_list_row $listwidth $s "$current" "$row"
+        set n (math $n + 1)
+        test $first -gt 0; or set first $n
+        set -a __tcz_pl_row "$row"; set -a __tcz_pl_line $n; set -a __tcz_pl_first $first
         set idx (math $idx + 1)
+    end
+    if test -n "$box"
+        printf '\e[38;5;208m│\e[0m%s\e[38;5;%sm│\e[0m \n' "$gap" $boxc
     end
 end
 
@@ -2337,38 +2364,15 @@ function __tcz_popup_emit --description 'Paint a popup frame differentially: emi
     set -g __tcz_pe_partial 1
 end
 
-function __tcz_popup_list_memo --argument-names listw current --description '__tcz_popup_list_memo <listw> <current> -- <model lines...>: the pointer-free parts of __tcz_popup_frame'"'"'s list, in __tcz_pf_* globals, rebuilt only when an input changes'
+function __tcz_popup_list_memo --argument-names listw current --description '__tcz_popup_list_memo <listw> <current> -- <model lines...>: the pointer-free list and where each row sits (__tcz_pf_left, __tcz_pf_rrow, __tcz_pf_rline, __tcz_pf_rfirst), rebuilt only when an input changes'
     set -e argv[1..3]                  # argv[3] is the literal '--' separator
     set -l key (string join \n -- $listw "$current" $argv | string collect)
     set -q __tcz_pf_lkey; and test "$key" = "$__tcz_pf_lkey"; and return 0
-    set -l TAB (printf '\t')
-    # The list with no row selected.
+    # The list with no row selected; __tcz_popup_list_lines records where each drawn row landed.
     set -g __tcz_pf_left (printf '%s\n' $argv | __tcz_popup_list_lines $listw -1 "$current")
-    # Drawn rows counted as __tcz_popup_list_lines reads them: whole lines of 5+ fields, a rule per new category.
-    set -g __tcz_pf_rrow; set -g __tcz_pf_rline
-    set -l line 0; set -l grp ''
-    for row in (printf '%s\n' $argv)
-        set -l f (string split -m 4 $TAB -- $row)
-        test (count $f) -ge 5; or continue
-        if test "$f[2]" != "$grp"
-            set grp "$f[2]"; set line (math $line + 1)
-        end
-        set line (math $line + 1)
-        set -a __tcz_pf_rrow $row; set -a __tcz_pf_rline $line
-    end
-    # The window walk counts every model row: the selected row's line, and its rule's if it opens a group.
-    set -g __tcz_pf_wline; set -g __tcz_pf_wfirst
-    set line 0; set grp ''
-    for row in $argv
-        set -l c (string split -f2 $TAB -- $row)
-        set -l first 0
-        if test "$c" != "$grp"
-            set grp $c; set line (math $line + 1); set first $line
-        end
-        set line (math $line + 1)
-        test $first -eq 0; and set first $line
-        set -a __tcz_pf_wline $line; set -a __tcz_pf_wfirst $first
-    end
+    set -g __tcz_pf_rrow $__tcz_pl_row
+    set -g __tcz_pf_rline $__tcz_pl_line
+    set -g __tcz_pf_rfirst $__tcz_pl_first
     set -g __tcz_pf_lkey "$key"
 end
 
@@ -2384,15 +2388,15 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     set -l left $__tcz_pf_left
     set -l si (math $sel + 1)
     if set -q __tcz_pf_rline[$si]
-        set left[$__tcz_pf_rline[$si]] (printf '%s\n' $__tcz_pf_rrow[$si] | __tcz_popup_list_lines $listw 0 "$current")[-1]
+        set left[$__tcz_pf_rline[$si]] (__tcz_popup_list_row $listw 1 "$current" "$__tcz_pf_rrow[$si]")
     end
     # Window: the pointer moves first; the list scrolls only when the
-    # selected row (with its rule, if it opens a group) would leave the window.
+    # selected row (with its section or box rule, when it opens one) would leave the window.
     set -l top 0
     if test (count $left) -gt $rows
         # A sel past the end walks to the last row, as a range would.
-        set -l k (math "min($si, "(count $__tcz_pf_wline)")")
-        set -l line $__tcz_pf_wline[$k]; set -l first $__tcz_pf_wfirst[$k]
+        set -l k (math "min($si, "(count $__tcz_pf_rline)")")
+        set -l line $__tcz_pf_rline[$k]; set -l first $__tcz_pf_rfirst[$k]
         set -q __tcz_pd_top; and set top $__tcz_pd_top
         test $first -le $top; and set top (math $first - 1)
         test $line -gt (math $top + $rows); and set top (math $line - $rows)

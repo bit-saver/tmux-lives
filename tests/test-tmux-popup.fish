@@ -84,90 +84,85 @@ t "trunc wide chars after an SGR run"   (printf '\e[32m日本\e[0m…')    (__tc
 # tests/truncate-perf.fish.
 
 # ---------------------------------------------------------------------
-# __tcz_popup_list_lines — full-width rules + flush-right markers + pointer
+# __tcz_popup_list_lines (v3): the claude section (an orange rail beside a gold box per
+# directory and the gray older box), then general; every line exactly listwidth columns
 # ---------------------------------------------------------------------
-set -g OV \
-    (printf 'claude-x\tclaude\t1\t100\tclaude-x') \
-    (printf 'neuro\trunning\t0\t90\tnvim') \
-    (printf 'gen-1\tgeneral\t0\t80\tgen-1  ~/w')
-# selidx 1 (neuro) selected; current = neuro
-set -g L (printf '%s\n' $OV | __tcz_popup_list_lines 30 1 neuro)
-# order: [1]claude rule [2]claude-x row [3]running rule [4]neuro row [5]general rule [6]gen-1 row
-t "rule fills to listwidth 30"        30   (string length (vis $L[1]))
-t "rule starts with category name"    yes  (string match -q '╭── claude *' (vis $L[1]); and echo yes; or echo no)
-t "rule is all box-drawing fill"      yes  (string match -qr "^╭── claude ─+\$" (vis $L[1]); and echo yes; or echo no)
-t "attached row width = listwidth"    30   (string length (vis $L[2]))
-t "attached marker flush-right"       yes  (string match -qr "\[attached\]\$" (vis $L[2]); and echo yes; or echo no)
-t "non-selected row has │ border"     yes  (string match -q '│ *' (vis $L[2]); and echo yes; or echo no)
-t "border is category-colored"        yes  (string match -q '*38;5;208*│*' -- $L[2]; and echo yes; or echo no)
-t "selected row carries ▐ pointer"    yes  (string match -q '*▐*' -- $L[4]; and echo yes; or echo no)
-t "current row marker flush-right"    yes  (string match -qr "\[current\]\$" (vis $L[4]); and echo yes; or echo no)
-t "current row width = listwidth"     30   (string length (vis $L[4]))
-t "plain row padded to listwidth"     30   (string length (vis $L[6]))
-# aesthetics must scale to any width:
-set -g L40 (printf '%s\n' $OV | __tcz_popup_list_lines 40 0 '')
-t "rule scales to listwidth 40"       40   (string length (vis $L40[1]))
-# long name truncates with … when it would collide with the marker:
-set -g OVlong (printf 'supercalifragilistic\trunning\t1\t50\tsupercalifragilisticexpialidocious')
-set -g LL (printf '%s\n' $OVlong | __tcz_popup_list_lines 24 0 '')
-t "long name truncated with ellipsis" yes  (string match -q '*…*' (vis $LL[2]); and echo yes; or echo no)
-t "truncated row still flush-right"   yes  (string match -qr "\[attached\]\$" (vis $LL[2]); and echo yes; or echo no)
-# a display name with a wide char: the row must still be exactly listwidth COLUMNS
-# (padding measured in display columns, not characters)
-set -g OVemoji (printf 'sx\tgeneral\t0\t0\tok✅done')
-set -g LE (printf '%s\n' $OVemoji | __tcz_popup_list_lines 20 0 '')
-t "emoji-name row = listwidth columns" 20 (string length --visible (vis $LE[2]))
-
-# narrow width: marker dropped (not overflowed), row stays exactly listwidth
 set -g TAB (printf '\t')
-set -g OVnarrow (printf 'sess-attached%srunning%s1%s50%saverylongsessionname' $TAB $TAB $TAB $TAB)
-set -g LNarrow (printf '%s\n' $OVnarrow | __tcz_popup_list_lines 12 0 '')
-t "narrow row stays exactly listwidth" 12 (string length (vis $LNarrow[2]))
+set -g FX (printf 'cp\tclaude/projects\t2\t0\tcp · task') \
+    (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
+    (printf 'cw\tclaude/workspace\t1\t0\tcw') \
+    (printf 'older\tolder\t0\t3\t...older (3)') \
+    (printf 'g1\tgeneral\t0\t0\tg1') \
+    (printf 'g2\tgeneral\t1\t0\tg2')
+# Lines: [1] claude rule [2] projects box [3] cp [4] pi [5] rail [6] workspace box [7] cw [8] rail
+# [9] older box [10] ...older (3) [11] rail [12] general rule [13] g1 [14] g2
+set -g L (printf '%s\n' $FX | __tcz_popup_list_lines 40 -1 '')
+set -l lw
+for l in $L; set -a lw (string length --visible -- (vis "$l")); end
+t "v3 list: 14 lines, every one 40 columns" "14 40" "$(count $L) $(printf '%s\n' $lw | sort -u | string join ,)"
+t "v3 list: records each row's line and the first line its window keeps (its section or box rule when it opens one)" "3 4 7 10 13 14|1 4 6 9 12 14" "$__tcz_pl_line|$__tcz_pl_first"
+t "v3 list: the claude rule opens the section, bold orange" 1 (string match -qr '^\e\[1;38;5;208m╭── claude ─+\e\[0m$' -- $L[1]; and echo 1; or echo 0)
+set -l orail (printf '\e[38;5;208m│')
+set -l rail 1
+for i in (seq 2 11)
+    string match -q -- "$orail*" $L[$i]; or set rail 0
+end
+t "v3 list: the orange rail runs down beside the whole claude section (lines 2-11)" 1 $rail
+t "v3 list: a box rule: its name centered, ╮ two columns in" "│ "(string repeat -n 13 ─)" projects "(string repeat -n 13 ─)"╮ " (vis $L[2])
+t "v3 list: the box rule is bold gold" 1 (string match -q -- '*1;38;5;178m*' $L[2]; and echo 1; or echo 0)
+t "v3 list: the next box centers its own name" "│ "(string repeat -n 12 ─)" workspace "(string repeat -n 13 ─)"╮ " (vis $L[6])
+t "v3 list: a box's rail runs one row past its last member, with no corner" "│"(string repeat -n 37 ' ')"│ " (vis $L[5])
+t "v3 list: ... in gold" 1 (string match -q -- '*38;5;178m│*' $L[5]; and echo 1; or echo 0)
+t "v3 list: the older box rule is wordless" "│ "(string repeat -n 36 ─)"╮ " (vis $L[9])
+t "v3 list: ... and bold gray" 1 (string match -q -- '*1;38;5;8m*' $L[9]; and echo 1; or echo 0)
+t "v3 list: the older row reads ...older (3) in gray, beside the gray rail" 1 (string match -q -- '*38;5;8m...older (3)*38;5;8m│*' $L[10]; and echo 1; or echo 0)
+t "v3 list: the general rule opens general, bold green" 1 (string match -qr '^\e\[1;38;5;2m╭── general ─+\e\[0m$' -- $L[12]; and echo 1; or echo 0)
+t "v3 list: a general row spans the list beside the green rail" 1 (string match -qr '^│ g1 +$' -- (vis $L[13]); and string match -q -- (printf '\e[38;5;2m│')'*' $L[13]; and echo 1; or echo 0)
+t "v3 list: a boxed row: the marker flush right, just before the box's rail" 1 (string match -qr '^│ cp · task +\[here\] │ $' -- (vis $L[3]); and echo 1; or echo 0)
+t "v3 list: a general row's marker sits at the list's edge" 1 (string match -qr '^│ g2 +\[attached\]$' -- (vis $L[14]); and echo 1; or echo 0)
+t "v3 list: an idle project is muted -- its name, then its age" 1 (string match -q -- '*38;5;247mpi*38;5;243m · 2d*' $L[4]; and echo 1; or echo 0)
+set -l nobot 1
+for l in $L; string match -qr '[╰╯└┘]' -- $l; and set nobot 0; end
+t "v3 list: no bottom borders anywhere" 1 $nobot
 
-# current session (NOT the selected row): yellow ❯ chevron in the border column +
-# yellow name + flush-right [current]. sel=0 (aaa selected, ▐); current=bbb.
-set -g CURO (printf 'aaa%sgeneral%s0%s0%saaa\nbbb%sgeneral%s0%s0%sbbb' $TAB $TAB $TAB $TAB $TAB $TAB $TAB $TAB)
-set -g CURL (printf '%s\n' $CURO | __tcz_popup_list_lines 30 0 bbb)
-# CURL[1]=general header, CURL[2]=aaa (selected ▐), CURL[3]=bbb (current ❯)
-t "current row border is ❯ chevron"  yes (string match -q '❯ *' (vis $CURL[3]); and echo yes; or echo no)
-t "current row ends with [current]"  yes (string match -qr "\[current\]\$" (vis $CURL[3]); and echo yes; or echo no)
-t "current chevron is muted-yellow"  yes (string match -q '*38;5;179*❯*' -- $CURL[3]; and echo yes; or echo no)
-t "current row width = listwidth"    30  (string length (vis $CURL[3]))
-t "selected row still ▐ (not ❯)"     yes (string match -q '*▐*' -- $CURL[2]; and echo yes; or echo no)
-
-# --- landing: list_lines marks and the landing categories ---
-set -l here (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
-set here (vis "$here" | string join \n)
-t "list_lines: mark 2 renders [here]" 1 (string match -q '*[here]*' -- "$here"; and echo 1; or echo 0)
-set -l att (printf 'alpha\tclaude\t1\t0\talpha\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
-set att (vis "$att" | string join \n)
-t "list_lines: mark 1 still [attached] (non-regression)" 1 (string match -q '*[attached]*' -- "$att"; and echo 1; or echo 0)
-set -l pr (printf '/p/x\tother\t0\t0\tx · 2d\n' | __tcz_popup_list_lines 40 0 '' | string join \n)
-set pr (vis "$pr" | string join \n)
-t "list_lines: a project group's rule reads the group's name" 1 (string match -q '*── other *' -- "$pr"; and echo 1; or echo 0)
-set -g LHERE (printf 'alpha\tclaude\t2\t0\talpha\n' | __tcz_popup_list_lines 40 1 '')
-set -l lhw (string length --visible -- (vis "$LHERE[2]"))
-set -l lhe (string match -qr '\[here\]$' -- (vis "$LHERE[2]"); and echo 1; or echo 0)
-t "list_lines: a [here] row is flush-right at listwidth" "40 1" "$lhw $lhe"
-# [1] projects rule [2] a [3] other rule [4] b [5] older rule [6] older (3)
-set -g LLAND (printf '/h/projects/a\tprojects\t0\t0\ta · 2d\n/h/x/b\tother\t0\t0\tb · 3d\nolder\tolder\t0\t3\tolder (3)\n' | __tcz_popup_list_lines 40 9 '')
-t "list_lines: a project group's rule is color 5" 1 (string match -q '*38;5;5m╭── projects *' -- "$LLAND[1]"; and echo 1; or echo 0)
-set -l lpw (string length --visible -- (vis "$LLAND[1]"))
-set -l lpf (string match -qr '^╭── projects ─+$' -- (vis "$LLAND[1]"); and echo 1; or echo 0)
-t "list_lines: the group rule fills to listwidth" "40 1" "$lpw $lpf"
-t "list_lines: project row border is colour 5" 1 (string match -q '*38;5;5m│*' -- "$LLAND[2]"; and echo 1; or echo 0)
-set -l lpo (string match -qr '^╭── other ─+$' -- (vis "$LLAND[3]"); and echo 1; or echo 0)
-t "list_lines (non-regression): the next group opens its own rule" 1 "$lpo"
-set -l lol8 (string match -q '*38;5;8m╭─*' -- "$LLAND[5]"; and echo 1; or echo 0)
-set -l lolp (string match -qr '^╭─+$' -- (vis "$LLAND[5]"); and echo 1; or echo 0)
-set -l lolr (string match -q '*older (3)*' -- (vis "$LLAND[6]"); and echo 1; or echo 0)
-t "list_lines: the older row sits under a plain color-8 rule and reads older (N)" "1 1 1" "$lol8 $lolp $lolr"
-# [1] general rule [2] a live session named older [3] older rule [4] older (3): the older row is told by category, never by name
-set -g LOLDN (printf 'older\tgeneral\t0\t0\tolder\nolder\tolder\t0\t3\tolder (3)\n' | __tcz_popup_list_lines 40 9 '')
-set -l lon1 (string match -q '*38;5;2m╭── general *' -- "$LOLDN[1]"; and echo 1; or echo 0)
-set -l lon2 (string match -q '*38;5;2m│*' -- "$LOLDN[2]"; and echo 1; or echo 0)
-set -l lon3 (string match -qr '^╭─+$' -- (vis "$LOLDN[3]"); and echo 1; or echo 0)
-t "list_lines: a live session named older keeps its category's rule and color; only the older category gets the plain rule" "1 1 1" "$lon1 $lon2 $lon3"
+# __tcp_band: the first and last visible column drawn on the selection band (__tcz_theme sel-bg)
+function __tcp_band --description '"first-last" columns of argv[1] on the selection band; 0-0 when none'
+    set -l on 0; set -l col 0; set -l first 0; set -l last 0
+    for tok in (string match -ar '\e\[[0-9;]*m|[^\e]' -- "$argv[1]")
+        if string match -qr '^\e\[' -- "$tok"
+            string match -q -- '*48;2;25;25;19*' "$tok"; and set on 1
+            string match -qr '^\e\[(0|49)?m$' -- "$tok"; and set on 0
+            continue
+        end
+        set col (math $col + 1)
+        test $on -eq 1; or continue
+        test $first -eq 0; and set first $col
+        set last $col
+    end
+    echo "$first-$last"
+end
+set -l Ls (printf '%s\n' $FX | __tcz_popup_list_lines 40 0 '')
+t "v3 list: a selected boxed row: an orange ▐, the band stops before the box's rail" "1 1-38" "$(string match -q -- '*38;5;208m▐*' $Ls[3]; and echo 1; or echo 0) $(__tcp_band $Ls[3])"
+set -l Lo (printf '%s\n' $FX | __tcz_popup_list_lines 40 3 '')
+t "v3 list: the older row's pointer is orange (it is in claude)" 1 (string match -q -- '*38;5;208m▐*' $Lo[10]; and echo 1; or echo 0)
+set -l Lg (printf '%s\n' $FX | __tcz_popup_list_lines 40 4 '')
+t "v3 list: a selected general row: a green ▐, the band spans the list" "1 1-40" "$(string match -q -- '*38;5;2m▐*' $Lg[13]; and echo 1; or echo 0) $(__tcp_band $Lg[13])"
+set -l Lc (printf '%s\n' $FX | __tcz_popup_list_lines 40 0 cw)
+t "v3 list: the current session off the pointer: a yellow ❯ in the rail cell, a yellow [current] before the box's rail" 1 (string match -qr '^❯ cw +\[current\] │ $' -- (vis $Lc[7]); and string match -q -- (printf '\e[38;5;179m❯')'*' $Lc[7]; and string match -q -- (printf '*\e[38;5;179m[current]')'*' $Lc[7]; and echo 1; or echo 0)
+set -l Lcs (printf '%s\n' $FX | __tcz_popup_list_lines 40 2 cw)
+t "v3 list: the current session under the pointer: ▐ takes the rail cell, the name stays yellow, [current] goes dim" 1 (string match -qr '^▐ cw +\[current\] │ $' -- (vis $Lcs[7]); and string match -q -- (printf '*\e[38;5;179mcw')'*' $Lcs[7]; and string match -q -- (printf '*\e[2m[current]')'*' $Lcs[7]; and echo 1; or echo 0)
+set -l lrow (__tcz_popup_list_row 40 1 '' $FX[1])
+t "v3 list: the drawer draws a row as the list does (selected, boxed)" "$Ls[3]" "$lrow"
+# Narrow and long: rows truncate with …, a marker that leaves the name no room is dropped, and every line keeps the width.
+set -l LN (printf '%s\n' (printf 'averylongsessionname\tclaude/other\t1\t0\taverylongsessionname') (printf 'averylongsession2\tgeneral\t1\t0\taverylongsession2') | __tcz_popup_list_lines 12 0 '')
+set -l lnw
+for l in $LN; set -a lnw (string length --visible -- (vis "$l")); end
+t "v3 list: at 12 columns every line keeps the width (6 lines)" "6 12" "$(count $LN) $(printf '%s\n' $lnw | sort -u | string join ,)"
+t "v3 list: a narrow row drops its marker and truncates its name" 1 (string match -q -- '*…*' (vis $LN[3]); and not string match -q -- '*attached*' (vis $LN[3]); and echo 1; or echo 0)
+set -l LL (printf 'supercalifragilistic\tclaude/projects\t1\t0\tsupercalifragilisticexpialidocious\n' | __tcz_popup_list_lines 30 -1 '')
+t "v3 list: a long boxed name truncates with … and keeps its marker before the rail" "30 1" "$(string length --visible -- (vis $LL[3])) $(string match -qr '….*\[attached\] │ $' -- (vis $LL[3]); and echo 1; or echo 0)"
+set -l LE (printf 'sx\tgeneral\t0\t0\tok✅done\n' | __tcz_popup_list_lines 20 0 '')
+t "v3 list: a wide-character name keeps the row 20 columns" 20 (string length --visible -- (vis $LE[2]))
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -259,20 +254,12 @@ set -e __tcz_pd_top
 function __tcp_frame_ref --description '__tcp_frame_ref <sel> <listw> <rows> <current> -- <model lines...>'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l rows $argv[3]; set -l current $argv[4]
     set -e argv[1..5]
-    set -l TAB (printf '\t')
+    # The whole list with the pointer drawn in place; the window walked from its own top.
     set -l left (printf '%s\n' $argv | __tcz_popup_list_lines $listw $sel "$current")
     set -l top 0
     if test (count $left) -gt $rows
-        set -l line 0; set -l first 0; set -l grp ''
-        for row in $argv[1..(math $sel + 1)]
-            set -l c (string split -f2 $TAB -- $row)
-            set first 0
-            if test "$c" != "$grp"
-                set grp $c; set line (math $line + 1); set first $line
-            end
-            set line (math $line + 1)
-        end
-        test $first -eq 0; and set first $line
+        set -l k (math "min($sel + 1, "(count $__tcz_pl_line)")")
+        set -l line $__tcz_pl_line[$k]; set -l first $__tcz_pl_first[$k]
         set -q __tcp_ref_top; and set top $__tcp_ref_top
         test $first -le $top; and set top (math $first - 1)
         test $line -gt (math $top + $rows); and set top (math $line - $rows)
@@ -289,13 +276,13 @@ function __tcp_frame_ref --description '__tcp_frame_ref <sel> <listw> <rows> <cu
         printf '%s\e[K\n' "$lseg"
     end
 end
-# 15 rows in seven categories; junk has fewer than 5 fields, so it is drawn by neither, but the window walk counts it.
-set -g MM (printf 'c1\tclaude\t0\t0\tc1') (printf 'c2\tclaude\t0\t0\tc2') (printf 'c3\tclaude\t0\t0\tc3') \
-    (printf 'r1\trunning\t1\t0\trunning one') (printf 'cur\tgeneral\t0\t0\tcur') \
-    (printf 'g2\tgeneral\t2\t0\tg2 with a display long enough to be cut') junk
+# 15 model rows, 14 drawn: junk has fewer than 5 fields and is skipped by both builds.
+set -g MM (printf 'c1\tclaude/projects\t0\t0\tc1') (printf 'c2\tclaude/projects\t0\t0\tc2') \
+    (printf 'c3\tclaude/workspace\t0\t0\tc3')
 for i in 1 2 3 4; set -a MM (printf '/p/w%s\tworkspace\t0\t0\tw%s · 2h' $i $i); end
 for i in 1 2 3; set -a MM (printf '/p/o%s\tother\t0\t0\to%s · 3d' $i $i); end
-set -a MM (printf 'older\tolder\t0\t2\tolder (2)')
+set -a MM (printf 'older\tolder\t0\t2\t...older (2)') (printf 'r1\tgeneral\t1\t0\trunning one') \
+    (printf 'cur\tgeneral\t0\t0\tcur') junk (printf 'g2\tgeneral\t2\t0\tg2 with a display long enough to be cut')
 functions -c __tcz_popup_list_lines __tcp_ll_bak
 set -g LLREC /tmp/tcz-llrec-$fish_pid
 rm -f $LLREC
@@ -315,7 +302,7 @@ end
 set -e __tcz_pd_top; set -e __tcp_ref_top; set -e __tcz_pf_lkey
 for s in (seq 0 14); __tcp_memo_cmp $s 20 cur; end
 for s in (seq 14 -1 0); __tcp_memo_cmp $s 20 cur; end
-set MM[10] (printf '/p/w3\tworkspace\t0\t0\tw3 · 5h')                 # one row's text changes
+set MM[5] (printf '/p/w2\tworkspace\t0\t0\tw2 · 5h')                  # one row's text changes
 for s in 8 9 10; __tcp_memo_cmp $s 20 cur; end
 for s in 4 5; __tcp_memo_cmp $s 20 ''; end                           # the current session changes
 for s in 0 13 14 3 7; __tcp_memo_cmp $s 26 ''; end                   # the width changes; jumps
