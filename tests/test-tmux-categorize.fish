@@ -5239,18 +5239,17 @@ t "no chevron in the picker"  0 (count (string match -ra '❯' -- "$PK2"))
 # lived in __tcz_theme_picker at all — only in __tcz_thp_row/__tcz_thp_off_row
 # (the off_row builder is already gone, checked above) — so it read 0 at the
 # pre-branch commit too and could never have caught a regression. Re-scoped to
-# the WHOLE FILE, minus the three functions allowed the same accent colour
-# (__tcz_popup_list_row's current-session yellow, the list drawer around it,
-# __tcz_modal_legend's launcher accent) via awk range-deletion, so a
-# reintroduction anywhere in the picker actually fails this.
+# the WHOLE FILE, minus the two functions allowed the same accent color
+# (__tcz_popup_list_row's current-session yellow, __tcz_modal_legend's launcher
+# accent) via awk range-deletion, so a reintroduction anywhere in the picker
+# actually fails this.
 set -l without179 (awk '
     /^function __tcz_popup_list_row/ {skip=1}
-    /^function __tcz_popup_list_lines/ {skip=1}
     /^function __tcz_modal_legend/ {skip=1}
     skip && /^end$/ {skip=0; next}
     !skip {print}
 ' $plugindir/functions/tmux-categorize.fish | string collect)
-t "switcher-yellow retired (whole file, minus its three legitimate uses)" 0 (count (string match -ra '38;5;179' -- "$without179"))
+t "switcher-yellow retired (whole file, minus its two legitimate uses)" 0 (count (string match -ra '38;5;179' -- "$without179"))
 
 # ---------------------------------------------------------------------
 # fix round: the three consumers of the OLD linear sel range (preview
@@ -10816,7 +10815,6 @@ for i in (seq 30)
 end
 set onA (__tcg_on $tlA)
 t "app: once the last tab leaves, the landing session goes" "1 " "$tlgone $onA"
-functions -e __tcg_on
 for p in $tlpids; kill $p 2>/dev/null; end
 cleanup
 
@@ -11364,7 +11362,7 @@ command tmux -L $sock source-file $bkconf
 set -l bkf /tmp/tcz-bkf-$fish_pid
 __tcg_kbd_client $bkf a
 set -l bkpids (jobs -p)
-__tcg_client_on a >/dev/null
+set -l bkc (__tcg_client_on a)
 sleep 0.5
 __tcg_type $bkf '\es'
 sleep 1.5
@@ -11372,12 +11370,7 @@ set -l bkproc (ps -A -ww -o args= | string match -e -- "$lcat landing switch" | 
 __tcg_type $bkf j
 sleep 0.4
 __tcg_type $bkf '\r'
-set -l bkon ''
-for i in (seq 30)
-    set bkon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-    test "$bkon" = b; and break
-    sleep 0.1
-end
+set -l bkon (__tcg_swat $bkc b)
 sleep 0.5
 __tcg_type $bkf 'echo POPGONE\r'
 set -l bkgone (__tcg_screen_has "=b:" '*POPGONE*' 30; and echo 1; or echo 0)
@@ -11411,14 +11404,14 @@ __tcg_type $bkf j
 sleep 0.4
 __tcg_type $bkf '\r'
 sleep 1
-set -l bkcl (command tmux -L $sock list-clients -F '#{client_name} #{session_name}')
-set -l bkps (string match -- "$bkp *" $bkcl | string split -f2 ' ')
-set -l bkds (string match -- "$bkd *" $bkcl | string split -f2 ' ')
+set -l bkps (__tcg_on $bkp)
+set -l bkds (__tcg_on $bkd)
 t "switch: the popup opened by a bind serves the client that pressed it, not the newest-attached one (P left a, D still on b)" "1 b" "$(test -n "$bkps" -a "$bkps" != a; and echo 1; or echo 0) $bkds"
 for p in $bkpids; kill $p 2>/dev/null; end
 rm -f $bkconf $bkf
 cleanup
 functions -e __tcg_kbd_client __tcg_type __tcg_where __tcg_room __tcg_at
+functions -e __tcg_swroom __tcg_swstart __tcg_swat __tcg_swgone
 
 # --- idle: a landing idle past its threshold refreshes on the slow cadence ---
 # Seams: idle after 2 s, then every 6 s. The model builder records each refresh.
@@ -11614,7 +11607,7 @@ command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd
 functions -e __tcg_cap __tcg_framed __tcg_shape
-functions -e __tcg_screen_has __tcg_client_on __tcg_wait_detached __tcg_ready
+functions -e __tcg_screen_has __tcg_client_on __tcg_wait_detached __tcg_on __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs

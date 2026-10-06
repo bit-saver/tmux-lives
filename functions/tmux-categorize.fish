@@ -16,6 +16,8 @@ set -g __tcz_self (path resolve (status filename))
 set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' $__tcz_self
 # The chooser's project groups, in display order: a project row's category is its group.
 set -g __tcz_landing_groups projects workspace work other
+# The row categories with no session behind them: an idle project's group, or the older row.
+set -g __tcz_landing_idle_categories $__tcz_landing_groups older
 # Folders that are never a project, with $HOME and $TMPDIR (macOS reports /tmp as /private/tmp),
 # and trees no folder below which is one either. Read by __tcz_generic_dir and discovery's skip.
 set -g __tcz_generic_folders / /tmp /var/tmp /private/tmp /private/var/tmp
@@ -1716,7 +1718,7 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     set -l lay (__tcz_popup_layout $cols | string split ' ')
     set -l cap
     set -l f (string split -m 2 \t -- $model[(math $sel + 1)])
-    if test "$hold" != 1; and test $lay[2] -gt 0; and test -n "$f[1]"; and not contains -- "$f[2]" $__tcz_landing_groups older
+    if test "$hold" != 1; and test $lay[2] -gt 0; and test -n "$f[1]"; and not contains -- "$f[2]" $__tcz_landing_idle_categories
         set cap (tmux capture-pane -e -p -t (__tcz_session_target "$f[1]") 2>/dev/null)
     end
     # <hold> is in the key: the quiet repaint after a hold, same row, must not be skipped.
@@ -1800,7 +1802,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
     end
     # The session this app serves: its own landing session, or the one the switcher opened over.
     set -l self $current
-    test $mode = landing; and set self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
+    test $mode = landing; and set self (__tcz_session_of_pane "$TMUX_PANE")
     set -l saved (stty -g 2>/dev/null)
     stty -icanon -echo 2>/dev/null
     printf '\e[?25l\e[2J'
@@ -1843,7 +1845,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
                 for r in $model
                     set i (math $i + 1)
                     set -l rf (string split -m 2 \t -- $r)
-                    contains -- "$rf[2]" $__tcz_landing_groups older; and continue
+                    contains -- "$rf[2]" $__tcz_landing_idle_categories; and continue
                     test "$rf[1]" = "$current"; and set at $i; and break
                 end
             end
@@ -1982,7 +1984,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
                 test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
             case kill
                 # Live rows only: a project or the older row has no session to kill.
-                test -n "$row[1]"; and not contains -- "$row[2]" $__tcz_landing_groups older; or continue
+                test -n "$row[1]"; and not contains -- "$row[2]" $__tcz_landing_idle_categories; or continue
                 printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$row[1]"
                 set -g __tcz_pe_force 1       # the prompt overwrote the legend
                 stty min 1 time 0 2>/dev/null
@@ -2130,7 +2132,7 @@ function __tcz_popup_list_row --argument-names listwidth sel current row --descr
     end
     # Only a live row can be current: the older row and an idle project are no session.
     set -l iscur 0
-    test -n "$current"; and test "$name" = "$current"; and not contains -- "$cat" $__tcz_landing_groups older; and set iscur 1
+    test -n "$current"; and test "$name" = "$current"; and not contains -- "$cat" $__tcz_landing_idle_categories; and set iscur 1
     set -l mk ''
     if test $iscur -eq 1
         set mk '[current]'
@@ -2466,7 +2468,7 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
         else
             set -l selrow $model[(math $sel + 1)]
             set -l f (string split -m 2 $TAB -- $selrow)
-            if contains -- "$f[2]" $__tcz_landing_groups older
+            if contains -- "$f[2]" $__tcz_landing_idle_categories
                 set right (__tcz_landing_info "$selrow" $prevw $rows)
             else
                 set right (__tcz_popup_preview "$f[1]" $prevw $rows)

@@ -125,12 +125,12 @@ set -l nobot 1
 for l in $L; string match -qr '[╰╯└┘]' -- $l; and set nobot 0; end
 t "v3 list: no bottom borders anywhere" 1 $nobot
 
-# __tcp_band: the first and last visible column drawn on the selection band (__tcz_theme sel-bg)
-function __tcp_band --description '"first-last" columns of argv[1] on the selection band; 0-0 when none'
+function __tcp_band --description '"first-last" columns of argv[1] on the selection band (__tcz_theme sel-bg); 0-0 when none'
+    set -l bg (__tcz_theme sel-bg)
     set -l on 0; set -l col 0; set -l first 0; set -l last 0
     for tok in (string match -ar '\e\[[0-9;]*m|[^\e]' -- "$argv[1]")
         if string match -qr '^\e\[' -- "$tok"
-            string match -q -- '*48;2;25;25;19*' "$tok"; and set on 1
+            test "$tok" = "$bg"; and set on 1
             string match -qr '^\e\[(0|49)?m$' -- "$tok"; and set on 0
             continue
         end
@@ -147,6 +147,7 @@ set -l Lo (printf '%s\n' $FX | __tcz_popup_list_lines 40 3 '')
 t "v3 list: the older row's pointer is orange (it is in claude)" 1 (string match -q -- '*38;5;208m▐*' $Lo[10]; and echo 1; or echo 0)
 set -l Lg (printf '%s\n' $FX | __tcz_popup_list_lines 40 4 '')
 t "v3 list: a selected general row: a green ▐, the band spans the list" "1 1-40" "$(string match -q -- '*38;5;2m▐*' $Lg[13]; and echo 1; or echo 0) $(__tcp_band $Lg[13])"
+functions -e __tcp_band
 set -l Lc (printf '%s\n' $FX | __tcz_popup_list_lines 40 0 cw)
 t "v3 list: the current session off the pointer: a yellow ❯ in the rail cell, a yellow [current] before the box's rail" 1 (string match -qr '^❯ cw +\[current\] │ $' -- (vis $Lc[7]); and string match -q -- (printf '\e[38;5;179m❯')'*' $Lc[7]; and string match -q -- (printf '*\e[38;5;179m[current]')'*' $Lc[7]; and echo 1; or echo 0)
 set -l Lcs (printf '%s\n' $FX | __tcz_popup_list_lines 40 2 cw)
