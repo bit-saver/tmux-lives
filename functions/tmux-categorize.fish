@@ -1728,7 +1728,7 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     set -g __tcz_pf_keep $hold
     set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" -- $model)
     set -g __tcz_pf_keep 0
-    # The badge says which app this is: the lander, or the switcher over a session.
+    # The badge says which mode this is: the landing app, or the switcher over a session.
     set -l badge (printf '\e[1;7;38;5;208m LANDING \e[0m')
     set -l keys '↑↓' move '⏎' open n new r resume x kill d detach
     if test "$mode" = switch
@@ -1779,6 +1779,7 @@ function __tcz_now_ms --description 'milliseconds on a clock for short intervals
 end
 
 function __tcz_landing --argument-names mode client --description 'the landing app: a full-pane chooser that never exits on its own (q and Esc are no-ops; pane-died respawns a crash). `switch <client> [--take]`: the switcher, the same app in a popup over <client>'"'"'s session -- that session marked [current] under the pointer, no settle window; an action, d, q or Esc closes it.'
+    set -l TAB (printf '\t')
     set -l take ''
     contains -- --take $argv; and set take --take
     set -l current ''
@@ -1787,7 +1788,11 @@ function __tcz_landing --argument-names mode client --description 'the landing a
         if test -z "$client"; or string match -q '*#{*' -- "$client"
             set client (tmux display-message -p '#{client_name}' 2>/dev/null)
         end
-        set current (tmux display-message -c "$client" -p '#{client_session}' 2>/dev/null)
+        # display-message -c falls back to the newest client for session formats: read the client's session off the list.
+        for line in (tmux list-clients -F "#{client_name}$TAB#{client_session}" 2>/dev/null)
+            set -l f (string split -m 1 $TAB -- $line)
+            test "$f[1]" = "$client"; and set current $f[2]
+        end
         test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
     else
         set mode landing
@@ -1796,7 +1801,6 @@ function __tcz_landing --argument-names mode client --description 'the landing a
     # The session this app serves: its own landing session, or the one the switcher opened over.
     set -l self $current
     test $mode = landing; and set self (tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)
-    set -l TAB (printf '\t')
     set -l saved (stty -g 2>/dev/null)
     stty -icanon -echo 2>/dev/null
     printf '\e[?25l\e[2J'
@@ -1956,7 +1960,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
                     continue
                 end
                 set stale 1; set pass 0
-                # My client: the switcher's own, or the lander's tab, read at action time.
+                # My client: the switcher's own, or the landing tab's, read at action time.
                 set -l to $client
                 test -n "$to"; or set to (__tcz_landing_client "$self")
                 test -n "$to"; or continue
@@ -2001,7 +2005,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
                 set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null | string match -v -- "$to")
                 test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
             case cancel
-                # q and Esc close the switcher; on the lander they do nothing.
+                # q and Esc close the switcher; in landing mode they do nothing.
                 test $mode = switch; and break
         end
     end

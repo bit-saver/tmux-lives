@@ -9572,11 +9572,12 @@ cleanup
 # --- landing: pane-died close path (real client) ---
 set -l lcat $plugindir/functions/tmux-categorize.fish
 fresh_server
-command tmux -L $sock new-session -d -s victim -x 80 -y 24 'sleep 2'
+# The option and the hooks go first: a victim that dies before the hook exists stays a dead pane.
 command tmux -L $sock set -g remain-on-exit on
 command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $lcat pane-died '#{pane_id}' '#{session_name}'\""
 set -l seen /tmp/tcz-seen-$fish_pid; rm -f $seen
 command tmux -L $sock set-hook -g client-session-changed "run-shell 'echo #{session_name} >> $seen'"
+command tmux -L $sock new-session -d -s victim -x 80 -y 24 'sleep 2'
 # SHELL=/bin/sh: `script -c` runs the command through $SHELL, and when that is
 # zsh (this sandbox's Bash-tool shell, not the user's login shell) its unquoted
 # equals-expansion reads "=victim" as a command-path lookup and aborts before
@@ -10148,6 +10149,9 @@ function __tcg_client_on --argument-names name --description 'poll (≤ 5 s) for
     end
     return 1
 end
+function __tcg_on --argument-names client --description 'the session <client> is on, or nothing'
+    command tmux -L $sock list-clients -F '#{client_name} #{session_name}' 2>/dev/null | string match -- "$client *" | string split -f2 ' '
+end
 function __tcg_ready --argument-names target glob --description 'poll for the chooser (<glob>), then wait out the app'"'"'s settle window: input in its first second after the first paint is drained'
     __tcg_screen_has $target $glob 80; or return 1
     sleep 1.5
@@ -10433,104 +10437,143 @@ cleanup
 
 # --- switch mode: the landing app as the switcher, run in a pane for a real client ---
 # - client C sits on session a; the app runs in its own session sw, so capture-pane and send-keys reach it
-# - a claude session cl lists first, so a pointer that did not start on the current session (a) cannot pass
-# - general rows: a (attached, most recent), then b and sw by name
-fresh_server
-set -l pj $tmux_lives_claude_projects_dir
-rm -rf $pj; rm -f $tmux_lives_project_cache
-command tmux -L $sock new-session -d -s a -c /tmp
-command tmux -L $sock new-session -d -s b -c /tmp
-command tmux -L $sock new-session -d -s cl -c /tmp "$shimdir/claude --name cl"
-command tmux -L $sock kill-session -t =0
-# - the client is 100 wide: a detached session's size follows the attached client, and at 80 columns the legend's esc close is cut
-sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "stty cols 100 rows 30; tmux attach -t =a" /dev/null >/dev/null 2>&1 &
+# - a second client D attaches to b after C: the general rows read b, a, sw, so C's session is neither the first row nor the
+#   first general row, and a pointer that starts anywhere but on the current session cannot pass
+# - the clients are 100 wide: a detached session follows the attached clients' size, and at 80 columns the legend's esc close is cut
+function __tcg_swroom --argument-names here --description 'a fresh server with <here>, b and the claude session cl, no projects; a client C on <here> (its name in __tcg_swc), then a client D on b (__tcg_swd), so b is the newest session. Both clients are background jobs.'
+    fresh_server
+    rm -rf $tmux_lives_claude_projects_dir; rm -f $tmux_lives_project_cache
+    command tmux -L $sock new-session -d -s $here -c /tmp
+    command tmux -L $sock new-session -d -s b -c /tmp
+    command tmux -L $sock new-session -d -s cl -c /tmp "$shimdir/claude --name cl"
+    command tmux -L $sock kill-session -t =0
+    sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "stty cols 100 rows 30; tmux attach -t =$here" /dev/null >/dev/null 2>&1 &
+    set -g __tcg_swc (__tcg_client_on $here)
+    sleep 1.2
+    sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "stty cols 100 rows 30; tmux attach -t =b" /dev/null >/dev/null 2>&1 &
+    set -g __tcg_swd (__tcg_client_on b)
+end
+function __tcg_swstart --argument-names cat --description 'run the switcher for client C in its own session sw: <categorizer file> [switch args...]'
+    command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $cat landing switch $__tcg_swc $argv[2..]
+end
+function __tcg_swat --argument-names client glob --description 'poll (≤ 3 s) until <client> is on a session matching <glob> (empty: on none); print that session, or gone'
+    set -l at ''
+    for i in (seq 30)
+        set at (__tcg_on $client)
+        test -n "$glob"; and string match -q -- "$glob" "$at"; and break
+        test -z "$glob"; and test -z "$at"; and break
+        sleep 0.1
+    end
+    test -n "$at"; and echo $at; or echo gone
+end
+function __tcg_swgone --description 'poll (≤ 3 s) until the switcher session sw is gone; print 1 when it is, else 0'
+    for i in (seq 30)
+        command tmux -L $sock has-session -t =sw 2>/dev/null; or begin; echo 1; return 0; end
+        sleep 0.1
+    end
+    echo 0
+end
+__tcg_swroom a
 set -l swpids (jobs -p)
-set -l swc (__tcg_client_on a)
-command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $lcat landing switch $swc
+set -l swc $__tcg_swc
+__tcg_swstart $lcat
 set -l swdrawn (__tcg_screen_has "=sw:" '*SWITCHING*' 80; and echo 1; or echo 0)
 set -l swscr (command tmux -L $sock capture-pane -p -t "=sw:")
 set -l swcur (string match -q -- '*▐ a *[current]*' $swscr; and echo 1; or echo 0)
 set -l swesc (string match -q -- '*esc close*' $swscr; and echo 1; or echo 0)
-t "switch: the SWITCHING badge and esc close; the current session marked [current] with the pointer on it" "1 1 1" "$swdrawn $swesc $swcur"
-# No settle window: a move and an Enter sent together right after the first paint both act (the lander would drain the Enter).
-command tmux -L $sock send-keys -t "=sw:" j Enter
-set -l swon ''
-for i in (seq 30)
-    set swon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-    test "$swon" = b; and break
-    sleep 0.1
-end
-set -l swgone (command tmux -L $sock has-session -t =sw 2>/dev/null; and echo 0; or echo 1)
-t "switch: no settle window -- j then Enter right after it opens move the client to b, and the switcher exits" "b 1" "$swon $swgone"
-# Each case below starts from its own state, so one failing case cannot fail the next: no old switcher, the client on b.
-command tmux -L $sock kill-session -t =sw 2>/dev/null
-command tmux -L $sock switch-client -c $swc -t =b
-command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $lcat landing switch $swc
-__tcg_screen_has "=sw:" '*SWITCHING*' 80 >/dev/null
+t "switch: the SWITCHING badge and esc close; the current session (the second general row) marked [current] with the pointer on it" "1 1 1" "$swdrawn $swesc $swcur"
+# No settle window: a move and an Enter sent together right after the first paint both act (the landing app would drain the Enter).
+command tmux -L $sock send-keys -t "=sw:" k Enter
+set -l swon (__tcg_swat $swc b)
+t "switch: no settle window -- k then Enter right after it opens move the client up to b, and the switcher exits" "b 1" "$swon $(__tcg_swgone)"
+for p in $swpids; kill $p 2>/dev/null; end
+cleanup
+
+# - Esc after a move: an Esc that acted like Enter would take the client to sw
+__tcg_swroom a
+set -l swpids (jobs -p)
+set -l swc $__tcg_swc
+__tcg_swstart $lcat
+__tcg_screen_has "=sw:" '*▐ a *[current]*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=sw:" j
+__tcg_screen_has "=sw:" '*▐ sw*' 30 >/dev/null
 command tmux -L $sock send-keys -t "=sw:" Escape
-sleep 1
-set -l sweon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-set -l swegone (command tmux -L $sock has-session -t =sw 2>/dev/null; and echo 0; or echo 1)
-t "switch: Esc closes it, the client unmoved" "b 1" "$sweon $swegone"
-command tmux -L $sock kill-session -t =sw 2>/dev/null
-command tmux -L $sock switch-client -c $swc -t =b
-command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $lcat landing switch $swc
-__tcg_screen_has "=sw:" '*▐ b *[current]*' 80 >/dev/null
+set -l swegone (__tcg_swgone)
+t "switch: Esc closes it, the client unmoved (after a move, so an Esc that acted like Enter would show)" "a 1" "$(__tcg_swat $swc a) $swegone"
+for p in $swpids; kill $p 2>/dev/null; end
+cleanup
+
+# - x on the current session: the pointer must have started on it (a, not b, the first general row)
+__tcg_swroom a
+set -l swpids (jobs -p)
+set -l swc $__tcg_swc
+__tcg_swstart $lcat
+__tcg_screen_has "=sw:" '*▐ a *[current]*' 80 >/dev/null
 command tmux -L $sock send-keys -t "=sw:" x
-__tcg_screen_has "=sw:" '*kill b ?*' 30 >/dev/null
+__tcg_screen_has "=sw:" '*kill a ?*' 30 >/dev/null
 command tmux -L $sock send-keys -t "=sw:" y
-set -l swxon ''
-for i in (seq 30)
-    set swxon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
-    string match -q '_landing-*' -- "$swxon"; and break
-    sleep 0.1
-end
-set -l swxl (string match -q '_landing-*' -- "$swxon"; and echo 1; or echo 0)
-set -l swxb (command tmux -L $sock has-session -t =b 2>/dev/null; and echo 0; or echo 1)
-set -l swxgone (command tmux -L $sock has-session -t =sw 2>/dev/null; and echo 0; or echo 1)
-t "switch: x on the current session closes it the landing way -- this client lands -- and the switcher exits" "1 1 1" "$swxl $swxb $swxgone"
+set -l swxl (string match -q '_landing-*' -- (__tcg_swat $swc '_landing-*'); and echo 1; or echo 0)
+set -l swxa (command tmux -L $sock has-session -t =a 2>/dev/null; and echo 0; or echo 1)
+set -l swxb (command tmux -L $sock has-session -t =b 2>/dev/null; and echo 1; or echo 0)
+t "switch: x on the current session closes it the landing way -- this client lands, b stays -- and the switcher exits" "1 1 1 1" "$swxl $swxa $swxb $(__tcg_swgone)"
+for p in $swpids; kill $p 2>/dev/null; end
+cleanup
+
+# - d detaches this client, leaves the session and the other client, and closes the switcher
+__tcg_swroom a
+set -l swpids (jobs -p)
+set -l swc $__tcg_swc
+__tcg_swstart $lcat
+__tcg_screen_has "=sw:" '*SWITCHING*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=sw:" d
+set -l swdc (__tcg_swat $swc '')
+set -l swda (command tmux -L $sock has-session -t =a 2>/dev/null; and echo 1; or echo 0)
+t "switch: d detaches the client, a and the other client stay, and the switcher exits" "gone 1 b 1" "$swdc $swda $(__tcg_on $__tcg_swd) $(__tcg_swgone)"
+for p in $swpids; kill $p 2>/dev/null; end
+cleanup
+
+# - --take: the move also detaches the other clients of the target (D, on b)
+__tcg_swroom a
+set -l swpids (jobs -p)
+set -l swc $__tcg_swc
+__tcg_swstart $lcat --take
+__tcg_screen_has "=sw:" '*▐ a *[current]*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=sw:" k Enter
+set -l swton (__tcg_swat $swc b)
+t "switch: --take moves the client to b and detaches the client that was on b" "b gone" "$swton $(__tcg_swat $__tcg_swd '')"
 for p in $swpids; kill $p 2>/dev/null; end
 cleanup
 
 # - a live session named like the older row: the pointer opens on the session (told by category), not on the older row
-fresh_server
 set -l pj $tmux_lives_claude_projects_dir
 set -l swo /tmp/tcz-sw-old-$fish_pid
-rm -rf $pj $swo; rm -f $tmux_lives_project_cache
-mkdir -p $pj/-old $swo
+__tcg_swroom older
+set -l swpids (jobs -p)
+rm -rf $swo; mkdir -p $pj/-old $swo
 printf '{"cwd":"%s"}\n' $swo > $pj/-old/s.jsonl
 touch -d '30 days ago' $pj/-old/s.jsonl
-command tmux -L $sock new-session -d -s older -c /tmp
-command tmux -L $sock kill-session -t =0
-sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "stty cols 100 rows 30; tmux attach -t =older" /dev/null >/dev/null 2>&1 &
-set -l swopids (jobs -p)
-set -l swoc (__tcg_client_on older)
-command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $lcat landing switch $swoc
+__tcg_swstart $lcat
 __tcg_screen_has "=sw:" '*SWITCHING*' 80 >/dev/null
 set -l swoscr (command tmux -L $sock capture-pane -p -t "=sw:")
 set -l swoold (string match -q -- '*...older (1)*' $swoscr; and echo 1; or echo 0)
 set -l swoat (string match -q -- '*▐ older *[current]*' $swoscr; and echo 1; or echo 0)
 t "switch: a session named older is current -- the older row is listed, and the pointer opens on the session, not on that row" "1 1" "$swoold $swoat"
-for p in $swopids; kill $p 2>/dev/null; end
+for p in $swpids; kill $p 2>/dev/null; end
 rm -rf $pj $swo $tmux_lives_project_cache
 cleanup
 
 # - fish's own errors never reach the switcher's popup: a copy of the categorizer whose paint raises one after every frame
-fresh_server
 set -l swq /tmp/tcz-swq-$fish_pid.fish
 string replace -- '"$legend" (math $cols - 1))' '"$legend" (math $cols - 1)); __tcg_probe_nosuchcmd' < $lcat > $swq
 set -l swqinj (string match -e '__tcg_probe_nosuchcmd' < $swq | count)
-command tmux -L $sock new-session -d -s a -c /tmp
-command tmux -L $sock kill-session -t =0
-sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "stty cols 100 rows 30; tmux attach -t =a" /dev/null >/dev/null 2>&1 &
-set -l swqpids (jobs -p)
-set -l swqc (__tcg_client_on a)
-command tmux -L $sock new-session -d -s sw -x 100 -y 30 -c /tmp fish --no-config $swq landing switch $swqc
+__tcg_swroom a
+set -l swpids (jobs -p)
+__tcg_swstart $swq
 set -l swqdrawn (__tcg_screen_has "=sw:" '*SWITCHING*' 80; and echo 1; or echo 0)
 sleep 1
 set -l swqleak (command tmux -L $sock capture-pane -p -t "=sw:" | string match -e 'nosuchcmd' | count)
 t "switch: a fish error in its loop never reaches the screen (injected after every frame; the frame drawn; no error text)" "1 1 0" "$swqinj $swqdrawn $swqleak"
-for p in $swqpids; kill $p 2>/dev/null; end
+for p in $swpids; kill $p 2>/dev/null; end
 rm -f $swq
 cleanup
 
@@ -10752,9 +10795,6 @@ end
 set -l tlpids (jobs -p)
 set -l tlA $tlnames[1]; set -l tlB $tlnames[2]; set -l tlC $tlnames[3]
 __tcg_screen_has "=$tl:" '*d detach*' 80 >/dev/null
-function __tcg_on --argument-names client --description 'the session <client> is on, or nothing'
-    command tmux -L $sock list-clients -F '#{client_name} #{session_name}' 2>/dev/null | string match -- "$client *" | string split -f2 ' '
-end
 command tmux -L $sock send-keys -t "=$tl:" d
 set -l onC x
 for i in (seq 30)

@@ -387,10 +387,15 @@ t "paint 100x30: 30 rows; the list column is 40 wide with the divider at column 
 t "paint: the landing legend opens with an orange LANDING badge" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;208m LANDING \e[0m')'*' $bl[30]; and echo 1; or echo 0) $(string match -q -- ' LANDING  ↑↓ move*' (vis $bl[30]); and echo 1; or echo 0)"
 t "paint: no esc close on the landing" 0 (string match -q -- '*esc close*' (vis $bl[30]); and echo 1; or echo 0)
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
-__tcz_landing_paint 2 30 100 0 switch g1 -- $BM > /dev/null
+__tcz_landing_paint 2 30 100 0 switch g2 -- $BM > /dev/null
 set -l sl $__tcz_pe_prev
 t "paint: the switcher's legend opens with a teal SWITCHING badge and ends with esc close" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;37m SWITCHING \e[0m')'*' $sl[30]; and echo 1; or echo 0) $(string match -q -- ' SWITCHING  ↑↓ move*esc close*' (vis $sl[30]); and echo 1; or echo 0)"
-t "paint: the switcher marks the current session" 1 (string match -q -- '*▐ g1*[current]*' (vis "$sl" | string join \n); and echo 1; or echo 0)
+# The pointer is on g1 and the current session is g2: the marker follows <current>, not the pointer.
+set -l slv
+for r in $sl[1..28]; set -a slv (vis "$r"); end
+set -l slptr (string match -- '*▐ g1*' $slv)
+set -l slcur (string match -- '*[current]*' $slv)
+t "paint: the switcher marks the current session (g2, off the pointer) and not the pointer row (g1)" "1 0 1 1" "$(count $slptr) $(string match -q -- '*[current]*' $slptr; and echo 1; or echo 0) $(count $slcur) $(string match -q -- '*❯ g2*[current]*' $slcur; and echo 1; or echo 0)"
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 functions -e tmux __tcz_popup_preview
 functions -c __tcp_preview_bak __tcz_popup_preview
