@@ -220,8 +220,8 @@ the `LC_TERMINAL` check), and `&&` makes it **fail closed** (a bare `! tmux … 
 - `__tcz_ps_load` — one `ps` snapshot pair per pass, feeding all pid helpers.
 
 ⚠ **Both flush functions must use a GLOB, never a regex:** `string match -r` with a prefix pattern returns
-the matched **substring**, so it erased only a variable literally named `__tcz_tmux_` (shipped once in
-`__tcz_ps_flush`).
+the matched **substring**, so it erased only a variable literally named `__tcz_tmux_` and silently left every
+real entry (shipped once in `__tcz_ps_flush`).
 
 **Staleness rule:** a memoized read is stale the moment something in the same pass writes what it reads.
 Flush **after the write**, not before each read — a flush-per-read-site rule is easy to omit and
@@ -455,10 +455,9 @@ match (it left the bar's ✦ empty on every macwork session).
 - **The agent Bash tool runs zsh.** A non-matching glob **aborts the whole command** (`rm -rf a/* b/*` can
   silently no-op) — use `find … -delete`. MULTIOS also leaks stdout into a stderr-only pipe count; wrap
   in `bash -c '…'`.
-- **Never `find /` on this host** — two CIFS mounts park a whole-fs scan in uninterruptible D state
-  (even SIGKILL sits pending).
-- **The code-review-graph MCP indexes 0 files here** — no fish parser exists; the global "use the graph
-  before Grep" rule does not apply in this repo.
+- **Never `find /` on this host** — two CIFS mounts park a whole-fs scan in uninterruptible D state.
+- **The code-review-graph MCP indexes 0 files here** (no fish parser): the global "use the graph before
+  Grep" rule does not apply in this repo.
 - **When a subagent is editing a file, measure from `git show`, not the worktree** — a mid-edit
   measurement can be off by 100+ bytes and defer a real defect.
 
@@ -543,8 +542,9 @@ per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `gener
   reuses the last preview.
 - **v3** — the model's category carries the layout: `claude/<group>` live claude, `<group>` idle, `older`,
   `general` (running folded in, last). `__tcz_popup_list_row` draws a row; `__tcz_popup_list_lines` records
-  `__tcz_pl_row/_line/_first`, which the memo and frame read. `landing switch <client> [--take]` = the
-  switcher: no settle, Esc/actions close it, `x` on the current session lands the client; badge per mode.
+  `__tcz_pl_row/_line/_first`, which `__tcz_popup_list_memo` copies to `__tcz_pf_rrow/_rline/_rfirst` for the
+  frame. `landing switch <client> [--take]` = the switcher: no settle, Esc/actions close it, `x` on the
+  current session lands the client; badge per mode.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
@@ -567,7 +567,7 @@ per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `gener
 
 ## Current state — 2026-10-06
 
-Chooser v2 (through `89661c4`) is deployed and device-confirmed (2026-10-04). **Chooser v3 built (merged
+Chooser v2 is deployed and device-confirmed (2026-10-04). **Chooser v3 built (merged
 `<sha>` — filled in at merge), awaiting `fisher update` on both machines;** then the workspace-TUI sidebar.
 Mockups: claude-mock `06`–`12`; generator in `artifacts/mockgen/chooser-v3/`.
 

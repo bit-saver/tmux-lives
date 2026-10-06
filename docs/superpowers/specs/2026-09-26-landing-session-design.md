@@ -97,7 +97,7 @@ Keys:
 
 Refresh: re-snapshot live sessions every 3 s while idle (the key read times out) and immediately after any action. Once 60 s pass with no keypress, the read waits 15 s instead: an idle tab cost ~1.5% of a core at 3 s and ~0.3% at 15 s (measured on a two-session test server). Every key counts, including moves, actions and drained bursts, since a person is there; the key that ends an idle spell refreshes at once, the idle-project list included, and restores 3 s. The idle time is the app's own sum of read timeouts since its last key, so it needs no clock and no tmux call, and it can only run late, by the refresh work between reads (measured: 15 s refreshes began 62.5 s after the last key). Test seams `tmux_lives_landing_idle_after` and `tmux_lives_landing_idle_refresh` (seconds, defaults 60 and 15) are read at app start. The idle-project list is re-read only every 10th pass and after an action (running claude panes are still checked every pass), so a newly idle project can show up to 30 s late, or 150 s on an idle tab. The frame goes through the popup's diff emitter and is skipped when nothing shown changed: an idle refresh writes nothing to the terminal.
 
-Switching: `switch-client -c <my client> -t =<target>`, where my client is `list-clients -t =<my session>: -F '#{client_name}'`, read at action time. Then kill my own session.
+Switching: `switch-client -c <my client> -t =<target>`, where my client is, in landing mode, the most recently active client attached to my session (`__tcz_landing_client`, read at action time; a tab can share the session through a GUI session list or a hand attach), and in switch mode the client the switcher was opened for. Then kill my own session.
 
 ## Switch mode (v3)
 
