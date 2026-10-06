@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | open-switcher <client> | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | landing [switch <client> [--take]] | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -1321,6 +1321,10 @@ function __tcz_session_close --argument-names session --description 'close <sess
     return 0
 end
 
+function __tcz_landing_ready --description 'true iff this server carries the landing-on pane-died hook (a window hook, hence -gw), which cleans up what __tcz_session_close makes; the server-side counterpart of __tmux_landing_ready. show-hooks also lists unset hook names, so only the pane-died[N] form that runs the categorizer verb counts.'
+    tmux show-hooks -gw 2>/dev/null | string match -qr '^pane-died\[\d+\] .* pane-died '
+end
+
 function __tcz_landing_evict --argument-names pane session --description 'a window/split opened in a landing session: give its client a real session in $HOME instead, then drop the extra pane'
     __tcz_is_landing $session; or return 0
     # No client, no new session: it would only sit there idle.
@@ -1790,7 +1794,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
         if test -z "$client"; or string match -q '*#{*' -- "$client"
             set client (tmux display-message -p '#{client_name}' 2>/dev/null)
         end
-        # display-message -c falls back to the newest client for session formats: read the client's session off the list.
+        # display-message -c ignores the client for any format and answers for the newest one: read the client's session off the list.
         for line in (tmux list-clients -F "#{client_name}$TAB#{client_session}" 2>/dev/null)
             set -l f (string split -m 1 $TAB -- $line)
             test "$f[1]" = "$client"; and set current $f[2]
@@ -1991,9 +1995,14 @@ function __tcz_landing --argument-names mode client --description 'the landing a
                 set -l ans ''
                 dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read ans
                 if test "$ans" = 79; or test "$ans" = 59   # y / Y
-                    # Its tabs land on landing, like any closing session.
-                    __tcz_session_close $row[1]
-                    # The switcher's own session is gone and its client landed: nothing is left to switch.
+                    if __tcz_landing_ready
+                        # Its tabs land on landing, like any closing session.
+                        __tcz_session_close $row[1]
+                    else
+                        # Landing off: its tabs detach, as __tmux_lives_close does.
+                        tmux set-option -t (__tcz_session_target $row[1]) detach-on-destroy on \; kill-session -t "=$row[1]" 2>/dev/null
+                    end
+                    # The switcher's own session is gone and its client landed or detached: nothing is left to switch.
                     test "$row[1]" = "$current"; and break
                 end
                 set stale 1; set pass 0

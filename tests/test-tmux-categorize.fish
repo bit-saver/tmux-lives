@@ -9588,6 +9588,19 @@ t "close: client never visited another session" "" "$pdvisited"
 kill $last_pid 2>/dev/null; rm -f $seen
 cleanup
 
+# --- landing: the server's landing-on wiring is the pane-died hook that runs the categorizer ---
+# show-hooks lists the bare hook name even when unset, and a hook of the user's own is not the landing one.
+fresh_server
+set -l lrbare (command tmux -L $sock show-hooks -gw | string match -r '^pane-died.*')
+t "landing ready: a fresh server lists the bare hook name, and is not ready" "pane-died 1" "$lrbare $(__tcz_landing_ready; echo $status)"
+command tmux -L $sock set-hook -g pane-died "run-shell 'echo mine'"
+set -l lrown (command tmux -L $sock show-hooks -gw | string match -r '^pane-died\[.*' | count)
+t "landing ready: a pane-died hook of the user's own is not the landing one" "1 1" "$lrown $(__tcz_landing_ready; echo $status)"
+command tmux -L $sock set-hook -gu pane-died
+command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $lcat pane-died '#{pane_id}' '#{session_name}'\""
+t "landing ready: the hook that runs the categorizer's pane-died verb is" 0 (__tcz_landing_ready; echo $status)
+cleanup
+
 # --- landing: a non-last pane dies -> only that pane goes ---
 fresh_server
 command tmux -L $sock set -g remain-on-exit on
@@ -10151,6 +10164,10 @@ end
 function __tcg_on --argument-names client --description 'the session <client> is on, or nothing'
     command tmux -L $sock list-clients -F '#{client_name} #{session_name}' 2>/dev/null | string match -- "$client *" | string split -f2 ' '
 end
+function __tcg_wiring --argument-names cat --description 'install the landing-on close wiring on the test server -- remain-on-exit and the pane-died hook that runs <categorizer file> -- before any victim dies'
+    command tmux -L $sock set -g remain-on-exit on
+    command tmux -L $sock set-hook -g pane-died "run-shell \"fish --no-config $cat pane-died '#{pane_id}' '#{session_name}'\""
+end
 function __tcg_ready --argument-names target glob --description 'poll for the chooser (<glob>), then wait out the app'"'"'s settle window: non-move input in its first second after the first paint is drained'
     __tcg_screen_has $target $glob 80; or return 1
     sleep 1.5
@@ -10491,15 +10508,16 @@ set -l swc $__tcg_swc
 __tcg_swstart $lcat
 __tcg_screen_has "=sw:" '*▐ a *[current]*' 80 >/dev/null
 command tmux -L $sock send-keys -t "=sw:" j
-__tcg_screen_has "=sw:" '*▐ sw*' 30 >/dev/null
+set -l swemoved (__tcg_screen_has "=sw:" '*▐ sw*' 30; and echo 1; or echo 0)
 command tmux -L $sock send-keys -t "=sw:" Escape
 set -l swegone (__tcg_swgone)
-t "switch: Esc closes it, the client unmoved (after a move, so an Esc that acted like Enter would show)" "a 1" "$(__tcg_swat $swc a) $swegone"
+t "switch: Esc closes it, the client unmoved (after a move, so an Esc that acted like Enter would show)" "1 a 1" "$swemoved $(__tcg_swat $swc a) $swegone"
 for p in $swpids; kill $p 2>/dev/null; end
 cleanup
 
 # - x on the current session: the pointer must have started on it (a, not b, the first general row)
 __tcg_swroom a
+__tcg_wiring $lcat
 set -l swpids (jobs -p)
 set -l swc $__tcg_swc
 __tcg_swstart $lcat
@@ -10511,6 +10529,24 @@ set -l swxl (string match -q '_landing-*' -- (__tcg_swat $swc '_landing-*'); and
 set -l swxa (command tmux -L $sock has-session -t =a 2>/dev/null; and echo 0; or echo 1)
 set -l swxb (command tmux -L $sock has-session -t =b 2>/dev/null; and echo 1; or echo 0)
 t "switch: x on the current session closes it the landing way -- this client lands, b stays -- and the switcher exits" "1 1 1 1" "$swxl $swxa $swxb $(__tcg_swgone)"
+for p in $swpids; kill $p 2>/dev/null; end
+cleanup
+
+# - the landing kill switch: a server without the landing pane-died hook (landing off) closes the session the old way
+#   -- the client detaches, no landing session is made. show-hooks lists the bare hook name even when unset.
+__tcg_swroom a
+set -l swpids (jobs -p)
+set -l swc $__tcg_swc
+set -l swfhook (command tmux -L $sock show-hooks -gw | string match -r '^pane-died.*')
+__tcg_swstart $lcat
+__tcg_screen_has "=sw:" '*▐ a *[current]*' 80 >/dev/null
+command tmux -L $sock send-keys -t "=sw:" x
+__tcg_screen_has "=sw:" '*kill a ?*' 30 >/dev/null
+command tmux -L $sock send-keys -t "=sw:" y
+set -l swfc (__tcg_swat $swc '')
+set -l swfa (command tmux -L $sock has-session -t =a 2>/dev/null; and echo 0; or echo 1)
+set -l swfl (command tmux -L $sock list-sessions -F '#{session_name}' | string match '_landing-*' | count)
+t "switch: x with no landing hook on the server (landing off) detaches the client and makes no landing session; a is gone, the other client stays on b, the switcher exits" "pane-died gone 1 0 b 1" "$swfhook $swfc $swfa $swfl $(__tcg_on $__tcg_swd) $(__tcg_swgone)"
 for p in $swpids; kill $p 2>/dev/null; end
 cleanup
 
@@ -10740,6 +10776,7 @@ cleanup
 # --- landing fix round 1: x closes a session the landing way ---
 # Its other tab lands on a landing session instead of being detached.
 fresh_server
+__tcg_wiring $lcat
 command tmux -L $sock new-session -d -s vx -c /tmp
 set -l xl (__tcz_landing_new)
 sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$xl" /dev/null >/dev/null 2>&1 &
@@ -11366,7 +11403,7 @@ set -l bkc (__tcg_client_on a)
 sleep 0.5
 __tcg_type $bkf '\es'
 sleep 1.5
-set -l bkproc (ps -A -ww -o args= | string match -e -- "$lcat landing switch" | count)
+set -l bkproc (test (ps -A -ww -o args= | string match -e -- "$lcat landing switch" | count) -ge 1; and echo 1; or echo 0)
 __tcg_type $bkf j
 sleep 0.4
 __tcg_type $bkf '\r'
@@ -11579,7 +11616,7 @@ t "theme picker: a fish error in its loop never reaches the screen (injected onc
 cleanup
 
 # (c) The session switcher (the landing app in switch mode): the same shrink, 120x40 to 80x30. At 80 columns the
-# list is 33 wide and the legend is clipped to the badge.
+# list is 33 wide and the legend shows through d detach: only esc close is cut.
 # Only two shell sessions, sw (the switcher, [current], the pointer starts on it) and zz, never attached: the list
 # is sw then zz whatever the suite's cwd is called, so the step moves to zz, whose pane is the preview.
 fresh_server
@@ -11607,7 +11644,7 @@ command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd
 functions -e __tcg_cap __tcg_framed __tcg_shape
-functions -e __tcg_screen_has __tcg_client_on __tcg_wait_detached __tcg_on __tcg_ready
+functions -e __tcg_screen_has __tcg_client_on __tcg_wait_detached __tcg_on __tcg_wiring __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs

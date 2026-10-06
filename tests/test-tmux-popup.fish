@@ -116,6 +116,7 @@ t "v3 list: ... in gold" 1 (string match -q -- '*38;5;178m│*' $L[5]; and echo 
 t "v3 list: the older box rule is wordless" "│ "(string repeat -n 36 ─)"╮ " (vis $L[9])
 t "v3 list: ... and bold gray" 1 (string match -q -- '*1;38;5;8m*' $L[9]; and echo 1; or echo 0)
 t "v3 list: the older row reads ...older (3) in gray, beside the gray rail" 1 (string match -q -- '*38;5;8m...older (3)*38;5;8m│*' $L[10]; and echo 1; or echo 0)
+t "v3 list: the older box's end rail is gray" 1 (string match -q -- '*38;5;8m│*' $L[11]; and echo 1; or echo 0)
 t "v3 list: the general rule opens general, bold green" 1 (string match -qr '^\e\[1;38;5;2m╭── general ─+\e\[0m$' -- $L[12]; and echo 1; or echo 0)
 t "v3 list: a general row spans the list beside the green rail" 1 (string match -qr '^│ g1 +$' -- (vis $L[13]); and string match -q -- (printf '\e[38;5;2m│')'*' $L[13]; and echo 1; or echo 0)
 t "v3 list: a boxed row: the marker flush right, just before the box's rail" 1 (string match -qr '^│ cp · task +\[here\] │ $' -- (vis $L[3]); and echo 1; or echo 0)
