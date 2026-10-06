@@ -959,15 +959,16 @@ set -l p_on (__tac_exec on $ex_cat name __tmux_lives_picker)
 t "picker outside tmux (landing on): attaches the landing session it created" "-u|attach-session|-t|=_landing-7" "$p_on"
 set -l p_off (__tac_exec off $ex_cat name __tmux_lives_picker)
 t "picker outside tmux (landing off): the legacy take + popup, no landing" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*" "$p_off"; and echo 1; or echo 0)
+t "picker outside tmux (landing off): the legacy popup opens switch mode" 1 (string match -q -- "*display-popup -B -E -w 100% -h 100% -- fish --no-config * landing switch ''" "$p_off"; and echo 1; or echo 0)
 t "picker outside tmux (landing off): nothing landing was ever touched" no (__tac_exec_log_landing)
 set -l p_empty (__tac_exec on $ex_cat empty __tmux_lives_picker)
 t "picker outside tmux (landing-new prints nothing): falls through to the legacy path" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*" "$p_empty"; and echo 1; or echo 0)
 # -t/--take is the user explicitly asking to take a session over: the legacy path.
 set -l p_take (__tac_exec on $ex_cat name __tmux_lives_picker -t)
-t "picker outside tmux -t (landing on): legacy take-over, popup carries --take" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*popup '' --take" "$p_take"; and echo 1; or echo 0)
+t "picker outside tmux -t (landing on): legacy take-over, popup carries --take" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*landing switch '' --take" "$p_take"; and echo 1; or echo 0)
 t "picker outside tmux -t (landing on): no landing was created" no (__tac_exec_log_landing)
 set -l p_take2 (__tac_exec on $ex_cat name __tmux_lives_picker --take)
-t "picker outside tmux --take (landing on): legacy take-over" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*popup '' --take" "$p_take2"; and echo 1; or echo 0)
+t "picker outside tmux --take (landing on): legacy take-over" 1 (string match -q -- "-u|attach-session|-d|-t|=gen-4|;|*landing switch '' --take" "$p_take2"; and echo 1; or echo 0)
 # M-3: no managed fragment (before setup install, or after teardown) means no
 # tick sweep and no pane-died respawn, so landing would leak: the legacy path.
 set -g __tac_frag $ex_root/no-such-fragment.conf

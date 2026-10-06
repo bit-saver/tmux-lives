@@ -56,11 +56,11 @@ function __tmux_lives_render_fragment --description 'Emit the tmux.conf fragment
     set -l popup
     set -l menu
     if test -n "$pkey"
-        set -a popup "    bind-key $pkey display-popup -E -w 80% -h 70% -- fish --no-config $cat popup '#{client_name}'"
+        set -a popup "    bind-key $pkey display-popup -B -E -w 100% -h 100% -- fish --no-config $cat landing switch '#{client_name}'"
         set -a menu  "    bind-key $pkey run-shell 'fish --no-config $cat menu'"
     end
     if test -n "$skey"
-        set -a popup "    bind-key -n $skey display-popup -E -w 80% -h 70% -- fish --no-config $cat popup '#{client_name}'"
+        set -a popup "    bind-key -n $skey display-popup -B -E -w 100% -h 100% -- fish --no-config $cat landing switch '#{client_name}'"
         set -a menu  "    bind-key -n $skey run-shell 'fish --no-config $cat menu'"
     end
     if test -n "$modalkey"

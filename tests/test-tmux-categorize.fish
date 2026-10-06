@@ -2113,7 +2113,7 @@ cleanup
 t "no leftover __tcz_fzf_lines" absent (functions -q __tcz_fzf_lines; and echo present; or echo absent)
 t "no leftover __tcz_fzfpick"   absent (functions -q __tcz_fzfpick; and echo present; or echo absent)
 
-# open-switcher opens a display-popup running the `popup` subcommand for the client.
+# open-switcher opens a display-popup running the landing app in switch mode for the client.
 # Shim tmux: make `list-commands` advertise display-popup (so the capability
 # probe passes), and echo everything else so nothing actually launches.
 set -g sw_shim /tmp/tcz-sw-$fish_pid
@@ -2124,16 +2124,16 @@ set -gx PATH $sw_shim $PATH
 set -g sw_out (__tcz_open_switcher c1)
 set -gx PATH $sw_path_save
 t "open-switcher uses display-popup" yes (string match -q '*display-popup*' -- "$sw_out"; and echo yes; or echo no)
-t "open-switcher runs popup subcmd"  yes (string match -q '*|popup|c1*' -- "$sw_out"; and echo yes; or echo no)
+t "open-switcher opens the landing app in switch mode, full screen and borderless" yes (string match -q '*|display-popup|-B|-E|-w|100%|-h|100%|--|fish|--no-config|*|landing|switch|c1' -- "$sw_out"; and echo yes; or echo no)
 set -gx PATH $sw_shim $PATH
 set -g sw_take (__tcz_open_switcher c1 --take)
 set -gx PATH $sw_path_save
-t "open-switcher threads --take (separate token)" yes (string match -q '*|popup|c1|--take*' -- "$sw_take"; and echo yes; or echo no)
+t "open-switcher threads --take (separate token)" yes (string match -q '*|landing|switch|c1|--take' -- "$sw_take"; and echo yes; or echo no)
 rm -rf $sw_shim
 
-# dispatcher routes `popup`, not `fzfpick`
+# the dispatcher no longer routes `popup` (or `fzfpick`)
 set -g main_src (functions __tcz_main | string collect)
-t "dispatcher has popup case"      yes (string match -q '*case popup*' -- "$main_src"; and echo yes; or echo no)
+t "dispatcher: the two-pane popup verb is gone (usage, rc 1)" 1 (fish --no-config $plugindir/functions/tmux-categorize.fish popup </dev/null >/dev/null 2>&1; echo $status)
 t "dispatcher dropped fzfpick"     no  (string match -q '*fzfpick*' -- "$main_src"; and echo yes; or echo no)
 t "dispatcher has new-general case" yes (string match -q '*case new-general*' -- "$main_src"; and echo yes; or echo no)
 
@@ -4152,7 +4152,7 @@ t "guard: no command substitution inside quoted math" 0 (count (string match -ar
 # fish "Invalid index value" ERROR that sprays a 3-line stderr trace into the popup on
 # EVERY draw (frame scrolls out + flicker + empty preview palette); the title edge must
 # span the full inner width like every other row; and the frame must paint atomically
-# (DECSET 2026, the __tcz_popup_draw pattern) or each redraw visibly flickers.
+# (DECSET 2026, the __tcz_popup_emit pattern) or each redraw visibly flickers.
 t "picker: no quoted math-index anywhere in the categorizer" 0 (grep -c '"\$[a-z]*\[(math' $catfile)
 t "picker: title edge spans the full inner width" yes (string match -q '*$IW - 18*' -- (functions __tcz_theme_picker | string collect); and echo yes; or echo no)
 # picker-partial-repaint Task 2: same relocation as the guard above — the
@@ -5135,11 +5135,12 @@ t "marker no longer gates on phase separately" 0 (string match -q '*test "$phase
 # report the picker's total LINE count instead of the occurrence count.
 t "second list gets its own untitled zsep" 2 (count (string match -- "*zsep \$IW ''*" -- (string split \n -- "$pk2")))
 # named risk (task brief): __tcz_popup_readkey is SHARED with the session
-# switcher — its dispatch switch must have NO case c, so the token stays
-# a harmless no-op there instead of accidentally doing something. Still true
-# post-Task-5: readkey keeps mapping the 'c' byte to the token "c" (just
-# unused in the picker now), and the switcher never had a case for it.
-set -l switcher_body (functions __tcz_popup | string collect)
+# switcher, which is the landing loop in switch mode — its dispatch switch must
+# have NO case c, so the token stays a harmless no-op there instead of
+# accidentally doing something. readkey keeps mapping the 'c' byte to the
+# token "c" (unused in the picker now).
+set -l switcher_body (functions __tcz_landing | string collect)
+t "switcher (the landing loop) body is non-empty" 1 (test -n "$switcher_body"; and echo 1; or echo 0)
 t "switcher has no case c (readkey's c token is a safe no-op there)" 0 (string match -qr 'case c\b' -- "$switcher_body"; and echo 1; or echo 0)
 
 # --- picker current-zone + legend-grid refinement, Task 3: geometry recount
@@ -5201,11 +5202,11 @@ t "no stale WIN 10"                    0 (string match -q '*set -l WIN 10*' -- "
 # ---------------------------------------------------------------------
 # second list + ⇥ focus
 # ---------------------------------------------------------------------
-# readkey gains one token. Safe for the SHARED switcher: __tcz_popup's dispatch
-# has cases only for up/down/enter/kill/cancel and NO case '*', so an unlisted
+# readkey gains one token. Safe for the SHARED switcher (the landing loop in
+# switch mode): its dispatch has no tab case and NO case '*', so an unlisted
 # token is silently ignored there — the same argument that covered p/P/m/M and c.
 t "readkey maps 0x09 to tab" 1 (string match -q '*case 09*tab*' -- (functions __tcz_popup_readkey | string collect); and echo 1; or echo 0)
-set -g POPBODY (functions __tcz_popup | string collect)
+set -g POPBODY (functions __tcz_landing | string collect)
 t "switcher has no tab arm"   0 (string match -q '*case tab*' -- "$POPBODY"; and echo 1; or echo 0)
 t "switcher still has no catch-all" 0 (string match -q "*case '*'*" -- "$POPBODY"; and echo 1; or echo 0)
 
@@ -6627,14 +6628,6 @@ t "wiring: a resize forces its own whole paint (the fifth, counted separately li
 set -g __t10_prevreset (string match -r 'set -e __tcz_pe_prev' -- $__t10_bodylines | count)
 t "wiring: the picker discards the emitter's stale frame at entry" 1 $__t10_prevreset
 
-# NON-REGRESSION GUARD (correctly passes before AND after this task): the
-# session switcher is deliberately out of scope. Its per-keypress content is a
-# live capture-pane of a different session, so nearly every row genuinely
-# differs and a diff would buy almost nothing. Do not report this as vacuous.
-set -g __t10_swlines (string split \n -- (functions __tcz_popup_draw | string match -rv '^\s*#' | string collect))
-t "wiring: the session switcher still paints whole frames" 1 (string match -r '2026h' -- $__t10_swlines | count)
-t "wiring: the session switcher does not use the emitter" 0 (string match -r '__tcz_popup_emit' -- $__t10_swlines | count)
-
 # --- the settle poll also heals a partially-painted screen -------------------
 # NB: un-stripped body. The BEGIN/END markers are comments, so the
 # comment-stripped $__t10_body from the wiring block above cannot see them.
@@ -7660,10 +7653,9 @@ eval $__t9_sb_real_render
 # --- Task 8: case enter (save) for focus=roll -------------------------------
 # The not-editing/save branch of case enter, run for real. "case a" is
 # unique in the file (see the pre-existing CASECANCEL6 comment above, same
-# reasoning) so capture starts only once it has been seen — otherwise a
-# naive start/exit pair would land on the SWITCHER's own earlier "case
-# enter" (__tcz_popup, a different function entirely) instead of the theme
-# picker's.
+# reasoning) so capture starts only once it has been seen, which keeps it
+# in the theme picker, away from the landing loop (the session switcher)
+# and its own earlier arms.
 set -g CE8 (awk '/^            case a$/{seen=1} seen && /^            case enter$/{f=1} f && /^            case cancel$/{exit} f{print}' $catfile | string collect)
 t "case-enter body extraction is non-empty (task 8)" 1 (test -n "$CE8"; and echo 1; or echo 0)
 t "case-enter extraction is the save arm, not the switcher's own enter" 1 (string match -q '*BEGIN enter-edit*' -- "$CE8"; and echo 1; or echo 0)
@@ -8062,9 +8054,9 @@ set -g ARROWLR6 (awk '/^            case left right$/{f=1} f && /^            ca
 # `a` = the manual scheme recompute (2026-08-22). Extracted HERE, not beside its
 # CASE*6 siblings further down, because __t6_e2e is both defined and CALLED
 # above them — an eval of a not-yet-assigned wrapper is silently a no-op.
-# NB the flag must be set on `case a` BEFORE `case enter` can end the range:
-# `case enter` also occurs at __tcz_popup, earlier in the file, so an
-# exit-first range exits there and yields nothing.
+# NB the flag must be set on `case a` BEFORE `case enter` can end the range.
+# Both labels are the theme picker's own: the landing loop's arms are
+# `case enter r n` and its own, earlier `case cancel`.
 set -g CASEA6 (awk '/^            case a$/{f=1} f && /^            case enter$/{exit} f{print}' $catfile | string collect)
 set -g CASEA6WRAP "switch \$tok
 $CASEA6
@@ -8380,9 +8372,9 @@ set -g CASETAB6 (awk '/^            case a$/{exit} /^            case tab$/{f=1}
 # that replaced the deferred batch. Extracted so the sequences below can
 # dispatch it for real instead of eval'ing the settle block.
 # case cancel (esc/q) is a distinct case label from case a/enter/m/b/z/tab, and
-# "case cancel" itself is NOT unique in the file (the switcher __tcz_popup has
-# its own, earlier one) — a plain start/exit awk pair the way CASETAB6 does it
-# would risk landing on the wrong one. Disambiguate with a two-flag state
+# "case cancel" itself is NOT unique in the file (the landing loop, the session
+# switcher, has its own, earlier one) — a plain start/exit awk pair the way
+# CASETAB6 does it would risk landing on the wrong one. Disambiguate with a two-flag state
 # machine: only start capturing once "case a" (unique in the file) has already
 # been seen, so the "case cancel" that trips f=1 is guaranteed to be this
 # picker's own.
@@ -11361,6 +11353,79 @@ t "typeahead: the settle window ends 2 s after the first paint even while keys k
 for p in $typids; kill $p 2>/dev/null; end
 rm -f $tyk
 cleanup
+
+# --- the fragment's M-s bind opens switch mode in a real popup ---
+# - the bind line comes from the real fragment renderer; Alt+S (ESC s) is typed on the client's own keyboard
+# - while the popup is up, the process list shows the landing app in switch mode
+# - j then Enter in the popup move the client from a to b (the pointer started on a; cl lists first)
+# - text typed after that reaches b's shell: the popup is gone
+fresh_server
+rm -rf $tmux_lives_claude_projects_dir; rm -f $tmux_lives_project_cache
+command tmux -L $sock new-session -d -s a -c /tmp
+command tmux -L $sock new-session -d -s b -c /tmp sh
+command tmux -L $sock new-session -d -s cl -c /tmp "$shimdir/claude --name cl"
+command tmux -L $sock kill-session -t =0
+set -l bkconf /tmp/tcz-bk-$fish_pid.conf
+__tmux_lives_render_fragment $lcat S M-s | string match -e 'bind-key -n M-s display-popup' | string trim > $bkconf
+set -l bkn (count < $bkconf)
+command tmux -L $sock source-file $bkconf
+set -l bkf /tmp/tcz-bkf-$fish_pid
+__tcg_kbd_client $bkf a
+set -l bkpids (jobs -p)
+__tcg_client_on a >/dev/null
+sleep 0.5
+__tcg_type $bkf '\es'
+sleep 1.5
+set -l bkproc (ps -A -ww -o args= | string match -e -- "$lcat landing switch" | count)
+__tcg_type $bkf j
+sleep 0.4
+__tcg_type $bkf '\r'
+set -l bkon ''
+for i in (seq 30)
+    set bkon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
+    test "$bkon" = b; and break
+    sleep 0.1
+end
+sleep 0.5
+__tcg_type $bkf 'echo POPGONE\r'
+set -l bkgone (__tcg_screen_has "=b:" '*POPGONE*' 30; and echo 1; or echo 0)
+t "switch: the fragment's M-s bind opens switch mode in a popup; j and Enter move the client to b; then the keyboard reaches b (the popup is gone)" "1 1 b 1" "$bkn $bkproc $bkon $bkgone"
+for p in $bkpids; kill $p 2>/dev/null; end
+rm -f $bkconf $bkf
+cleanup
+
+# --- the popup serves the client that pressed the key, not the newest-attached one ---
+# - the popup resolves its client from inside (display-popup does not expand '#{client_name}' after --)
+# - P presses Alt+S on a; client D attached later is on b and idle: P's typing makes it the most recently active
+# - j then Enter must move P off a and leave D on b
+fresh_server
+rm -rf $tmux_lives_claude_projects_dir; rm -f $tmux_lives_project_cache
+command tmux -L $sock new-session -d -s a -c /tmp
+command tmux -L $sock new-session -d -s b -c /tmp sh
+command tmux -L $sock new-session -d -s c3 -c /tmp sh
+command tmux -L $sock kill-session -t =0
+__tmux_lives_render_fragment $lcat S M-s | string match -e 'bind-key -n M-s display-popup' | string trim > $bkconf
+command tmux -L $sock source-file $bkconf
+__tcg_kbd_client $bkf a
+set -l bkp (__tcg_client_on a)
+sleep 1.2
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =b" /dev/null >/dev/null 2>&1 &
+set bkpids (jobs -p)
+set -l bkd (__tcg_client_on b)
+sleep 0.8
+__tcg_type $bkf '\es'
+sleep 1.5
+__tcg_type $bkf j
+sleep 0.4
+__tcg_type $bkf '\r'
+sleep 1
+set -l bkcl (command tmux -L $sock list-clients -F '#{client_name} #{session_name}')
+set -l bkps (string match -- "$bkp *" $bkcl | string split -f2 ' ')
+set -l bkds (string match -- "$bkd *" $bkcl | string split -f2 ' ')
+t "switch: the popup opened by a bind serves the client that pressed it, not the newest-attached one (P left a, D still on b)" "1 b" "$(test -n "$bkps" -a "$bkps" != a; and echo 1; or echo 0) $bkds"
+for p in $bkpids; kill $p 2>/dev/null; end
+rm -f $bkconf $bkf
+cleanup
 functions -e __tcg_kbd_client __tcg_type __tcg_where __tcg_room __tcg_at
 
 # --- idle: a landing idle past its threshold refreshes on the slow cadence ---
@@ -11528,14 +11593,15 @@ set -l tsssel (string match -rg '^│▌[▇ ]+ (\S.*?)\s*│$' -- $tss)
 t "theme picker: a fish error in its loop never reaches the screen (injected once; ╭ on row 1 after a step; no error text; the step landed)" "1 ╭ 0 mono bright" "$tpinj $tsstop $tssleak $tsssel"
 cleanup
 
-# (c) The session switcher: the same shrink, 120x40 to 80x30. At 80 columns the list is 33 wide.
-# Only two shell sessions, sw (the switcher) and zz, never attached: the list is sw then zz whatever the
-# suite's cwd is called, so the step moves to zz, whose pane is the preview.
+# (c) The session switcher (the landing app in switch mode): the same shrink, 120x40 to 80x30. At 80 columns the
+# list is 33 wide and the legend is clipped to the badge.
+# Only two shell sessions, sw (the switcher, [current], the pointer starts on it) and zz, never attached: the list
+# is sw then zz whatever the suite's cwd is called, so the step moves to zz, whose pane is the preview.
 fresh_server
 command tmux -L $sock new-session -d -s zz -c /tmp sh -c "printf 'ZZ-PREVIEW\n'; exec sh"
 command tmux -L $sock kill-session -t =0
-set -l sww (command tmux -L $sock new-session -d -s sw -x 120 -y 40 -c /tmp -P -F '#{window_id} #{pane_id}' fish --no-config $lcat popup | string split ' ')
-__tcg_screen_has $sww[2] '*esc close*' 50
+set -l sww (command tmux -L $sock new-session -d -s sw -x 120 -y 40 -c /tmp -P -F '#{window_id} #{pane_id}' fish --no-config $lcat landing switch '' | string split ' ')
+__tcg_screen_has $sww[2] '*SWITCHING*' 50
 set -l sw0 (__tcg_cap $sww[2] | string match -rg '^▐ (\S+)')
 command tmux -L $sock resize-window -t $sww[1] -x 80 -y 30
 sleep 0.3
@@ -11546,12 +11612,12 @@ set -l swsel (string match -rg '^▐ (\S+)' -- $sws)
 set -l swdiv 0
 set -l swinlist 0
 for r in $sws[1..29]
-    test (string sub -s 34 -l 1 -- $r) = '│'; and set swdiv (math $swdiv + 1)
+    string match -qr '^[│┴]$' -- (string sub -s 34 -l 1 -- $r); and set swdiv (math $swdiv + 1)
     string match -q '*↑↓*' -- (string sub -l 33 -- $r); and set swinlist (math $swinlist + 1)
 end
 set -l swtop (string match -qr '^╭── ' -- "$sws[1]"; and echo 1; or echo 0)
-set -l swlast (string match -qr '^ ↑↓ move .*esc close' -- "$sws[30]"; and echo 1; or echo 0)
-t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1; the legend on row 30, not in the list on rows 1-29; the divider at column 34 on all 29 list rows; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swtop $swlast $swinlist $swdiv $sw0>$swsel"
+set -l swlast (string match -qr '^ SWITCHING  ↑↓ move ' -- "$sws[30]"; and echo 1; or echo 0)
+t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1; the legend on row 30, not in the list on rows 1-29; the divider at column 34 on all 29 list rows, the last one the border's ┴; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swtop $swlast $swinlist $swdiv $sw0>$swsel"
 command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd

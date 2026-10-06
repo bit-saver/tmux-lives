@@ -2,7 +2,7 @@
 # tmux-categorize: live-state session classification, naming, overview, menu, ghost-detach.
 # Runs under `fish --no-config` (fast, no conf.d side effects — safe inside tmux #()).
 # Spec: docs/superpowers/specs/2026-06-11-tmux-categorized-sessions-design.md
-# Subcommands: categorize | tick | overview | menu | open-switcher <client> | popup <client> | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
+# Subcommands: categorize | tick | overview | menu | open-switcher <client> | claim <pane> <raw> | ghosts <session> | switch <session> <client> | commandeer <client> <session> | slug <text...>
 # Tests source this file with tmux_categorize_test set, which suppresses the dispatcher.
 
 # Shell list — MUST match __tmux_session_is_idle in conf.d/tmux.fish (test-enforced).
@@ -2309,7 +2309,7 @@ function __tcz_popup_readkey --argument-names mode --description 'read one keyst
     #    pipe's RHS does NOT inherit the piped stdin (fish quirk). `… | read VAR`
     #    sets VAR in scope. Bytes are compared as hex.
     # left/right (h/l + CSI C/D) and v/w are only consumed by the cap-picker's
-    # direction-flip / vividness / wheel controls; __tcz_popup's switch has no
+    # direction-flip / vividness / wheel controls; the landing loop's switch has no
     # matching case for any of them so it silently ignores them there (same as
     # any other token its cases don't list).
     set -l b ''
@@ -2492,18 +2492,6 @@ function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw
     end
 end
 
-function __tcz_popup_draw --description '__tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model lines...>: paint one frame'
-    set -l out (__tcz_popup_frame $argv)
-    # Synchronized update (DECSET 2026) so the whole frame commits atomically — no
-    # tearing/flash between list and preview. Newlines BETWEEN rows only: a trailing
-    # newline after the last row scrolls a full-height popup up one (dropping the top
-    # line). Unsupported terminals ignore the 2026 private mode harmlessly.
-    printf '\e[?2026h\e[H'
-    test (count $out) -gt 1; and printf '%s\n' $out[1..-2]
-    printf '%s' $out[-1]
-    printf '\e[J\e[?2026l'
-end
-
 function __tcz_modal_legend --argument-names has_scratch modalkey scratchkey resizekey switcherkey --description 'pure: the command-launcher legend box (design B: categorized commands + keybind table). Keys passed in so it reflects the effective binds.'
     set -l O (printf '\e[38;5;208m'); set -l OD (printf '\e[38;5;130m')  # orange, dim-orange border
     set -l YO (printf '\e[38;5;179m')             # muted yellow-orange (the picker's accent)
@@ -2640,92 +2628,13 @@ function __tcz_modal --argument-names client modalkey scratchkey resizekey switc
     return 0
 end
 
-function __tcz_popup --argument-names client --description 'two-pane session switcher (runs inside display-popup)'
-    set -l take ''
-    contains -- --take $argv; and set take --take
-    __tcz_categorize >/dev/null 2>&1
-    # display-popup does NOT format-expand argv after `--`, so a bind passing
-    # '#{client_name}' delivers it literally. Resolve the real client from inside
-    # the popup when the arg is empty or still an unexpanded format — otherwise
-    # switch-client -c gets a bogus client and the switch silently fails.
-    if test -z "$client"; or string match -q '*#{*' -- "$client"
-        set client (tmux display-message -p '#{client_name}' 2>/dev/null)
-    end
-    set -l current (tmux display-message -c "$client" -p '#{session_name}' 2>/dev/null)
-    test -n "$current"; or set current (tmux display-message -p '#{session_name}' 2>/dev/null)
-    set -l TAB (printf '\t')
-    set -l model (__tcz_overview)
-    set -l n (count $model)
-    test $n -gt 0; or return 0
-    set -l rows 24; set -l cols 80
-    # start on the current session if present
-    set -l sel 0
-    for i in (seq $n)
-        if test (string split -m 1 $TAB -- $model[$i])[1] = "$current"
-            set sel (math $i - 1); break
-        end
-    end
-    set -l saved (stty -g)
-    # Restore the terminal even if the popup is killed mid-loop (SIGINT/SIGTERM).
-    # __tcz_popup runs in a dedicated `fish --no-config` popup process, so this
-    # global handler lives only for the popup's lifetime.
-    set -g __tcz_popup_saved $saved
-    function __tcz_popup_cleanup --on-signal INT --on-signal TERM
-        stty "$__tcz_popup_saved" 2>/dev/null
-        printf '\e[?25h\e[0m'
-        exit 130
-    end
-    stty -icanon -echo min 1 time 0
-    printf '\e[?25l\e[2J'
-    set -l result ''
-    while true
-        # Follow the tty: a client that shrinks under the open popup shrinks it too.
-        set -l sz (__tcz_tty_size); and set rows $sz[1]; and set cols $sz[2]
-        set -l lay (string split ' ' (__tcz_popup_layout $cols))
-        __tcz_popup_draw $sel $lay[1] $lay[2] (math $rows - 1) "$current" -- $model
-        printf '\e[%s;1H\e[K%s' $rows (__tcz_legend_row 12 '↑↓' move '⏎' switch x kill esc close)
-        switch (__tcz_popup_readkey)
-            case up
-                test $sel -gt 0; and set sel (math $sel - 1)
-            case down
-                test $sel -lt (math $n - 1); and set sel (math $sel + 1)
-            case enter
-                set result (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
-                break
-            case kill
-                # x: confirm on the bottom row, then kill + refresh the list
-                set -l target (string split -m 1 $TAB -- $model[(math $sel + 1)])[1]
-                if test -n "$target"
-                    printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$target"
-                    set -l ans ''
-                    dd bs=1 count=1 2>/dev/null | od -An -tx1 | string trim | read ans
-                    if test "$ans" = 79; or test "$ans" = 59   # y / Y
-                        tmux kill-session -t "=$target" 2>/dev/null
-                        set model (__tcz_overview)
-                        set n (count $model)
-                        test $n -gt 0; or break
-                        test $sel -ge $n; and set sel (math $n - 1)
-                    end
-                end
-            case cancel
-                break
-        end
-    end
-    functions -e __tcz_popup_cleanup
-    set -e __tcz_popup_saved
-    stty $saved
-    printf '\e[?25h\e[2J\e[H'
-    test -n "$result"; and __tcz_switch "$result" "$client" $take
-    return 0
-end
-
-function __tcz_open_switcher --argument-names client --description 'open the two-pane popup switcher (display-menu fallback if display-popup is unsupported)'
+function __tcz_open_switcher --argument-names client --description 'open the switcher: the landing app in switch mode, full screen in a borderless popup (display-menu fallback if display-popup is unsupported)'
     if tmux list-commands 2>/dev/null | grep -q display-popup
         # Build argv as a list so --take stays a SEPARATE token (concatenating it onto
         # "$client" would deliver one bogus "client --take" arg to the popup process).
-        set -l cmd fish --no-config $__tcz_self popup "$client"
+        set -l cmd fish --no-config $__tcz_self landing switch "$client"
         contains -- --take $argv; and set -a cmd --take
-        tmux display-popup -E -w 80% -h 70% -- $cmd
+        tmux display-popup -B -E -w 100% -h 100% -- $cmd
     else
         __tcz_menu
     end
@@ -5331,8 +5240,6 @@ function __tcz_main
             __tcz_menu
         case open-switcher
             __tcz_open_switcher $argv[2..]
-        case popup
-            __tcz_popup $argv[2..]
         case theme-picker
             __tcz_quiet_exec $argv
             __tcz_theme_picker $argv[2..]
@@ -5400,7 +5307,7 @@ function __tcz_main
         case status-right-install
             __tcz_status_right_install "$argv[2]"
         case '*'
-            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|popup|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
+            echo "usage: tmux-categorize.fish categorize|tick|overview|menu|open-switcher|theme-picker|modal|modal-menu|scratch|scratch-resize|scratch-orient|scratch-kill|resize-enter|status-pos-toggle|status-vis-toggle|recolor|retitle|claim|ghosts|switch|commandeer|on-attach|slug|new-general|landing-new|landing|pane-died|landing-evict|session-close|host-kind|status-format|status-right-install" >&2
             return 1
     end
 end

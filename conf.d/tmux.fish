@@ -271,7 +271,7 @@ function __tmux_lives_picker --description 'Open the categorized session switche
     set -l target (__tmux_pick_session)
     test -n "$target"; or set target (fish --no-config $tmux_categorize_script new-general)
     __tmux_detach_ghosts "$target"
-    set -l pop "tmux display-popup -E -w 80% -h 70% -- fish --no-config $tmux_categorize_script popup ''"
+    set -l pop "tmux display-popup -B -E -w 100% -h 100% -- fish --no-config $tmux_categorize_script landing switch ''"
     test -n "$take"; and set pop "$pop $take"
     exec tmux -u attach-session -d -t "=$target" \; run-shell -b "$pop"
 end

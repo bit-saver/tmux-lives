@@ -219,34 +219,28 @@ t "preview still pipes through clip"  yes (string match -q '*__tcz_popup_clip*' 
 t "strip_sgr removes colour"  abc (__tcz_strip_sgr (printf '%s[31mabc%s[0m' $E $E))
 
 # ---------------------------------------------------------------------
-# __tcz_popup_draw — rows must be separated by real newlines (regression)
+# __tcz_popup_emit — a whole paint separates rows by real newlines (regression)
 # command-sub `(printf '\n')` strips trailing newlines → all rows on one line
-# previewwidth=0 avoids capture-pane so no real tmux needed
 # ---------------------------------------------------------------------
 set -g TAB (printf '\t')
-set -g DM1 (printf 'alpha\tclaude\t1\t100\talpha')
-set -g DM2 (printf 'beta\tgeneral\t0\t80\tbeta')
-# __tcz_popup_draw <sel> <listw> <prevw> <rows> <current> -- <model...>
-set -g DF (__tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2)
-t "draw emits multiple lines (real newlines)" yes (test (count $DF) -ge 8; and echo yes; or echo no)
+# A trailing newline after the last row would scroll a full-height popup up one row each
+# repaint, dropping the top line and flashing. 8 rows -> exactly 7 newlines, none trailing.
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1
+__tcz_popup_emit (seq 8) > /tmp/tcz-emit-$fish_pid
+set -g ENL (wc -l < /tmp/tcz-emit-$fish_pid | string trim)
+rm -f /tmp/tcz-emit-$fish_pid
+set -g __tcz_pe_prev; set -g __tcz_pe_force 1
+t "emit: a whole paint puts newlines between rows only (8 rows, 7 newlines)" 7 "$ENL"
 
-# draw must NOT emit a trailing newline after the last of `rows` lines: a full-height
-# popup would scroll up one row each redraw, dropping the top line (the claude-header
-# bug) and flashing. rows=8 -> exactly 7 newlines (between the 8 rows), none trailing.
-__tcz_popup_draw 0 20 0 8 '' -- $DM1 $DM2 > /tmp/tcz-draw-$fish_pid
-set -g DNL (wc -l < /tmp/tcz-draw-$fish_pid | string trim)
-rm -f /tmp/tcz-draw-$fish_pid
-t "draw has no trailing newline (rows-1)" 7 "$DNL"
-
-# --- draw: a selection below the fold scrolls into view ---
+# --- frame: a selection below the fold scrolls into view ---
 set -g SCM
 for i in (seq 12)
     set -a SCM (printf 's%s\tgeneral\t0\t0\trow%s' $i $i)
 end
-set -g SCD (__tcz_popup_draw 11 20 0 8 '' -- $SCM)
-t "draw: the selected row is on screen when the list overflows" 1 (string match -q '*▐ row12*' -- (vis "$SCD"); and echo 1; or echo 0)
-set -g SCT (__tcz_popup_draw 0 20 0 8 '' -- $SCM)
-t "draw: a selection above the fold stays top-anchored (non-regression)" 1 (string match -q '*╭── general*' -- (vis "$SCT[1]"); and echo 1; or echo 0)
+set -g SCD (__tcz_popup_frame 11 20 0 8 '' -- $SCM)
+t "frame: the selected row is on screen when the list overflows" 1 (string match -q '*▐ row12*' -- (vis "$SCD"); and echo 1; or echo 0)
+set -g SCT (__tcz_popup_frame 0 20 0 8 '' -- $SCM)
+t "frame: a selection above the fold stays top-anchored (non-regression)" 1 (string match -q '*╭── general*' -- (vis "$SCT[1]"); and echo 1; or echo 0)
 
 # --- frame: ↑ below the fold moves the pointer; the list scrolls only at the window's top ---
 set -e __tcz_pd_top
@@ -413,21 +407,21 @@ end
 set -g LDlive (printf 'alpha\tgeneral\t0\t0\talpha')
 set -g LDproj (printf '/tmp/tcz-some/proj\tother\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
 set -g LDold (printf 'older\tolder\t0\t2\tolder (2)')
-__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive >/dev/null
-__tcz_popup_draw 0 20 30 8 '' -- $LDold $LDlive >/dev/null
+__tcz_popup_frame 0 20 30 8 '' -- $LDproj $LDlive >/dev/null
+__tcz_popup_frame 0 20 30 8 '' -- $LDold $LDlive >/dev/null
 set -l prec_proj (cat $PREC 2>/dev/null)
-t "draw: a project row or the older row never calls capture-pane" "" "$prec_proj"
-set -l dproj (__tcz_popup_draw 0 20 30 8 '' -- $LDproj $LDlive | string join \n)
+t "frame: a project row or the older row never calls capture-pane" "" "$prec_proj"
+set -l dproj (__tcz_popup_frame 0 20 30 8 '' -- $LDproj $LDlive | string join \n)
 set dproj (vis "$dproj" | string join \n)
-t "draw: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
+t "frame: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
 rm -f $PREC
-__tcz_popup_draw 1 20 30 8 '' -- $LDproj $LDlive >/dev/null
+__tcz_popup_frame 1 20 30 8 '' -- $LDproj $LDlive >/dev/null
 set -l prec_live (cat $PREC 2>/dev/null)
-t "draw: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
+t "frame: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
 rm -f $PREC
-__tcz_popup_draw 0 20 30 8 '' -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/null
+__tcz_popup_frame 0 20 30 8 '' -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/null
 set -l prec_lvo (cat $PREC 2>/dev/null)
-t "draw: a live session named older still previews its session (the older row is told by category, not name)" "older 30 8" "$prec_lvo"
+t "frame: a live session named older still previews its session (the older row is told by category, not name)" "older 30 8" "$prec_lvo"
 rm -f $PREC
 functions -e __tcz_popup_preview
 functions -c __tcp_preview_bak __tcz_popup_preview
@@ -512,17 +506,15 @@ t "readkey l=right"  right (printf 'l'    | __tcz_popup_readkey 2>/dev/null)
 t "readkey CSI left"  left  (printf '\e[D' | __tcz_popup_readkey 2>/dev/null)
 t "readkey CSI right" right (printf '\e[C' | __tcz_popup_readkey 2>/dev/null)
 
-# n: the landing app's new-shell key. The reader is shared, so the other two pickers must
+# n: the landing app's new-shell key. The reader is shared, so the theme picker must
 # have no case for it (it stays a harmless no-op there, as `other` was). Bodies captured first.
 set -l rkn (printf 'n' | __tcz_popup_readkey 2>/dev/null)
 t "readkey n=n (landing: a new shell)" n "$rkn"
-set -l rkpop (functions __tcz_popup | string collect)
 set -l rkthp (functions __tcz_theme_picker | string collect)
 set -l rkland (functions __tcz_landing | string collect)
 set -l rkg1 (string match -qr '\bcase .*\bn\b' -- "$rkland"; and echo 1; or echo 0)
-set -l rkg2 (string match -qr '\bcase n\b' -- "$rkpop"; and echo 1; or echo 0)
 set -l rkg3 (string match -qr '\bcase n\b' -- "$rkthp"; and echo 1; or echo 0)
-t "readkey n: the landing loop has a case for n; the session switcher and theme picker have none" "1 0 0" "$rkg1 $rkg2 $rkg3"
+t "readkey n: the landing loop has a case for n; the theme picker has none" "1 0" "$rkg1 $rkg3"
 
 # --- landing: the border between the list and the legend ---
 set -l lb1 (vis (__tcz_landing_border 33 46 80))
