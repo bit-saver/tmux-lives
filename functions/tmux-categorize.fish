@@ -75,6 +75,18 @@ function __tcz_landing_group_roots --description 'pure: the folders whose childr
     printf '%s\n' $HOME/projects $HOME/workspace $HOME/Work
 end
 
+function __tcz_landing_group_of --description 'pure: project folders (argv) -> their chooser groups, one per line: the group of the first root each is below (__tcz_landing_group_roots), else other'
+    set -l roots (__tcz_landing_group_roots)
+    set -l gidx (seq (count $roots))
+    for folder in $argv
+        set -l g other
+        for i in $gidx
+            string match -q -- "$roots[$i]/*" "$folder"; and set g $__tcz_landing_groups[$i]; and break
+        end
+        echo $g
+    end
+end
+
 function __tcz_claude_project_of --argument-names folder --description 'pure: a Claude conversation'"'"'s folder -> its project folder, or nothing. A folder inside a git repo -> the repo root; a linked worktree -> its main repository (its .git is a file reading `gitdir: <repo>/.git/worktrees/<name>`); never a generic folder (__tcz_generic_dir) or a group root (__tcz_landing_group_roots). No subprocess.'
     set -l p (string replace -r '/+$' '' -- "$folder")
     set -l roots (__tcz_landing_group_roots)
@@ -1524,7 +1536,7 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the landing session <self> -- live sessions (mark 2 = a client from my device is on it, 1 = some client is), then idle projects by group, then "older (N)" for those past __tcz_landing_older_after (--all lists them instead). "--" passes the discovery rows in.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the session <self> serves (mark 2 = a client of my device is on it, 1 = some client). Per group: its live claude sessions (claude/<group>, by the active pane'"'"'s project), then its idle projects (<group>); then "...older (N)" (--all lists them); then the other live sessions (general). "--" passes discovery rows in.'
     set -e argv[1]
     set -l all 0
     test "$argv[1]" = --all; and set all 1; and set -e argv[1]
@@ -1555,6 +1567,8 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             test "$dev" = "$mine"; and set -a here $csess[$j]
         end
     end
+    # Live rows: a claude session goes to its project's group, everything else to general.
+    set -l crows; set -l grows
     for line in (__tcz_overview)
         set -l f (string split -m 4 $TAB -- $line)
         test (count $f) -ge 5; or continue
@@ -1564,7 +1578,16 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         else if contains -- $f[1] $csess
             set mark 1
         end
-        printf '%s\t%s\t%s\t%s\t%s\n' $f[1] $f[2] $mark $f[4] "$f[5]"
+        if test "$f[2]" = claude
+            # The overview's snapshot leaves each session's active-pane cwd in __tcz_tmux_activepath_*.
+            set -l i (contains -i -- $f[1] $__tcz_tmux_activepath_names)
+            set -l proj
+            test -n "$i"; and set proj (__tcz_claude_project_of "$__tcz_tmux_activepath_paths[$i]")
+            set -l g (__tcz_landing_group_of "$proj")
+            set -a crows (printf '%s\tclaude/%s\t%s\t%s\t%s' $f[1] $g $mark $f[4] "$f[5]")
+        else
+            set -a grows (printf '%s\tgeneral\t%s\t%s\t%s' $f[1] $mark $f[4] "$f[5]")
+        end
     end
     # A project is running when a claude pane works on it:
     # - in its folder, or anywhere in the repo or worktree that maps to it (__tcz_claude_project_of);
@@ -1583,9 +1606,7 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
     end
     set -l after (__tcz_landing_older_after)
     set -l now
-    set -l roots (__tcz_landing_group_roots)
-    set -l gidx (seq (count $roots))
-    set -l prows
+    set -l pf; set -l pm; set -l pa           # each listed project's folder, transcript mtime and age
     set -l nold 0
     for line in $disc
         set -l f (string split -m 1 $TAB -- $line)
@@ -1604,18 +1625,24 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             set nold (math $nold + 1)
             continue
         end
-        # The group of the first root the folder is below, else other.
-        set -l g other
-        for i in $gidx
-            string match -q -- "$roots[$i]/*" "$f[1]"; and set g $__tcz_landing_groups[$i]; and break
-        end
-        set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $f[1] $g $f[2] (path basename -- $f[1]) (__tcz_age $secs))
+        set -a pf $f[1]; set -a pm $f[2]; set -a pa (__tcz_age $secs)
     end
-    # Groups in their fixed order; within one, discovery's newest-first order holds.
+    set -l pg (__tcz_landing_group_of $pf)
+    set -l prows
+    set -l i 0
+    for folder in $pf
+        set i (math $i + 1)
+        set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $folder $pg[$i] $pm[$i] (path basename -- $folder) $pa[$i])
+    end
+    # The claude section, group by group; within one, discovery's newest-first order holds.
     for g in $__tcz_landing_groups
+        string match -- "*$TAB"claude/"$g$TAB*" $crows
         string match -- "*$TAB$g$TAB*" $prows
     end
-    test $nold -gt 0; and printf 'older\tolder\t0\t%s\tolder (%s)\n' $nold $nold
+    test $nold -gt 0; and printf 'older\tolder\t0\t%s\t...older (%s)\n' $nold $nold
+    for r in $grows
+        printf '%s\n' $r
+    end
 end
 
 function __tcz_landing_older_after --description 'pure: seconds after which an idle project hides behind the chooser'"'"'s older row: the seam tmux_lives_landing_older_after, else 21 days'
@@ -1909,7 +1936,8 @@ function __tcz_landing --description 'the landing app: a full-pane chooser that 
                 set -l others (tmux list-clients -t "=$self" -F '#{client_name}' 2>/dev/null)
                 test (count $others) -eq 0; and tmux kill-session -t "=$self" 2>/dev/null
             case kill
-                contains -- $row[2] claude running general; or continue
+                # Live rows only: a project or the older row has no session to kill.
+                test -n "$row[1]"; and not contains -- "$row[2]" $__tcz_landing_groups older; or continue
                 printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$row[1]"
                 set -g __tcz_pe_force 1       # the prompt overwrote the legend
                 stty min 1 time 0 2>/dev/null

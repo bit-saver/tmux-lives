@@ -10005,9 +10005,9 @@ set -l lm (__tcz_landing_model _landing-1)
 set -l lm0 (string match -- '0'\t'*' $lm)
 t "model: a live row with a client from my device -> mark 2" "0 general 2" (string split -f1,2,3 \t -- "$lm0" | string join ' ')
 set -l lmcr (string match -- 'lmc'\t'*' $lm)
-t "model: a live row with a client from another device -> mark 1" "lmc claude 1" (string split -f1,2,3 \t -- "$lmcr" | string join ' ')
+t "model: a live row with a client from another device -> mark 1" "lmc claude/other 1" (string split -f1,2,3 \t -- "$lmcr" | string join ' ')
 set -l lmrr (string match -- 'lmr'\t'*' $lm)
-t "model: a live row with no client -> mark 0" "lmr claude 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
+t "model: a live row with no client -> mark 0" "lmr claude/other 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
 t "model: rows listed, none of them a landing session" 1 (test (count $lm) -gt 0; and not string match -q -- '_landing-*' $lm; and echo 1; or echo 0)
 set -l lmir (string match -- $lmi\t'*' $lm)
 t "model: an idle project row (its category is its group)" "other 0 tcz-lm-idle-$fish_pid · 2h" (string split -f2,3,5 \t -- "$lmir" | string join ' ')
@@ -10036,7 +10036,7 @@ function __tcg_gm_shape --description 'model rows -> "<category>:<folder basenam
     for r in $argv
         set -l f (string split \t -- $r)
         switch $f[2]
-            case claude running general
+            case general 'claude/*'
                 continue
             case older
                 echo "older:$f[4]"
@@ -10089,6 +10089,39 @@ end
 set -g HOME $__tcg_lp_home_save
 set -e __tcg_lp_home_save
 t "model: a project's group is where it lives (below ~/projects, ~/workspace, ~/Work), else other -- a group root itself and look-alikes included" "projects projects workspace work other other other other other other" "$lpmodel"
+cleanup
+
+# --- chooser v3: a live claude session sits in its project's group box, before the group's idle
+# projects; running folds into general, which comes last ---
+# - HOME is redirected before the server starts, so the panes' cwds sit below the fixture's group roots
+# - cw runs in a repo's subfolder: its box comes from the repo (workspace), not the subfolder
+# - an implementation that misses the panes' cwds puts every claude session in other, which this fixture rejects
+set -l m3home /tmp/tcz-m3h-$fish_pid
+set -l m3home_save $HOME
+mkdir -p $m3home/projects/cp $m3home/workspace/ww/.git $m3home/workspace/ww/sub $m3home/projects/pi $m3home/workspace/wi
+set -gx HOME $m3home
+fresh_server
+command tmux -L $sock new-session -d -s cp -c $m3home/projects/cp "$shimdir/claude --name cp"
+command tmux -L $sock new-session -d -s cw -c $m3home/workspace/ww/sub "$shimdir/claude --name cw"
+command tmux -L $sock new-session -d -s co -c /tmp "$shimdir/claude --name co"
+command tmux -L $sock new-session -d -s rn -c /tmp 'sleep 600'
+command tmux -L $sock new-session -d -s gg -c /tmp
+command tmux -L $sock kill-session -t =0
+sleep 0.3
+set -l m3now (date +%s)
+set -l m3disc (printf '%s\t%s' $m3home/projects/pi (math $m3now - 60)) \
+    (printf '%s\t%s' $m3home/workspace/wi (math $m3now - 120))
+set -l m3 (__tcz_landing_model x -- $m3disc)
+set -gx HOME $m3home_save
+set -l m3shape
+for r in $m3
+    set -l f (string split \t -- $r)
+    set -a m3shape "$f[2]:"(path basename -- $f[1])
+end
+t "model v3: per group its live claude sessions (by the active pane's project) then its idle projects; then general, running folded in, last" "claude/projects:cp projects:pi claude/workspace:cw workspace:wi claude/other:co general:rn general:gg" "$m3shape"
+set -l m3old (__tcz_landing_model x -- (printf '%s\t%s' /tmp/tcz-m3-stale (math $m3now - 30 \* 86400)))
+t "model v3: the older row reads ...older (N)" 1 (string match -q -- 'older'\t'older'\t'0'\t'1'\t'...older (1)' $m3old; and echo 1; or echo 0)
+rm -rf $m3home
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
@@ -10236,11 +10269,12 @@ cleanup
 functions -e __tcg_wait_empty
 
 # The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
-# A live session literally named `older` sits above it: the pointer follows rows by target AND category.
+# A live session literally named `older` sits in general, below it: the pointer follows rows by target AND category.
 # HOME is redirected (exported before the server starts, so the landing pane inherits it). The list goes from
-# [pv (projects), fresh (other), older (1)] to [pv, ph (workspace, the one revealed), fresh]: the revealed row
+# [pv (projects), fresh (other), ...older (1)] to [pv, ph (workspace, the one revealed), fresh]: the revealed row
 # sits above the older row's old slot (a pointer that did not move cannot pass) and below the first project row
 # (a pointer sent to the first project row, not the first row the reveal added, cannot pass).
+# zz is a claude session, so the refresh adds its row above the older row, in the claude section.
 set -l olhome /tmp/tcz-olh-$fish_pid
 set -l olhome_save $HOME
 mkdir -p $olhome/projects/pv $olhome/workspace/ph
@@ -10265,12 +10299,12 @@ set -l olfresh (__tcg_screen_has "=$ola:" "*tcz-ol-fresh-$fish_pid*" 1; and __tc
 set -l olhid (__tcg_screen_has "=$ola:" '*ph · *' 1; and echo 0; or echo 1)
 t "app: a project 21+ days old hides behind an older (1) row; the fresh ones stay listed" "1 1 1" "$olrow $olfresh $olhid"
 for i in (seq 8)
-    __tcg_screen_has "=$ola:" '*▐ older (1)*' 5; and break
+    __tcg_screen_has "=$ola:" '*▐ ...older (1)*' 5; and break
     command tmux -L $sock send-keys -t "=$ola:" j
 end
-command tmux -L $sock new-session -d -s zz -c /tmp
+command tmux -L $sock new-session -d -s zz -c /tmp "$shimdir/claude --name zz"
 set -l olzz (__tcg_screen_has "=$ola:" '*│ zz*' 50; and echo 1; or echo 0)
-set -l olkept (__tcg_screen_has "=$ola:" '*▐ older (1)*' 1; and echo 1; or echo 0)
+set -l olkept (__tcg_screen_has "=$ola:" '*▐ ...older (1)*' 1; and echo 1; or echo 0)
 t "app: after a refresh adds a row above it, the pointer stays on the older row (beside a live session named older)" "1 1" "$olzz $olkept"
 command tmux -L $sock send-keys -t "=$ola:" Enter
 set -l olshow (__tcg_screen_has "=$ola:" '*▐ ph · *' 30; and echo 1; or echo 0)
@@ -10351,6 +10385,24 @@ set -l la4gone (command tmux -L $sock has-session -t "=$la4" 2>/dev/null; and ec
 t "app: ... and its landing session is gone" 1 "$la4gone"
 for p in $la4pids; kill $p 2>/dev/null; end
 rm -rf $pj $tmux_lives_project_cache $lpf
+cleanup
+
+# x on a live claude row asks first, like any live row (its category is claude/<group> now). The claude
+# section comes first, so the pointer starts on kc; the prompt names the row's target.
+fresh_server
+set -l pj $tmux_lives_claude_projects_dir
+rm -rf $pj; rm -f $tmux_lives_project_cache
+command tmux -L $sock new-session -d -s kc -c /tmp "$shimdir/claude --name kc"
+set -l kx (__tcz_landing_new)
+sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$kx" /dev/null >/dev/null 2>&1 &
+set -l kxpids (jobs -p)
+__tcg_client_on $kx >/dev/null
+__tcg_ready "=$kx:" '*d detach*'
+command tmux -L $sock send-keys -t "=$kx:" x
+set -l kxask (__tcg_screen_has "=$kx:" '*kill kc ?*' 30; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$kx:" n
+t "app: x on a live claude row asks before killing" 1 "$kxask"
+for p in $kxpids; kill $p 2>/dev/null; end
 cleanup
 
 # --- landing fix round 1: the idle app emits nothing ---
@@ -10476,7 +10528,10 @@ rm -f $pcrec $pcmod
 cleanup
 
 # --- landing fix round 1: r on a live row does nothing; r on a project resumes ---
+# The claude section lists first, so the pointer starts on the project and the live row rl is below it.
 fresh_server
+command tmux -L $sock new-session -d -s rl -c /tmp
+command tmux -L $sock kill-session -t =0
 set -l rsf /tmp/tcz-rs-proj-$fish_pid
 set -l pj $tmux_lives_claude_projects_dir
 rm -rf $pj; rm -f $tmux_lives_project_cache
@@ -10487,6 +10542,10 @@ sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$r
 set -l rspids (jobs -p)
 __tcg_client_on $rsl >/dev/null
 __tcg_ready "=$rsl:" '*d detach*'
+for i in (seq 6)
+    __tcg_screen_has "=$rsl:" '*▐ rl*' 5; and break
+    command tmux -L $sock send-keys -t "=$rsl:" j
+end
 set -l rsn1 (command tmux -L $sock list-sessions | count)
 command tmux -L $sock send-keys -t "=$rsl:" r
 sleep 1
@@ -10495,7 +10554,7 @@ set -l rson1 (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/nul
 t "app: r on a live row does nothing" "$rsl $rsn1" "$rson1 $rsn2"
 for i in (seq 6)
     __tcg_screen_has "=$rsl:" "*▐ tcz-rs-proj-$fish_pid*" 5; and break
-    command tmux -L $sock send-keys -t "=$rsl:" j
+    command tmux -L $sock send-keys -t "=$rsl:" k
 end
 command tmux -L $sock send-keys -t "=$rsl:" r
 set -l rson ''
