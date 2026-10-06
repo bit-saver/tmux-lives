@@ -10141,10 +10141,18 @@ function __tcg_client_on --argument-names name --description 'poll (≤ 5 s) for
     end
     return 1
 end
+function __tcg_wait_detached --description 'poll (≤ 3 s) until no client is attached'
+    for i in (seq 30)
+        set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
+        test -z "$cl"; and return 0
+        sleep 0.1
+    end
+    return 1
+end
 function __tcg_on --argument-names client --description 'the session <client> is on, or nothing'
     command tmux -L $sock list-clients -F '#{client_name} #{session_name}' 2>/dev/null | string match -- "$client *" | string split -f2 ' '
 end
-function __tcg_ready --argument-names target glob --description 'poll for the chooser (<glob>), then wait out the app'"'"'s settle window: input in its first second after the first paint is drained'
+function __tcg_ready --argument-names target glob --description 'poll for the chooser (<glob>), then wait out the app'"'"'s settle window: non-move input in its first second after the first paint is drained'
     __tcg_screen_has $target $glob 80; or return 1
     sleep 1.5
 end
@@ -10358,12 +10366,8 @@ for i in (seq 30)
 end
 t "app: x then y kills the selected live session" 1 "$la3killed"
 command tmux -L $sock send-keys -t "=$la3:" d
-set -l la3cl x
-for i in (seq 30)
-    set la3cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
-    test -z "$la3cl"; and break
-    sleep 0.1
-end
+__tcg_wait_detached
+set -l la3cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
 t "app: d detaches the client" "" "$la3cl"
 set -l la3gone (command tmux -L $sock has-session -t "=$la3" 2>/dev/null; and echo 0; or echo 1)
 t "app: ... and its landing session is gone" 1 "$la3gone"
@@ -11217,11 +11221,7 @@ set -l tycw (__tcg_where $tyc)
 t "typeahead: lone keys typed in the first second (c, d, CR) are drained" "$tyc 1" "$tycw"
 sleep 1.5
 __tcg_type $tyk d
-for i in (seq 30)
-    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
-    test -z "$cl"; and break
-    sleep 0.1
-end
+__tcg_wait_detached
 set -l tycw2 (__tcg_where $tyc)
 t "typeahead (non-regression): after a quiet second the settle window ends and a lone d detaches" " 0" "$tycw2"
 for p in $typids; kill $p 2>/dev/null; end
@@ -11265,8 +11265,8 @@ sleep 0.1
 __tcg_type $tyk '\e[B'; sleep 0.4
 __tcg_type $tyk '\r'; sleep 1
 set -l tysw (__tcg_where $tys)
-set -l tysat (__tcg_at $tys)
-t "typeahead: a move in the settle window does not end it: a lone CR at +0.5 s is drained, the pointer stays on s2" "$tys 1 s2" "$tysw $tysat"
+set -l tysp (__tcg_at $tys)
+t "typeahead: a move in the settle window does not end it: a lone CR at +0.5 s is drained, the pointer stays on s2" "$tys 1 s2" "$tysw $tysp"
 for p in $typids; kill $p 2>/dev/null; end
 cleanup
 
@@ -11290,11 +11290,7 @@ set -l typids (jobs -p)
 set -l tyd (__tcz_landing_new (__tcg_client_on 0))
 __tcg_ready "=$tyd:" '*d detach*'
 __tcg_type $tyk d
-for i in (seq 30)
-    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
-    test -z "$cl"; and break
-    sleep 0.1
-end
+__tcg_wait_detached
 set -l tydw (__tcg_where $tyd)
 t "typeahead (non-regression): a lone d typed on the keyboard detaches the tab and removes its landing" " 0" "$tydw"
 for p in $typids; kill $p 2>/dev/null; end
@@ -11342,11 +11338,7 @@ __tcg_type $tyk d; sleep 0.6
 __tcg_type $tyk d; sleep 0.8
 set -l tyhmid (__tcg_where $tyh)
 __tcg_type $tyk d
-for i in (seq 30)
-    set -l cl (command tmux -L $sock list-clients -F '#{client_name}' 2>/dev/null)
-    test -z "$cl"; and break
-    sleep 0.1
-end
+__tcg_wait_detached
 set -l tyhend (__tcg_where $tyh)
 t "typeahead: lone d taps below 2 s are drained, so the tab is still on its landing after the third" "$tyh 1" "$tyhmid"
 t "typeahead: the settle window ends 2 s after the first paint even while keys keep coming, so the d at +2.3 s detaches" " 0" "$tyhend"
@@ -11622,7 +11614,7 @@ command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd
 functions -e __tcg_cap __tcg_framed __tcg_shape
-functions -e __tcg_screen_has __tcg_client_on __tcg_ready
+functions -e __tcg_screen_has __tcg_client_on __tcg_wait_detached __tcg_ready
 
 # --- hygiene: this suite's own shim dir ------------------------------------
 # $shimdir holds a COMPILED fake `claude` and was never removed — 43 stale dirs

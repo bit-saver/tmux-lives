@@ -1,6 +1,6 @@
 # Landing Session — Design
 
-Status: shipped in `main` `7528599` and deployed on rocket and macwork; the type-ahead fix and idle cadence are in `main` `8f39db7`. Approved 2026-09-26. **Chooser v2** (approved 2026-10-01; deployed and confirmed 2026-10-04, with the settle-window fix `89661c4`): interactive-only discovery with worktree/subfolder mapping and the generic-folder list, four project groups, the 21-day `older (N)` row, `n` for a new shell, the legend border, and held-arrow scrolling without per-step preview capture. **Chooser v3 approved 2026-10-05, not yet built:** the nested layout (claude and general as the two sections, directory boxes inside claude, a boxed `...older (N)`), a `LANDING` / `SWITCHING` badge, and the in-session switcher replaced by the same app in a full-screen popup ("Switch mode", below). Chosen from mockups `06`–`12` on the claude-mock page (layout E1, badge teal).
+Status: shipped in `main` `7528599` and deployed on rocket and macwork; the type-ahead fix and idle cadence are in `main` `8f39db7`. Approved 2026-09-26. **Chooser v2** (approved 2026-10-01; deployed and confirmed 2026-10-04, with the settle-window fix `89661c4`): interactive-only discovery with worktree/subfolder mapping and the generic-folder list, four project groups, the 21-day `older (N)` row, `n` for a new shell, the legend border, and held-arrow scrolling without per-step preview capture. **Chooser v3** (approved 2026-10-05) built on branch `feat/landing-chooser-v3`, awaiting merge and `fisher update`: the nested layout (claude and general as the two sections, directory boxes inside claude, a boxed `...older (N)`), a `LANDING` / `SWITCHING` badge, and the in-session switcher replaced by the same app in a full-screen popup ("Switch mode", below). Chosen from mockups `06`–`12` on the claude-mock page (layout E1, badge teal).
 
 ## Problem
 
@@ -23,7 +23,7 @@ Not in scope: ShellFish's built-in GUI session picker (outside our control), the
 
 - **Landing session** — one per client (tab). Reserved name `_landing-N`, N the smallest free integer. `__tcz_slugify` only emits `[A-Za-z0-9-]`, so an underscore name can never collide with a project session. The name is the whole identity — it survives a restore and needs no tmux call to test. One window, one pane, running the landing app.
 - **Why one per client.** A tmux pane is shared by every client attached to its session. One shared landing screen would show the iPad and the Mac the same menu, and could not tell which device pressed Enter. With one client per landing session, "my client" is simply the only client attached to my session.
-- **Landing app** — `fish --no-config $cat landing`: a full-pane chooser built from the existing popup picker (`__tcz_popup`) renderer and key loop.
+- **Landing app** — `fish --no-config $cat landing`: a full-pane chooser built from the popup picker's renderer and key loop (the two-pane switcher, `__tcz_popup`, was removed in v3).
 
 ## Entry points
 
@@ -68,7 +68,7 @@ Measured the same way on tmux 3.7b (macwork), 2026-09-26: identical — the hook
 
 Layout (v3) — the popup picker's renderer, full pane: a LIST column, a PREVIEW column (a capture of the selected session's pane, or what Enter does for a project row), a border, and the key legend.
 
-1. **claude** — every live Claude session and every idle Claude project, in **directory boxes** by where the project lives, in this order: `projects` (`~/projects/*`), `workspace` (`~/workspace/*`, rocket only), `work` (`~/Work/*`), `other` (everything else — `~/.claude`, `~/.config/fish`, `~/.hammerspoon/…`, `~/docker/…`). A box with no rows is not shown. A live session's box comes from its pane's cwd through the same folder → project mapping discovery uses (a cwd that maps to no project goes to `other`). Inside a box: live sessions first (bright name, device marks), then idle projects, newest conversation first (muted name, `· <age>`). Markers on live rows:
+1. **claude** — every live Claude session and every idle Claude project, in **directory boxes** by where the project lives, in this order: `projects` (`~/projects/*`), `workspace` (`~/workspace/*`, rocket only), `work` (`~/Work/*`), `other` (everything else — `~/.claude`, `~/.config/fish`, `~/.hammerspoon/…`, `~/docker/…`). A box with no rows is not shown. A live session's box comes from its active pane's cwd through the same folder → project mapping discovery uses (a cwd that maps to no project goes to `other`). Inside a box: live sessions first (bright name, device marks), then idle projects, newest conversation first (muted name, `· <age>`). Markers on live rows:
    - `[here]` — already attached from this device;
    - `[attached]` — attached from another device only.
    Device identity = the SSH client address in the client's environment (`SSH_CONNECTION`, first field): macwork `192.168.68.35`, iPad `10.0.30.120` on rocket; no `SSH_CONNECTION` = `local`. Read via the existing `__tcz_pid_environ` (`/proc` on Linux, `ps eww` on macOS).
@@ -101,11 +101,11 @@ Switching: `switch-client -c <my client> -t =<target>`, where my client is `list
 
 ## Switch mode (v3)
 
-The in-session switcher is the landing app itself. `M-s`, `prefix S` and `tmux-lives picker` inside tmux open it full screen, with no window border, over the client's current session: `display-popup -B -E -w 100% -h 100%` running the categorizer's landing verb in switch mode for that client (the verb takes the mode and the client name; the client comes from `#{client_name}` or is resolved inside the popup, as `__tcz_popup` does today). The two-pane popup switcher (`__tcz_popup`) is removed; the `display-menu` fallback for a tmux without `display-popup` stays as it is.
+The in-session switcher is the landing app itself. `M-s`, `prefix S` and `tmux-lives picker` inside tmux open it full screen, with no window border, over the client's current session: `display-popup -B -E -w 100% -h 100%` running the categorizer's landing verb in switch mode for that client (the verb takes the mode and the client name; the client comes from `#{client_name}` or is resolved inside the popup, as the two-pane switcher did). The two-pane popup switcher (`__tcz_popup`) is removed; the `display-menu` fallback for a tmux without `display-popup` stays as it is.
 
 Differences from landing mode — everything else (layout, discovery, keys, input rules, idle cadence, diff painting) is the same code:
 - The badge reads `SWITCHING` (teal 37).
-- The client's current session is listed (in landing mode the app's own session is the landing session, which is hidden) and marked like today's switcher marks it: a yellow `❯` in its rail cell and a yellow `[current]` tag in place of the device mark. The pointer starts on it. On that row the pointer's `▐` covers the `❯`; the yellow name and `[current]` still identify it.
+- The client's current session is listed (in landing mode the app's own session is the landing session, which is hidden) and marked as the two-pane switcher marked it: a yellow `❯` in its rail cell and a yellow `[current]` tag in place of the device mark. The pointer starts on it. On that row the pointer's `▐` covers the `❯`; the yellow name and `[current]` still identify it.
 - No settle window: the switcher opens on a keypress, and ShellFish's typed-ahead `cd` only reaches new tabs. The burst rule stays.
 - `Enter` on a live session switches this client to it and closes the switcher; on a project it starts `claude --continue` there (`r`: `--resume`) and switches; `n` starts a new general session and switches; `x` kills a live session through `session-close` (its tabs land, the current session included — this client then lands too); `d` detaches this client; `q`/Esc close the switcher. The legend adds `esc close`.
 - Nothing is created or killed for the switcher itself: no `_landing-N`, and the popup closes when the app exits.
@@ -125,7 +125,7 @@ Differences from landing mode — everything else (layout, discovery, keys, inpu
 Landing sessions (by reserved name) are excluded from:
 
 - categorize, rename, `@tmux_lives_display` / `@tmux_lives_claude` writes;
-- snapshot and overview (popup picker, fallback menu);
+- snapshot and overview (the chooser's model, fallback menu);
 - `__tmux_pick_session`, `__tcz_pick_general`, `prune`, `clear` and idle-kill, restore disposal;
 - tab titles — a landing tab gets the fixed title `[<h>] landing`.
 
@@ -162,3 +162,12 @@ Tab colour is untouched.
 
 - Measure what ShellFish does when its tmux client exits (reconnect into a new springboard, or close the tab). Informs the "killed some other way" path, not the design.
 - Enter on a project row runs `claude --continue` in the mapped project folder (the repo root, or a worktree's main repository), while Claude keys conversations by exact cwd: when the newest interactive conversation ran in a subfolder or in a worktree that still exists, `--continue` resumes a different conversation than the row's age describes. None is affected on rocket's data as of 2026-10-03.
+- Rulings taken while building v3 (settled, not open):
+  - Within `general`, the former `running` sessions keep their place ahead of the other general sessions (the overview's order), not interleaved by recency.
+  - The switch-mode legend keeps the landing legend's 10-column pitch behind its badge, so `esc close` is clipped below 83 columns (the landing legend's `d detach` already clipped below about 61 columns; the badge moves that to about 70).
+  - Enter on a live row goes through `__tcz_switch` in both modes; `--take` (`tmux-lives picker -t` inside tmux) is carried into switch mode, so taking a session over still works there.
+  - In switch mode Enter, `n` and `r` close the switcher even when the switch fails (the client stays where it was).
+  - `M-s` pressed on a landing tab opens the switcher over the landing page; it is not special-cased (the abandoned landing session is swept like any clientless one).
+  - The stderr re-exec the theme-picker verb does for its popup is one shared helper, `__tcz_quiet_exec` (marker `__tcz_quiet`, replacing `__tcz_thp_quiet`), used by both popup verbs.
+  - A live Claude session's box comes from its session's active pane's folder (the same folder its displayed project name comes from), not from whichever pane runs claude.
+  - The switcher resolves its client the way the other popup binds (modal, theme picker) do: the binds pass a literal `#{client_name}` (display-popup does not expand it), and the app takes the most recently active client, the one that just pressed the key (measured with a second, later-attached client).

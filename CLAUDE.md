@@ -41,7 +41,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 |---|---|
 | `conf.d/tmux.fish` | Shell-side: autostart, session creation, `tmux-lives <verb>` dispatcher, the `--on-variable` reload handler, the Alt+S shell keybind |
 | `conf.d/tmux-lives-install.fish` | Install side: `tmux-lives setup …`, the fragment renderer/writer, the theme engine (v6), post-update note |
-| `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the popup picker, the theme picker, OSC emission |
+| `functions/tmux-categorize.fish` | The categorizer — run as a **script** (`fish --no-config $cat <verb>`), never autoloaded. Session naming, the status tick, the landing app (chooser and switcher), the theme picker, OSC emission |
 | `tests/test-*.fish` | The gate — 9 suites |
 | `tests/tick-rate-ab.fish`, `tests/truncate-perf.fish` | Hand-run, not `test-*`: tick-rate-ab samples a live pty window; truncate-perf times `__tcz_popup_truncate` |
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
@@ -97,8 +97,8 @@ session cluster `new/attach/picker/fix/categorize/clear/close` (aliases `u`, `n/
 unquoted forms work; `list`/`off` are matched by earlier arms and unaffected.
 
 Keys (all configurable via `setup keys`, `''` disables, baked into the fragment):
-`prefix S` / `M-s` picker · `M-m` single-shot launcher · `M-t` scratch split · `M-r` resize key-table ·
-`M-k` theme picker · `C-M-a` status position · `C-M-s` status visibility.
+`prefix S` / `M-s` switcher (the landing app, switch mode) · `M-m` single-shot launcher · `M-t` scratch
+split · `M-r` resize key-table · `M-k` theme picker · `C-M-a` status position · `C-M-s` status visibility.
 
 **Alt+S also works at a bare prompt outside tmux.** fish's preset `alt-s` prepends sudo to the previous
 command; a plain `conf.d` bind outranks it. **`bind -M insert` is required** — a vi prompt starts in insert
@@ -122,7 +122,7 @@ for t in tests/test-*.fish; fish $t; end          # then again with: fish --no-c
   reports it was backgrounded, abandon it and re-run in the foreground.
 - **Never** wrap the suite in a shell `timeout` — it truncates with no trailer and reads as a false clean.
 - Capture failures with `grep -E '^FAIL'`, **never `tail -1`** — that hides which assertion fired.
-- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **960 plain / 959 `--no-config`**
+- Current: **9/9 `ALL PASS` in both modes.** `test-tmux-install.fish` reports **962 plain / 961 `--no-config`**
   on every host. **The 1-count delta between modes is BY DESIGN** (one isolation assertion gated on plain
   fish) — do not "fix" it.
 - `test-tmux-categorize.fish` and `test-tmux-auto.fish` print `ALL PASS` with **no count** — judge by the
@@ -192,7 +192,7 @@ Duplicate displays get a **bracketed ordinal** — `Sonos [1]` / `Sonos [2]` (a 
 as an iteration count), every member numbered, ordered by **sorted session name**.
 
 **Known, deliberately not fixed:** `__tcz_snapshot`/`__tcz_overview` consult only the `@tmux_lives_name`
-claim, never ownership — a hand-named session still renders its *project* in the picker.
+claim, never ownership — a hand-named session still renders its *project* in the chooser.
 
 ---
 
@@ -219,9 +219,9 @@ the `LC_TERMINAL` check), and `&&` makes it **fail closed** (a bare `! tmux … 
   lazily-loaded `list-clients -F`), taking the tick from **44 client spawns to 9** steady-state.
 - `__tcz_ps_load` — one `ps` snapshot pair per pass, feeding all pid helpers.
 
-⚠ **Both flush functions must use a GLOB, never a regex.** `string match -r` with a *prefix pattern*
-returns the matched **substring**, so `string match -r '^__tcz_tmux_'` erases a variable literally named
-`__tcz_tmux_` while every real entry silently survives — shipped once in `__tcz_ps_flush`.
+⚠ **Both flush functions must use a GLOB, never a regex:** `string match -r` with a prefix pattern returns
+the matched **substring**, so it erased only a variable literally named `__tcz_tmux_` (shipped once in
+`__tcz_ps_flush`).
 
 **Staleness rule:** a memoized read is stale the moment something in the same pass writes what it reads.
 Flush **after the write**, not before each read — a flush-per-read-site rule is easy to omit and
@@ -229,15 +229,13 @@ impossible to notice missing. `@tmux_lives_display` deliberately stays **live** 
 `__tcz_tmux_flush` is a coarse glob whose blast radius would evict the pane/client memos too.
 
 **Emission is deduped.** The tick emits OSC title/colour only when the value changed for that tty
-(per-tty cache in `@tmux_lives_emit_<tty>_{title,color}`); discrete events force-emit — this is what
-killed a ShellFish cursor flicker from unconditional OSC writes every cycle. `__tcz_set_claude_opt`
-dedups for the same reason: **any** bar redraw re-emits the cursor.
+(per-tty cache in `@tmux_lives_emit_<tty>_{title,color}`); discrete events force-emit.
+`__tcz_set_claude_opt` dedups for the same reason: **any** bar redraw re-emits the cursor (the strobe, below).
 
 ⚠ **Empty-cache gotcha:** `test "$x" = (__tcz_emit_get …)` **throws** when nothing is cached (fish
 zero-word command substitution) — capture into a var first: `set -l cached (…); test "$x" = "$cached"`.
 
-**Verified in production:** tick rate = `clients ÷ status-interval` exactly, and tmux-lives is out of the
-host's top-5 CPU — `[[tick_tmux_call_batching]]`. A tick self-rate-limit was **DROPPED unbuilt**
+Verified in production (`[[tick_tmux_call_batching]]`). A tick self-rate-limit was **DROPPED unbuilt**
 (2026-09-14, user's call) — `[[tick_self_rate_limit]]`.
 
 ---
@@ -301,8 +299,8 @@ arrangements per mode, all reachable cold); `_v6_rest` is the other 28, appended
 header). `mono deep` is the one hand-placed row — kept for being the user's repeatedly-favourite palette,
 not for being the most robust (bound-1 margin 0.0050 vs ≥0.0113 elsewhere).
 
-**Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed** — v5's
-relationship/place/mode/phase have no v6 mapping. Idempotent, runs on `fisher update`.
+**Migration (`__tmux_lives_migrate_v6`) resets to `mono deep`, preserving only the seed.** Idempotent, runs
+on `fisher update`.
 
 In the theme picker `z` **rolls the real recipe space** (session-local 12-entry history).
 
@@ -329,8 +327,8 @@ Roles: `bar sep tabs active windows cap text`. "Big three" = `bar`/`tabs`/`cap`.
 
 ### The three bounds
 
-Reverse-engineered from palettes the user had already praised, then confirmed 7/7 by blind prediction.
-**Hue placement is not a factor** — see `[[three_bounds_palette_rule]]` for the falsification and why.
+Reverse-engineered from palettes the user had already praised, then confirmed 7/7 by blind prediction
+(`[[three_bounds_palette_rule]]`; hue placement is not a factor — see Standing decisions).
 
 | | Bound | Enforced? |
 |---|---|---|
@@ -362,7 +360,8 @@ A miss renders, appends one line, and prunes stale-engine files. **Never fails a
 
 ## The picker (theme + session)
 
-Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
+The theme picker and the switcher (the landing app in switch mode) are `display-popup` UIs drawn by
+`functions/tmux-categorize.fish`.
 
 **Geometry facts, measured — not guessed:**
 - A popup **taller than the client does not clamp: it refuses to open** (`height too large`). That is
@@ -373,24 +372,23 @@ Both are `display-popup` UIs drawn by `functions/tmux-categorize.fish`.
 - `WIN = rows - STATIC` (`STATIC_IDLE 17` / `STATIC_EDIT 22`), gated on the **stricter** `STATIC_EDIT`
   (25 popup rows = 30 client rows) — an idle-only floor once admitted a 20-row popup that overflowed
   the instant `b` was pressed.
-- Both pickers re-read `stty size` every pass and full-repaint on a change (tmux 3.3a shrinks an open popup
+- Both re-read `stty size` every pass and full-repaint on a change (tmux 3.3a shrinks an open popup
   with a shrinking client and grows it back). Below its floor, or under 52 columns, the theme picker shows
-  the too-small message: only Esc acts (it still reverts a preview). It runs under a process-level
-  `2>/dev/null` re-exec (`__tcz_thp_quiet`): fish's own errors bypass an in-process redirect.
+  the too-small message: only Esc acts (it still reverts a preview). Both popup verbs run under a
+  process-level `2>/dev/null` re-exec (`__tcz_quiet_exec`): fish's own errors bypass an in-process redirect.
 
 **Performance — four layers, all measured (`[[popup_geometry_and_perf]]`):**
-1. **Construction** cost is the **number of fish command substitutions**, not any one builder (a call
-   inside `(…)` is 19× a plain call) — fixed by memoizing the row/static/swatch builders behind **one**
-   helper (`__tcz_thp_reload`), which also makes a bare-integer row cache key legal.
+1. **Construction** cost is the **number of fish command substitutions** (a call inside `(…)` is 19× a
+   plain call): the row/static/swatch builders are memoized behind **one** helper (`__tcz_thp_reload`),
+   which also makes a bare-integer row cache key legal.
 2. **Emission.** `__tcz_popup_emit` diffs against `__tcz_pe_prev` and emits only changed rows in a sync
    wrapper, full-painting only when forced or the row **count** differs (a win in a keypress burst, a
-   small loss on isolated keys). The session switcher is deliberately **out of scope** — its cursor
-   move changes nearly every row.
+   small loss on isolated keys). The landing app and switcher paint through it too.
 3. **Input.** One rule on every held-key path: **discard, one step per frame.** ⚠ `stty min 0 time 0`
    must be re-asserted **inside** every drain loop (readkey's CSI branch leaves the tty blocking), and
    the arrow poll must never escalate its timeout or autorepeat outpaces it and the picker stalls.
-4. **Rendering.** Colour-decode is memoized per process and the gamut clamp no longer forks `seq`; warm,
-   served from the render cache (above), the scheme list build is **17–19ms** vs. seconds cold.
+4. **Rendering.** Colour-decode is memoized per process and the gamut clamp no longer forks `seq`; the
+   scheme list reads the render cache (above).
 
 **tmux 3.3a DROPS app-sent DECSET 2026** (a bogus `?9999` behaves identically — tmux does not forward
 private modes it doesn't implement), so the sync wrapper never reaches ShellFish there — it paints
@@ -418,8 +416,7 @@ with the cost **invisible from inside**. `pgrep` is **absent from the file entir
 
 **On macOS a native-install claude pane's `pane_current_command` is its version (`2.1.270`)**, with the
 real `claude` a child of the pane pid. Detect claude with `__tcz_pane_is_claude`, never a literal cmd
-match — `__tcz_set_claude_opt` did the latter and left `@tmux_lives_claude` (the bar's ✦) empty on every
-macwork session until 2026-09-16.
+match (it left the bar's ✦ empty on every macwork session).
 
 **Two settled dead ends — do not re-chase:**
 - **`reattach-to-user-namespace` as `default-command` is a proven no-op** on macOS 26.5.2 — GUI
@@ -519,7 +516,7 @@ macwork session until 2026-09-16.
 
 Spec: `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
 Every automatic entry (login, outside-tmux `picker`, new ShellFish tab) and every closing tab lands on a
-per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group).
+per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `general`).
 
 - **Identity is the NAME**, never a session option: `__tcz_is_landing` (categorizer) and `__tmux_is_landing`
   (shell side) must agree; `__tcz_free_name <prefix> <taken…>` mints `gen-N` and `_landing-N`. **Kill
@@ -542,9 +539,13 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
   window opened inside landing to a `gen-N` in `$HOME`.
 - **App** — diff-painted (idle refresh: no write); live rows every 3 s (15 s once idle; seams
   `tmux_lives_landing_idle_after`/`_idle_refresh`), projects every 10th pass. `n` new shell, `d` detaches,
-  `q`/Esc no-ops (one `__tcz_popup_readkey` token). Held moves: no capture, `__tcz_pf_keep` reuses the last
-  preview.
-- **Projects** — category = group (`__tcz_landing_groups`); 21+ days → `older (N)` (seam
+  `q`/Esc no-ops in landing mode (one `__tcz_popup_readkey` token). Held moves: no capture, `__tcz_pf_keep`
+  reuses the last preview.
+- **v3** — the model's category carries the layout: `claude/<group>` live claude, `<group>` idle, `older`,
+  `general` (running folded in, last). `__tcz_popup_list_row` draws a row; `__tcz_popup_list_lines` records
+  `__tcz_pl_row/_line/_first`, which the memo and frame read. `landing switch <client> [--take]` = the
+  switcher: no settle, Esc/actions close it, `x` on the current session lands the client; badge per mode.
+- **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
 - **Input** — a key acts only alone: with more already pending it is typed-ahead or pasted text (ShellFish
@@ -564,16 +565,15 @@ per-tab `_landing-N` chooser (live sessions, then idle Claude projects by group)
 
 ---
 
-## Current state — 2026-10-05
+## Current state — 2026-10-06
 
-Everything through the settle-window fix (`89661c4`, last code commit) is deployed on both machines and
-confirmed on a real device (2026-10-04). **Next: build chooser v3** from
-`docs/superpowers/plans/2026-10-05-landing-chooser-v3.md` (6 tasks, subagent-driven), then the
-workspace-TUI sidebar. Mockups: claude-mock `06`–`12`; generator in `artifacts/mockgen/chooser-v3/`.
+Chooser v2 (through `89661c4`) is deployed and device-confirmed (2026-10-04). **Chooser v3 built (merged
+`<sha>` — filled in at merge), awaiting `fisher update` on both machines;** then the workspace-TUI sidebar.
+Mockups: claude-mock `06`–`12`; generator in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
-The user rejected the non-mono v6 schemes ("way too crazy") and handed colour decisions to Claude. Target:
+Non-mono v6 schemes were rejected (above); colour decisions are Claude's. Target:
 the seed used **verbatim** as one colour + its shades + greys, HSB-style seed controls, maybe a second
 colour later (v6 ignores seed chroma; seed lightness only shifts the ramp window). Prototype
 `artifacts/mockgen/v7proto.py` (gitignored, rocket only). On `05-seed-plus-grey.html` (2026-10-01): "not
