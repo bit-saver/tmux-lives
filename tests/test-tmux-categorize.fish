@@ -10092,17 +10092,23 @@ t "model: a project's group is where it lives (below ~/projects, ~/workspace, ~/
 cleanup
 
 # --- chooser v3: a live claude session sits in its project's group box, before the group's idle
-# projects; running folds into general, which comes last ---
+# projects; the older row ends the claude section; running folds into general, which comes last ---
 # - HOME is redirected before the server starts, so the panes' cwds sit below the fixture's group roots
-# - cw runs in a repo's subfolder: its box comes from the repo (workspace), not the subfolder
 # - an implementation that misses the panes' cwds puts every claude session in other, which this fixture rejects
+# - cx runs in a linked worktree outside every group root, whose main repo is under ~/Work: only the folder ->
+#   project mapping (__tcz_claude_project_of) puts it in work; the raw pane cwd would put it in other
+# - the stale discovery row makes the older row exist, so its place (before general, after the claude section) is pinned
 set -l m3home /tmp/tcz-m3h-$fish_pid
+set -l m3wt /tmp/tcz-m3wt-$fish_pid
 set -l m3home_save $HOME
 mkdir -p $m3home/projects/cp $m3home/workspace/ww/.git $m3home/workspace/ww/sub $m3home/projects/pi $m3home/workspace/wi
+mkdir -p $m3home/Work/mr/.git/worktrees/wt $m3wt
+printf 'gitdir: %s/Work/mr/.git/worktrees/wt\n' $m3home > $m3wt/.git
 set -gx HOME $m3home
 fresh_server
 command tmux -L $sock new-session -d -s cp -c $m3home/projects/cp "$shimdir/claude --name cp"
 command tmux -L $sock new-session -d -s cw -c $m3home/workspace/ww/sub "$shimdir/claude --name cw"
+command tmux -L $sock new-session -d -s cx -c $m3wt "$shimdir/claude --name cx"
 command tmux -L $sock new-session -d -s co -c /tmp "$shimdir/claude --name co"
 command tmux -L $sock new-session -d -s rn -c /tmp 'sleep 600'
 command tmux -L $sock new-session -d -s gg -c /tmp
@@ -10110,7 +10116,8 @@ command tmux -L $sock kill-session -t =0
 sleep 0.3
 set -l m3now (date +%s)
 set -l m3disc (printf '%s\t%s' $m3home/projects/pi (math $m3now - 60)) \
-    (printf '%s\t%s' $m3home/workspace/wi (math $m3now - 120))
+    (printf '%s\t%s' $m3home/workspace/wi (math $m3now - 120)) \
+    (printf '%s\t%s' /tmp/tcz-m3-stale (math $m3now - 30 \* 86400))
 set -l m3 (__tcz_landing_model x -- $m3disc)
 set -gx HOME $m3home_save
 set -l m3shape
@@ -10118,10 +10125,10 @@ for r in $m3
     set -l f (string split \t -- $r)
     set -a m3shape "$f[2]:"(path basename -- $f[1])
 end
-t "model v3: per group its live claude sessions (by the active pane's project) then its idle projects; then general, running folded in, last" "claude/projects:cp projects:pi claude/workspace:cw workspace:wi claude/other:co general:rn general:gg" "$m3shape"
+t "model v3: per group its live claude sessions (by the active pane's project, a linked worktree through its main repo) then its idle projects; then the older row; then general, running folded in, last" "claude/projects:cp projects:pi claude/workspace:cw workspace:wi claude/work:cx claude/other:co older:older general:rn general:gg" "$m3shape"
 set -l m3old (__tcz_landing_model x -- (printf '%s\t%s' /tmp/tcz-m3-stale (math $m3now - 30 \* 86400)))
 t "model v3: the older row reads ...older (N)" 1 (string match -q -- 'older'\t'older'\t'0'\t'1'\t'...older (1)' $m3old; and echo 1; or echo 0)
-rm -rf $m3home
+rm -rf $m3home $m3wt
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
@@ -10269,18 +10276,20 @@ cleanup
 functions -e __tcg_wait_empty
 
 # The older row: Enter reveals the hidden projects in their groups, pointer on the first one revealed.
-# A live session literally named `older` sits in general, below it: the pointer follows rows by target AND category.
+# A live claude session literally named `older` sits above it, in the claude section: the pointer follows rows
+# by target AND category (a target-only match lands on that session instead).
 # HOME is redirected (exported before the server starts, so the landing pane inherits it). The list goes from
-# [pv (projects), fresh (other), ...older (1)] to [pv, ph (workspace, the one revealed), fresh]: the revealed row
-# sits above the older row's old slot (a pointer that did not move cannot pass) and below the first project row
-# (a pointer sent to the first project row, not the first row the reveal added, cannot pass).
-# zz is a claude session, so the refresh adds its row above the older row, in the claude section.
+# [pv (projects), older (live), fresh (other), ...older (1)] to [pv, ph (workspace, the one revealed), older,
+# fresh]: the revealed row sits above the older row's old slot (a pointer that did not move cannot pass) and
+# below the first project row (a pointer sent to the first project row, not the first row the reveal added,
+# cannot pass).
+# zz is a second claude session, so the refresh adds its row above the older row, in the claude section.
 set -l olhome /tmp/tcz-olh-$fish_pid
 set -l olhome_save $HOME
 mkdir -p $olhome/projects/pv $olhome/workspace/ph
 set -gx HOME $olhome
 fresh_server
-command tmux -L $sock new-session -d -s older -c /tmp
+command tmux -L $sock new-session -d -s older -c /tmp "$shimdir/claude --name older"
 set -l pj $tmux_lives_claude_projects_dir
 set -l ol /tmp/tcz-ol-$fish_pid
 rm -rf $pj $ol; rm -f $tmux_lives_project_cache
@@ -10306,11 +10315,24 @@ command tmux -L $sock new-session -d -s zz -c /tmp "$shimdir/claude --name zz"
 set -l olzz (__tcg_screen_has "=$ola:" '*│ zz*' 50; and echo 1; or echo 0)
 set -l olkept (__tcg_screen_has "=$ola:" '*▐ ...older (1)*' 1; and echo 1; or echo 0)
 t "app: after a refresh adds a row above it, the pointer stays on the older row (beside a live session named older)" "1 1" "$olzz $olkept"
+# x on the older row has no session to kill: no prompt (the prompt would read `kill older ?`), the app keeps drawing.
+command tmux -L $sock send-keys -t "=$ola:" x
+set -l olxold (__tcg_screen_has "=$ola:" '*kill older ?*' 15; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$ola:" Escape
+sleep 1
+set -l olxdraw (__tcg_screen_has "=$ola:" '*d detach*' 10; and echo 1; or echo 0)
 command tmux -L $sock send-keys -t "=$ola:" Enter
 set -l olshow (__tcg_screen_has "=$ola:" '*▐ ph · *' 30; and echo 1; or echo 0)
 set -l olgone (__tcg_screen_has "=$ola:" '*older (1)*' 1; and echo 0; or echo 1)
 set -l olon (command tmux -L $sock list-clients -F '#{session_name}' 2>/dev/null)
 t "app: Enter on the older row reveals it, pointer on it (the first row the reveal added, between two visible projects), the row gone, the tab still on its landing" "1 1 $ola" "$olshow $olgone $olon"
+# x on a project row has no session to kill either: no prompt (it would name the folder).
+command tmux -L $sock send-keys -t "=$ola:" x
+set -l olxproj (__tcg_screen_has "=$ola:" '*kill *workspace/ph ?*' 15; and echo 1; or echo 0)
+command tmux -L $sock send-keys -t "=$ola:" Escape
+sleep 1
+set -l olxdraw2 (__tcg_screen_has "=$ola:" '*d detach*' 10; and echo 1; or echo 0)
+t "app: x on the older row or on a project row asks nothing (only a live row has a session to kill), and the app keeps drawing" "0 0 1 1" "$olxold $olxproj $olxdraw $olxdraw2"
 for p in $olpids; kill $p 2>/dev/null; end
 set -gx HOME $olhome_save
 rm -rf $pj $ol $olhome $tmux_lives_project_cache
@@ -10352,8 +10374,10 @@ for p in $la3pids; kill $p 2>/dev/null; end
 cleanup
 
 # Enter on an idle project: a new session in its folder runs claude --continue
-# (the suite's fake claude is on the server's PATH).
+# (the suite's fake claude is on the server's PATH). The claude session lc lists above the project (the claude
+# section comes first), so the pointer starts on lc and j has to move it.
 fresh_server
+command tmux -L $sock new-session -d -s lc -c /tmp "$shimdir/claude --name lc"
 set -l lpf /tmp/tcz-lp-proj-$fish_pid
 mkdir -p $lpf
 set -l pj $tmux_lives_claude_projects_dir
@@ -10365,12 +10389,13 @@ sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$l
 set -l la4pids (jobs -p)
 __tcg_client_on $la4 >/dev/null
 __tcg_ready "=$la4:" '*d detach*'
+set -l la4start (__tcg_screen_has "=$la4:" '*▐ lc*' 1; and echo 1; or echo 0)
 set -l la4sel 0
 for i in (seq 6)
     __tcg_screen_has "=$la4:" "*▐ tcz-lp-proj-$fish_pid*" 5; and set la4sel 1; and break
     command tmux -L $sock send-keys -t "=$la4:" j
 end
-t "app: j reaches the idle project row" 1 "$la4sel"
+t "app: j reaches the idle project row (the pointer starts on the claude session above it)" "1 1" "$la4start $la4sel"
 command tmux -L $sock send-keys -t "=$la4:" Enter
 set -l la4on ''
 for i in (seq 30)

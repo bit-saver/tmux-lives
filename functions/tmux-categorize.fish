@@ -77,11 +77,12 @@ end
 
 function __tcz_landing_group_of --description 'pure: project folders (argv) -> their chooser groups, one per line: the group of the first root each is below (__tcz_landing_group_roots), else other'
     set -l roots (__tcz_landing_group_roots)
-    set -l gidx (seq (count $roots))
     for folder in $argv
         set -l g other
-        for i in $gidx
-            string match -q -- "$roots[$i]/*" "$folder"; and set g $__tcz_landing_groups[$i]; and break
+        set -l i 0
+        for root in $roots
+            set i (math $i + 1)
+            string match -q -- "$root/*" "$folder"; and set g $__tcz_landing_groups[$i]; and break
         end
         echo $g
     end
@@ -1536,7 +1537,7 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the session <self> serves (mark 2 = a client of my device is on it, 1 = some client). Per group: its live claude sessions (claude/<group>, by the active pane'"'"'s project), then its idle projects (<group>); then "...older (N)" (--all lists them); then the other live sessions (general). "--" passes discovery rows in.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the chooser of <self> (mark 2 = a client of my device is on it, 1 = some client). Per group: its live claude sessions (claude/<group>), then its idle projects (<group>); then "...older (N)" (--all lists them); then the other live sessions (general). "--" passes discovery rows in.'
     set -e argv[1]
     set -l all 0
     test "$argv[1]" = --all; and set all 1; and set -e argv[1]
@@ -1579,10 +1580,10 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             set mark 1
         end
         if test "$f[2]" = claude
-            # The overview's snapshot leaves each session's active-pane cwd in __tcz_tmux_activepath_*.
-            set -l i (contains -i -- $f[1] $__tcz_tmux_activepath_names)
+            # The overview's snapshot has filled the active-pane memo __tcz_tmux_activepath reads.
+            set -l cwd (__tcz_tmux_activepath $f[1])
             set -l proj
-            test -n "$i"; and set proj (__tcz_claude_project_of "$__tcz_tmux_activepath_paths[$i]")
+            test -n "$cwd"; and set proj (__tcz_claude_project_of "$cwd")
             set -l g (__tcz_landing_group_of "$proj")
             set -a crows (printf '%s\tclaude/%s\t%s\t%s\t%s' $f[1] $g $mark $f[4] "$f[5]")
         else
