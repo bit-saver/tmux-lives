@@ -47,7 +47,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` holds only in-flight plans (now: none) — **plans are deleted once
+`docs/superpowers/plans/` holds only in-flight plans (now: chooser v3.1) — **plans are deleted once
 their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
@@ -565,11 +565,12 @@ per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `gener
 
 ---
 
-## Current state — 2026-10-06
+## Current state — 2026-10-07
 
-Chooser v2 is deployed and device-confirmed (2026-10-04). **Chooser v3 built (merged
-`f4395b9`), awaiting `fisher update` on both machines;** then the workspace-TUI sidebar.
-Mockups: claude-mock `06`–`12`; generator in `artifacts/mockgen/chooser-v3/`.
+Chooser v3 (merged `f4395b9`) is installed on rocket. **Next: build chooser v3.1** from
+`docs/superpowers/plans/2026-10-07-landing-chooser-v3-1.md`; then the workspace-TUI sidebar.
+Mockups `06`–`18` (generators in `artifacts/mockgen/chooser-v3/`); his iPad (dev beta) freezes
+on claude-mock pages, so he reviews them on the Mac.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
