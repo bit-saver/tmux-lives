@@ -18,6 +18,9 @@ set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' 
 set -g __tcz_landing_groups projects workspace work other
 # The row categories with no session behind them: an idle project's group, or the older row.
 set -g __tcz_landing_idle_categories $__tcz_landing_groups older
+# The landing frame's glyphs, drawn in the mode color: the header line, its junction over the divider, the divider.
+# Eighth blocks; for a terminal that lacks them, the box-drawing set ─ ┬ │ draws the same frame.
+set -g __tcz_landing_frame_glyphs ▔ ▕ ▕
 # Folders that are never a project, with $HOME and $TMPDIR (macOS reports /tmp as /private/tmp),
 # and trees no folder below which is one either. Read by __tcz_generic_dir and discovery's skip.
 set -g __tcz_generic_folders / /tmp /var/tmp /private/tmp /private/var/tmp
@@ -1711,7 +1714,7 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the frame, a border, then the key legend behind its badge (LANDING; SWITCHING and esc close when <mode> is switch) through the diff emitter. <hold> = 1 while a move key is held: no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the badge and key legend (SWITCHING and esc close when <mode> is switch, else LANDING), the header line and the frame, framed in the mode color, through the diff emitter. <hold> = 1: a held move, no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
     set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]; set -l hold $argv[4]
     set -l mode $argv[5]; set -l current $argv[6]
     set -e argv[1..7]
@@ -1728,30 +1731,31 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
         return 1
     end
     set -g __tcz_lp_key "$key"
-    set -g __tcz_pf_keep $hold
-    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" -- $model)
-    set -g __tcz_pf_keep 0
-    # The badge says which mode this is: the landing app, or the switcher over a session.
-    set -l badge (printf '\e[1;7;38;5;208m LANDING \e[0m')
+    # The mode color says which app this is: coral for the landing app, teal for the switcher over a session.
+    set -l mc 203; set -l badge LANDING
     set -l keys '↑↓' move '⏎' open n new r resume x kill d detach
     if test "$mode" = switch
-        set badge (printf '\e[1;7;38;5;37m SWITCHING \e[0m')
+        set mc 37; set badge SWITCHING
         set -a keys esc close
     end
-    set -l legend "$badge"(__tcz_legend_row 10 $keys)
-    __tcz_popup_emit $frame (__tcz_landing_border $lay[1] $lay[2] $cols) (__tcz_popup_truncate "$legend" (math $cols - 1))
+    set -g __tcz_pf_keep $hold
+    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" $mc -- $model)
+    set -g __tcz_pf_keep 0
+    set -l legend (printf '\e[1;7;38;5;%sm %s \e[0m' $mc $badge)(__tcz_legend_row 10 $keys)
+    __tcz_popup_emit (__tcz_popup_truncate "$legend" (math $cols - 1)) (__tcz_landing_border $lay[1] $lay[2] $cols $mc) $frame
 end
 
-function __tcz_landing_border --argument-names listw prevw cols --description 'pure: the rule between the landing list and its key legend: <cols> - 1 wide (as the legend), with ┴ under the list/preview divider when there is a preview'
+function __tcz_landing_border --argument-names listw prevw cols color --description 'pure: the header line under the badge and key legend: <cols> - 1 wide (as the legend) in 256-color <color>, with the junction over the list/preview divider when there is a preview (glyphs: __tcz_landing_frame_glyphs)'
+    set -l g $__tcz_landing_frame_glyphs
     set -l w (math $cols - 1)
-    set -l line (string repeat -n $w ─)
+    set -l line (string repeat -n $w $g[1])
     if test $prevw -gt 0; and test $listw -lt $w
         # Quoted: a zero-width repeat is an empty list, which would empty an unquoted concatenation.
-        set -l left (string repeat -n $listw ─)
-        set -l right (string repeat -n (math $w - $listw - 1) ─)
-        set line "$left┴$right"
+        set -l left (string repeat -n $listw $g[1])
+        set -l right (string repeat -n (math $w - $listw - 1) $g[1])
+        set line "$left$g[2]$right"
     end
-    printf '\e[38;5;240m%s\e[0m' "$line"
+    printf '\e[38;5;%sm%s\e[0m' $color "$line"
 end
 
 function __tcz_tty_drain --description 'discard input until 0.3 s pass with none: a burst whose tail straggles in over several reads is one burst'
@@ -1986,7 +1990,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
             case kill
                 # Live rows only: a project or the older row has no session to kill.
                 test -n "$row[1]"; and not contains -- "$row[2]" $__tcz_landing_idle_categories; or continue
-                printf '\e[%s;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' $rows "$row[1]"
+                printf '\e[1;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' "$row[1]"
                 set -g __tcz_pe_force 1       # the prompt overwrote the legend
                 stty min 1 time 0 2>/dev/null
                 set -l ans ''
@@ -2441,12 +2445,13 @@ function __tcz_popup_list_memo --argument-names listw current --description '__t
     set -g __tcz_pf_lkey "$key"
 end
 
-function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> -- <model lines...>: the frame as <rows> lines, each ending in erase-to-EOL. An overflowing list scrolls only to keep the selection in view; the window top persists in __tcz_pd_top across calls. With __tcz_pf_keep = 1 the preview column is the last one built (__tcz_pf_right) when its size still matches: the landing app'"'"'s held moves.'
+function __tcz_popup_frame --description '__tcz_popup_frame <sel> <listw> <prevw> <rows> <current> <color> -- <model lines...>: <rows> lines, each ending in erase-to-EOL, the divider in 256-color <color>. An overflowing list scrolls only to keep the selection in view (the window top persists in __tcz_pd_top). With __tcz_pf_keep = 1 the preview column is the last one built (__tcz_pf_right) if its size still matches: the landing app'"'"'s held moves.'
     set -l sel $argv[1]; set -l listw $argv[2]; set -l prevw $argv[3]; set -l rows $argv[4]; set -l current $argv[5]
-    set -e argv[1..6]                  # argv[6] is the literal '--' separator
+    set -l color $argv[6]
+    set -e argv[1..7]                  # argv[7] is the literal '--' separator
     set -l model $argv
     set -l TAB (printf '\t')
-    set -l DIV (printf '\e[38;5;240m│\e[0m')
+    set -l DIV (printf '\e[38;5;%sm%s\e[0m' $color $__tcz_landing_frame_glyphs[3])
     set -l EL (printf '\e[K')
     # The list is built once per model (__tcz_popup_list_memo); a move redraws only the selected row.
     __tcz_popup_list_memo $listw "$current" -- $model

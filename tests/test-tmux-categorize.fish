@@ -10375,10 +10375,11 @@ __tcg_client_on $la3 >/dev/null
 __tcg_ready "=$la3:" '*d detach*'
 command tmux -L $sock send-keys -t "=$la3:" x
 set -l la3ask (__tcg_screen_has "=$la3:" '*kill 0 ?*' 30; and echo 1; or echo 0)
+set -l la3top (command tmux -L $sock capture-pane -p -t "=$la3:")[1]
 command tmux -L $sock send-keys -t "=$la3:" n
 sleep 0.5
 set -l la3kept (command tmux -L $sock has-session -t =0 2>/dev/null; and echo 1; or echo 0)
-t "app: x asks before killing, and n keeps the session" "1 1" "$la3ask $la3kept"
+t "app: x asks before killing, on row 1 where the legend was, and n keeps the session" "1 1 1" "$la3ask $(string match -q -- '  kill 0 ?  (y/n)*' "$la3top"; and echo 1; or echo 0) $la3kept"
 command tmux -L $sock send-keys -t "=$la3:" x
 __tcg_screen_has "=$la3:" '*kill 0 ?*' 30 >/dev/null
 command tmux -L $sock send-keys -t "=$la3:" y
@@ -10541,7 +10542,9 @@ cleanup
 
 # - the landing kill switch: a server without the landing pane-died hook (landing off) closes the session the old way
 #   -- the client detaches, no landing session is made. show-hooks lists the bare hook name even when unset.
+# - the server's own detach-on-destroy is off, so only the app's session-level on detaches the client
 __tcg_swroom a
+command tmux -L $sock set -g detach-on-destroy off
 set -l swpids (jobs -p)
 set -l swc $__tcg_swc
 set -l swfhook (command tmux -L $sock show-hooks -gw | string match -r '^pane-died.*')
@@ -10602,12 +10605,12 @@ cleanup
 
 # - fish's own errors never reach the switcher's popup: a copy of the categorizer whose paint raises one after every frame
 set -l swq /tmp/tcz-swq-$fish_pid.fish
-string replace -- '"$legend" (math $cols - 1))' '"$legend" (math $cols - 1)); __tcg_probe_nosuchcmd' < $lcat > $swq
+string replace -- '$cols $mc) $frame' '$cols $mc) $frame; __tcg_probe_nosuchcmd' < $lcat > $swq
 set -l swqinj (string match -e '__tcg_probe_nosuchcmd' < $swq | count)
 __tcg_swroom a
 set -l swpids (jobs -p)
 __tcg_swstart $swq
-set -l swqdrawn (__tcg_screen_has "=sw:" '*SWITCHING*' 80; and echo 1; or echo 0)
+set -l swqdrawn (__tcg_screen_has "=sw:" '*╭── claude*' 80; and echo 1; or echo 0)
 sleep 1
 set -l swqleak (command tmux -L $sock capture-pane -p -t "=sw:" | string match -e 'nosuchcmd' | count)
 t "switch: a fish error in its loop never reaches the screen (injected after every frame; the frame drawn; no error text)" "1 1 0" "$swqinj $swqdrawn $swqleak"
@@ -11640,13 +11643,14 @@ set -l sws (__tcg_cap $sww[2])
 set -l swsel (string match -rg '^▐ (\S+)' -- $sws)
 set -l swdiv 0
 set -l swinlist 0
-for r in $sws[1..29]
-    string match -qr '^[│┴]$' -- (string sub -s 34 -l 1 -- $r); and set swdiv (math $swdiv + 1)
+for r in $sws[2..30]
+    set -l c34 (string sub -s 34 -l 1 -- $r)
+    contains -- "$c34" $__tcz_landing_frame_glyphs[2..3]; and set swdiv (math $swdiv + 1)
     string match -q '*↑↓*' -- (string sub -l 33 -- $r); and set swinlist (math $swinlist + 1)
 end
-set -l swtop (string match -qr '^╭── ' -- "$sws[1]"; and echo 1; or echo 0)
-set -l swlast (string match -qr '^ SWITCHING  ↑↓ move ' -- "$sws[30]"; and echo 1; or echo 0)
-t "switcher: shrunk to 80x30, one step draws at the new size (list's top rule on row 1; the legend on row 30, not in the list on rows 1-29; the divider at column 34 on all 29 list rows, the last one the border's ┴; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swtop $swlast $swinlist $swdiv $sw0>$swsel"
+set -l swhead (string match -qr '^ SWITCHING  ↑↓ move ' -- "$sws[1]"; and echo 1; or echo 0)
+set -l swtop (string match -qr '^╭── ' -- "$sws[3]"; and echo 1; or echo 0)
+t "switcher: shrunk to 80x30, one step draws at the new size (the legend on row 1, not in the list on rows 2-30; the list's top rule on row 3; the junction and the divider at column 34 on rows 2-30; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swhead $swtop $swinlist $swdiv $sw0>$swsel"
 command tmux -L $sock send-keys -t $sww[2] Escape
 cleanup
 rm -rf $tpd

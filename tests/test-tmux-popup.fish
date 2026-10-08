@@ -192,7 +192,6 @@ set -l LL (printf 'supercalifragilistic\tclaude\t1\t0\tsupercalifragilisticexpia
 t "v3.1 list: a long live name truncates with … and keeps its marker before the right rail" "30 1" "$(string length --visible -- (vis $LL[2])) $(string match -qr '….*\[attached\] │ $' -- (vis $LL[2]); and echo 1; or echo 0)"
 set -l LE (printf 'sx\tgeneral\t0\t0\tok✅done\n' | __tcz_popup_list_lines 20 0 '')
 t "v3.1 list: a wide-character name keeps the row 20 columns" 20 (string length --visible -- (vis $LE[2]))
-functions -e __tcp_cell
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -257,18 +256,18 @@ set -g SCM
 for i in (seq 12)
     set -a SCM (printf 's%s\tgeneral\t0\t0\trow%s' $i $i)
 end
-set -g SCD (__tcz_popup_frame 11 20 0 8 '' -- $SCM)
+set -g SCD (__tcz_popup_frame 11 20 0 8 '' 203 -- $SCM)
 t "frame: the selected row is on screen when the list overflows" 1 (string match -q '*▐ row12*' -- (vis "$SCD"); and echo 1; or echo 0)
-set -g SCT (__tcz_popup_frame 0 20 0 8 '' -- $SCM)
+set -g SCT (__tcz_popup_frame 0 20 0 8 '' 203 -- $SCM)
 t "frame: a selection above the fold stays top-anchored (non-regression)" 1 (string match -q '*╭── general*' -- (vis "$SCT[1]"); and echo 1; or echo 0)
 
 # --- frame: ↑ below the fold moves the pointer; the list scrolls only at the window's top ---
 set -e __tcz_pd_top
-set -l s11 (__tcz_popup_frame 11 20 0 8 '' -- $SCM)
-set -l s10 (__tcz_popup_frame 10 20 0 8 '' -- $SCM)
+set -l s11 (__tcz_popup_frame 11 20 0 8 '' 203 -- $SCM)
+set -l s10 (__tcz_popup_frame 10 20 0 8 '' 203 -- $SCM)
 set -l s10p (string match -q '*▐ row11*' -- (vis "$s10"); and echo 1; or echo 0)
 t "frame: ↑ below the fold moves the pointer, the window stays" "1 1" (test -n "$s11[1]" -a "$s11[1]" = "$s10[1]"; and echo 1; or echo 0)" $s10p"
-set -l s03 (__tcz_popup_frame 3 20 0 8 '' -- $SCM)
+set -l s03 (__tcz_popup_frame 3 20 0 8 '' 203 -- $SCM)
 t "frame: the window scrolls up once the pointer passes its top" 1 (string match -q '*▐ row4*' -- (vis "$s03[1]"); and echo 1; or echo 0)
 set -e __tcz_pd_top
 
@@ -316,7 +315,7 @@ function __tcz_popup_list_lines
 end
 set -g __tcp_n 0; set -g __tcp_d 0; set -g __tcp_p 0; set -g __tcp_s 0
 function __tcp_memo_cmp --argument-names sel listw current --description 'build one frame both ways and count: compared, differing, with a pointer, scrolled'
-    set -l a (__tcz_popup_frame $sel $listw 0 8 "$current" -- $MM | string collect)
+    set -l a (__tcz_popup_frame $sel $listw 0 8 "$current" 203 -- $MM | string collect)
     set -l b (__tcp_frame_ref $sel $listw 8 "$current" -- $MM | string collect)
     set -g __tcp_n (math $__tcp_n + 1)
     test "$a" = "$b"; or set -g __tcp_d (math $__tcp_d + 1)
@@ -354,9 +353,9 @@ set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lp1 (test (wc -c < $LPOUT) -gt 0; and echo 1; or echo 0)
 set -l lprows (count $__tcz_pe_prev)
-set -l lpborder (string match -q '*─┴─*' -- "$__tcz_pe_prev[23]"; and echo 1; or echo 0)
-set -l lplegend (string match -q '*n*new*r*resume*' -- (vis "$__tcz_pe_prev[24]"); and echo 1; or echo 0)
-t "paint: 24 rows -- the frame, a border with ┴ under the divider, then the legend with n new" "24 1 1" "$lprows $lpborder $lplegend"
+set -l lplegend (string match -q '*n*new*r*resume*' -- (vis "$__tcz_pe_prev[1]"); and echo 1; or echo 0)
+set -l lpline (string match -q -- "*$__tcz_landing_frame_glyphs[1]$__tcz_landing_frame_glyphs[2]$__tcz_landing_frame_glyphs[1]*" "$__tcz_pe_prev[2]"; and echo 1; or echo 0)
+t "paint: 24 rows -- the legend with n new, the header line with its junction, then the frame" "24 1 1" "$lprows $lplegend $lpline"
 __tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lp2rc $status
 set -l lp2bytes (wc -c < $LPOUT | string trim)
@@ -365,11 +364,11 @@ t "paint: an unchanged frame is neither rebuilt nor emitted" "1 1 0 1" "$lp1 $lp
 # A move between two project rows: only the rows that differ are emitted.
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 0 24 80 0 landing '' -- $LPM > /dev/null
-set -l fa (__tcp_frame_bak 0 33 46 22 '' -- $LPM)
-set -l fb (__tcp_frame_bak 1 33 46 22 '' -- $LPM)
+set -l fa (__tcp_frame_bak 0 33 46 22 '' 203 -- $LPM)
+set -l fb (__tcp_frame_bak 1 33 46 22 '' 203 -- $LPM)
 set -l fdiff
 for i in (seq (count $fb))
-    test "$fa[$i]" = "$fb[$i]"; or set -a fdiff $i
+    test "$fa[$i]" = "$fb[$i]"; or set -a fdiff (math $i + 2)          # the frame starts on screen row 3
 end
 __tcz_landing_paint 1 24 80 0 landing '' -- $LPM > $LPOUT
 set -l lpemitted (string match -rag '\e\[([0-9]+);1H' -- (cat $LPOUT))
@@ -383,34 +382,48 @@ functions -e __tcp_frame_bak
 rm -f $FREC $LPOUT
 set -e __tcz_lp_key
 
-# --- paint: the badge, and every row of a 100x30 frame ---
+# --- paint: the header (badge and legend, then the header line) over a mode-colored divider, every row of a 100x30 frame ---
 functions -c __tcz_popup_preview __tcp_preview_bak
 function __tcz_popup_preview; printf 'PV-%s\n' $argv[1]; end
 function tmux; end
 set -g BM (printf 'cp\tclaude\t1\t0\tcp') (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
     (printf 'g1\tgeneral\t0\t0\tg1') (printf 'g2\tgeneral\t0\t0\tg2')
+t "frame glyphs: the header line, its junction, the divider (the box-drawing fallback changes only this list)" "▔ ▕ ▕" "$__tcz_landing_frame_glyphs"
+set -l g $__tcz_landing_frame_glyphs
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 0 30 100 0 landing '' -- $BM > /dev/null
 set -l bl $__tcz_pe_prev
 set -l bdiv 0
-for r in $bl[1..28]
-    set -l v (vis "$r")
-    test (string length --visible -- (string sub -l 40 -- "$v")) -eq 40; and test (string sub -s 41 -l 1 -- "$v") = '│'; and set bdiv (math $bdiv + 1)
+for r in $bl[3..30]
+    set -l dc (__tcp_cell $r 41)
+    test (string length --visible -- (string sub -l 40 -- (vis "$r"))) -eq 40; and test "$dc" = "203$g[3]"; and set bdiv (math $bdiv + 1)
 end
-t "paint 100x30: 30 rows; the list column is 40 wide with the divider at column 41 on all 28 frame rows" "30 28" "$(count $bl) $bdiv"
-t "paint: the landing legend opens with an orange LANDING badge" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;208m LANDING \e[0m')'*' $bl[30]; and echo 1; or echo 0) $(string match -q -- ' LANDING  ↑↓ move*' (vis $bl[30]); and echo 1; or echo 0)"
-t "paint: no esc close on the landing" 0 (string match -q -- '*esc close*' (vis $bl[30]); and echo 1; or echo 0)
+t "paint 100x30: 30 rows; the frame on rows 3-30, its list column 40 wide with the coral divider at column 41 on all 28" "30 28" "$(count $bl) $bdiv"
+t "paint: row 1 opens with a coral LANDING badge, then the legend" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;203m LANDING \e[0m')'*' $bl[1]; and echo 1; or echo 0) $(string match -q -- ' LANDING  ↑↓ move*' (vis $bl[1]); and echo 1; or echo 0)"
+t "paint: no esc close on the landing" 0 (string match -q -- '*esc close*' (vis $bl[1]); and echo 1; or echo 0)
+set -l bhead (__tcp_cell $bl[2] 1) (__tcp_cell $bl[2] 41)
+set -l bvis (vis $bl[2])
+set -l bwant (string repeat -n 40 $g[1])$g[2](string repeat -n 58 $g[1])
+t "paint: row 2 is the coral header line, as wide as the legend's 99 columns, its junction over the divider" "203$g[1] 203$g[2] 1" "$bhead $(test "$bvis" = "$bwant"; and echo 1; or echo 0)"
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 2 30 100 0 switch g2 -- $BM > /dev/null
 set -l sl $__tcz_pe_prev
-t "paint: the switcher's legend opens with a teal SWITCHING badge and ends with esc close" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;37m SWITCHING \e[0m')'*' $sl[30]; and echo 1; or echo 0) $(string match -q -- ' SWITCHING  ↑↓ move*esc close*' (vis $sl[30]); and echo 1; or echo 0)"
+t "paint: the switcher's row 1 opens with a teal SWITCHING badge and ends with esc close" "1 1" "$(string match -q -- (printf '\e[1;7;38;5;37m SWITCHING \e[0m')'*' $sl[1]; and echo 1; or echo 0) $(string match -q -- ' SWITCHING  ↑↓ move*esc close*' (vis $sl[1]); and echo 1; or echo 0)"
+set -l sdiv 0
+for r in $sl[3..30]
+    set -l dc (__tcp_cell $r 41)
+    test "$dc" = "37$g[3]"; and set sdiv (math $sdiv + 1)
+end
+set -l sjunc (__tcp_cell $sl[2] 41)
+t "paint: the switcher's header line and divider are teal (the junction, then all 28 frame rows)" "37$g[2] 28" "$sjunc $sdiv"
 # The pointer is on g1 and the current session is g2: the marker follows <current>, not the pointer.
 set -l slv
-for r in $sl[1..28]; set -a slv (vis "$r"); end
+for r in $sl[3..30]; set -a slv (vis "$r"); end
 set -l slptr (string match -- '*▐ g1*' $slv)
 set -l slcur (string match -- '*[current]*' $slv)
 t "paint: the switcher marks the current session (g2, off the pointer) and not the pointer row (g1)" "1 0 1 1" "$(count $slptr) $(string match -q -- '*[current]*' $slptr; and echo 1; or echo 0) $(count $slcur) $(string match -q -- '*❯ g2*[current]*' $slcur; and echo 1; or echo 0)"
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
+functions -e __tcp_cell
 functions -e tmux __tcz_popup_preview
 functions -c __tcp_preview_bak __tcz_popup_preview
 functions -e __tcp_preview_bak
@@ -427,19 +440,19 @@ end
 set -g LDlive (printf 'alpha\tgeneral\t0\t0\talpha')
 set -g LDproj (printf '/tmp/tcz-some/proj\tother\t0\t%s\tproj · 2h' (math (date +%s) - 7200))
 set -g LDold (printf 'older\tolder\t0\t2\tolder (2)')
-__tcz_popup_frame 0 20 30 8 '' -- $LDproj $LDlive >/dev/null
-__tcz_popup_frame 0 20 30 8 '' -- $LDold $LDlive >/dev/null
+__tcz_popup_frame 0 20 30 8 '' 203 -- $LDproj $LDlive >/dev/null
+__tcz_popup_frame 0 20 30 8 '' 203 -- $LDold $LDlive >/dev/null
 set -l prec_proj (cat $PREC 2>/dev/null)
 t "frame: a project row or the older row never calls capture-pane" "" "$prec_proj"
-set -l dproj (__tcz_popup_frame 0 20 30 8 '' -- $LDproj $LDlive | string join \n)
+set -l dproj (__tcz_popup_frame 0 20 30 8 '' 203 -- $LDproj $LDlive | string join \n)
 set dproj (vis "$dproj" | string join \n)
 t "frame: a project row previews its folder" 1 (string match -q '*/tmp/tcz-some/proj*' -- "$dproj"; and echo 1; or echo 0)
 rm -f $PREC
-__tcz_popup_frame 1 20 30 8 '' -- $LDproj $LDlive >/dev/null
+__tcz_popup_frame 1 20 30 8 '' 203 -- $LDproj $LDlive >/dev/null
 set -l prec_live (cat $PREC 2>/dev/null)
 t "frame: a live row still previews its session (non-regression)" "alpha 30 8" "$prec_live"
 rm -f $PREC
-__tcz_popup_frame 0 20 30 8 '' -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/null
+__tcz_popup_frame 0 20 30 8 '' 203 -- (printf 'older\tgeneral\t0\t0\tolder') >/dev/null
 set -l prec_lvo (cat $PREC 2>/dev/null)
 t "frame: a live session named older still previews its session (the older row is told by category, not name)" "older 30 8" "$prec_lvo"
 rm -f $PREC
@@ -459,11 +472,11 @@ function __tcz_popup_preview
 end
 set -g HM (printf 'alpha\tgeneral\t0\t0\talpha') (printf 'beta\tgeneral\t0\t0\tbeta')
 set -g __tcz_pf_keep 0
-set -l hf1 (__tcz_popup_frame 0 20 30 8 '' -- $HM | string join \n)
+set -l hf1 (__tcz_popup_frame 0 20 30 8 '' 203 -- $HM | string join \n)
 set -g __tcz_pf_keep 1
-set -l hf2 (__tcz_popup_frame 1 20 30 8 '' -- $HM | string join \n)
+set -l hf2 (__tcz_popup_frame 1 20 30 8 '' 203 -- $HM | string join \n)
 set -g __tcz_pf_keep 0
-set -l hf3 (__tcz_popup_frame 1 20 30 8 '' -- $HM | string join \n)
+set -l hf3 (__tcz_popup_frame 1 20 30 8 '' 203 -- $HM | string join \n)
 set -l hcalls (cat $PREC2 | string join ,)
 set -l hkept (string match -q '*PV-alpha*' -- "$hf2"; and string match -q '*▐ beta*' -- (vis "$hf2"); and echo 1; or echo 0)
 set -l hnew (string match -q '*PV-beta*' -- "$hf3"; and echo 1; or echo 0)
@@ -536,13 +549,18 @@ set -l rkg1 (string match -qr '\bcase .*\bn\b' -- "$rkland"; and echo 1; or echo
 set -l rkg3 (string match -qr '\bcase n\b' -- "$rkthp"; and echo 1; or echo 0)
 t "readkey n: the landing loop has a case for n; the theme picker has none" "1 0" "$rkg1 $rkg3"
 
-# --- landing: the border between the list and the legend ---
-set -l lb1 (vis (__tcz_landing_border 33 46 80))
-set -l lb2 (vis (__tcz_landing_border 50 0 50))
-set -l lb3 (vis (__tcz_landing_border 58 1 60))
-t "border: cols-1 wide with ┴ under the divider (col 34 at 80 cols)" "79 ┴" "$(string length -- "$lb1") $(string sub -s 34 -l 1 -- "$lb1")"
-t "border: no preview, no ┴" "49 0" "$(string length -- "$lb2") $(string match -q '*┴*' -- "$lb2"; and echo 1; or echo 0)"
-t "border: a one-column preview still draws the whole rule" "59 ┴" "$(string length -- "$lb3") $(string sub -s 59 -l 1 -- "$lb3")"
+# --- landing: the header line under the badge and legend ---
+set -l g $__tcz_landing_frame_glyphs
+set -l lb0 (__tcz_landing_border 33 46 80 203)
+set -l lb1 (vis "$lb0")
+set -l lb2 (vis (__tcz_landing_border 50 0 50 203))
+set -l lb3 (vis (__tcz_landing_border 58 1 60 37))
+set -l lbw1 (string repeat -n 33 $g[1])$g[2](string repeat -n 45 $g[1])
+set -l lbw2 (string repeat -n 49 $g[1])
+set -l lbw3 (string repeat -n 58 $g[1])$g[2]
+t "header line: cols-1 wide, the junction over the divider (col 34 at 80 cols), in the color given" "1 1" "$(test "$lb1" = "$lbw1"; and echo 1; or echo 0) $(string match -q -- (printf '\e[38;5;203m')'*' "$lb0"; and echo 1; or echo 0)"
+t "header line: no preview, no junction" "$lbw2" "$lb2"
+t "header line: a one-column preview keeps the junction as its last cell" "$lbw3" "$lb3"
 
 # ---------------------------------------------------------------------
 # command modal — pure helpers
