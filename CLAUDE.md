@@ -515,7 +515,7 @@ match (it left the bar's ✦ empty on every macwork session).
 
 Spec: `docs/superpowers/specs/2026-09-26-landing-session-design.md` (vault `Tmux-lives/Landing Session - Design`).
 Every automatic entry (login, outside-tmux `picker`, new ShellFish tab) and every closing tab lands on a
-per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `general`).
+per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then `general`).
 
 - **Identity is the NAME**, never a session option: `__tcz_is_landing` (categorizer) and `__tmux_is_landing`
   (shell side) must agree; `__tcz_free_name <prefix> <taken…>` mints `gen-N` and `_landing-N`. **Kill
@@ -540,11 +540,12 @@ per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `gener
   `tmux_lives_landing_idle_after`/`_idle_refresh`), projects every 10th pass. `n` new shell, `d` detaches,
   `q`/Esc no-ops in landing mode (one `__tcz_popup_readkey` token). Held moves: no capture, `__tcz_pf_keep`
   reuses the last preview.
-- **v3** — the model's category carries the layout: `claude/<group>` live claude, `<group>` idle, `older`,
-  `general` (running folded in, last). `__tcz_popup_list_row` draws a row; `__tcz_popup_list_lines` records
-  `__tcz_pl_row/_line/_first`, which `__tcz_popup_list_memo` copies to `__tcz_pf_rrow/_rline/_rfirst` for the
-  frame. `landing switch <client> [--take]` = the switcher: no settle, Esc/actions close it, `x` on the
-  current session lands the client; badge per mode.
+- **v3.1** — the category carries the layout: `claude` live (overview order), `<group>` idle, `older`,
+  `general` (running folded in, last). `__tcz_popup_list_row` draws a row, each with a right rail;
+  `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, which the memo copies to `__tcz_pf_r*` for the
+  frame. Paint: legend, `__tcz_landing_border`, frame; the mode color (203/37) is their argument, the glyphs
+  `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no settle, Esc/actions
+  close it, `x` on the current session lands the client.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
@@ -565,12 +566,10 @@ per-tab `_landing-N` chooser (a `claude` section of directory boxes, then `gener
 
 ---
 
-## Current state — 2026-10-07
+## Current state — 2026-10-08
 
-Chooser v3 (merged `f4395b9`) is installed on rocket. **Next: build chooser v3.1** from
-`docs/superpowers/plans/2026-10-07-landing-chooser-v3-1.md`; then the workspace-TUI sidebar.
-Mockups `06`–`18` (generators in `artifacts/mockgen/chooser-v3/`); his iPad (dev beta) freezes
-on claude-mock pages, so he reviews them on the Mac.
+**Chooser v3.1 built on branch `feat/landing-chooser-v3-1`, awaiting merge and `fisher update` on both
+machines;** then the workspace-TUI sidebar. Mockups `06`–`18`; generators in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
