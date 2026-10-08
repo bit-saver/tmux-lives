@@ -159,7 +159,7 @@ Tab colour is untouched.
 
 ## Open items
 
-- v3.1's header and divider need the terminal to draw `▔` (U+2594) and `▕` (U+2595). ShellFish draws both (checked 2026-10-07 with `artifacts/glyphtest.fish`; it does not draw U+1FB7D, which ruled out a seamless corner glyph). Check the Mac terminals before merge; if a glyph is missing, the fallback is the guaranteed box-drawing set (a mid-row `─` line, `┬` junction, `│` divider, mockup C1), which changes only those characters.
+- v3.1's header and divider need the terminal to draw `▔` (U+2594) and `▕` (U+2595). ShellFish draws both (checked 2026-10-07 with `artifacts/glyphtest.fish`; it does not draw U+1FB7D, which ruled out a seamless corner glyph). The Mac terminals draw both too (checked 2026-10-07/08, before the merge), so the eighth blocks shipped. Should a terminal lack one, the fallback is the guaranteed box-drawing set (a mid-row `─` line, `┬` junction, `│` divider, mockup C1): `__tcz_landing_frame_glyphs` and the one test that pins it.
 - Measure what ShellFish does when its tmux client exits (reconnect into a new springboard, or close the tab). Informs the "killed some other way" path, not the design.
 - Enter on a project row runs `claude --continue` in the mapped project folder (the repo root, or a worktree's main repository), while Claude keys conversations by exact cwd: when the newest interactive conversation ran in a subfolder or in a worktree that still exists, `--continue` resumes a different conversation than the row's age describes. None is affected on rocket's data as of 2026-10-03.
 - Rulings taken while building v3 (settled, not open):
