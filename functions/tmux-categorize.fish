@@ -1543,7 +1543,7 @@ end
 
 # --- the landing app: a full-pane chooser, one per tab (_landing-N) ---------
 
-function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the chooser of <self> (mark 2 = a client of my device is on it, 1 = some client). Per group: its live claude sessions (claude/<group>), then its idle projects (<group>); then "...older (N)" (--all lists them); then the other live sessions (general). "--" passes discovery rows in.'
+function __tcz_landing_model --argument-names self --description '__tcz_landing_model <self> [--all] [-- <discovery rows>]: rows "target\tcategory\tmark\tlast\tdisplay" for the chooser of <self> (mark 2 = a client of my device is on it, 1 = some client). Live claude sessions (claude, most recently attached first); each group'"'"'s idle projects (<group>); "▸ older (N)" (--all lists them); the other live sessions (general). "--" passes discovery rows in.'
     set -e argv[1]
     set -l all 0
     test "$argv[1]" = --all; and set all 1; and set -e argv[1]
@@ -1574,7 +1574,7 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             test "$dev" = "$mine"; and set -a here $csess[$j]
         end
     end
-    # Live rows: a claude session goes to its project's group, everything else to general.
+    # Live rows in the overview's order: a claude session goes to the claude section, everything else to general.
     set -l crows; set -l grows
     for line in (__tcz_overview)
         set -l f (string split -m 4 $TAB -- $line)
@@ -1586,12 +1586,7 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
             set mark 1
         end
         if test "$f[2]" = claude
-            # The overview's snapshot has filled the active-pane memo __tcz_tmux_activepath reads.
-            set -l cwd (__tcz_tmux_activepath $f[1])
-            set -l proj
-            test -n "$cwd"; and set proj (__tcz_claude_project_of "$cwd")
-            set -l g (__tcz_landing_group_of "$proj")
-            set -a crows (printf '%s\tclaude/%s\t%s\t%s\t%s' $f[1] $g $mark $f[4] "$f[5]")
+            set -a crows (printf '%s\tclaude\t%s\t%s\t%s' $f[1] $mark $f[4] "$f[5]")
         else
             set -a grows (printf '%s\tgeneral\t%s\t%s\t%s' $f[1] $mark $f[4] "$f[5]")
         end
@@ -1641,12 +1636,14 @@ function __tcz_landing_model --argument-names self --description '__tcz_landing_
         set i (math $i + 1)
         set -a prows (printf '%s\t%s\t0\t%s\t%s · %s' $folder $pg[$i] $pm[$i] (path basename -- $folder) $pa[$i])
     end
-    # The claude section, group by group; within one, discovery's newest-first order holds.
+    # The claude section: the live sessions, then group by group the idle projects (discovery's newest-first order).
+    for r in $crows
+        printf '%s\n' $r
+    end
     for g in $__tcz_landing_groups
-        string match -- "*$TAB"claude/"$g$TAB*" $crows
         string match -- "*$TAB$g$TAB*" $prows
     end
-    test $nold -gt 0; and printf 'older\tolder\t0\t%s\t...older (%s)\n' $nold $nold
+    test $nold -gt 0; and printf 'older\tolder\t0\t%s\t▸ older (%s)\n' $nold $nold
     for r in $grows
         printf '%s\n' $r
     end

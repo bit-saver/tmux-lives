@@ -10011,9 +10011,9 @@ set -l lm (__tcz_landing_model _landing-1)
 set -l lm0 (string match -- '0'\t'*' $lm)
 t "model: a live row with a client from my device -> mark 2" "0 general 2" (string split -f1,2,3 \t -- "$lm0" | string join ' ')
 set -l lmcr (string match -- 'lmc'\t'*' $lm)
-t "model: a live row with a client from another device -> mark 1" "lmc claude/other 1" (string split -f1,2,3 \t -- "$lmcr" | string join ' ')
+t "model: a live row with a client from another device -> mark 1" "lmc claude 1" (string split -f1,2,3 \t -- "$lmcr" | string join ' ')
 set -l lmrr (string match -- 'lmr'\t'*' $lm)
-t "model: a live row with no client -> mark 0" "lmr claude/other 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
+t "model: a live row with no client -> mark 0" "lmr claude 0" (string split -f1,2,3 \t -- "$lmrr" | string join ' ')
 t "model: rows listed, none of them a landing session" 1 (test (count $lm) -gt 0; and not string match -q -- '_landing-*' $lm; and echo 1; or echo 0)
 set -l lmir (string match -- $lmi\t'*' $lm)
 t "model: an idle project row (its category is its group)" "other 0 tcz-lm-idle-$fish_pid · 2h" (string split -f2,3,5 \t -- "$lmir" | string join ' ')
@@ -10042,7 +10042,7 @@ function __tcg_gm_shape --description 'model rows -> "<category>:<folder basenam
     for r in $argv
         set -l f (string split \t -- $r)
         switch $f[2]
-            case general 'claude/*'
+            case general claude
                 continue
             case older
                 echo "older:$f[4]"
@@ -10097,33 +10097,39 @@ set -e __tcg_lp_home_save
 t "model: a project's group is where it lives (below ~/projects, ~/workspace, ~/Work), else other -- a group root itself and look-alikes included" "projects projects workspace work other other other other other other" "$lpmodel"
 cleanup
 
-# --- chooser v3: a live claude session sits in its project's group box, before the group's idle
-# projects; the older row ends the claude section; running folds into general, which comes last ---
-# - HOME is redirected before the server starts, so the panes' cwds sit below the fixture's group roots
-# - an implementation that misses the panes' cwds puts every claude session in other, which this fixture rejects
-# - cx runs in a linked worktree outside every group root, whose main repo is under ~/Work: only the folder ->
-#   project mapping (__tcz_claude_project_of) puts it in work; the raw pane cwd would put it in other
-# - the stale discovery row makes the older row exist, so its place (before general, after the claude section) is pinned
+# --- chooser v3.1: the live claude sessions come first, most recently attached first, in no box; then each
+# group's idle projects; the older row ends the claude section; running folds into general, which comes last ---
+# - three clients attach to cp, co and cw, 1.2 s apart (last_attached has 1 s resolution); cx is never attached
+# - most recently attached first reads cw co cp cx; by name it would read co cp cw cx, by group (v3) cp cw co cx
+# - HOME is redirected around the model call, so cp and cw sit below the fixture's group roots: a model that
+#   still grouped live sessions would order them by group
+# - the stale discovery row makes the older row exist, so its place (after the projects, before general) is pinned
 set -l m3home /tmp/tcz-m3h-$fish_pid
-set -l m3wt /tmp/tcz-m3wt-$fish_pid
 set -l m3home_save $HOME
-mkdir -p $m3home/projects/cp $m3home/workspace/ww/.git $m3home/workspace/ww/sub $m3home/projects/pi $m3home/workspace/wi
-mkdir -p $m3home/Work/mr/.git/worktrees/wt $m3wt
-printf 'gitdir: %s/Work/mr/.git/worktrees/wt\n' $m3home > $m3wt/.git
-set -gx HOME $m3home
+mkdir -p $m3home/projects/cp $m3home/workspace/ww $m3home/projects/pi $m3home/workspace/wi
 fresh_server
 command tmux -L $sock new-session -d -s cp -c $m3home/projects/cp "$shimdir/claude --name cp"
-command tmux -L $sock new-session -d -s cw -c $m3home/workspace/ww/sub "$shimdir/claude --name cw"
-command tmux -L $sock new-session -d -s cx -c $m3wt "$shimdir/claude --name cx"
+command tmux -L $sock new-session -d -s cw -c $m3home/workspace/ww "$shimdir/claude --name cw"
+command tmux -L $sock new-session -d -s cx -c /tmp "$shimdir/claude --name cx"
 command tmux -L $sock new-session -d -s co -c /tmp "$shimdir/claude --name co"
 command tmux -L $sock new-session -d -s rn -c /tmp 'sleep 600'
 command tmux -L $sock new-session -d -s gg -c /tmp
 command tmux -L $sock kill-session -t =0
-sleep 0.3
+for s in cp co cw
+    sleep 30 | env SHELL=/bin/sh TERM=xterm-256color script -qec "tmux attach -t =$s" /dev/null >/dev/null 2>&1 &
+    for i in (seq 25)
+        set -l m3cl (command tmux -L $sock list-clients -t "=$s" -F '#{client_name}' 2>/dev/null)
+        test -n "$m3cl"; and break
+        sleep 0.2
+    end
+    sleep 1.2
+end
+set -l m3pids (jobs -p)
 set -l m3now (date +%s)
 set -l m3disc (printf '%s\t%s' $m3home/projects/pi (math $m3now - 60)) \
     (printf '%s\t%s' $m3home/workspace/wi (math $m3now - 120)) \
     (printf '%s\t%s' /tmp/tcz-m3-stale (math $m3now - 30 \* 86400))
+set -gx HOME $m3home
 set -l m3 (__tcz_landing_model x -- $m3disc)
 set -gx HOME $m3home_save
 set -l m3shape
@@ -10131,10 +10137,11 @@ for r in $m3
     set -l f (string split \t -- $r)
     set -a m3shape "$f[2]:"(path basename -- $f[1])
 end
-t "model v3: per group its live claude sessions (by the active pane's project, a linked worktree through its main repo) then its idle projects; then the older row; then general, running folded in, last" "claude/projects:cp projects:pi claude/workspace:cw workspace:wi claude/work:cx claude/other:co older:older general:rn general:gg" "$m3shape"
+t "model v3.1: the live claude sessions first, most recently attached first; then each group's idle projects; then the older row; then general, running folded in, last" "claude:cw claude:co claude:cp claude:cx projects:pi workspace:wi older:older general:rn general:gg" "$m3shape"
 set -l m3old (__tcz_landing_model x -- (printf '%s\t%s' /tmp/tcz-m3-stale (math $m3now - 30 \* 86400)))
-t "model v3: the older row reads ...older (N)" 1 (string match -q -- 'older'\t'older'\t'0'\t'1'\t'...older (1)' $m3old; and echo 1; or echo 0)
-rm -rf $m3home $m3wt
+t "model v3.1: the older row reads ▸ older (N)" 1 (string match -q -- 'older'\t'older'\t'0'\t'1'\t'▸ older (1)' $m3old; and echo 1; or echo 0)
+for p in $m3pids; kill $p 2>/dev/null; end
+rm -rf $m3home
 cleanup
 
 # --- landing: the running app, driven through a real pty client ---
@@ -10300,7 +10307,7 @@ functions -e __tcg_wait_empty
 # A live claude session literally named `older` sits above it, in the claude section: the pointer follows rows
 # by target AND category (a target-only match lands on that session instead).
 # HOME is redirected (exported before the server starts, so the landing pane inherits it). The list goes from
-# [pv (projects), older (live), fresh (other), ...older (1)] to [pv, ph (workspace, the one revealed), older,
+# [older (live), pv (projects), fresh (other), ▸ older (1)] to [older, pv, ph (workspace, the one revealed),
 # fresh]: the revealed row sits above the older row's old slot (a pointer that did not move cannot pass) and
 # below the first project row (a pointer sent to the first project row, not the first row the reveal added,
 # cannot pass).
@@ -10329,12 +10336,12 @@ set -l olfresh (__tcg_screen_has "=$ola:" "*tcz-ol-fresh-$fish_pid*" 1; and __tc
 set -l olhid (__tcg_screen_has "=$ola:" '*ph · *' 1; and echo 0; or echo 1)
 t "app: a project 21+ days old hides behind an older (1) row; the fresh ones stay listed" "1 1 1" "$olrow $olfresh $olhid"
 for i in (seq 8)
-    __tcg_screen_has "=$ola:" '*▐ ...older (1)*' 5; and break
+    __tcg_screen_has "=$ola:" '*▐ ▸ older (1)*' 5; and break
     command tmux -L $sock send-keys -t "=$ola:" j
 end
 command tmux -L $sock new-session -d -s zz -c /tmp "$shimdir/claude --name zz"
 set -l olzz (__tcg_screen_has "=$ola:" '*│ zz*' 50; and echo 1; or echo 0)
-set -l olkept (__tcg_screen_has "=$ola:" '*▐ ...older (1)*' 1; and echo 1; or echo 0)
+set -l olkept (__tcg_screen_has "=$ola:" '*▐ ▸ older (1)*' 1; and echo 1; or echo 0)
 t "app: after a refresh adds a row above it, the pointer stays on the older row (beside a live session named older)" "1 1" "$olzz $olkept"
 # x on the older row has no session to kill: no prompt (the prompt would read `kill older ?`), the app keeps drawing.
 command tmux -L $sock send-keys -t "=$ola:" x
@@ -10429,7 +10436,7 @@ for p in $la4pids; kill $p 2>/dev/null; end
 rm -rf $pj $tmux_lives_project_cache $lpf
 cleanup
 
-# x on a live claude row asks first, like any live row (its category is claude/<group> now). The claude
+# x on a live claude row asks first, like any live row (its category is claude). The claude
 # section comes first, so the pointer starts on kc; the prompt names the row's target.
 fresh_server
 set -l pj $tmux_lives_claude_projects_dir
@@ -10586,7 +10593,7 @@ touch -d '30 days ago' $pj/-old/s.jsonl
 __tcg_swstart $lcat
 __tcg_screen_has "=sw:" '*SWITCHING*' 80 >/dev/null
 set -l swoscr (command tmux -L $sock capture-pane -p -t "=sw:")
-set -l swoold (string match -q -- '*...older (1)*' $swoscr; and echo 1; or echo 0)
+set -l swoold (string match -q -- '*▸ older (1)*' $swoscr; and echo 1; or echo 0)
 set -l swoat (string match -q -- '*▐ older *[current]*' $swoscr; and echo 1; or echo 0)
 t "switch: a session named older is current -- the older row is listed, and the pointer opens on the session, not on that row" "1 1" "$swoold $swoat"
 for p in $swpids; kill $p 2>/dev/null; end
