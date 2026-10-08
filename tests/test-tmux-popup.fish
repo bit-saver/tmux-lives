@@ -84,47 +84,62 @@ t "trunc wide chars after an SGR run"   (printf '\e[32m日本\e[0m…')    (__tc
 # tests/truncate-perf.fish.
 
 # ---------------------------------------------------------------------
-# __tcz_popup_list_lines (v3): the claude section (an orange rail beside a gold box per
-# directory and the gray older box), then general; every line exactly listwidth columns
+# __tcz_popup_list_lines (v3.1): the claude section (live sessions under its rule, a gold box per
+# directory, the gray older box), then general; a right rail beside every section and box; every
+# line exactly listwidth columns
 # ---------------------------------------------------------------------
 set -g TAB (printf '\t')
-set -g FX (printf 'cp\tclaude/projects\t2\t0\tcp · task') \
+set -g FX (printf 'cp\tclaude\t2\t0\tcp · task') \
+    (printf 'cw\tclaude\t1\t0\tcw') \
     (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
-    (printf 'cw\tclaude/workspace\t1\t0\tcw') \
-    (printf 'older\tolder\t0\t3\t...older (3)') \
+    (printf '/h/workspace/wi\tworkspace\t0\t0\twi · 1w') \
+    (printf 'older\tolder\t0\t3\t▸ older (3)') \
     (printf 'g1\tgeneral\t0\t0\tg1') \
     (printf 'g2\tgeneral\t1\t0\tg2')
-# Lines: [1] claude rule [2] projects box [3] cp [4] pi [5] rail [6] workspace box [7] cw [8] rail
-# [9] older box [10] ...older (3) [11] rail [12] general rule [13] g1 [14] g2
+# Lines: [1] claude rule [2] cp [3] cw [4] projects box [5] pi [6] workspace box [7] wi [8] older box
+# [9] ▸ older (3) [10] the older box's rail [11] general rule [12] g1 [13] g2
 set -g L (printf '%s\n' $FX | __tcz_popup_list_lines 40 -1 '')
 set -l lw
 for l in $L; set -a lw (string length --visible -- (vis "$l")); end
-t "v3 list: 14 lines, every one 40 columns" "14 40" "$(count $L) $(printf '%s\n' $lw | sort -u | string join ,)"
-t "v3 list: records each row's line and the first line its window keeps (its section or box rule when it opens one)" "3 4 7 10 13 14|1 4 6 9 12 14" "$__tcz_pl_line|$__tcz_pl_first"
-t "v3 list: the claude rule opens the section, bold orange" 1 (string match -qr '^\e\[1;38;5;208m╭── claude ─+\e\[0m$' -- $L[1]; and echo 1; or echo 0)
-set -l orail (printf '\e[38;5;208m│')
-set -l rail 1
-for i in (seq 2 11)
-    string match -q -- "$orail*" $L[$i]; or set rail 0
+t "v3.1 list: 13 lines, every one 40 columns" "13 40" "$(count $L) $(printf '%s\n' $lw | sort -u | string join ,)"
+t "v3.1 list: records each row's line and the first line its window keeps (its section or box rule when it opens one)" "2 3 5 7 9 12 13|1 3 4 6 8 11 13" "$__tcz_pl_line|$__tcz_pl_first"
+function __tcp_cell --argument-names line col --description '"<256-color><glyph>" at visible column <col> of <line>: the last 38;5;N set before it, - after a reset'
+    set -l fg -; set -l c 0
+    for tok in (string match -ar '\e\[[0-9;]*m|[^\e]' -- "$line")
+        if string match -qr '^\e\[' -- "$tok"
+            set -l n (string match -rg '38;5;([0-9]+)' -- "$tok")
+            test -n "$n"; and set fg $n
+            string match -qr '^\e\[(0|39)?m$' -- "$tok"; and set fg -
+            continue
+        end
+        set c (math $c + 1)
+        test $c -eq $col; and echo "$fg$tok"; and return 0
+    end
+    return 1
 end
-t "v3 list: the orange rail runs down beside the whole claude section (lines 2-11)" 1 $rail
-t "v3 list: a box rule: its name centered, ╮ two columns in" "│ "(string repeat -n 13 ─)" projects "(string repeat -n 13 ─)"╮ " (vis $L[2])
-t "v3 list: the box rule is bold gold" 1 (string match -q -- '*1;38;5;178m*' $L[2]; and echo 1; or echo 0)
-t "v3 list: the next box centers its own name" "│ "(string repeat -n 12 ─)" workspace "(string repeat -n 13 ─)"╮ " (vis $L[6])
-t "v3 list: a box's rail runs one row past its last member, with no corner" "│"(string repeat -n 37 ' ')"│ " (vis $L[5])
-t "v3 list: ... in gold" 1 (string match -q -- '*38;5;178m│*' $L[5]; and echo 1; or echo 0)
-t "v3 list: the older box rule is wordless" "│ "(string repeat -n 36 ─)"╮ " (vis $L[9])
-t "v3 list: ... and bold gray" 1 (string match -q -- '*1;38;5;8m*' $L[9]; and echo 1; or echo 0)
-t "v3 list: the older row reads ...older (3) in gray, beside the gray rail" 1 (string match -q -- '*38;5;8m...older (3)*38;5;8m│*' $L[10]; and echo 1; or echo 0)
-t "v3 list: the older box's end rail is gray" 1 (string match -q -- '*38;5;8m│*' $L[11]; and echo 1; or echo 0)
-t "v3 list: the general rule opens general, bold green" 1 (string match -qr '^\e\[1;38;5;2m╭── general ─+\e\[0m$' -- $L[12]; and echo 1; or echo 0)
-t "v3 list: a general row spans the list beside the green rail" 1 (string match -qr '^│ g1 +$' -- (vis $L[13]); and string match -q -- (printf '\e[38;5;2m│')'*' $L[13]; and echo 1; or echo 0)
-t "v3 list: a boxed row: the marker flush right, just before the box's rail" 1 (string match -qr '^│ cp · task +\[here\] │ $' -- (vis $L[3]); and echo 1; or echo 0)
-t "v3 list: a general row's marker sits at the list's edge" 1 (string match -qr '^│ g2 +\[attached\]$' -- (vis $L[14]); and echo 1; or echo 0)
-t "v3 list: an idle project is muted -- its name, then its age" 1 (string match -q -- '*38;5;247mpi*38;5;243m · 2d*' $L[4]; and echo 1; or echo 0)
+# Every line's first column (a section's rail or its rule's corner) and its 39th (a right rail or a rule's ╮).
+set -l lc1; set -l lc39
+for l in $L
+    set -a lc1 (__tcp_cell $l 1)
+    set -a lc39 (__tcp_cell $l 39)
+end
+t "v3.1 list: the left rail -- orange down the whole claude section, green down general" "208╭ 208│ 208│ 208│ 208│ 208│ 208│ 208│ 208│ 208│ 2╭ 2│ 2│" "$lc1"
+t "v3.1 list: the right rail -- orange beside the live sessions down to the first box rule, gold per box ending at its last member, the gray older box's one row past its row, green beside general" "208╮ 208│ 208│ 178╮ 178│ 178╮ 178│ 245╮ 245│ 245│ 2╮ 2│ 2│" "$lc39"
+t "v3.1 list: the claude rule opens the section, bold orange, its ╮ two columns in" 1 (string match -qr '^\e\[1;38;5;208m╭── claude ─+╮\e\[0m $' -- $L[1]; and echo 1; or echo 0)
+t "v3.1 list: the live sessions sit directly under the claude rule, in no box, markers just inside the right rail" "1 1" "$(string match -qr '^│ cp · task +\[here\] │ $' -- (vis $L[2]); and echo 1; or echo 0) $(string match -qr '^│ cw +\[attached\] │ $' -- (vis $L[3]); and echo 1; or echo 0)"
+t "v3.1 list: a box rule: its name centered, ╮ two columns in" "│ "(string repeat -n 13 ─)" projects "(string repeat -n 13 ─)"╮ " (vis $L[4])
+t "v3.1 list: the box rule is bold gold" 1 (string match -q -- '*1;38;5;178m*' $L[4]; and echo 1; or echo 0)
+t "v3.1 list: the next box's rule follows its last member directly, its own name centered" "│ "(string repeat -n 12 ─)" workspace "(string repeat -n 13 ─)"╮ " (vis $L[6])
+t "v3.1 list: the older box rule is wordless" "│ "(string repeat -n 36 ─)"╮ " (vis $L[8])
+t "v3.1 list: ... and bold gray 245" 1 (string match -q -- '*1;38;5;245m*' $L[8]; and echo 1; or echo 0)
+t "v3.1 list: the older row reads ▸ older (3) in gray 247" 1 (string match -q -- '*38;5;247m▸ older (3)*' $L[9]; and echo 1; or echo 0)
+t "v3.1 list: the older box's rail runs one row past its row, with no corner" "│"(string repeat -n 37 ' ')"│ " (vis $L[10])
+t "v3.1 list: the general rule opens general, bold green, its ╮ two columns in" 1 (string match -qr '^\e\[1;38;5;2m╭── general ─+╮\e\[0m $' -- $L[11]; and echo 1; or echo 0)
+t "v3.1 list: general rows sit between the green rails, a marker just inside the right one" "1 1" "$(string match -qr '^│ g1 +│ $' -- (vis $L[12]); and echo 1; or echo 0) $(string match -qr '^│ g2 +\[attached\] │ $' -- (vis $L[13]); and echo 1; or echo 0)"
+t "v3.1 list: an idle project is muted -- its name, then its age" 1 (string match -q -- '*38;5;247mpi*38;5;243m · 2d*' $L[5]; and echo 1; or echo 0)
 set -l nobot 1
 for l in $L; string match -qr '[╰╯└┘]' -- $l; and set nobot 0; end
-t "v3 list: no bottom borders anywhere" 1 $nobot
+t "v3.1 list: no bottom borders anywhere" 1 $nobot
 
 function __tcp_band --description '"first-last" columns of argv[1] on the selection band (__tcz_theme sel-bg); 0-0 when none'
     set -l bg (__tcz_theme sel-bg)
@@ -142,19 +157,21 @@ function __tcp_band --description '"first-last" columns of argv[1] on the select
     end
     echo "$first-$last"
 end
+# The pointer takes the left rail's cell in its section's color; the band stops before the right rail in every section.
 set -l Ls (printf '%s\n' $FX | __tcz_popup_list_lines 40 0 '')
-t "v3 list: a selected boxed row: an orange ▐, the band stops before the box's rail" "1 1-38" "$(string match -q -- '*38;5;208m▐*' $Ls[3]; and echo 1; or echo 0) $(__tcp_band $Ls[3])"
-set -l Lo (printf '%s\n' $FX | __tcz_popup_list_lines 40 3 '')
-t "v3 list: the older row's pointer is orange (it is in claude)" 1 (string match -q -- '*38;5;208m▐*' $Lo[10]; and echo 1; or echo 0)
-set -l Lg (printf '%s\n' $FX | __tcz_popup_list_lines 40 4 '')
-t "v3 list: a selected general row: a green ▐, the band spans the list" "1 1-40" "$(string match -q -- '*38;5;2m▐*' $Lg[13]; and echo 1; or echo 0) $(__tcp_band $Lg[13])"
+set -l Lp (printf '%s\n' $FX | __tcz_popup_list_lines 40 2 '')
+set -l Lo (printf '%s\n' $FX | __tcz_popup_list_lines 40 4 '')
+set -l Lg (printf '%s\n' $FX | __tcz_popup_list_lines 40 5 '')
+set -l lsel (__tcp_cell $Ls[2] 1) (__tcp_band $Ls[2]) (__tcp_cell $Lp[5] 1) (__tcp_band $Lp[5]) \
+    (__tcp_cell $Lo[9] 1) (__tcp_band $Lo[9]) (__tcp_cell $Lg[12] 1) (__tcp_band $Lg[12])
+t "v3.1 list: the pointer -- orange on a live session, a project and the older row, green in general; the band 1-38 on each" "208▐ 1-38 208▐ 1-38 208▐ 1-38 2▐ 1-38" "$lsel"
 functions -e __tcp_band
 set -l Lc (printf '%s\n' $FX | __tcz_popup_list_lines 40 0 cw)
-t "v3 list: the current session off the pointer: a yellow ❯ in the rail cell, a yellow [current] before the box's rail" 1 (string match -qr '^❯ cw +\[current\] │ $' -- (vis $Lc[7]); and string match -q -- (printf '\e[38;5;179m❯')'*' $Lc[7]; and string match -q -- (printf '*\e[38;5;179m[current]')'*' $Lc[7]; and echo 1; or echo 0)
-set -l Lcs (printf '%s\n' $FX | __tcz_popup_list_lines 40 2 cw)
-t "v3 list: the current session under the pointer: ▐ takes the rail cell, the name stays yellow, [current] goes dim" 1 (string match -qr '^▐ cw +\[current\] │ $' -- (vis $Lcs[7]); and string match -q -- (printf '*\e[38;5;179mcw')'*' $Lcs[7]; and string match -q -- (printf '*\e[2m[current]')'*' $Lcs[7]; and echo 1; or echo 0)
+t "v3.1 list: the current session off the pointer: a yellow ❯ in the rail cell, a yellow [current] just inside the right rail" 1 (string match -qr '^❯ cw +\[current\] │ $' -- (vis $Lc[3]); and string match -q -- (printf '\e[38;5;179m❯')'*' $Lc[3]; and string match -q -- (printf '*\e[38;5;179m[current]')'*' $Lc[3]; and echo 1; or echo 0)
+set -l Lcs (printf '%s\n' $FX | __tcz_popup_list_lines 40 1 cw)
+t "v3.1 list: the current session under the pointer: ▐ takes the rail cell, the name stays yellow, [current] goes dim" 1 (string match -qr '^▐ cw +\[current\] │ $' -- (vis $Lcs[3]); and string match -q -- (printf '*\e[38;5;179mcw')'*' $Lcs[3]; and string match -q -- (printf '*\e[2m[current]')'*' $Lcs[3]; and echo 1; or echo 0)
 set -l lrow (__tcz_popup_list_row 40 1 '' $FX[1])
-t "v3 list: the drawer draws a row as the list does (selected, boxed)" "$Ls[3]" "$lrow"
+t "v3.1 list: the drawer draws a row as the list does (selected, live)" "$Ls[2]" "$lrow"
 # Only a live row can be current: the older row and an idle project never take the marker, even when a session shares the name.
 function __tcp_iscur --description '1 when argv[1] carries [current] or the current session'"'"'s ❯, else 0'
     string match -q -- '*[current]*' "$argv[1]"; or string match -q -- '*❯*' "$argv[1]"; and echo 1; or echo 0
@@ -162,19 +179,20 @@ end
 set -l cgO (__tcp_iscur (vis (__tcz_popup_list_row 40 0 older (printf 'older\tolder\t0\t3\tolder (3)'))))
 set -l cgP (__tcp_iscur (vis (__tcz_popup_list_row 40 0 cp (printf 'cp\tprojects\t0\t0\tcp · 2d'))))
 set -l cgL (__tcp_iscur (vis (__tcz_popup_list_row 40 0 older (printf 'older\tgeneral\t0\t0\tolder'))))
-set -l cgB (__tcp_iscur (vis (__tcz_popup_list_row 40 0 cp (printf 'cp\tclaude/projects\t0\t0\tcp'))))
-t "v3 list: only a live row is current -- not the older row (a session named older is current), not an idle project of the same name; a live row, either section, is" "0 0 1 1" "$cgO $cgP $cgL $cgB"
+set -l cgB (__tcp_iscur (vis (__tcz_popup_list_row 40 0 cp (printf 'cp\tclaude\t0\t0\tcp'))))
+t "v3.1 list: only a live row is current -- not the older row (a session named older is current), not an idle project of the same name; a live row, either section, is" "0 0 1 1" "$cgO $cgP $cgL $cgB"
 functions -e __tcp_iscur
 # Narrow and long: rows truncate with …, a marker that leaves the name no room is dropped, and every line keeps the width.
-set -l LN (printf '%s\n' (printf 'averylongsessionname\tclaude/other\t1\t0\taverylongsessionname') (printf 'averylongsession2\tgeneral\t1\t0\taverylongsession2') | __tcz_popup_list_lines 12 0 '')
+set -l LN (printf '%s\n' (printf 'averylongsessionname\tclaude\t1\t0\taverylongsessionname') (printf 'averylongsession2\tgeneral\t1\t0\taverylongsession2') | __tcz_popup_list_lines 12 0 '')
 set -l lnw
 for l in $LN; set -a lnw (string length --visible -- (vis "$l")); end
-t "v3 list: at 12 columns every line keeps the width (6 lines)" "6 12" "$(count $LN) $(printf '%s\n' $lnw | sort -u | string join ,)"
-t "v3 list: a narrow row drops its marker and truncates its name" 1 (string match -q -- '*…*' (vis $LN[3]); and not string match -q -- '*attached*' (vis $LN[3]); and echo 1; or echo 0)
-set -l LL (printf 'supercalifragilistic\tclaude/projects\t1\t0\tsupercalifragilisticexpialidocious\n' | __tcz_popup_list_lines 30 -1 '')
-t "v3 list: a long boxed name truncates with … and keeps its marker before the rail" "30 1" "$(string length --visible -- (vis $LL[3])) $(string match -qr '….*\[attached\] │ $' -- (vis $LL[3]); and echo 1; or echo 0)"
+t "v3.1 list: at 12 columns every line keeps the width (4 lines)" "4 12" "$(count $LN) $(printf '%s\n' $lnw | sort -u | string join ,)"
+t "v3.1 list: a narrow row drops its marker and truncates its name" 1 (string match -q -- '*…*' (vis $LN[2]); and not string match -q -- '*attached*' (vis $LN[2]); and echo 1; or echo 0)
+set -l LL (printf 'supercalifragilistic\tclaude\t1\t0\tsupercalifragilisticexpialidocious\n' | __tcz_popup_list_lines 30 -1 '')
+t "v3.1 list: a long live name truncates with … and keeps its marker before the right rail" "30 1" "$(string length --visible -- (vis $LL[2])) $(string match -qr '….*\[attached\] │ $' -- (vis $LL[2]); and echo 1; or echo 0)"
 set -l LE (printf 'sx\tgeneral\t0\t0\tok✅done\n' | __tcz_popup_list_lines 20 0 '')
-t "v3 list: a wide-character name keeps the row 20 columns" 20 (string length --visible -- (vis $LE[2]))
+t "v3.1 list: a wide-character name keeps the row 20 columns" 20 (string length --visible -- (vis $LE[2]))
+functions -e __tcp_cell
 
 # ---------------------------------------------------------------------
 # __tcz_popup_clip — the BOTTOM h lines (most recent last), trailing blank
@@ -283,11 +301,11 @@ function __tcp_frame_ref --description '__tcp_frame_ref <sel> <listw> <rows> <cu
     end
 end
 # 15 model rows, 14 drawn: junk has fewer than 5 fields and is skipped by both builds.
-set -g MM (printf 'c1\tclaude/projects\t0\t0\tc1') (printf 'c2\tclaude/projects\t0\t0\tc2') \
-    (printf 'c3\tclaude/workspace\t0\t0\tc3')
+set -g MM (printf 'c1\tclaude\t0\t0\tc1') (printf 'c2\tclaude\t0\t0\tc2') \
+    (printf 'c3\tclaude\t0\t0\tc3')
 for i in 1 2 3 4; set -a MM (printf '/p/w%s\tworkspace\t0\t0\tw%s · 2h' $i $i); end
 for i in 1 2 3; set -a MM (printf '/p/o%s\tother\t0\t0\to%s · 3d' $i $i); end
-set -a MM (printf 'older\tolder\t0\t2\t...older (2)') (printf 'r1\tgeneral\t1\t0\trunning one') \
+set -a MM (printf 'older\tolder\t0\t2\t▸ older (2)') (printf 'r1\tgeneral\t1\t0\trunning one') \
     (printf 'cur\tgeneral\t0\t0\tcur') junk (printf 'g2\tgeneral\t2\t0\tg2 with a display long enough to be cut')
 functions -c __tcz_popup_list_lines __tcp_ll_bak
 set -g LLREC /tmp/tcz-llrec-$fish_pid
@@ -369,7 +387,7 @@ set -e __tcz_lp_key
 functions -c __tcz_popup_preview __tcp_preview_bak
 function __tcz_popup_preview; printf 'PV-%s\n' $argv[1]; end
 function tmux; end
-set -g BM (printf 'cp\tclaude/projects\t1\t0\tcp') (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
+set -g BM (printf 'cp\tclaude\t1\t0\tcp') (printf '/h/projects/pi\tprojects\t0\t0\tpi · 2d') \
     (printf 'g1\tgeneral\t0\t0\tg1') (printf 'g2\tgeneral\t0\t0\tg2')
 set -g __tcz_pe_prev; set -g __tcz_pe_force 1; set -e __tcz_lp_key
 __tcz_landing_paint 0 30 100 0 landing '' -- $BM > /dev/null

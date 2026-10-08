@@ -2126,15 +2126,17 @@ function __tcz_popup_truncate --argument-names text width --description 'truncat
     echo -- "$out$rst…"
 end
 
-function __tcz_popup_list_row --argument-names listwidth sel current row --description 'pure: one chooser row, exactly <listwidth> columns. A general row spans the list beside the green rail; any other sits in a box of the claude section, between the orange rail and its box'"'"'s rail two columns in. <sel> = 1: the ▐ pointer in its section'"'"'s color, on a band that stops before a box'"'"'s rail. <current>: the session marked [current].'
+function __tcz_popup_list_row --argument-names listwidth sel current row --description 'pure: one chooser row, exactly <listwidth> columns, between its section'"'"'s rail and a right rail two columns in: orange beside a live claude session, gold in a directory box, gray for the older row, green in general. <sel> = 1: the ▐ pointer in its section'"'"'s color, on a band that stops before the right rail. <current>: the session marked [current].'
     set -l f (string split -m 4 \t -- "$row")
     set -l name "$f[1]"; set -l cat "$f[2]"; set -l att "$f[3]"; set -l disp "$f[5]"
-    # Section color (rail, pointer); a boxed row's text stops three columns short: a gap, its box's rail, a blank.
-    set -l sc 208; set -l bc 178; set -l textw (math $listwidth - 5)
+    # Section color (rail, pointer) and right-rail color; the text stops three columns short: a gap, the right rail, a blank.
+    set -l sc 208; set -l rc 178; set -l textw (math $listwidth - 5)
     if test "$cat" = general
-        set sc 2; set bc ''; set textw (math $listwidth - 2)
+        set sc 2; set rc 2
+    else if test "$cat" = claude
+        set rc 208
     else if test "$cat" = older
-        set bc 8
+        set rc 245
     end
     # Only a live row can be current: the older row and an idle project are no session.
     set -l iscur 0
@@ -2168,7 +2170,7 @@ function __tcz_popup_list_row --argument-names listwidth sel current row --descr
         set -l age (string sub -s (math $nl + 1) -- "$shown")
         set text (printf '\e[38;5;247m%s\e[38;5;243m%s\e[39m' "$nm" "$age")
     else if test "$cat" = older
-        set text (printf '\e[38;5;8m%s\e[39m' "$shown")
+        set text (printf '\e[38;5;247m%s\e[39m' "$shown")
     else if test $iscur -eq 1
         set text (printf '\e[38;5;179m%s\e[39m' "$shown")
     end
@@ -2181,49 +2183,50 @@ function __tcz_popup_list_row --argument-names listwidth sel current row --descr
     set -l lead (printf '\e[38;5;%sm│\e[39m ' $sc)
     test $iscur -eq 1; and set lead (printf '\e[38;5;179m❯\e[39m ')
     test "$sel" = 1; and set lead (printf '%s\e[38;5;%sm▐\e[39m ' (__tcz_theme sel-bg) $sc)
-    set -l tail (printf '\e[0m')
-    test -n "$bc"; and set tail (printf ' \e[0m\e[38;5;%sm│\e[0m ' $bc)
-    printf '%s%s%s%s%s\n' "$lead" "$text" "$pads" "$mkpart" "$tail"
+    printf '%s%s%s%s \e[0m\e[38;5;%sm│\e[0m \n' "$lead" "$text" "$pads" "$mkpart" $rc
 end
 
-function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'landing rows (stdin) -> the chooser list, every line <listwidth> wide: the claude section (an orange rail beside a box per directory and the older box), then general; no bottom borders. Pointer on row #<selidx> (-1: none); <current> marked. Records each drawn row, its line and the first line its window keeps in __tcz_pl_row, __tcz_pl_line and __tcz_pl_first.'
+function __tcz_popup_list_lines --argument-names listwidth selidx current --description 'landing rows (stdin) -> the chooser list, every line <listwidth> wide: the claude section (live sessions, a box per directory, the older box), then general; a right rail beside every section and box, no bottom borders. Pointer on row #<selidx> (-1: none); <current> marked. Records each drawn row, its line and the first line its window keeps in __tcz_pl_row, __tcz_pl_line and __tcz_pl_first.'
     test -n "$listwidth"; and test "$listwidth" -gt 0 2>/dev/null; or set listwidth 30
     test -n "$selidx"; or set selidx 0
     set -g __tcz_pl_row; set -g __tcz_pl_line; set -g __tcz_pl_first
+    # A rail ends at its last row; only the older box's runs one row further, before general.
     set -l gap (string repeat -n (math "max(0, $listwidth - 3)") ' ')
-    set -l sect ''; set -l box ''; set -l boxc 178; set -l n 0; set -l idx 0
+    set -l oldrail (printf '\e[38;5;208m│\e[0m%s\e[38;5;245m│\e[0m ' "$gap")
+    set -l sect ''; set -l box ''; set -l n 0; set -l idx 0
     while read -l row
         set -l f (string split -m 4 \t -- $row)
         test (count $f) -ge 5; or continue
-        set -l rsect claude; set -l rbox (string replace -r '^claude/' '' -- $f[2])
-        if test "$f[2]" = general
-            set rsect general; set rbox ''
-        end
+        # Sections: general, else claude. Boxes: an idle project's group, and the older row's own.
+        set -l rsect claude; set -l rbox $f[2]
+        test "$f[2]" = general; and set rsect general
+        contains -- "$f[2]" claude general; and set rbox ''
         set -l first 0
-        # A box ends one row past its last member: its rail, and no corner.
-        if test -n "$box"; and test "$rbox" != "$box"
-            printf '\e[38;5;208m│\e[0m%s\e[38;5;%sm│\e[0m \n' "$gap" $boxc
+        if test "$box" = older; and test "$rbox" != older
+            printf '%s\n' "$oldrail"
             set n (math $n + 1)
         end
         if test "$rsect" != "$sect"
             set -l c 208
             test $rsect = general; and set c 2
             set -l lead "╭── $rsect "
-            set -l fill (math $listwidth - (string length -- "$lead"))
+            set -l fill (math $listwidth - (string length -- "$lead") - 2)
             if test $fill -gt 0
                 set -l rule (string repeat -n $fill ─)
-                printf '\e[1;38;5;%sm%s%s\e[0m\n' $c "$lead" "$rule"
+                printf '\e[1;38;5;%sm%s%s╮\e[0m \n' $c "$lead" "$rule"
             else
+                # Too narrow for the rule: the word alone, cut or padded to the width.
                 set -l cut (__tcz_popup_truncate "$lead" $listwidth)
-                printf '\e[1;38;5;%sm%s\e[0m\n' $c "$cut"
+                set -l pad (string repeat -n (math $listwidth - (string length --visible -- "$cut")) ' ')
+                printf '\e[1;38;5;%sm%s\e[0m%s\n' $c "$cut" "$pad"
             end
             set n (math $n + 1); set first $n
         end
         if test -n "$rbox"; and test "$rbox" != "$box"
             # The box rule runs from the rail's gap to the ╮ two columns in, the name centered in it.
-            set boxc 178; set -l word " $rbox "
+            set -l c 178; set -l word " $rbox "
             if test "$rbox" = older
-                set boxc 8; set word ''
+                set c 245; set word ''
             end
             set -l span (math "max(0, $listwidth - 4)")
             set word (__tcz_popup_truncate "$word" $span)
@@ -2231,7 +2234,7 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
             set -l lh (math "floor(($span - $wl) / 2)")
             set -l lrule (string repeat -n $lh ─)
             set -l rrule (string repeat -n (math $span - $wl - $lh) ─)
-            printf '\e[38;5;208m│\e[0m \e[1;38;5;%sm%s%s%s╮\e[0m \n' $boxc "$lrule" "$word" "$rrule"
+            printf '\e[38;5;208m│\e[0m \e[1;38;5;%sm%s%s%s╮\e[0m \n' $c "$lrule" "$word" "$rrule"
             set n (math $n + 1)
             test $first -gt 0; or set first $n
         end
@@ -2244,8 +2247,8 @@ function __tcz_popup_list_lines --argument-names listwidth selidx current --desc
         set -a __tcz_pl_row "$row"; set -a __tcz_pl_line $n; set -a __tcz_pl_first $first
         set idx (math $idx + 1)
     end
-    if test -n "$box"
-        printf '\e[38;5;208m│\e[0m%s\e[38;5;%sm│\e[0m \n' "$gap" $boxc
+    if test "$box" = older
+        printf '%s\n' "$oldrail"
     end
 end
 
