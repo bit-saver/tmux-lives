@@ -47,7 +47,7 @@ See memory `[[deploy_via_fisher_update_only]]`.
 | `docs/superpowers/specs/` | Design docs for shipped features, still accurate |
 | `docs/history/` | Archived prose. Not guidance |
 
-`docs/superpowers/plans/` holds only in-flight plans (now: chooser v3.1) — **plans are deleted once
+`docs/superpowers/plans/` holds only in-flight plans (now: none) — **plans are deleted once
 their work ships**; git is the archive. Specs for shipped features stay.
 
 ---
@@ -568,7 +568,7 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
 
 ## Current state — 2026-10-08
 
-**Chooser v3.1 built on branch `feat/landing-chooser-v3-1`, awaiting merge and `fisher update` on both
+**Chooser v3.1 built (merged `9fd64a5`), awaiting `fisher update` on both
 machines;** then the workspace-TUI sidebar. Mockups `06`–`18`; generators in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
