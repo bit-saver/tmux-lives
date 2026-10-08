@@ -1742,10 +1742,10 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
     set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" $mc -- $model)
     set -g __tcz_pf_keep 0
     set -l legend (printf '\e[1;7;38;5;%sm %s \e[0m' $mc $badge)(__tcz_legend_row 10 $keys)
-    __tcz_popup_emit (__tcz_popup_truncate "$legend" (math $cols - 1)) (__tcz_landing_border $lay[1] $lay[2] $cols $mc) $frame
+    __tcz_popup_emit (__tcz_popup_truncate "$legend" (math $cols - 1)) (__tcz_landing_header_line $lay[1] $lay[2] $cols $mc) $frame
 end
 
-function __tcz_landing_border --argument-names listw prevw cols color --description 'pure: the header line under the badge and key legend: <cols> - 1 wide (as the legend) in 256-color <color>, with the junction over the list/preview divider when there is a preview (glyphs: __tcz_landing_frame_glyphs)'
+function __tcz_landing_header_line --argument-names listw prevw cols color --description 'pure: the header line under the badge and key legend: <cols> - 1 wide (as the legend) in 256-color <color>, with the junction over the list/preview divider when there is a preview (glyphs: __tcz_landing_frame_glyphs)'
     set -l g $__tcz_landing_frame_glyphs
     set -l w (math $cols - 1)
     set -l line (string repeat -n $w $g[1])
@@ -2298,7 +2298,7 @@ function __tcz_popup_preview --argument-names session w h --description 'colored
     tmux capture-pane -e -p -t (__tcz_session_target "$session") 2>/dev/null | __tcz_popup_clip $w $h
 end
 
-function __tcz_legend_row --argument-names pitch --description 'pure: one aligned key-legend row — argv[2..] = <key> <label> pairs; each cell = key (key color) + space + label (muted) padded to <pitch> visible cols; leading space. The shared footer convention for every tmux-lives popup.'
+function __tcz_legend_row --argument-names pitch --description 'pure: one aligned key-legend row — argv[2..] = <key> <label> pairs; each cell = key (key color) + space + label (muted) padded to <pitch> visible cols; leading space. The shared key-legend convention for every tmux-lives popup.'
     set -l KEY (__tcz_theme key)
     set -l MUT (__tcz_theme muted)
     set -l RST (__tcz_theme reset)

@@ -542,10 +542,10 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
   reuses the last preview.
 - **v3.1** — the category carries the layout: `claude` live (overview order), `<group>` idle, `older`,
   `general` (running folded in, last). `__tcz_popup_list_row` draws a row, each with a right rail;
-  `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, which the memo copies to `__tcz_pf_r*` for the
-  frame. Paint: legend, `__tcz_landing_border`, frame; the mode color (203/37) is their argument, the glyphs
-  `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no settle, Esc/actions
-  close it, `x` on the current session lands the client.
+  `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, which the memo copies to
+  `__tcz_pf_rrow/_rline/_rfirst`. Paint: legend, `__tcz_landing_header_line`, frame (the last two take the mode
+  color, 203/37); glyphs: `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no
+  settle, Esc/actions close it, `x` on the current session lands the client.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.

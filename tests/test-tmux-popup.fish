@@ -551,10 +551,10 @@ t "readkey n: the landing loop has a case for n; the theme picker has none" "1 0
 
 # --- landing: the header line under the badge and legend ---
 set -l g $__tcz_landing_frame_glyphs
-set -l lb0 (__tcz_landing_border 33 46 80 203)
+set -l lb0 (__tcz_landing_header_line 33 46 80 203)
 set -l lb1 (vis "$lb0")
-set -l lb2 (vis (__tcz_landing_border 50 0 50 203))
-set -l lb3 (vis (__tcz_landing_border 58 1 60 37))
+set -l lb2 (vis (__tcz_landing_header_line 50 0 50 203))
+set -l lb3 (vis (__tcz_landing_header_line 58 1 60 37))
 set -l lbw1 (string repeat -n 33 $g[1])$g[2](string repeat -n 45 $g[1])
 set -l lbw2 (string repeat -n 49 $g[1])
 set -l lbw3 (string repeat -n 58 $g[1])$g[2]
