@@ -10379,7 +10379,14 @@ set -l la3top (command tmux -L $sock capture-pane -p -t "=$la3:")[1]
 command tmux -L $sock send-keys -t "=$la3:" n
 sleep 0.5
 set -l la3kept (command tmux -L $sock has-session -t =0 2>/dev/null; and echo 1; or echo 0)
-t "app: x asks before killing, on row 1 where the legend was, and n keeps the session" "1 1 1" "$la3ask $(string match -q -- '  kill 0 ?  (y/n)*' "$la3top"; and echo 1; or echo 0) $la3kept"
+# After n the badge and legend repaint over the prompt on row 1.
+set -l la3back 0
+for i in (seq 30)
+    set -l la3row1 (command tmux -L $sock capture-pane -p -t "=$la3:")[1]
+    string match -q -- ' LANDING *' "$la3row1"; and begin; set la3back 1; break; end
+    sleep 0.1
+end
+t "app: x asks before killing, on row 1 where the legend was, n keeps the session, and the header comes back after n" "1 1 1 1" "$la3ask $(string match -q -- '  kill 0 ?  (y/n)*' "$la3top"; and echo 1; or echo 0) $la3kept $la3back"
 command tmux -L $sock send-keys -t "=$la3:" x
 __tcg_screen_has "=$la3:" '*kill 0 ?*' 30 >/dev/null
 command tmux -L $sock send-keys -t "=$la3:" y
