@@ -568,7 +568,7 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
 
 ## Current state — 2026-11-05
 
-**Chooser v3.1 (merged `9fd64a5`) and its top line (`feat/landing-header-top-line`) await `fisher update` on
+**Chooser v3.1 (merged `9fd64a5`) and its top line (merged `b7682fd`) await `fisher update` on
 both machines;** then the workspace-TUI sidebar. Mockups `06`–`19`; generators in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
