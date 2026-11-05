@@ -18,9 +18,9 @@ set -g __tcz_landing_cmd sh -c 'exec fish --no-config "$0" landing 2>/dev/null' 
 set -g __tcz_landing_groups projects workspace work other
 # The row categories with no session behind them: an idle project's group, or the older row.
 set -g __tcz_landing_idle_categories $__tcz_landing_groups older
-# The landing frame's glyphs, drawn in the mode color: the header line, its junction over the divider, the divider.
-# Eighth blocks; for a terminal that lacks them, the box-drawing set ─ ┬ │ draws the same frame.
-set -g __tcz_landing_frame_glyphs ▔ ▕ ▕
+# The landing frame's glyphs, drawn in the mode color: the header line, its junction over the divider, the divider,
+# the top line. The first three are eighth blocks; for a terminal that lacks them, ─ ┬ │ draw the same frame.
+set -g __tcz_landing_frame_glyphs ▔ ▕ ▕ ─
 # Folders that are never a project, with $HOME and $TMPDIR (macOS reports /tmp as /private/tmp),
 # and trees no folder below which is one either. Read by __tcz_generic_dir and discovery's skip.
 set -g __tcz_generic_folders / /tmp /var/tmp /private/tmp /private/var/tmp
@@ -1714,7 +1714,7 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the badge and key legend (SWITCHING and esc close when <mode> is switch, else LANDING), the header line and the frame, framed in the mode color, through the diff emitter. <hold> = 1: a held move, no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the top line, badge and key legend (SWITCHING and esc close when <mode> is switch, else LANDING), header line and frame in the mode color through the diff emitter. <hold> = 1: a held move, no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
     set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]; set -l hold $argv[4]
     set -l mode $argv[5]; set -l current $argv[6]
     set -e argv[1..7]
@@ -1739,10 +1739,12 @@ function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <co
         set -a keys esc close
     end
     set -g __tcz_pf_keep $hold
-    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 2) "$current" $mc -- $model)
+    set -l frame (__tcz_popup_frame $sel $lay[1] $lay[2] (math $rows - 3) "$current" $mc -- $model)
     set -g __tcz_pf_keep 0
+    # Three header rows over the frame: the top line, the badge and legend, the header line.
+    set -l top (printf '\e[38;5;%sm%s\e[0m' $mc (string repeat -n (math $cols - 1) $__tcz_landing_frame_glyphs[4]))
     set -l legend (printf '\e[1;7;38;5;%sm %s \e[0m' $mc $badge)(__tcz_legend_row 10 $keys)
-    __tcz_popup_emit (__tcz_popup_truncate "$legend" (math $cols - 1)) (__tcz_landing_header_line $lay[1] $lay[2] $cols $mc) $frame
+    __tcz_popup_emit "$top" (__tcz_popup_truncate "$legend" (math $cols - 1)) (__tcz_landing_header_line $lay[1] $lay[2] $cols $mc) $frame
 end
 
 function __tcz_landing_header_line --argument-names listw prevw cols color --description 'pure: the header line under the badge and key legend: <cols> - 1 wide (as the legend) in 256-color <color>, with the junction over the list/preview divider when there is a preview (glyphs: __tcz_landing_frame_glyphs)'
@@ -1956,9 +1958,10 @@ function __tcz_landing --argument-names mode client --description 'the landing a
             case down
                 test $sel -lt (math $n - 1); and set sel (math $sel + 1)
             case pgup
-                set sel (math "max(0, $sel - max(1, $rows - 3))")
+                # A page is one frame height (rows - 3) less one row.
+                set sel (math "max(0, $sel - max(1, $rows - 4))")
             case pgdn
-                test $n -gt 0; and set sel (math "min($n - 1, $sel + max(1, $rows - 3))")
+                test $n -gt 0; and set sel (math "min($n - 1, $sel + max(1, $rows - 4))")
             case enter r n
                 if test $tok = enter; and test "$row[2]" = older
                     set all --all
@@ -1990,7 +1993,7 @@ function __tcz_landing --argument-names mode client --description 'the landing a
             case kill
                 # Live rows only: a project or the older row has no session to kill.
                 test -n "$row[1]"; and not contains -- "$row[2]" $__tcz_landing_idle_categories; or continue
-                printf '\e[1;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' "$row[1]"
+                printf '\e[2;1H\e[K\e[1;38;5;208m  kill %s ?  (y/n)\e[0m' "$row[1]"
                 set -g __tcz_pe_force 1       # the prompt overwrote the legend
                 stty min 1 time 0 2>/dev/null
                 set -l ans ''

@@ -10375,18 +10375,18 @@ __tcg_client_on $la3 >/dev/null
 __tcg_ready "=$la3:" '*d detach*'
 command tmux -L $sock send-keys -t "=$la3:" x
 set -l la3ask (__tcg_screen_has "=$la3:" '*kill 0 ?*' 30; and echo 1; or echo 0)
-set -l la3top (command tmux -L $sock capture-pane -p -t "=$la3:")[1]
+set -l la3top (command tmux -L $sock capture-pane -p -t "=$la3:")[2]
 command tmux -L $sock send-keys -t "=$la3:" n
 sleep 0.5
 set -l la3kept (command tmux -L $sock has-session -t =0 2>/dev/null; and echo 1; or echo 0)
-# After n the badge and legend repaint over the prompt on row 1.
+# After n the badge and legend repaint over the prompt on row 2.
 set -l la3back 0
 for i in (seq 30)
-    set -l la3row1 (command tmux -L $sock capture-pane -p -t "=$la3:")[1]
-    string match -q -- ' LANDING *' "$la3row1"; and begin; set la3back 1; break; end
+    set -l la3row2 (command tmux -L $sock capture-pane -p -t "=$la3:")[2]
+    string match -q -- ' LANDING *' "$la3row2"; and begin; set la3back 1; break; end
     sleep 0.1
 end
-t "app: x asks before killing, on row 1 where the legend was, n keeps the session, and the header comes back after n" "1 1 1 1" "$la3ask $(string match -q -- '  kill 0 ?  (y/n)*' "$la3top"; and echo 1; or echo 0) $la3kept $la3back"
+t "app: x asks before killing, on row 2 where the legend was, n keeps the session, and the header comes back after n" "1 1 1 1" "$la3ask $(string match -q -- '  kill 0 ?  (y/n)*' "$la3top"; and echo 1; or echo 0) $la3kept $la3back"
 command tmux -L $sock send-keys -t "=$la3:" x
 __tcg_screen_has "=$la3:" '*kill 0 ?*' 30 >/dev/null
 command tmux -L $sock send-keys -t "=$la3:" y
@@ -11650,15 +11650,42 @@ set -l sws (__tcg_cap $sww[2])
 set -l swsel (string match -rg '^▐ (\S+)' -- $sws)
 set -l swdiv 0
 set -l swinlist 0
-for r in $sws[2..30]
+for r in $sws[3..30]
     set -l c34 (string sub -s 34 -l 1 -- $r)
     contains -- "$c34" $__tcz_landing_frame_glyphs[2..3]; and set swdiv (math $swdiv + 1)
     string match -q '*↑↓*' -- (string sub -l 33 -- $r); and set swinlist (math $swinlist + 1)
 end
-set -l swhead (string match -qr '^ SWITCHING  ↑↓ move ' -- "$sws[1]"; and echo 1; or echo 0)
-set -l swtop (string match -qr '^╭── ' -- "$sws[3]"; and echo 1; or echo 0)
-t "switcher: shrunk to 80x30, one step draws at the new size (the legend on row 1, not in the list on rows 2-30; the list's top rule on row 3; the junction and the divider at column 34 on rows 2-30; the step moved sw to zz)" "1 1 0 29 sw>zz" "$swhead $swtop $swinlist $swdiv $sw0>$swsel"
+set -l swlw (string repeat -n 79 -- "$__tcz_landing_frame_glyphs[4]")
+set -l swline (test "$sws[1]" = "$swlw"; and echo 1; or echo 0)
+set -l swhead (string match -qr '^ SWITCHING  ↑↓ move ' -- "$sws[2]"; and echo 1; or echo 0)
+set -l swtop (string match -qr '^╭── ' -- "$sws[4]"; and echo 1; or echo 0)
+t "switcher: shrunk to 80x30, one step draws at the new size (the top line on row 1; the legend on row 2, not in the list on rows 3-30; the list's top rule on row 4; the junction and the divider at column 34 on rows 3-30; the step moved sw to zz)" "1 1 1 0 28 sw>zz" "$swline $swhead $swtop $swinlist $swdiv $sw0>$swsel"
 command tmux -L $sock send-keys -t $sww[2] Escape
+cleanup
+
+# (d) A page key steps one frame height less one row: in a 10-row pane the frame is 7 rows, so a page is 6.
+# Twelve shell sessions p10-p21 and the switcher's own sw, none attached: general lists them by name, sw last.
+fresh_server
+for i in (seq 10 21)
+    command tmux -L $sock new-session -d -s p$i -c /tmp sh
+end
+command tmux -L $sock kill-session -t =0
+set -l pgw (command tmux -L $sock new-session -d -s sw -x 80 -y 10 -c /tmp -P -F '#{window_id} #{pane_id}' fish --no-config $lcat landing switch '' | string split ' ')
+__tcg_screen_has $pgw[2] '*SWITCHING*' 50
+set -l pgseen (__tcg_cap $pgw[2] | string match -rg '^▐ (\S+)')
+for k in PageUp PageUp PageDown
+    set -l was $pgseen[-1]
+    command tmux -L $sock send-keys -t $pgw[2] $k
+    set -l now $was
+    for i in (seq 30)
+        set now (__tcg_cap $pgw[2] | string match -rg '^▐ (\S+)')
+        test -n "$now"; and test "$now" != "$was"; and break
+        sleep 0.1
+    end
+    set -a pgseen "$now"
+end
+t "switcher: a page key steps one frame height less one row (a 10-row pane: a 7-row frame, so 6 rows; from sw: PgUp, PgUp, PgDn)" "sw p16 p10 p16" "$pgseen"
+command tmux -L $sock send-keys -t $pgw[2] Escape
 cleanup
 rm -rf $tpd
 functions -e __tcg_cap __tcg_framed __tcg_shape
