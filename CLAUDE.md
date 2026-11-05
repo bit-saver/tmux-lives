@@ -543,8 +543,8 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
 - **v3.1** — the category carries the layout: `claude` live (overview order), `<group>` idle, `older`,
   `general` (running folded in, last). `__tcz_popup_list_row` draws a row, each with a right rail;
   `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, which the memo copies to
-  `__tcz_pf_rrow/_rline/_rfirst`. Paint: legend, `__tcz_landing_header_line`, frame (the last two take the mode
-  color, 203/37); glyphs: `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no
+  `__tcz_pf_rrow/_rline/_rfirst`. Paint: top line, legend, `__tcz_landing_header_line`, frame, in the mode
+  color (203/37); glyphs: `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no
   settle, Esc/actions close it, `x` on the current session lands the client.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
@@ -566,10 +566,10 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
 
 ---
 
-## Current state — 2026-10-08
+## Current state — 2026-11-05
 
-**Chooser v3.1 built (merged `9fd64a5`), awaiting `fisher update` on both
-machines;** then the workspace-TUI sidebar. Mockups `06`–`18`; generators in `artifacts/mockgen/chooser-v3/`.
+**Chooser v3.1 (merged `9fd64a5`) and its top line (branch `feat/landing-header-top-line`) built, awaiting `fisher
+update` on both machines;** then the workspace-TUI sidebar. Mockups `06`–`19` in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
