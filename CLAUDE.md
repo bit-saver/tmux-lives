@@ -541,11 +541,11 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
   `q`/Esc no-ops in landing mode (one `__tcz_popup_readkey` token). Held moves: no capture, `__tcz_pf_keep`
   reuses the last preview.
 - **v3.1** — the category carries the layout: `claude` live (overview order), `<group>` idle, `older`,
-  `general` (running folded in, last). `__tcz_popup_list_row` draws a row, each with a right rail;
-  `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, which the memo copies to
-  `__tcz_pf_rrow/_rline/_rfirst`. Paint: top line, legend, `__tcz_landing_header_line`, frame, in the mode
-  color (203/37); glyphs: `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the switcher: no
-  settle, Esc/actions close it, `x` on the current session lands the client.
+  `general` (running folded in, last). `__tcz_popup_list_row` draws a row with a right rail;
+  `__tcz_popup_list_lines` records `__tcz_pl_row/_line/_first`, memo-copied to `__tcz_pf_rrow/_rline/_rfirst`.
+  Paint: top line, badge + legend, `__tcz_landing_header_line`, frame; mode color (203/37): top line, badge,
+  header line, divider; glyphs: `__tcz_landing_frame_glyphs`. `landing switch <client> [--take]` = the
+  switcher: no settle, Esc/actions close it, `x` on the current session lands the client.
 - **Projects** — category = group (`__tcz_landing_groups`); 21+ days → the `older` row (seam
   `tmux_lives_landing_older_after`). Interactive transcripts only; awk reads them by `getline` (its main
   loop aborts on an unreadable file). `projects.tsv` v2: header + 4 fields.
@@ -568,16 +568,16 @@ per-tab `_landing-N` chooser (`claude`: live sessions, a box per directory; then
 
 ## Current state — 2026-11-05
 
-**Chooser v3.1 (merged `9fd64a5`) and its top line (branch `feat/landing-header-top-line`) built, awaiting `fisher
+**Chooser v3.1 (merged `9fd64a5`) and its top line (`feat/landing-header-top-line`) built, awaiting `fisher
 update` on both machines;** then the workspace-TUI sidebar. Mockups `06`–`19` in `artifacts/mockgen/chooser-v3/`.
 
 ### Theme work — ON HOLD, direction changed 2026-09-21/22
 
-Non-mono v6 schemes were rejected (above); colour decisions are Claude's. Target:
+Non-mono schemes rejected (above); colour decisions are Claude's. Target:
 the seed used **verbatim** as one colour + its shades + greys, HSB-style seed controls, maybe a second
 colour later (v6 ignores seed chroma; seed lightness only shifts the ramp window). Prototype
 `artifacts/mockgen/v7proto.py` (gitignored, rocket only). On `05-seed-plus-grey.html` (2026-10-01): "not
-excited for most, a couple look good" — which ones is still open.
+excited for most, a couple look good" — which ones: open.
 See `[[mono-first-not-radical]]`, `[[mockups-must-render-the-real-thing]]`.
 
 ### Shipped — the rules they left behind
