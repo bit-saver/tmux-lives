@@ -1714,7 +1714,7 @@ function __tcz_landing_start --argument-names folder how client --description 's
     return 1
 end
 
-function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the top line, badge and key legend (SWITCHING and esc close when <mode> is switch, else LANDING), header line and frame in the mode color through the diff emitter. <hold> = 1: a held move, no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
+function __tcz_landing_paint --description '__tcz_landing_paint <sel> <rows> <cols> <hold> <mode> <current> -- <model lines...>: paint the top line, badge and legend (SWITCHING and esc close when <mode> is switch, else LANDING), header line and frame, framed in the mode color, through the diff emitter. <hold> = 1: a held move, no capture, the preview kept. <current>: the session marked [current]. Returns 1, building nothing, when nothing shown changed.'
     set -l sel $argv[1]; set -l rows $argv[2]; set -l cols $argv[3]; set -l hold $argv[4]
     set -l mode $argv[5]; set -l current $argv[6]
     set -e argv[1..7]
